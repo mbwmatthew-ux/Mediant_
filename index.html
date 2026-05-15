@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mediant</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Mediant</p>
+          <h1>Music feedback that shows you exactly where to improve.</h1>
+          <p class="lede">
+            Search the piece you played, upload a recording, and get back readable notation,
+            flagged moments, playback follow-along, and constructive takeaways that feel like real
+            coaching.
+          </p>
+
+          <div class="hero-actions">
+            <button class="primary-btn" type="button" data-route="home" data-scroll-shell="true">
+              Open Prototype
+            </button>
+            <button
+              class="ghost-btn"
+              type="button"
+              data-route="analysis"
+              data-scroll-shell="true"
+            >
+              View Review Flow
+            </button>
+          </div>
+
+          <div class="hero-meta">
+            <article class="meta-block">
+              <span class="meta-label">Core loop</span>
+              <strong>Search, record, review, replay</strong>
+            </article>
+            <article class="meta-block">
+              <span class="meta-label">Key output</span>
+              <strong>Generated score with pinned feedback</strong>
+            </article>
+            <article class="meta-block">
+              <span class="meta-label">Coaching tone</span>
+              <strong>Specific, useful, encouraging</strong>
+            </article>
+          </div>
+
+          <div class="stat-row">
+            <article class="stat-card">
+              <span class="stat-label">Input</span>
+              <strong>Search + audio recording</strong>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Output</span>
+              <strong>Sheet music + issue flags</strong>
+            </article>
+            <article class="stat-card">
+              <span class="stat-label">Goal</span>
+              <strong>Better practice sessions</strong>
+            </article>
+          </div>
+        </div>
+
+        <div class="device-stack">
+          <article class="device-card hero-phone">
+            <div class="device-notch"></div>
+            <div class="screen hero-screen">
+              <section class="app-header-panel">
+                <div class="mini-header">
+                  <div>
+                    <p class="mini-label light">Dashboard</p>
+                    <h3>Good afternoon, Sarah</h3>
+                    <p class="header-subtitle">Let&apos;s keep your momentum going.</p>
+                  </div>
+                  <div class="header-icon">↗</div>
+                </div>
+
+                <div class="streak-card">
+                  <div class="streak-top">
+                    <strong>Practice Streak</strong>
+                    <span>7 days</span>
+                  </div>
+                  <div class="streak-bars" aria-hidden="true">
+                    <span></span><span></span><span></span><span></span><span></span><span></span>
+                    <span></span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="hero-body">
+                <div class="continue-card">
+                  <div>
+                    <p class="mini-label accent">Continue today&apos;s practice</p>
+                    <h4>Bach Invention No. 8</h4>
+                    <p>12 min remaining</p>
+                  </div>
+                  <button class="play-orb" type="button">▶</button>
+                </div>
+
+                <div class="home-actions">
+                  <button class="soft-card" type="button" data-route="search">
+                    <span class="soft-icon green">⌕</span>
+                    <strong>Find Music</strong>
+                  </button>
+                  <button class="soft-card" type="button" data-route="record">
+                    <span class="soft-icon gold">↑</span>
+                    <strong>Upload Take</strong>
+                  </button>
+                  <button class="soft-card" type="button" data-route="analysis">
+                    <span class="soft-icon coral">◫</span>
+                    <strong>Review Score</strong>
+                  </button>
+                  <button class="soft-card" type="button" data-route="follow">
+                    <span class="soft-icon green">♫</span>
+                    <strong>Follow Along</strong>
+                  </button>
+                </div>
+              </section>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="workflow-section">
+        <div class="section-heading">
+          <p class="eyebrow">How It Works</p>
+          <h2>One practice loop, built for real musicians.</h2>
+          <p>
+            Mediant should feel simple from the outside, but musically deep once you start using
+            it.
+          </p>
+        </div>
+
+        <div class="workflow-grid">
+          <article class="workflow-card">
+            <span class="workflow-step">01</span>
+            <h3>Find the right piece</h3>
+            <p>Search by title, composer, or instrument so the app knows what it should hear.</p>
+          </article>
+          <article class="workflow-card">
+            <span class="workflow-step">02</span>
+            <h3>Submit a performance</h3>
+            <p>Upload a recording and let the app lock onto the correct part and notation.</p>
+          </article>
+          <article class="workflow-card">
+            <span class="workflow-step">03</span>
+            <h3>Practice from the feedback</h3>
+            <p>See exact problem spots, read the summary, and replay while following the score.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="prototype-section" id="app-shell">
+        <div class="section-heading">
+          <p class="eyebrow">App Prototype</p>
+          <h2>The first real product direction, not just a shell.</h2>
+          <p>
+            This is still front-end only, but it now behaves more like the actual app we&apos;d build:
+            clearer screens, clearer flows, and a softer design system based on your chosen palette.
+          </p>
+        </div>
+
+        <div class="prototype-layout">
+          <aside class="app-sidebar">
+            <div class="sidebar-brand">
+              <p class="eyebrow">Mediant</p>
+              <h3>App Map</h3>
+            </div>
+
+            <nav class="sidebar-nav" aria-label="Mediant screens">
+              <button class="nav-link active" type="button" data-route="home">Home</button>
+              <button class="nav-link" type="button" data-route="search">Search</button>
+              <button class="nav-link" type="button" data-route="record">Upload</button>
+              <button class="nav-link" type="button" data-route="analysis">Score Review</button>
+              <button class="nav-link" type="button" data-route="follow">Follow Along</button>
+              <button class="nav-link" type="button" data-route="summary">Summary</button>
+              <button class="nav-link" type="button" data-route="takes">Saved Takes</button>
+              <button class="nav-link" type="button" data-route="profile">Profile</button>
+            </nav>
+
+            <div class="sidebar-note">
+              <p class="mini-label">Current build</p>
+              <p>
+                We&apos;re moving from concept art into an actual website direction: product sections,
+                app states, and a more believable first experience.
+              </p>
+            </div>
+          </aside>
+
+          <div class="app-stage">
+
+            <section class="app-view active" data-view="home">
+              <div class="desktop-view">
+                <div class="dv-header">
+                  <div>
+                    <p class="mini-label">Dashboard</p>
+                    <h2 class="dv-title">Good afternoon, Sarah</h2>
+                    <p class="dv-sub">Let&apos;s keep your momentum going.</p>
+                  </div>
+                  <div class="streak-card">
+                    <div class="streak-top">
+                      <strong>Practice Streak</strong>
+                      <span>7 days</span>
+                    </div>
+                    <div class="streak-bars" aria-hidden="true">
+                      <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="continue-card">
+                  <div>
+                    <p class="mini-label accent">Continue today&apos;s practice</p>
+                    <h4>Bach Invention No. 8</h4>
+                    <p>12 min remaining</p>
+                  </div>
+                  <button class="play-orb" type="button">▶</button>
+                </div>
+                <h4 class="dv-section-label">Quick Actions</h4>
+                <div class="home-actions home-actions-wide">
+                  <button class="soft-card" type="button" data-route="search">
+                    <span class="soft-icon green">⌕</span>
+                    <strong>Find Music</strong>
+                  </button>
+                  <button class="soft-card" type="button" data-route="record">
+                    <span class="soft-icon gold">↑</span>
+                    <strong>Upload Take</strong>
+                  </button>
+                  <button class="soft-card" type="button" data-route="analysis">
+                    <span class="soft-icon coral">◫</span>
+                    <strong>Review Score</strong>
+                  </button>
+                  <button class="soft-card" type="button" data-route="follow">
+                    <span class="soft-icon green">♫</span>
+                    <strong>Follow Along</strong>
+                  </button>
+                </div>
+                <div class="recent-card">
+                  <span class="mini-label">Recent feedback</span>
+                  <strong>Dynamics improved. Timing in measure 16 still needs attention.</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="app-view" data-view="search">
+              <div class="desktop-view">
+                <div class="dv-header">
+                  <div>
+                    <p class="mini-label">Search Music</p>
+                    <h2 class="dv-title">Find your piece</h2>
+                  </div>
+                  <button class="ghost-btn" type="button" data-route="home">← Home</button>
+                </div>
+                <div class="search-bar">
+                  <span>Search title, composer, or instrument…</span>
+                </div>
+                <div class="filter-strip">
+                  <span>Piano</span>
+                  <span>Solo</span>
+                  <span>Intermediate</span>
+                </div>
+                <div class="result-grid">
+                  <button class="result-card" type="button" data-route="record">
+                    <span class="mini-label">Piano solo</span>
+                    <h4>Clair de Lune</h4>
+                    <p>Claude Debussy · matched score ready</p>
+                  </button>
+                  <button class="result-card" type="button" data-route="record">
+                    <span class="mini-label">Keyboard</span>
+                    <h4>Bach Invention No. 8</h4>
+                    <p>Two-voice keyboard work · practice session loaded</p>
+                  </button>
+                  <button class="result-card" type="button" data-route="record">
+                    <span class="mini-label">Voice</span>
+                    <h4>Caro Mio Ben</h4>
+                    <p>Vocal line with accompaniment · score view available</p>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="app-view" data-view="record">
+              <div class="desktop-view">
+                <div class="dv-header">
+                  <div>
+                    <p class="mini-label">Upload Recording</p>
+                    <h2 class="dv-title">Submit your take</h2>
+                  </div>
+                  <button class="primary-btn" type="button" data-route="analysis">Submit for review →</button>
+                </div>
+                <div class="record-layout">
+                  <div>
+                    <div class="piece-card">
+                      <span class="mini-label">Selected music</span>
+                      <h4>Clair de Lune</h4>
+                      <p>Solo piano · the app infers the performed part automatically.</p>
+                    </div>
+                    <div class="record-dropzone">
+                      <strong>Drag in a recording or click to upload</strong>
+                      <span>WAV, MP3, AIFF, or phone recording</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="waveform-card">
+                      <div class="waveform" aria-hidden="true">
+                        <span></span><span></span><span></span><span></span><span></span><span></span>
+                        <span></span><span></span><span></span><span></span><span></span><span></span>
+                      </div>
+                      <p>Take 03 · 2:14 · ready for review</p>
+                    </div>
+                    <div class="capture-grid">
+                      <div class="capture-card">
+                        <span class="mini-label">Detected setup</span>
+                        <strong>Piano · indoor room · solo part</strong>
+                      </div>
+                      <div class="capture-card">
+                        <span class="mini-label">Expected output</span>
+                        <strong>Generated notation + flagged measures</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="app-view" data-view="analysis">
+              <div class="review-page">
+                <div class="review-header">
+                  <div class="review-title-block">
+                    <p class="mini-label">Score Review</p>
+                    <h2 class="review-title">Clair de Lune</h2>
+                    <p class="review-meta">Claude Debussy · Solo Piano · 3 issues found</p>
+                  </div>
+                  <div class="review-header-actions">
+                    <button class="ghost-btn" type="button" data-route="record">Re-upload</button>
+                    <button class="primary-btn" type="button" data-route="follow">Follow Along ▶</button>
+                  </div>
+                </div>
+
+                <div class="issue-strip">
+                  <span class="issue-strip-label">Issues:</span>
+                  <button class="issue-chip" type="button" data-flag="timing">m.16 · Timing</button>
+                  <button class="issue-chip" type="button" data-flag="dynamics">m.28 · Dynamics</button>
+                  <button class="issue-chip" type="button" data-flag="voicing">m.33 · Voicing</button>
+                  <span class="issue-strip-hint">Click a highlighted measure or an issue above to read the feedback.</span>
+                </div>
+
+                <div class="review-body">
+                  <div class="score-area">
+                    <div id="vf-score"></div>
+                  </div>
+                  <aside class="feedback-sidebar">
+                    <div class="feedback-idle" id="feedback-idle">
+                      <div class="feedback-idle-icon">♩</div>
+                      <p>Click a highlighted measure in the score, or one of the issue chips above, to read coaching feedback.</p>
+                    </div>
+                    <div class="feedback-detail" id="detail-timing">
+                      <div class="detail-tag">Measure 16 · Timing</div>
+                      <h3 class="detail-title">Left hand enters early</h3>
+                      <p class="detail-body">The left hand arrives just ahead of the beat here. Slow this entrance down and count aloud before bringing it back up to tempo. Try isolating the left hand through measures 14–17 until the arrival feels natural and unhurried.</p>
+                      <button class="flag-loop-btn" type="button">Loop this section</button>
+                      <button class="detail-close-btn" type="button" data-close-detail>Dismiss</button>
+                    </div>
+                    <div class="feedback-detail" id="detail-dynamics">
+                      <div class="detail-tag">Measure 28 · Dynamics</div>
+                      <h3 class="detail-title">Phrase settles too early</h3>
+                      <p class="detail-body">The dynamic line softens before the phrase actually ends. Keep the line moving through the final note — the resolution should arrive at the cadence, not before it. Think of this as a long exhale, not a quick release.</p>
+                      <button class="flag-loop-btn" type="button">Loop this section</button>
+                      <button class="detail-close-btn" type="button" data-close-detail>Dismiss</button>
+                    </div>
+                    <div class="feedback-detail" id="detail-voicing">
+                      <div class="detail-tag">Measure 33 · Voicing</div>
+                      <h3 class="detail-title">Inner voices too prominent</h3>
+                      <p class="detail-body">The middle voices are slightly louder than the melody, which blurs the harmonic texture. Bring the top line forward and let the inner voices recede — try exaggerated melody weight until the balance becomes instinctive.</p>
+                      <button class="flag-loop-btn" type="button">Loop this section</button>
+                      <button class="detail-close-btn" type="button" data-close-detail>Dismiss</button>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            </section>
+
+            <section class="app-view" data-view="follow">
+              <div class="desktop-view">
+                <div class="dv-header">
+                  <div>
+                    <p class="mini-label">Follow Along</p>
+                    <h2 class="dv-title">Playback view</h2>
+                  </div>
+                  <button class="ghost-btn" type="button" data-route="summary">Session recap →</button>
+                </div>
+                <div class="player-panel">
+                  <div class="player-top">
+                    <strong>Clair de Lune</strong>
+                    <span>Measure 16 of 42</span>
+                  </div>
+                  <div class="timeline">
+                    <div class="timeline-progress"></div>
+                  </div>
+                  <div class="player-controls">
+                    <button class="control-pill" type="button">← Back</button>
+                    <button class="control-pill active" type="button">▶ Play</button>
+                    <button class="control-pill" type="button">Loop Flag</button>
+                  </div>
+                </div>
+                <div class="follow-score">
+                  <div class="follow-row active"></div>
+                  <div class="follow-row"></div>
+                  <div class="follow-row flagged"></div>
+                  <div class="follow-row"></div>
+                </div>
+                <div class="follow-caption">
+                  <strong>Measure 16</strong>
+                  <p>The left-hand entrance is flagged here. Follow along and listen for the timing issue.</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="app-view" data-view="summary">
+              <div class="desktop-view">
+                <div class="dv-header">
+                  <div>
+                    <p class="mini-label">Session Summary</p>
+                    <h2 class="dv-title">Constructive recap</h2>
+                  </div>
+                  <button class="ghost-btn" type="button" data-route="analysis">← Back to score</button>
+                </div>
+                <div class="summary-card lead">
+                  <span class="mini-label">Overall sound</span>
+                  <h4>Expressive and controlled, with a few unstable transitions.</h4>
+                  <p>The feedback is meant to sound like a strong teacher: clear, respectful, and practical.</p>
+                </div>
+                <div class="summary-list">
+                  <div class="summary-card">
+                    <span class="mini-label">Biggest takeaway</span>
+                    <strong>Rhythm separation between hands in measure 16 needs attention.</strong>
+                  </div>
+                  <div class="summary-card">
+                    <span class="mini-label">Strongest moment</span>
+                    <strong>The ending cadence feels balanced and musically convincing.</strong>
+                  </div>
+                  <div class="summary-card">
+                    <span class="mini-label">Next practice goal</span>
+                    <strong>Loop flagged passages slowly, then return to full phrase context.</strong>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="app-view" data-view="takes">
+              <div class="desktop-view">
+                <div class="dv-header">
+                  <div>
+                    <p class="mini-label">Saved Takes</p>
+                    <h2 class="dv-title">Compare your recordings</h2>
+                  </div>
+                  <button class="ghost-btn" type="button" data-route="summary">View recap</button>
+                </div>
+                <div class="takes-layout">
+                  <div class="take-card featured">
+                    <span class="mini-label">Latest take</span>
+                    <h4>Take 03</h4>
+                    <p>Cleaner ending, better dynamic shape, one unstable left-hand entrance.</p>
+                  </div>
+                  <div class="take-card">
+                    <span class="mini-label">Previous take</span>
+                    <h4>Take 02</h4>
+                    <p>More hesitations in measures 16 and 28, but stronger pulse through the middle.</p>
+                  </div>
+                </div>
+                <div class="compare-panel">
+                  <div class="compare-row"><span>Timing</span><strong>Improved</strong></div>
+                  <div class="compare-row"><span>Dynamics</span><strong>More even</strong></div>
+                  <div class="compare-row"><span>Confidence</span><strong>Still building</strong></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="app-view" data-view="profile">
+              <div class="desktop-view">
+                <div class="dv-header">
+                  <div>
+                    <p class="mini-label">Profile</p>
+                    <h2 class="dv-title">Sarah Kim</h2>
+                  </div>
+                  <div class="mini-avatar soft-avatar">S</div>
+                </div>
+                <div class="profile-panel">
+                  <div class="profile-badge">Intermediate Piano</div>
+                  <h4>Preferences and account setup</h4>
+                  <p>Tone settings, instrument defaults, and membership details will live here once the app moves past the prototype stage.</p>
+                </div>
+                <div class="settings-list">
+                  <div class="setting-card"><span>Primary use</span><strong>Performance feedback</strong></div>
+                  <div class="setting-card"><span>Preferred score view</span><strong>Playback follow-along</strong></div>
+                  <div class="setting-card"><span>Critique style</span><strong>Constructive and direct</strong></div>
+                </div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </section>
+
+      <section class="build-section">
+        <div class="section-heading">
+          <p class="eyebrow">What We Build First</p>
+          <h2>The first real website foundation.</h2>
+          <p>
+            If we&apos;re moving past a shell, this is the most sensible first product surface to build:
+            landing, app dashboard, upload flow, score review, and summary.
+          </p>
+        </div>
+
+        <div class="build-grid">
+          <article class="build-card">
+            <h3>Marketing site</h3>
+            <p>Clear value proposition, product visuals, waitlist or signup, and product education.</p>
+          </article>
+          <article class="build-card">
+            <h3>User account shell</h3>
+            <p>Dashboard, saved sessions, profile basics, and navigation structure.</p>
+          </article>
+          <article class="build-card">
+            <h3>Upload + review flow</h3>
+            <p>The highest-value core path: piece search, recording upload, notation review.</p>
+          </article>
+          <article class="build-card">
+            <h3>Playback + recap</h3>
+            <p>Follow-along view and post-session takeaways that lead into the next practice.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

@@ -1,0 +1,133 @@
+/* ── Auth pages (Login + Signup) ─────────────────────────── */
+.page {
+  align-items: center;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 40px 20px;
+}
+
+.nav {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  left: 0;
+  padding: 28px 40px;
+  position: fixed;
+  right: 0;
+  top: 0;
+}
+
+.brandMark {
+  color: var(--cream);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.card {
+  background: var(--cream-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 44px 40px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.eyebrow {
+  color: var(--hero-green);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.heading {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 2rem;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  margin: 0 0 6px;
+}
+
+.sub {
+  color: var(--text-soft);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin: 0 0 32px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.input,
+.select {
+  background: white;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  padding: 13px 16px;
+  transition: border-color 180ms ease;
+}
+.input::placeholder { color: var(--text-soft); }
+.input:focus,
+.select:focus { border-color: var(--hero-green); }
+
+.error {
+  background: rgba(225, 134, 118, 0.1);
+  border: 1px solid rgba(225, 134, 118, 0.35);
+  border-radius: var(--radius-sm);
+  color: #a94a37;
+  font-size: 0.88rem;
+  padding: 11px 14px;
+}
+
+.submitBtn {
+  background: var(--gold);
+  border: 0;
+  border-radius: 999px;
+  color: #3d4138;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 6px;
+  padding: 15px;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+.submitBtn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+.footer {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  margin-top: 22px;
+  text-align: center;
+}
+
+.footerLink {
+  color: var(--hero-green);
+  font-weight: 600;
+  text-decoration: none;
+}
+.footerLink:hover { text-decoration: underline; }

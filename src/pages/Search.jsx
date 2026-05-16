@@ -134,15 +134,14 @@ const PIECES = [
   { id: 103, instrument: 'Harp',      era: 'Romantic',  difficulty: 'Intermediate', title: 'Ballade in C major Op. 50',          composer: 'Félix Godefroid',         key: 'C major',   time: '4/4'  },
 ]
 
-const INSTRUMENTS = ['All', 'Piano', 'Violin', 'Cello', 'Viola', 'Guitar', 'Flute', 'Clarinet', 'Trumpet', 'Saxophone', 'Oboe', 'Horn', 'Harp']
-const ERA_FILTERS  = ['All eras', 'Baroque', 'Classical', 'Romantic', 'Modern']
-const DIFF_FILTERS = ['Any level', 'Beginner', 'Intermediate', 'Advanced']
-
+const INSTRUMENTS    = ['All', 'Piano', 'Violin', 'Cello', 'Viola', 'Guitar', 'Flute', 'Clarinet', 'Trumpet', 'Saxophone', 'Oboe', 'Horn', 'Harp']
+const ERA_FILTERS    = ['All eras', 'Baroque', 'Classical', 'Romantic', 'Modern']
+const DIFF_FILTERS   = ['Any level', 'Beginner', 'Intermediate', 'Advanced']
 const difficultyColor = { Beginner: 'green', Intermediate: 'gold', Advanced: 'coral' }
 
 export default function Search() {
-  const nav        = useNavigate()
-  const { user }   = useAuth()
+  const nav      = useNavigate()
+  const { user } = useAuth()
   const [query,      setQuery]      = useState('')
   const [instrument, setInstrument] = useState('All')
   const [era,        setEra]        = useState('All eras')
@@ -176,9 +175,9 @@ export default function Search() {
           !p.composer.toLowerCase().includes(q) &&
           !p.instrument.toLowerCase().includes(q)) return false
     }
-    if (instrument !== 'All'      && p.instrument !== instrument) return false
-    if (era        !== 'All eras' && p.era        !== era)        return false
-    if (difficulty !== 'Any level'&& p.difficulty !== difficulty) return false
+    if (instrument !== 'All'       && p.instrument !== instrument) return false
+    if (era        !== 'All eras'  && p.era        !== era)        return false
+    if (difficulty !== 'Any level' && p.difficulty !== difficulty) return false
     return true
   })
 
@@ -193,9 +192,11 @@ export default function Search() {
 
       <div className={styles.header}>
         <div>
-          <p className={styles.label}>Library</p>
-          <h1 className={styles.title}>Find your piece</h1>
-          <p className={styles.sub}>{PIECES.length} pieces across {INSTRUMENTS.length - 1} instruments{userPieces.length > 0 ? ` · ${userPieces.length} uploaded by you` : ''}</p>
+          <h1 className={styles.title}>Music Library</h1>
+          <p className={styles.sub}>
+            {PIECES.length} pieces across {INSTRUMENTS.length - 1} instruments
+            {userPieces.length > 0 ? ` · ${userPieces.length} uploaded by you` : ''}
+          </p>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.primaryBtn} onClick={() => setShowUpload(true)}>
@@ -204,86 +205,97 @@ export default function Search() {
         </div>
       </div>
 
-      <input
-        className={styles.searchInput}
-        type="text"
-        placeholder="Search by title, composer, or instrument…"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        autoFocus
-      />
-
-      <div className={styles.filterGroup}>
-        <div className={styles.filterStrip}>
-          {INSTRUMENTS.map(f => (
-            <button
-              key={f}
-              className={`${styles.filterChip} ${instrument === f ? styles.filterChipActive : ''}`}
-              onClick={() => setInstrument(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-        <div className={styles.filterStrip}>
-          {ERA_FILTERS.map(f => (
-            <button
-              key={f}
-              className={`${styles.filterChip} ${era === f ? styles.filterChipActive : ''}`}
-              onClick={() => setEra(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-        <div className={styles.filterStrip}>
-          {DIFF_FILTERS.map(f => (
-            <button
-              key={f}
-              className={`${styles.filterChip} ${difficulty === f ? styles.filterChipActive : ''}`}
-              onClick={() => setDifficulty(f)}
-            >
-              {f}
-            </button>
-          ))}
+      <div className={styles.toolbar}>
+        <input
+          className={styles.searchInput}
+          type="text"
+          placeholder="Search by title, composer, or instrument…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          autoFocus
+        />
+        <div className={styles.toolbarFilters}>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterGroupLabel}>Instrument</span>
+            <div className={styles.filterStrip}>
+              {INSTRUMENTS.map(f => (
+                <button
+                  key={f}
+                  className={`${styles.filterChip} ${instrument === f ? styles.filterChipActive : ''}`}
+                  onClick={() => setInstrument(f)}
+                >{f}</button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterGroupLabel}>Era</span>
+            <div className={styles.filterStrip}>
+              {ERA_FILTERS.map(f => (
+                <button
+                  key={f}
+                  className={`${styles.filterChip} ${era === f ? styles.filterChipActive : ''}`}
+                  onClick={() => setEra(f)}
+                >{f}</button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterGroupLabel}>Level</span>
+            <div className={styles.filterStrip}>
+              {DIFF_FILTERS.map(f => (
+                <button
+                  key={f}
+                  className={`${styles.filterChip} ${difficulty === f ? styles.filterChipActive : ''}`}
+                  onClick={() => setDifficulty(f)}
+                >{f}</button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
+      <div className={styles.sectionHeader}>
+        <span className={styles.sectionHeaderTitle}>
+          {results.length} result{results.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
       {results.length === 0 ? (
-        <p className={styles.emptyState}>No pieces match your filters. Try broadening your search.</p>
+        <p className={styles.emptyState}>No pieces match your filters.</p>
       ) : (
-        <>
-          <p className={styles.resultCount}>{results.length} result{results.length !== 1 ? 's' : ''}</p>
-          <div className={styles.resultGrid}>
-            {results.map(p => (
-              <button
-                key={p.id}
-                className={styles.resultCard}
-                onClick={() => nav('/record')}
-              >
-                <div className={styles.resultCardTop}>
-                  <span className={`${styles.diffBadge} ${styles[difficultyColor[p.difficulty]]}`}>
-                    {p.difficulty}
-                  </span>
-                  {p.userUploaded && (
-                    <span className={styles.scoreReadyBadge}>Your upload</span>
-                  )}
-                </div>
-                <h3 className={styles.resultTitle}>{p.title}</h3>
-                <p className={styles.resultComposer}>{p.composer}</p>
-                <div className={styles.resultMeta}>
-                  <span>{p.instrument}</span>
-                  <span>·</span>
-                  <span>{p.era}</span>
-                  <span>·</span>
-                  <span>{p.key}</span>
-                  <span>·</span>
-                  <span>{p.time}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead className={styles.tableHead}>
+              <tr>
+                <th className={styles.th}>Title</th>
+                <th className={styles.th}>Composer</th>
+                <th className={styles.th}>Instrument</th>
+                <th className={styles.th}>Era</th>
+                <th className={styles.th}>Level</th>
+                <th className={styles.th}>Key · Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map(p => (
+                <tr key={p.id} className={styles.tableRow} onClick={() => nav('/record')}>
+                  <td className={styles.td}>
+                    {p.title}
+                    {p.userUploaded && <span className={styles.uploadedTag}> · Uploaded</span>}
+                  </td>
+                  <td className={styles.tdSoft}>{p.composer}</td>
+                  <td className={styles.tdSoft}>{p.instrument}</td>
+                  <td className={styles.tdSoft}>{p.era}</td>
+                  <td className={styles.td}>
+                    <span className={`${styles.diffBadge} ${styles[difficultyColor[p.difficulty]]}`}>
+                      {p.difficulty}
+                    </span>
+                  </td>
+                  <td className={styles.tdSoft}>{p.key} · {p.time}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

@@ -4,22 +4,33 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
 
-const PIECE = {
-  title:    'Clair de Lune',
-  composer: 'Claude Debussy',
-  timeSig:  '3/4',
-  instrument: 'Piano',
-}
+const INSTRUMENTS = [
+  'Piano', 'Violin', 'Viola', 'Cello', 'Double Bass',
+  'Flute', 'Oboe', 'Clarinet', 'Bassoon',
+  'French Horn', 'Trumpet', 'Trombone', 'Tuba',
+  'Guitar', 'Harp', 'Voice', 'Other',
+]
 
 export default function Record() {
   const nav  = useNavigate()
   const { user } = useAuth()
-  const [file, setFile]       = useState(null)
-  const [dragging, setDragging] = useState(false)
-  const [phase, setPhase]     = useState('idle')   // idle | uploading | analyzing | error
-  const [progress, setProgress] = useState(0)
-  const [errorMsg, setErrorMsg] = useState('')
+
+  // Piece info form
+  const [pieceTitle,  setPieceTitle]  = useState('')
+  const [composer,    setComposer]    = useState('')
+  const [instrument,  setInstrument]  = useState('Piano')
+  const [part,        setPart]        = useState('')
+
+  // Upload state
+  const [file,      setFile]      = useState(null)
+  const [dragging,  setDragging]  = useState(false)
+  const [phase,     setPhase]     = useState('idle')   // idle | uploading | analyzing | error
+  const [progress,  setProgress]  = useState(0)
+  const [errorMsg,  setErrorMsg]  = useState('')
   const inputRef = useRef()
+
+  const formComplete   = pieceTitle.trim() && composer.trim() && instrument
+  const readyToAnalyze = formComplete && file && phase !== 'error'
 
   function handleDrop(e) {
     e.preventDefault()
@@ -34,17 +45,15 @@ export default function Record() {
   }
 
   async function handleSubmit() {
-    if (!file || !user) return
+    if (!readyToAnalyze || !user) return
     setPhase('uploading')
     setProgress(0)
     setErrorMsg('')
 
     try {
-      // 1. Upload video to Supabase Storage
-      const ext      = file.name.split('.').pop()
+      const ext       = file.name.split('.').pop()
       const videoPath = `${user.id}/${Date.now()}.${ext}`
 
-      // Simulate upload progress (Supabase JS SDK doesn't expose byte progress yet)
       const progressTick = setInterval(() => {
         setProgress(p => Math.min(p + 6, 45))
       }, 300)
@@ -59,10 +68,8 @@ export default function Record() {
       setProgress(50)
       setPhase('analyzing')
 
-      // 2. Call analyze-performance edge function
       const { data: { session } } = await supabase.auth.getSession()
 
-      // Advance progress bar during AI analysis
       const analysisTick = setInterval(() => {
         setProgress(p => Math.min(p + 3, 95))
       }, 800)
@@ -78,10 +85,11 @@ export default function Record() {
           body: JSON.stringify({
             videoPath,
             videoMimeType: file.type,
-            pieceTitle:  PIECE.title,
-            composer:    PIECE.composer,
-            timeSig:     PIECE.timeSig,
-            instrument:  PIECE.instrument,
+            pieceTitle:  pieceTitle.trim(),
+            composer:    composer.trim(),
+            timeSig:     '4/4',
+            instrument,
+            part:        part.trim() || undefined,
           }),
         }
       )
@@ -133,7 +141,7 @@ export default function Record() {
           <p className={styles.label}>Upload Recording</p>
           <h1 className={styles.title}>Submit your take</h1>
         </div>
-        {file && phase !== 'error' && (
+        {readyToAnalyze && (
           <button className={styles.primaryBtn} onClick={handleSubmit}>
             Analyze recording →
           </button>
@@ -148,11 +156,53 @@ export default function Record() {
       )}
 
       <div className={styles.recordLayout}>
-        <div>
-          <div className={styles.pieceCard}>
-            <p className={styles.label}>Selected piece</p>
-            <h3 className={styles.resultTitle}>{PIECE.title}</h3>
-            <p className={styles.resultSub}>{PIECE.instrument} · the app will match your recording to this score.</p>
+        {/* Left column — piece info + dropzone */}
+        <div className={styles.recordLeft}>
+          <div className={styles.pieceForm}>
+            <p className={styles.label}>About this piece</p>
+
+            <div className={styles.formRow}>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Piece title</label>
+                <input
+                  className={styles.formInput}
+                  value={pieceTitle}
+                  onChange={e => setPieceTitle(e.target.value)}
+                  placeholder="e.g. Clair de Lune"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Composer</label>
+                <input
+                  className={styles.formInput}
+                  value={composer}
+                  onChange={e => setComposer(e.target.value)}
+                  placeholder="e.g. Claude Debussy"
+                />
+              </div>
+            </div>
+
+            <div className={styles.formRow}>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Instrument</label>
+                <select
+                  className={styles.formSelect}
+                  value={instrument}
+                  onChange={e => setInstrument(e.target.value)}
+                >
+                  {INSTRUMENTS.map(i => <option key={i} value={i}>{i}</option>)}
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Movement / part <span className={styles.formOptional}>(optional)</span></label>
+                <input
+                  className={styles.formInput}
+                  value={part}
+                  onChange={e => setPart(e.target.value)}
+                  placeholder="e.g. III. Passepied"
+                />
+              </div>
+            </div>
           </div>
 
           <div
@@ -183,8 +233,13 @@ export default function Record() {
               </>
             )}
           </div>
+
+          {!formComplete && (
+            <p className={styles.formHint}>Fill in the piece details above before analyzing.</p>
+          )}
         </div>
 
+        {/* Right column — waveform + info cards */}
         <div>
           <div className={styles.waveformCard}>
             <div className={styles.waveform}>
@@ -210,7 +265,7 @@ export default function Record() {
         </div>
       </div>
 
-      {file && phase !== 'error' && (
+      {readyToAnalyze && (
         <button className={`${styles.primaryBtn} ${styles.submitBtn}`} onClick={handleSubmit}>
           Analyze recording →
         </button>

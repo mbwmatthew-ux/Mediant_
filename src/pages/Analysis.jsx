@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import * as Vex from 'vexflow'
+import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
 
@@ -30,26 +30,41 @@ const MOCK_CHIPS = [
   { flag: 'voicing',  label: 'm.33 · Voicing' },
 ]
 
-const MOCK_FLAG_MEASURES = new Map([[16, 'timing'], [28, 'dynamics'], [33, 'voicing']])
-
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
+
+// Maps a piece title to a bundled score file in /public/scores/
+function scoreFileForPiece(title) {
+  if (!title) return null
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+  const known = {
+    'clair-de-lune': '/scores/clair-de-lune.mxl',
+  }
+  return known[slug] ?? null
+}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
 export default function Analysis() {
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
-  const scoreEl = useRef(null)
+  const scoreEl  = useRef(null)
+  const osmdRef  = useRef(null)
 
-  // take: undefined = loading, null = not found / no takeId, object = loaded
-  const [take, setTake]           = useState(undefined)
-  const [activeFlag, setActiveFlag] = useState(null)
+  const [take, setTake]               = useState(undefined)
+  const [activeFlag, setActiveFlag]   = useState(null)
+  const [scoreReady, setScoreReady]   = useState(false)
+  const [highlights, setHighlights]   = useState([])  // [{flagId, x, y, w, h}]
 
-  // Fetch take from DB if takeId present
+  // Chat state
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatInput, setChatInput]       = useState('')
+  const [chatLoading, setChatLoading]   = useState(false)
+  const chatEndRef = useRef(null)
+
+  // Fetch take from DB
   useEffect(() => {
     const takeId = searchParams.get('takeId')
     if (!takeId) { setTake(null); return }
-
     supabase
       .from('takes')
       .select('*')
@@ -58,33 +73,122 @@ export default function Analysis() {
       .then(({ data, error }) => setTake(error || !data ? null : data))
   }, [])
 
-  // Render VexFlow score once take status is determined
+  // Render score once take is resolved
   useEffect(() => {
-    if (take === undefined) return           // still fetching
+    if (take === undefined) return
     if (!scoreEl.current) return
-    if (scoreEl.current.querySelector('svg')) return  // already rendered
+    if (scoreReady) return
+
+    const pieceTitle = take?.piece_title ?? 'Clair de Lune'
+    const scoreFile  = scoreFileForPiece(pieceTitle)
+
+    if (!scoreFile) {
+      setScoreReady(true)
+      return
+    }
 
     const flagMeasures = take?.flags?.length
       ? new Map(take.flags.map((f, i) => [f.measure, `flag_${i}`]))
-      : MOCK_FLAG_MEASURES
+      : new Map([[16, 'timing'], [28, 'dynamics'], [33, 'voicing']])
 
-    try {
-      renderScore(scoreEl.current, setActiveFlag, flagMeasures)
-    } catch (err) {
-      console.error('VexFlow render error:', err)
-    }
+    const osmd = new OpenSheetMusicDisplay(scoreEl.current, {
+      autoResize: true,
+      backend: 'svg',
+      drawTitle: false,
+      drawComposer: false,
+      drawCredits: false,
+      drawPartNames: false,
+      drawMeasureNumbers: true,
+      measureNumberInterval: 1,
+    })
+    osmdRef.current = osmd
+
+    osmd.load(scoreFile)
+      .then(() => {
+        osmd.render()
+        setScoreReady(true)
+
+        // Build highlight rects from measure positions
+        try {
+          const measureList = osmd.GraphicSheet.MeasureList
+          const zoom = osmd.zoom * 10
+          const newHighlights = []
+
+          flagMeasures.forEach((flagId, measureNum) => {
+            const row = measureList[measureNum - 1]
+            if (!row) return
+            const gm = row[0]
+            if (!gm) return
+            const pos = gm.PositionAndShape
+            newHighlights.push({
+              flagId,
+              x: pos.AbsolutePosition.x * zoom,
+              y: pos.AbsolutePosition.y * zoom,
+              w: pos.Size.width * zoom,
+              h: pos.Size.height * zoom,
+            })
+          })
+          setHighlights(newHighlights)
+        } catch (e) {
+          console.warn('Could not compute measure highlights:', e)
+        }
+      })
+      .catch(err => {
+        console.error('OSMD load error:', err)
+        setScoreReady(true)
+      })
   }, [take])
 
-  // Derive FLAGS map and chips from real take or hardcoded mock
+  // Scroll chat to bottom on new messages
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages, chatLoading])
+
+  async function sendMessage() {
+    const msg = chatInput.trim()
+    if (!msg || chatLoading) return
+    setChatInput('')
+    setChatMessages(prev => [...prev, { role: 'user', content: msg }])
+    setChatLoading(true)
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ask-coach`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: msg,
+            context: {
+              pieceTitle:    take?.piece_title    ?? 'Clair de Lune',
+              pieceComposer: take?.piece_composer ?? 'Claude Debussy',
+              score:         take?.score,
+              flags:         take?.flags ?? [],
+            },
+            history: chatMessages,
+          }),
+        }
+      )
+      const { reply, error } = await res.json()
+      if (error) throw new Error(error)
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Try again.' }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  // Derive FLAGS map and chips
   const flagsMap = take?.flags?.length
     ? Object.fromEntries(
         take.flags.map((f, i) => [
           `flag_${i}`,
-          {
-            tag:   `Measure ${f.measure} · ${capitalize(f.type)}`,
-            title: f.title,
-            body:  f.body,
-          },
+          { tag: `Measure ${f.measure} · ${capitalize(f.type)}`, title: f.title, body: f.body },
         ])
       )
     : MOCK_FLAGS
@@ -97,6 +201,7 @@ export default function Analysis() {
   const pieceComposer = take?.piece_composer ?? 'Claude Debussy'
   const issueCount    = chips.length
   const score         = take?.score
+  const hasScore      = !!scoreFileForPiece(pieceTitle)
 
   const info = activeFlag ? flagsMap[activeFlag] : null
 
@@ -144,24 +249,90 @@ export default function Analysis() {
 
       <div className={styles.reviewBody}>
         <div className={styles.scoreArea}>
-          <div ref={scoreEl} id="vf-score" />
+          {!hasScore && scoreReady && (
+            <div className={styles.scoreUnavailable}>
+              <p>Score not available for <em>{pieceTitle}</em> yet.</p>
+              <p>Coaching feedback above is based on the AI's audio analysis.</p>
+            </div>
+          )}
+
+          {/* OSMD render target + highlight overlays */}
+          <div style={{ position: 'relative' }}>
+            <div ref={scoreEl} />
+
+            {scoreReady && highlights.map(({ flagId, x, y, w, h }) => (
+              <div
+                key={flagId}
+                onClick={() => setActiveFlag(f => f === flagId ? null : flagId)}
+                style={{
+                  position:    'absolute',
+                  left:        x,
+                  top:         y,
+                  width:       w,
+                  height:      h,
+                  background:  activeFlag === flagId ? 'rgba(225,134,118,0.18)' : 'rgba(225,134,118,0.09)',
+                  border:      '1.5px solid rgba(225,134,118,0.5)',
+                  borderRadius: 6,
+                  cursor:      'pointer',
+                  transition:  'background 150ms ease',
+                }}
+              />
+            ))}
+          </div>
         </div>
 
         <aside className={styles.feedbackSidebar}>
-          {!info ? (
-            <div className={styles.feedbackIdle}>
-              <span className={styles.feedbackIdleIcon}>♩</span>
-              <p>Click a highlighted measure in the score, or one of the issue chips above, to read coaching feedback.</p>
+          <div className={styles.feedbackPanel}>
+            {!info ? (
+              <div className={styles.feedbackIdle}>
+                <span className={styles.feedbackIdleIcon}>♩</span>
+                <p>Click a highlighted measure in the score, or one of the issue chips above, to read coaching feedback.</p>
+              </div>
+            ) : (
+              <div className={styles.feedbackDetail}>
+                <p className={styles.detailTag}>{info.tag}</p>
+                <h3 className={styles.detailTitle}>{info.title}</h3>
+                <p className={styles.detailBody}>{info.body}</p>
+                <button className={styles.loopBtn} onClick={() => nav('/follow')}>Loop this section</button>
+                <button className={styles.dismissBtn} onClick={() => setActiveFlag(null)}>Dismiss</button>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.chatSection}>
+            <p className={styles.chatLabel}>Ask your coach</p>
+            <div className={styles.chatMessages}>
+              {chatMessages.length === 0 && (
+                <p className={styles.chatEmpty}>Ask anything about your performance — technique, practice tips, or specific measures.</p>
+              )}
+              {chatMessages.map((m, i) => (
+                <div key={i} className={m.role === 'user' ? styles.chatMsgUser : styles.chatMsgAI}>
+                  {m.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <div className={styles.chatMsgAI}>
+                  <span className={styles.chatTyping}>···</span>
+                </div>
+              )}
+              <div ref={chatEndRef} />
             </div>
-          ) : (
-            <div className={styles.feedbackDetail}>
-              <p className={styles.detailTag}>{info.tag}</p>
-              <h3 className={styles.detailTitle}>{info.title}</h3>
-              <p className={styles.detailBody}>{info.body}</p>
-              <button className={styles.loopBtn} onClick={() => nav('/follow')}>Loop this section</button>
-              <button className={styles.dismissBtn} onClick={() => setActiveFlag(null)}>Dismiss</button>
+            <div className={styles.chatInputRow}>
+              <input
+                className={styles.chatInput}
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                placeholder="Ask about your performance…"
+                disabled={chatLoading}
+              />
+              <button
+                className={styles.chatSend}
+                onClick={sendMessage}
+                disabled={chatLoading || !chatInput.trim()}
+              >↑</button>
             </div>
-          )}
+          </div>
         </aside>
       </div>
     </div>
@@ -172,109 +343,4 @@ function scoreColor(n) {
   if (n >= 88) return '#8fbe9f'
   if (n >= 74) return 'var(--gold)'
   return 'var(--coral)'
-}
-
-// ── VexFlow score renderer ────────────────────────────────────────────────
-
-function renderScore(el, setActiveFlag, flagMeasures) {
-  const { Renderer, Stave, StaveNote, Voice, Formatter } = Vex
-
-  const W       = Math.max(el.clientWidth, 480)
-  const ROW_H   = 120
-  const H       = ROW_H * 4 + 48
-  const MARGIN  = 22
-  const INNER_W = W - MARGIN * 2
-  const PER_ROW = 4
-  const PREAMBLE = 108
-  const BASE_W  = (INNER_W - PREAMBLE) / PER_ROW
-  const FIRST_W = BASE_W + PREAMBLE
-
-  const renderer = new Renderer(el, Renderer.Backends.SVG)
-  renderer.resize(W, H)
-  const ctx = renderer.getContext()
-
-  const measureDefs = [
-    { num: 12, notes: [['db/5'], ['f/5'],  ['ab/5']] },
-    { num: 13, notes: [['bb/5'], ['ab/5'], ['gb/5']] },
-    { num: 14, notes: [['f/5'],  ['eb/5'], ['db/5']] },
-    { num: 15, notes: [['c/5'],  ['bb/4'], ['ab/4']] },
-    { num: 16, notes: [['ab/4'], ['gb/4'], ['f/4']]  },
-    { num: 17, notes: [['eb/4'], ['f/4'],  ['gb/4']] },
-    { num: 18, notes: [['ab/4'], ['bb/4'], ['c/5']]  },
-    { num: 19, notes: [['db/5'], ['eb/5'], ['f/5']]  },
-    { num: 28, notes: [['db/5'], ['c/5'],  ['bb/4']] },
-    { num: 29, notes: [['ab/4'], ['gb/4'], ['f/4']]  },
-    { num: 30, notes: [['eb/4'], ['f/4'],  ['gb/4']] },
-    { num: 31, notes: [['ab/4'], ['bb/4'], ['c/5']]  },
-    { num: 33, notes: [['db/5'], ['eb/5'], ['f/5']]  },
-    { num: 34, notes: [['gb/5'], ['f/5'],  ['eb/5']] },
-    { num: 35, notes: [['db/5'], ['c/5'],  ['bb/4']] },
-    { num: 36, notes: [['ab/4', 'db/5', 'f/5']]     },
-  ]
-
-  const svg = el.querySelector('svg')
-
-  measureDefs.forEach((m, i) => {
-    const row      = Math.floor(i / PER_ROW)
-    const col      = i % PER_ROW
-    const isFirst  = col === 0
-    const isVeryFirst = i === 0
-
-    const x = MARGIN + (isFirst ? 0 : PREAMBLE + col * BASE_W)
-    const y = 28 + row * ROW_H
-    const w = isFirst ? FIRST_W : BASE_W
-
-    const stave = new Stave(x, y, w)
-    if (isFirst) {
-      stave.addClef('treble').addKeySignature('Db')
-      if (isVeryFirst) stave.addTimeSignature('3/4')
-    }
-    stave.setContext(ctx).draw()
-
-    if (svg) {
-      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text')
-      label.setAttribute('x', String(x + 4))
-      label.setAttribute('y', String(y - 6))
-      label.setAttribute('font-size', '10')
-      label.setAttribute('font-family', 'Avenir Next, Inter, sans-serif')
-      label.setAttribute('fill', '#879484')
-      label.textContent = `m.${m.num}`
-      svg.appendChild(label)
-    }
-
-    let voice
-    if (m.notes.length === 1 && m.notes[0].length > 1) {
-      const chord = new StaveNote({ clef: 'treble', keys: m.notes[0], duration: 'h.' })
-      voice = new Voice({ num_beats: 3, beat_value: 4 })
-      voice.setStrict(false)
-      voice.addTickables([chord])
-    } else {
-      const staveNotes = m.notes.map(keys => new StaveNote({ clef: 'treble', keys, duration: 'q' }))
-      voice = new Voice({ num_beats: 3, beat_value: 4 })
-      voice.setStrict(false)
-      voice.addTickables(staveNotes)
-    }
-
-    const noteWidth = (stave.getX() + stave.getWidth()) - stave.getNoteStartX() - 8
-    new Formatter().joinVoices([voice]).format([voice], noteWidth)
-    voice.draw(ctx, stave)
-
-    // Highlight flagged measures
-    const flagId = flagMeasures.get(m.num) ?? null
-    if (flagId && svg) {
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-      rect.setAttribute('x', String(x + 1))
-      rect.setAttribute('y', String(y - 10))
-      rect.setAttribute('width', String(w - 2))
-      rect.setAttribute('height', '88')
-      rect.setAttribute('rx', '8')
-      rect.setAttribute('fill', 'rgba(225, 134, 118, 0.09)')
-      rect.setAttribute('stroke', 'rgba(225, 134, 118, 0.5)')
-      rect.setAttribute('stroke-width', '1.5')
-      rect.setAttribute('data-flag', flagId)
-      rect.style.cursor = 'pointer'
-      svg.appendChild(rect)
-      rect.addEventListener('click', () => setActiveFlag(f => f === flagId ? null : flagId))
-    }
-  })
 }

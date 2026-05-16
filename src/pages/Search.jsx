@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
-import { useAuth } from '../context/AuthContext'
 import UploadPieceModal from '../components/UploadPieceModal'
 import styles from './Page.module.css'
 
@@ -149,15 +147,13 @@ export default function Search() {
   const [userPieces, setUserPieces] = useState([])
   const [showUpload, setShowUpload] = useState(false)
 
-  useEffect(() => {
-    if (!user) return
-    supabase
-      .from('user_pieces')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => { if (data) setUserPieces(data) })
-  }, [user])
+  // BACKEND DISABLED — user_pieces table not yet created; uploads live in local state only
+  // useEffect(() => {
+  //   if (!user) return
+  //   supabase.from('user_pieces').select('*').eq('user_id', user.id)
+  //     .order('created_at', { ascending: false })
+  //     .then(({ data }) => { if (data) setUserPieces(data) })
+  // }, [user])
 
   function handlePieceAdded(piece) {
     setUserPieces(prev => [piece, ...prev])

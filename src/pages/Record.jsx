@@ -1,7 +1,5 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
 
 const INSTRUMENTS = [
@@ -13,7 +11,6 @@ const INSTRUMENTS = [
 
 export default function Record() {
   const nav  = useNavigate()
-  const { user } = useAuth()
 
   // Piece info form
   const [pieceTitle,  setPieceTitle]  = useState('')
@@ -45,61 +42,51 @@ export default function Record() {
   }
 
   async function handleSubmit() {
-    if (!readyToAnalyze || !user) return
+    if (!readyToAnalyze) return
     setPhase('uploading')
     setProgress(0)
     setErrorMsg('')
 
     try {
-      const ext       = file.name.split('.').pop()
-      const videoPath = `${user.id}/${Date.now()}.${ext}`
-
+      // Simulate upload progress while we call the AI
       const progressTick = setInterval(() => {
-        setProgress(p => Math.min(p + 6, 45))
+        setProgress(p => Math.min(p + 8, 50))
       }, 300)
 
-      const { error: uploadError } = await supabase.storage
-        .from('recordings')
-        .upload(videoPath, file, { contentType: file.type })
-
-      clearInterval(progressTick)
-      if (uploadError) throw uploadError
-
-      setProgress(50)
       setPhase('analyzing')
-
-      const { data: { session } } = await supabase.auth.getSession()
 
       const analysisTick = setInterval(() => {
         setProgress(p => Math.min(p + 3, 95))
-      }, 800)
+      }, 600)
 
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`,
-        {
-          method:  'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type':  'application/json',
-          },
-          body: JSON.stringify({
-            videoPath,
-            videoMimeType: file.type,
-            pieceTitle:  pieceTitle.trim(),
-            composer:    composer.trim(),
-            timeSig:     '4/4',
-            instrument,
-            part:        part.trim() || undefined,
-          }),
-        }
-      )
+      const res = await fetch('/api/analyze-performance', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pieceTitle: pieceTitle.trim(),
+          composer:   composer.trim(),
+          instrument,
+          part:       part.trim() || undefined,
+        }),
+      })
 
+      clearInterval(progressTick)
       clearInterval(analysisTick)
+
       const result = await res.json()
       if (!res.ok || result.error) throw new Error(result.error || 'Analysis failed')
 
+      // Store result locally so Analysis page can read it without a DB
+      localStorage.setItem('mediant_last_take', JSON.stringify({
+        id:             `local-${Date.now()}`,
+        piece_title:    pieceTitle.trim(),
+        piece_composer: composer.trim(),
+        score:          result.score,
+        flags:          result.flags,
+      }))
+
       setProgress(100)
-      setTimeout(() => nav(`/analysis?takeId=${result.takeId}`), 400)
+      setTimeout(() => nav('/analysis'), 400)
 
     } catch (err) {
       setErrorMsg(err.message ?? 'Something went wrong. Please try again.')

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
-import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
 
 // ── Hardcoded fallback (shown when no takeId in URL) ──────────────────────
@@ -61,16 +60,14 @@ export default function Analysis() {
   const [chatLoading, setChatLoading]   = useState(false)
   const chatEndRef = useRef(null)
 
-  // Fetch take from DB
+  // Load take from localStorage (DB disabled until migrations are run)
   useEffect(() => {
-    const takeId = searchParams.get('takeId')
-    if (!takeId) { setTake(null); return }
-    supabase
-      .from('takes')
-      .select('*')
-      .eq('id', takeId)
-      .single()
-      .then(({ data, error }) => setTake(error || !data ? null : data))
+    try {
+      const stored = localStorage.getItem('mediant_last_take')
+      setTake(stored ? JSON.parse(stored) : null)
+    } catch {
+      setTake(null)
+    }
   }, [])
 
   // Render score once take is resolved
@@ -152,27 +149,20 @@ export default function Analysis() {
     setChatLoading(true)
 
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ask-coach`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
+      const res = await fetch('/api/ask-coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: msg,
+          context: {
+            pieceTitle:    take?.piece_title    ?? 'Clair de Lune',
+            pieceComposer: take?.piece_composer ?? 'Claude Debussy',
+            score:         take?.score,
+            flags:         take?.flags ?? [],
           },
-          body: JSON.stringify({
-            message: msg,
-            context: {
-              pieceTitle:    take?.piece_title    ?? 'Clair de Lune',
-              pieceComposer: take?.piece_composer ?? 'Claude Debussy',
-              score:         take?.score,
-              flags:         take?.flags ?? [],
-            },
-            history: chatMessages,
-          }),
-        }
-      )
+          history: chatMessages,
+        }),
+      })
       const { reply, error } = await res.json()
       if (error) throw new Error(error)
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])

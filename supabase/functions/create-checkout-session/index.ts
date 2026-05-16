@@ -59,6 +59,7 @@ serve(async (req) => {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
+      payment_method_types: ['card', 'link'],
       line_items: [{ price: PRICES[plan], quantity: 1 }],
       success_url: `${origin}/#/home`,
       cancel_url:  `${origin}/#/pricing`,

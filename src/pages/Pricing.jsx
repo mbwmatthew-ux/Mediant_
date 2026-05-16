@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import styles from './Pricing.module.css'
 
+// TODO: replace this with the Stripe checkout flow once Stripe is configured
+
 const FEATURES = [
   'Unlimited recording uploads',
   'AI score alignment & analysis',
@@ -16,7 +18,7 @@ const FEATURES = [
 ]
 
 export default function Pricing() {
-  const { user, subscription, logout } = useAuth()
+  const { user, subscription, refreshSubscription, logout } = useAuth()
   const nav = useNavigate()
   const [billing, setBilling] = useState('yearly')
   const [loading, setLoading] = useState(false)
@@ -31,21 +33,17 @@ export default function Pricing() {
     setError(null)
 
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-checkout-session`,
-        {
-          method:  'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ plan: billing }),
-        }
-      )
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      window.location.href = json.url
+      const oneYearFromNow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+      const { error: dbErr } = await supabase.from('subscriptions').upsert({
+        user_id:            user.id,
+        status:             'active',
+        plan:               billing,
+        current_period_end: oneYearFromNow,
+      }, { onConflict: 'user_id' })
+      if (dbErr) throw new Error(dbErr.message)
+
+      await refreshSubscription(user.id)
+      nav('/home')
     } catch (err) {
       setError(err.message)
       setLoading(false)

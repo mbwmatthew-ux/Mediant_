@@ -26,28 +26,10 @@ export default function Pricing() {
 
   const isActive = subscription?.status === 'active'
 
-  async function handleSubscribe() {
+  // SUBSCRIPTIONS DISABLED — replace with Stripe or Supabase upsert once table is set up
+  function handleSubscribe() {
     if (!user) { nav('/signup'); return }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const oneYearFromNow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
-      const { error: dbErr } = await supabase.from('subscriptions').upsert({
-        user_id:            user.id,
-        status:             'active',
-        plan:               billing,
-        current_period_end: oneYearFromNow,
-      }, { onConflict: 'user_id' })
-      if (dbErr) throw new Error(dbErr.message)
-
-      await refreshSubscription(user.id)
-      nav('/home')
-    } catch (err) {
-      setError(err.message)
-      setLoading(false)
-    }
+    nav('/home')
   }
 
   return (

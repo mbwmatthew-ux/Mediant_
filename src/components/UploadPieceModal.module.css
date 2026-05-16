@@ -166,6 +166,14 @@
   margin: 0;
 }
 
+.formRequired {
+  color: var(--hero-green);
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 /* ── Error ────────────────────────────────────────────────── */
 .errorMsg {
   background: rgba(225, 134, 118, 0.1);

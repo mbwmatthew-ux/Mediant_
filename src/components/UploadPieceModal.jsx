@@ -92,6 +92,10 @@ export default function UploadPieceModal({ onClose, onAdded }) {
           <button className={styles.closeBtn} onClick={onClose}>✕</button>
         </div>
 
+        <p className={styles.modalSub}>
+          Drop your sheet music and AI will fill in the details. You just need to select the instrument.
+        </p>
+
         {/* Drop zone */}
         <div
           className={`${styles.dropzone} ${drag ? styles.dropzoneDrag : ''} ${file ? styles.dropzoneFilled : ''}`}
@@ -138,7 +142,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
             {error && <p className={styles.errorMsg}>{error}</p>}
 
             <div className={styles.formRow}>
-              <label className={styles.formLabel}>Instrument</label>
+              <label className={styles.formLabel}>Instrument <span className={styles.formRequired}>— select yours</span></label>
               <select className={styles.formSelect} value={instrument} onChange={e => setInstrument(e.target.value)}>
                 {INSTRUMENTS.map(i => <option key={i}>{i}</option>)}
               </select>

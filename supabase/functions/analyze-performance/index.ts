@@ -240,15 +240,15 @@ Issue type: ${issueType}
 What happened: ${issueDetail}
 
 Step 1 — Find measure ${measureNum} in the image.
-Step 2 — Within that measure, locate the specific note, beat, or short passage described above. Do NOT box the whole measure — identify only the 1–3 notes where the issue occurs.
-Step 3 — Draw a tight bounding box around just those notes. The box height should cover the staff lines at that location (from top staff line to bottom staff line, including ledger lines if the note uses them). The box width should cover only the problematic note(s), not the full measure.
+Step 2 — Determine the full extent of the issue described above. This might be a single note, several notes, a full measure, or multiple consecutive measures — whatever the issue actually spans. Do not artificially shrink or expand: if the problem is one note, box that note; if it is the whole measure, box the whole measure; if it spans several measures, box all of them together.
+Step 3 — Draw a bounding box that tightly covers the entire affected region. The box height should span from the top staff line to the bottom staff line at that location (include ledger lines if needed). The box width covers the full horizontal extent of the issue.
 Step 4 — Estimate the rotation angle of the staff lines at that location in degrees. Clockwise tilt = positive (e.g. +2.5). Counter-clockwise = negative. Perfectly level = 0. Most hand-held photos are between -8 and +8 degrees.
 
 Return ONLY valid JSON, no other text:
 {"bbox": [<y_min>, <x_min>, <y_max>, <x_max>], "angle": <degrees>}
 
 All bbox values are integers 0–1000 (0=top/left corner, 1000=bottom/right corner).
-If you cannot locate the specific note with confidence, return {"bbox": null, "angle": 0}.` },
+If you cannot locate the issue region with confidence, return {"bbox": null, "angle": 0}.` },
             ],
           }],
           generationConfig: { temperature: 0 },

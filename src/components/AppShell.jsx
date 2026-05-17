@@ -10,13 +10,6 @@ const NOTIFICATIONS = [
   { id: 4, title: 'Session saved', body: 'Gymnopédie No. 1 · 12 min · Score 91/100', time: 'May 13', unread: false, icon: '✓' },
 ]
 
-const HELP_LINKS = [
-  { label: 'How scoring works',       icon: '◎' },
-  { label: 'Reading your score sheet', icon: '◫' },
-  { label: 'Follow-along guide',      icon: '▶' },
-  { label: 'Keyboard shortcuts',      icon: '⌨' },
-  { label: 'Contact support',         icon: '✉' },
-]
 
 const NAV = [
   { to: '/home',     label: 'Home',            icon: HomeIcon },
@@ -28,48 +21,49 @@ const NAV = [
   { to: '/takes',    label: 'Saved Takes',      icon: SavedIcon },
 ]
 
-const COACHING_STYLES = ['Constructive and direct', 'Encouraging and gentle', 'Technical and precise']
-const DISPLAY_MODES   = ['Playback follow-along', 'Static score review', 'Both']
 
 export default function AppShell() {
   const { user, logout } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
-  const [panel, setPanel] = useState(null)
-  const [settingsTab, setSettingsTab] = useState('account')
+  const [panel, setPanel]                 = useState(null)
   const [notifications, setNotifications] = useState(NOTIFICATIONS)
-  const [coachingStyle, setCoachingStyle] = useState('Constructive and direct')
-  const [displayMode, setDisplayMode]     = useState('Playback follow-along')
-  const [bpm, setBpm]                     = useState(60)
-  const [settingsSaved, setSettingsSaved] = useState(false)
-  const panelRef = useRef(null)
+  const [expanded, setExpanded]           = useState(null)
+  const [editName, setEditName]           = useState(user?.name ?? '')
+  const [editInstrument, setEditInstrument] = useState(user?.instrument ?? 'Piano')
+  const notifRef = useRef(null)
 
   function handleLogout() {
     logout()
     nav('/')
   }
 
-  function togglePanel(name) {
-    setPanel(p => p === name ? null : name)
-  }
-
   function markAllRead() {
     setNotifications(ns => ns.map(n => ({ ...n, unread: false })))
   }
 
-  function saveSettings() {
-    setSettingsSaved(true)
-    setTimeout(() => setSettingsSaved(false), 2000)
+  function toggle(key) {
+    setExpanded(e => e === key ? null : key)
   }
 
+  // Close notification dropdown on outside click
   useEffect(() => {
     function onClickOutside(e) {
-      if (panelRef.current && !panelRef.current.contains(e.target)) {
-        setPanel(null)
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        if (panel === 'notifications') setPanel(null)
       }
     }
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [panel])
+
+  // Close overlays on Escape
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') setPanel(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
   }, [])
 
   const initials = user?.name
@@ -82,6 +76,196 @@ export default function AppShell() {
   return (
     <div className={styles.shell}>
 
+      {/* Full-screen account overlay */}
+      {panel === 'account' && (
+        <div className={styles.accountOverlay}>
+          <div className={styles.accountHeader}>
+            <button className={styles.accountBackBtn} onClick={() => setPanel(null)}>
+              <BackIcon /> Back
+            </button>
+          </div>
+
+          <div className={styles.accountBody}>
+            {/* Profile card */}
+            <div className={styles.acctProfile}>
+              <div className={styles.acctAvatar}>{initials}</div>
+              <div>
+                <strong className={styles.acctName}>{user?.name ?? 'Guest'}</strong>
+                <span className={styles.acctEmail}>{user?.email}</span>
+                <span className={styles.acctPlanBadge}>Free plan</span>
+              </div>
+            </div>
+
+            {/* Your account */}
+            <div className={styles.acctSection}>
+              <p className={styles.acctSectionTitle}>Your account</p>
+              <div className={styles.acctMenuList}>
+
+                {/* Edit profile */}
+                <button className={styles.acctRow} onClick={() => toggle('profile')}>
+                  <span className={`${styles.acctRowIcon} ${styles.iconGold}`}>◯</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>Edit profile</span>
+                    <span className={styles.acctRowSub}>{user?.name} · {user?.instrument ?? 'No instrument set'}</span>
+                  </div>
+                  <span className={styles.acctRowChevron}>{expanded === 'profile' ? '∨' : '›'}</span>
+                </button>
+                {expanded === 'profile' && (
+                  <div className={styles.acctExpanded}>
+                    <div className={styles.acctExpandRow}>
+                      <label className={styles.acctExpandLabel}>Name</label>
+                      <input
+                        className={styles.acctExpandInput}
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        placeholder="Your name"
+                      />
+                    </div>
+                    <div className={styles.acctExpandRow}>
+                      <label className={styles.acctExpandLabel}>Instrument</label>
+                      <select className={styles.acctPrefSelect} value={editInstrument} onChange={e => setEditInstrument(e.target.value)}>
+                        {['Piano','Violin','Cello','Viola','Guitar','Flute','Clarinet','Trumpet','Saxophone','Oboe','Horn','Harp','Other'].map(i => <option key={i}>{i}</option>)}
+                      </select>
+                    </div>
+                    <button className={styles.acctSaveBtn} onClick={() => toggle('profile')}>Save profile</button>
+                  </div>
+                )}
+
+                {/* Plan & billing */}
+                <button className={styles.acctRow} onClick={() => toggle('plan')}>
+                  <span className={`${styles.acctRowIcon} ${styles.iconGold}`}>◈</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>Plan & billing</span>
+                    <span className={styles.acctRowSub}>Free plan · Upgrade to Pro</span>
+                  </div>
+                  <span className={styles.acctRowChevron}>{expanded === 'plan' ? '∨' : '›'}</span>
+                </button>
+                {expanded === 'plan' && (
+                  <div className={styles.acctExpanded}>
+                    <div className={styles.planCard}>
+                      <strong className={styles.planCardName}>Free</strong>
+                      <p className={styles.planCardDesc}>Unlimited uploads · AI performance feedback · Community support</p>
+                    </div>
+                    <div className={`${styles.planCard} ${styles.planCardPro}`}>
+                      <strong className={`${styles.planCardName} ${styles.planCardNamePro}`}>Pro — coming soon</strong>
+                      <p className={styles.planCardDesc}>Priority AI analysis · PDF export · Advanced history · Early access features</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Privacy & data */}
+                <button className={styles.acctRow} onClick={() => toggle('privacy')}>
+                  <span className={`${styles.acctRowIcon} ${styles.iconGreen}`}>⊙</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>Privacy & data</span>
+                    <span className={styles.acctRowSub}>Manage your practice data</span>
+                  </div>
+                  <span className={styles.acctRowChevron}>{expanded === 'privacy' ? '∨' : '›'}</span>
+                </button>
+                {expanded === 'privacy' && (
+                  <div className={styles.acctExpanded}>
+                    <p className={styles.acctExpandBody}>Your recordings and analysis results are stored locally in your browser and are never shared with third parties. AI analysis calls are processed by Anthropic and are subject to their privacy policy.</p>
+                    <button className={styles.acctDangerBtn} onClick={() => { localStorage.clear(); setPanel(null) }}>
+                      Clear all local data
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Help & resources */}
+            <div className={styles.acctSection}>
+              <p className={styles.acctSectionTitle}>Help & resources</p>
+              <div className={styles.acctMenuList}>
+
+                <button className={styles.acctRow} onClick={() => toggle('scoring')}>
+                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>◎</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>How scoring works</span>
+                    <span className={styles.acctRowSub}>Learn how Mediant grades your performance</span>
+                  </div>
+                  <span className={styles.acctRowChevron}>{expanded === 'scoring' ? '∨' : '›'}</span>
+                </button>
+                {expanded === 'scoring' && (
+                  <div className={styles.acctExpanded}>
+                    <p className={styles.acctExpandBody}>Mediant scores your performance from 0–100 based on timing accuracy, dynamic control, articulation, and intonation. Each flagged measure reduces the score slightly. Scores above 88 are marked green, 74–87 gold, and below 74 coral. Practice specific flagged sections to improve your score over time.</p>
+                  </div>
+                )}
+
+                <button className={styles.acctRow} onClick={() => toggle('shortcuts')}>
+                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>⌨</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>Keyboard shortcuts</span>
+                    <span className={styles.acctRowSub}>Speed up your workflow</span>
+                  </div>
+                  <span className={styles.acctRowChevron}>{expanded === 'shortcuts' ? '∨' : '›'}</span>
+                </button>
+                {expanded === 'shortcuts' && (
+                  <div className={styles.acctExpanded}>
+                    {[
+                      ['Space', 'Play / pause'],
+                      ['← →', 'Previous / next measure'],
+                      ['L', 'Toggle loop on current section'],
+                      ['Esc', 'Close any panel'],
+                      ['R', 'Go to upload recording'],
+                      ['S', 'Go to score review'],
+                    ].map(([key, desc]) => (
+                      <div key={key} className={styles.shortcutRow}>
+                        <kbd className={styles.shortcutKey}>{key}</kbd>
+                        <span className={styles.shortcutDesc}>{desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  className={styles.acctRow}
+                  onClick={() => { setPanel(null); nav('/follow') }}
+                >
+                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>▶</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>Follow-along guide</span>
+                    <span className={styles.acctRowSub}>Open the practice loop feature</span>
+                  </div>
+                  <span className={styles.acctRowChevron}>›</span>
+                </button>
+
+                <a
+                  className={styles.acctRow}
+                  href="mailto:support@mediant.app"
+                >
+                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>✉</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>Contact support</span>
+                    <span className={styles.acctRowSub}>support@mediant.app</span>
+                  </div>
+                  <span className={styles.acctRowChevron}>›</span>
+                </a>
+              </div>
+            </div>
+
+            {/* About */}
+            <div className={styles.acctSection}>
+              <p className={styles.acctSectionTitle}>About</p>
+              <div className={styles.acctMenuList}>
+                <div className={styles.acctRow} style={{ cursor: 'default' }}>
+                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>ℹ</span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>Mediant</span>
+                    <span className={styles.acctRowSub}>Version 0.1 · AI-powered music coaching</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sign out */}
+            <button className={styles.acctSignOutBtn} onClick={handleLogout}>
+              <span>↩</span> Sign out
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Full-width top bar */}
       <header className={styles.topBar}>
         <div className={styles.topBarLeft}>
@@ -92,14 +276,14 @@ export default function AppShell() {
           <span className={styles.breadcrumbPage}>{currentPage}</span>
           <span className={styles.envBadge}>PRACTICE</span>
         </div>
-        <div className={styles.topBarRight} ref={panelRef}>
-          <div className={styles.topBarActions}>
 
+        <div className={styles.topBarRight} ref={notifRef}>
+          <div className={styles.topBarActions}>
             {/* Notifications */}
             <div className={styles.panelAnchor}>
               <button
                 className={`${styles.topBarIconBtn} ${panel === 'notifications' ? styles.topBarIconBtnActive : ''}`}
-                onClick={() => togglePanel('notifications')}
+                onClick={() => setPanel(p => p === 'notifications' ? null : 'notifications')}
                 title="Notifications"
               >
                 <BellIcon />
@@ -108,7 +292,10 @@ export default function AppShell() {
               {panel === 'notifications' && (
                 <div className={styles.dropdown}>
                   <div className={styles.dropdownHeader}>
-                    <span className={styles.dropdownTitle}>Notifications</span>
+                    <div>
+                      <span className={styles.dropdownTitle}>Notifications</span>
+                      {unreadCount > 0 && <span className={styles.dropdownSub}>{unreadCount} unread</span>}
+                    </div>
                     {unreadCount > 0 && (
                       <button className={styles.dropdownAction} onClick={markAllRead}>Mark all read</button>
                     )}
@@ -126,172 +313,21 @@ export default function AppShell() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* Help */}
-            <div className={styles.panelAnchor}>
-              <button
-                className={`${styles.topBarIconBtn} ${panel === 'help' ? styles.topBarIconBtnActive : ''}`}
-                onClick={() => togglePanel('help')}
-                title="Help"
-              >
-                <HelpIcon />
-              </button>
-              {panel === 'help' && (
-                <div className={styles.dropdown}>
-                  <div className={styles.dropdownHeader}>
-                    <span className={styles.dropdownTitle}>Help & Resources</span>
-                  </div>
-                  <div className={styles.dropdownList}>
-                    {HELP_LINKS.map(({ label, icon }) => (
-                      <button key={label} className={styles.helpRow}>
-                        <span className={styles.helpIcon}>{icon}</span>
-                        <span className={styles.helpLabel}>{label}</span>
-                        <span className={styles.helpArrow}>›</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className={styles.dropdownFooter}>
-                    Version 0.1 · Mediant
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Settings */}
-            <div className={styles.panelAnchor}>
-              <button
-                className={`${styles.topBarIconBtn} ${panel === 'settings' ? styles.topBarIconBtnActive : ''}`}
-                onClick={() => togglePanel('settings')}
-                title="Settings"
-              >
-                <SettingsIcon />
-              </button>
-              {panel === 'settings' && (
-                <div className={styles.settingsPanel}>
-                  {/* Left nav */}
-                  <div className={styles.settingsNav}>
-                    <div className={styles.settingsNavUser}>
-                      <span className={styles.settingsAvatar}>{initials}</span>
-                      <div className={styles.settingsUserInfo}>
-                        <strong className={styles.settingsUserName}>{user?.name}</strong>
-                        <span className={styles.settingsUserSub}>{user?.email}</span>
-                      </div>
-                    </div>
-                    {[
-                      { id: 'account',     label: 'Account',      icon: '◯' },
-                      { id: 'preferences', label: 'Preferences',   icon: '⊙' },
-                      { id: 'plan',        label: 'Plan & Billing', icon: '◈' },
-                    ].map(({ id, label, icon }) => (
-                      <button
-                        key={id}
-                        className={`${styles.settingsNavItem} ${settingsTab === id ? styles.settingsNavItemActive : ''}`}
-                        onClick={() => setSettingsTab(id)}
-                      >
-                        <span className={styles.settingsNavIcon}>{icon}</span>
-                        {label}
-                      </button>
-                    ))}
-                    <button className={styles.settingsSignOut} onClick={handleLogout}>Sign out</button>
-                  </div>
-
-                  {/* Right content */}
-                  <div className={styles.settingsContent}>
-                    {settingsTab === 'account' && (
-                      <>
-                        <p className={styles.settingsSectionTitle}>Account</p>
-                        {[
-                          { label: 'Name',       value: user?.name },
-                          { label: 'Email',      value: user?.email },
-                          { label: 'Instrument', value: user?.instrument },
-                        ].map(({ label, value }) => (
-                          <div key={label} className={styles.settingsRow}>
-                            <span className={styles.settingsLabel}>{label}</span>
-                            <span className={styles.settingsValue}>{value}</span>
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-                    {settingsTab === 'preferences' && (
-                      <>
-                        <p className={styles.settingsSectionTitle}>Preferences</p>
-                        <div className={styles.settingsRow}>
-                          <label className={styles.settingsLabel}>Coaching style</label>
-                          <select className={styles.settingsSelect} value={coachingStyle} onChange={e => setCoachingStyle(e.target.value)}>
-                            {COACHING_STYLES.map(s => <option key={s}>{s}</option>)}
-                          </select>
-                        </div>
-                        <div className={styles.settingsRow}>
-                          <label className={styles.settingsLabel}>Score view</label>
-                          <select className={styles.settingsSelect} value={displayMode} onChange={e => setDisplayMode(e.target.value)}>
-                            {DISPLAY_MODES.map(s => <option key={s}>{s}</option>)}
-                          </select>
-                        </div>
-                        <div className={styles.settingsRow}>
-                          <label className={styles.settingsLabel}>Default tempo</label>
-                          <div className={styles.settingsBpm}>
-                            <button className={styles.bpmBtn} onClick={() => setBpm(b => Math.max(40, b - 5))}>−</button>
-                            <span className={styles.bpmVal}>{bpm}</span>
-                            <button className={styles.bpmBtn} onClick={() => setBpm(b => Math.min(200, b + 5))}>+</button>
-                          </div>
-                        </div>
-                        <button className={styles.settingsSaveBtn} onClick={saveSettings}>
-                          {settingsSaved ? '✓ Saved' : 'Save changes'}
-                        </button>
-                      </>
-                    )}
-
-                    {settingsTab === 'plan' && (
-                      <>
-                        <p className={styles.settingsSectionTitle}>Plan & Billing</p>
-                        <div className={styles.planCard}>
-                          <strong className={styles.planName}>Free</strong>
-                          <p className={styles.planDesc}>Unlimited sessions · Basic feedback · Community support</p>
-                        </div>
-                        <div className={styles.planCard} style={{ borderColor: 'rgba(214,177,104,0.35)', background: 'rgba(214,177,104,0.06)' }}>
-                          <strong className={styles.planName} style={{ color: 'var(--gold)' }}>Pro — coming soon</strong>
-                          <p className={styles.planDesc}>AI-powered coaching · Priority analysis · Export to PDF</p>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <div className={styles.dropdownFooter}>Only showing the last 30 days</div>
                 </div>
               )}
             </div>
           </div>
 
+          {/* User chip → opens full-screen account overlay */}
           {user && (
-            <div className={styles.panelAnchor}>
-              <button
-                className={`${styles.topBarUserChip} ${panel === 'user' ? styles.topBarUserChipActive : ''}`}
-                onClick={() => togglePanel('user')}
-              >
-                <span className={styles.topBarAvatar}>{initials}</span>
-                <span className={styles.topBarName}>{user.name}</span>
-              </button>
-              {panel === 'user' && (
-                <div className={styles.dropdown} style={{ minWidth: 200 }}>
-                  <div className={styles.dropdownHeader} style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                    <span className={styles.dropdownTitle}>{user.name}</span>
-                    <span className={styles.dropdownSub}>{user.email}</span>
-                  </div>
-                  <div className={styles.dropdownList}>
-                    <button className={styles.helpRow} onClick={() => { setPanel(null); togglePanel('settings') }}>
-                      <span className={styles.helpIcon}>◯</span>
-                      <span className={styles.helpLabel}>Account settings</span>
-                      <span className={styles.helpArrow}>›</span>
-                    </button>
-                    <button className={styles.helpRow} style={{ color: 'rgba(225,134,118,0.85)' }} onClick={handleLogout}>
-                      <span className={styles.helpIcon}>↩</span>
-                      <span className={styles.helpLabel}>Sign out</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <button
+              className={`${styles.topBarUserChip} ${panel === 'account' ? styles.topBarUserChipActive : ''}`}
+              onClick={() => setPanel(p => p === 'account' ? null : 'account')}
+            >
+              <span className={styles.topBarAvatar}>{initials}</span>
+              <span className={styles.topBarName}>{user.name}</span>
+            </button>
           )}
         </div>
       </header>
@@ -318,10 +354,14 @@ export default function AppShell() {
           <div className={styles.bottom}>
             {user && (
               <div className={styles.userItem}>
-                <button className={styles.userBtn} onClick={handleLogout} title="Sign out">
+                <button
+                  className={styles.userBtn}
+                  onClick={() => setPanel(p => p === 'account' ? null : 'account')}
+                  title="Account"
+                >
                   <span className={styles.userAvatar}>{initials}</span>
                 </button>
-                <span className={styles.tooltip}>Sign out ({user.name})</span>
+                <span className={styles.tooltip}>{user.name}</span>
               </div>
             )}
           </div>
@@ -335,6 +375,14 @@ export default function AppShell() {
   )
 }
 
+function BackIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 12H5M12 5l-7 7 7 7"/>
+    </svg>
+  )
+}
+
 function LogoMark() {
   const S = 4.5
   const C = 'rgba(255,255,255,0.92)'
@@ -343,17 +391,12 @@ function LogoMark() {
 
   return (
     <svg width="26" height="30" viewBox="0 0 84 84" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Top bar — overhangs both sides */}
       <line x1="6"  y1={top} x2="78" y2={top} stroke={C} strokeWidth={S} strokeLinecap="square"/>
-      {/* Bottom bar — overhangs both sides */}
       <line x1="6"  y1={bot} x2="78" y2={bot} stroke={C} strokeWidth={S} strokeLinecap="square"/>
-      {/* Three verticals: left, center (shared), right */}
       <line x1={xL} y1={top} x2={xL} y2={bot} stroke={C} strokeWidth={S} strokeLinecap="square"/>
       <line x1={xC} y1={top} x2={xC} y2={bot} stroke={C} strokeWidth={S} strokeLinecap="square"/>
       <line x1={xR} y1={top} x2={xR} y2={bot} stroke={C} strokeWidth={S} strokeLinecap="square"/>
-      {/* Left diagonal: outer-left-top → center-bottom */}
       <line x1={xL} y1={top} x2={xC} y2={bot} stroke={C} strokeWidth={S} strokeLinecap="square"/>
-      {/* Right diagonal: outer-right-top → center-bottom */}
       <line x1={xR} y1={top} x2={xC} y2={bot} stroke={C} strokeWidth={S} strokeLinecap="square"/>
     </svg>
   )
@@ -430,25 +473,6 @@ function BellIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
       <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-    </svg>
-  )
-}
-
-function HelpIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9"/>
-      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-      <line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>
-  )
-}
-
-function SettingsIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
     </svg>
   )
 }

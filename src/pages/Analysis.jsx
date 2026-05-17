@@ -366,11 +366,12 @@ export default function Analysis() {
                         top:          `${y0 / 10}%`,
                         width:        `${(x1 - x0) / 10}%`,
                         height:       `${(y1 - y0) / 10}%`,
-                        background:   active ? 'rgba(225,134,118,0.25)' : 'rgba(225,134,118,0.1)',
-                        border:       `2px solid ${active ? 'rgba(225,134,118,0.9)' : 'rgba(225,134,118,0.5)'}`,
+                        background:   active ? 'rgba(225,134,118,0.45)' : 'rgba(225,134,118,0.25)',
+                        border:       `3px solid ${active ? 'rgba(225,134,118,1)' : 'rgba(225,134,118,0.85)'}`,
                         borderRadius: 4,
                         cursor:       'pointer',
-                        transition:   'background 150ms ease, border-color 150ms ease',
+                        boxShadow:    active ? '0 0 0 2px rgba(225,134,118,0.4), inset 0 0 8px rgba(225,134,118,0.2)' : '0 0 0 1px rgba(225,134,118,0.3)',
+                        transition:   'background 150ms ease, border-color 150ms ease, box-shadow 150ms ease',
                         boxSizing:    'border-box',
                       }}
                     />

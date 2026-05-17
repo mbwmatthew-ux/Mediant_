@@ -182,7 +182,7 @@ const VISUAL_SCORE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'im
 
 // Pre-pass: ask Gemini to read the printed measure numbers off the score image.
 // Returns them sorted ascending. Falls back to [] on any error.
-async function extractMeasureNumbers(scoreFileUri: string, scoreMimeType: string, apiKey: string): Promise<number[]> {
+async function extractMeasureNumbers(scoreFileUri: string, scoreMimeType: string, apiKey: string, startMeasure: number | null): Promise<number[]> {
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
@@ -193,7 +193,7 @@ async function extractMeasureNumbers(scoreFileUri: string, scoreMimeType: string
           contents: [{
             parts: [
               { fileData: { mimeType: scoreMimeType, fileUri: scoreFileUri } },
-              { text: 'Look at this sheet music image. Find every measure number that is printed at the start of a measure or system. List them all in ascending order. Return ONLY a JSON array of integers with no other text, e.g. [212, 213, 214, 215, 216, 217, 218, 219, 220]. If no numbers are visible return [].' },
+              { text: `Look at this sheet music image. Find the measure numbers printed at the LEFT EDGE of each staff system — these are the small numbers that appear just before the first note of each row of music (e.g. 218, 219, 220). DO NOT include: rehearsal letters or marks (like A, B, H), movement or section numbers at the top of the page, fingering numbers written above or below notes, time signatures, or any number that is not a measure barline counter. Measure numbers in a real score are sequential — if you see both a small number (like 6) and large numbers (like 218, 220), the large sequential ones are the measure numbers. Return ONLY a JSON array of integers in ascending order, e.g. [218, 219, 220, 221]. If you cannot confidently identify measure numbers, return [].` },
             ],
           }],
           generationConfig: { temperature: 0 },
@@ -205,8 +205,23 @@ async function extractMeasureNumbers(scoreFileUri: string, scoreMimeType: string
     const raw = data.candidates?.[0]?.content?.parts?.[0]?.text as string ?? ''
     const match = raw.match(/\[[\d,\s]*\]/)
     if (!match) return []
-    const nums = JSON.parse(match[0]) as number[]
-    return nums.filter((n): n is number => typeof n === 'number' && !isNaN(n)).sort((a, b) => a - b)
+    const nums = (JSON.parse(match[0]) as number[])
+      .filter((n): n is number => typeof n === 'number' && !isNaN(n))
+      .sort((a, b) => a - b)
+
+    // If startMeasure is known, drop any numbers that are way below it (likely rehearsal marks).
+    // "Way below" = more than 10 below the startMeasure hint.
+    if (startMeasure !== null && nums.length > 0) {
+      const filtered = nums.filter(n => n >= startMeasure - 10)
+      if (filtered.length > 0) return filtered
+    }
+
+    // If the array mixes very small numbers (≤20) with large numbers (≥100),
+    // the small ones are almost certainly rehearsal marks or section numbers — drop them.
+    const hasLarge = nums.some(n => n >= 100)
+    if (hasLarge) return nums.filter(n => n >= 100)
+
+    return nums
   } catch {
     return []
   }
@@ -303,7 +318,7 @@ serve(async (req) => {
     // Capped at 10 s so a slow image never blocks the main analysis.
     const anchoredMeasures = scoreFileUri && scoreGeminiMime
       ? await Promise.race([
-          extractMeasureNumbers(scoreFileUri, scoreGeminiMime, googleApiKey),
+          extractMeasureNumbers(scoreFileUri, scoreGeminiMime, googleApiKey, startMeasure ? parseInt(startMeasure, 10) : null),
           new Promise<number[]>(resolve => setTimeout(() => resolve([]), 10_000)),
         ])
       : []

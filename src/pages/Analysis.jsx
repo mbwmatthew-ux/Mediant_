@@ -376,8 +376,21 @@ export default function Analysis() {
                         boxShadow:    active ? '0 0 0 2px rgba(225,134,118,0.4), inset 0 0 8px rgba(225,134,118,0.2)' : '0 0 0 1px rgba(225,134,118,0.3)',
                         transition:   'background 150ms ease, border-color 150ms ease, box-shadow 150ms ease',
                         boxSizing:    'border-box',
+                        overflow:     'hidden',
                       }}
-                    />
+                    >
+                      <span style={{
+                        position:      'absolute',
+                        top:           2,
+                        left:          4,
+                        fontSize:      10,
+                        fontWeight:    700,
+                        lineHeight:    1,
+                        color:         active ? 'rgba(225,134,118,1)' : 'rgba(225,134,118,0.9)',
+                        pointerEvents: 'none',
+                        userSelect:    'none',
+                      }}>m.{f.measure}</span>
+                    </div>
                   )
                 })}
               </div>

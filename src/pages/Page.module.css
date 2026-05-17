@@ -721,6 +721,21 @@
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 
+.scorePhoto {
+  border-radius: 6px;
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.scorePdf {
+  border: none;
+  border-radius: 6px;
+  display: block;
+  height: 700px;
+  width: 100%;
+}
+
 .feedbackSidebar {
   border-left: 1px solid rgba(255,255,255,0.07);
   display: flex;

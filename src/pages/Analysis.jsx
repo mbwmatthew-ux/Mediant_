@@ -107,11 +107,18 @@ export default function Analysis() {
       .then(({ data }) => { if (data?.signedUrl) setScoreUrl(data.signedUrl) })
   }, [take])
 
-  // Render score once take is resolved
+  // Determine if score is a visual file (photo/PDF) vs MusicXML
+  const isVisualScore = scoreUrl && (() => {
+    const p = (take?.score_path ?? '').toLowerCase()
+    return /\.(jpe?g|png|webp|heic|pdf)$/.test(p)
+  })()
+
+  // Render score once take is resolved (only for MusicXML files)
   useEffect(() => {
     if (take === undefined) return
     if (!scoreEl.current) return
     if (scoreReady) return
+    if (isVisualScore) { setScoreReady(true); return }
 
     const pieceTitle = take?.piece_title ?? 'Clair de Lune'
     const scoreFile  = scoreUrl ?? scoreFileForPiece(pieceTitle)
@@ -276,36 +283,55 @@ export default function Analysis() {
 
       <div className={styles.reviewBody}>
         <div className={styles.scoreArea}>
-          {!hasScore && scoreReady && (
-            <div className={styles.scoreUnavailable}>
-              <p>Score not available for <em>{pieceTitle}</em> yet.</p>
-              <p>Coaching feedback above is based on the AI's audio analysis.</p>
-            </div>
+          {/* Photo or PDF uploaded by user */}
+          {isVisualScore && scoreUrl && (
+            (take?.score_path ?? '').toLowerCase().endsWith('.pdf') ? (
+              <iframe
+                src={scoreUrl}
+                className={styles.scorePdf}
+                title="Sheet music"
+              />
+            ) : (
+              <img
+                src={scoreUrl}
+                className={styles.scorePhoto}
+                alt="Sheet music"
+              />
+            )
           )}
 
-          {/* OSMD render target + highlight overlays */}
-          <div style={{ position: 'relative' }}>
-            <div ref={scoreEl} />
-
-            {scoreReady && highlights.map(({ flagId, x, y, w, h }) => (
-              <div
-                key={flagId}
-                onClick={() => setActiveFlag(f => f === flagId ? null : flagId)}
-                style={{
-                  position:    'absolute',
-                  left:        x,
-                  top:         y,
-                  width:       w,
-                  height:      h,
-                  background:  activeFlag === flagId ? 'rgba(225,134,118,0.18)' : 'rgba(225,134,118,0.09)',
-                  border:      '1.5px solid rgba(225,134,118,0.5)',
-                  borderRadius: 6,
-                  cursor:      'pointer',
-                  transition:  'background 150ms ease',
-                }}
-              />
-            ))}
-          </div>
+          {/* OSMD render target + highlight overlays (MusicXML only) */}
+          {!isVisualScore && (
+            <>
+              {!hasScore && scoreReady && (
+                <div className={styles.scoreUnavailable}>
+                  <p>Score not available for <em>{pieceTitle}</em> yet.</p>
+                  <p>Coaching feedback above is based on the AI's audio analysis.</p>
+                </div>
+              )}
+              <div style={{ position: 'relative' }}>
+                <div ref={scoreEl} />
+                {scoreReady && highlights.map(({ flagId, x, y, w, h }) => (
+                  <div
+                    key={flagId}
+                    onClick={() => setActiveFlag(f => f === flagId ? null : flagId)}
+                    style={{
+                      position:     'absolute',
+                      left:         x,
+                      top:          y,
+                      width:        w,
+                      height:       h,
+                      background:   activeFlag === flagId ? 'rgba(225,134,118,0.18)' : 'rgba(225,134,118,0.09)',
+                      border:       '1.5px solid rgba(225,134,118,0.5)',
+                      borderRadius: 6,
+                      cursor:       'pointer',
+                      transition:   'background 150ms ease',
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <aside className={styles.feedbackSidebar}>

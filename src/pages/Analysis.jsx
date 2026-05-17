@@ -283,7 +283,7 @@ export default function Analysis() {
 
       <div className={styles.reviewBody}>
         <div className={styles.scoreArea}>
-          {/* Photo or PDF uploaded by user */}
+          {/* Photo or PDF uploaded by user — with bbox overlays */}
           {isVisualScore && scoreUrl && (
             (take?.score_path ?? '').toLowerCase().endsWith('.pdf') ? (
               <iframe
@@ -292,11 +292,38 @@ export default function Analysis() {
                 title="Sheet music"
               />
             ) : (
-              <img
-                src={scoreUrl}
-                className={styles.scorePhoto}
-                alt="Sheet music"
-              />
+              <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                <img
+                  src={scoreUrl}
+                  className={styles.scorePhoto}
+                  alt="Sheet music"
+                />
+                {(take?.flags ?? []).map((f, i) => {
+                  if (!f.bbox) return null
+                  const [y0, x0, y1, x1] = f.bbox
+                  const flagId = `flag_${i}`
+                  const active = activeFlag === flagId
+                  return (
+                    <div
+                      key={flagId}
+                      onClick={() => setActiveFlag(a => a === flagId ? null : flagId)}
+                      style={{
+                        position:     'absolute',
+                        left:         `${x0 / 10}%`,
+                        top:          `${y0 / 10}%`,
+                        width:        `${(x1 - x0) / 10}%`,
+                        height:       `${(y1 - y0) / 10}%`,
+                        background:   active ? 'rgba(225,134,118,0.25)' : 'rgba(225,134,118,0.1)',
+                        border:       `2px solid ${active ? 'rgba(225,134,118,0.9)' : 'rgba(225,134,118,0.5)'}`,
+                        borderRadius: 4,
+                        cursor:       'pointer',
+                        transition:   'background 150ms ease, border-color 150ms ease',
+                        boxSizing:    'border-box',
+                      }}
+                    />
+                  )
+                })}
+              </div>
             )
           )}
 

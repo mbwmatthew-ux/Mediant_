@@ -24,10 +24,11 @@ export default function Record() {
   const scoreInputRef = useRef()
 
   // Auto-filled piece info (from OCR, editable)
-  const [pieceTitle, setPieceTitle] = useState('')
-  const [composer,   setComposer]   = useState('')
-  const [instrument, setInstrument] = useState('Piano')
-  const [part,       setPart]       = useState('')
+  const [pieceTitle,    setPieceTitle]    = useState('')
+  const [composer,      setComposer]      = useState('')
+  const [instrument,    setInstrument]    = useState('Piano')
+  const [part,          setPart]          = useState('')
+  const [startMeasure,  setStartMeasure]  = useState('')
 
   // Video recording (required)
   const [file,      setFile]      = useState(null)
@@ -148,6 +149,7 @@ export default function Record() {
           instrument,
           part:           part.trim() || undefined,
           timeSig:        '4/4',
+          startMeasure:   startMeasure || undefined,
         },
       })
 
@@ -319,6 +321,23 @@ export default function Record() {
                   placeholder="e.g. III. Passepied"
                 />
               </div>
+            </div>
+
+            <div className={styles.formRow}>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>
+                  Starting measure <span className={styles.formOptional}>(optional)</span>
+                </label>
+                <input
+                  className={styles.formInput}
+                  type="number"
+                  min="1"
+                  value={startMeasure}
+                  onChange={e => setStartMeasure(e.target.value)}
+                  placeholder="e.g. 216"
+                />
+              </div>
+              <div className={styles.formGroup} />
             </div>
           </div>
 

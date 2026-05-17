@@ -55,6 +55,7 @@ export default function Analysis() {
   const [highlights, setHighlights]   = useState([])
   const [dynamicScore, setDynamicScore] = useState(null)   // null=pending, ''=failed, xml=ready
   const [scoreFetching, setScoreFetching] = useState(false)
+  const [scoreSource, setScoreSource]   = useState(null)   // 'mutopia' | 'ai' | null
 
   // Chat state
   const [chatMessages, setChatMessages] = useState([])
@@ -85,7 +86,7 @@ export default function Analysis() {
       body:    JSON.stringify({ pieceTitle: take.piece_title, composer: take.piece_composer }),
     })
       .then(r => r.json())
-      .then(({ xml }) => setDynamicScore(xml || ''))
+      .then(({ xml, source }) => { setDynamicScore(xml || ''); setScoreSource(source ?? null) })
       .catch(() => setDynamicScore(''))
       .finally(() => setScoreFetching(false))
   }, [take])
@@ -154,8 +155,8 @@ export default function Analysis() {
           console.warn('Could not compute measure highlights:', e)
         }
       })
-      .catch(err => {
-        console.error('OSMD load error:', err)
+      .catch(() => {
+        setDynamicScore('')   // mark as failed so we don't retry
         setScoreReady(true)
       })
   }, [take, dynamicScore])
@@ -266,8 +267,16 @@ export default function Analysis() {
           {scoreFetching && (
             <div className={styles.scoreLoading}>
               <div className={styles.scoreSpinner} />
-              <p>Loading sheet music…</p>
+              <p>Searching for sheet music…</p>
             </div>
+          )}
+
+          {scoreReady && dynamicScore && scoreSource && (
+            <p className={styles.scoreSourceLabel}>
+              {scoreSource === 'mutopia'
+                ? 'Sheet music from Mutopia Project (public domain)'
+                : 'Sheet music approximated by AI — may not be note-perfect'}
+            </p>
           )}
 
           {/* OSMD render target + highlight overlays */}

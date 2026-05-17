@@ -37,7 +37,7 @@ function buildGeminiPrompt(
   }
 
   const bboxField = hasVisualScore
-    ? `- bbox: bounding box of that measure in the sheet music image as [y_min, x_min, y_max, x_max] where each value is 0–1000 (0=top/left, 1000=bottom/right). Read the number printed at the start of the system — do not estimate.`
+    ? `- bbox: tight bounding box around ONLY the single flagged measure bar as [y_min, x_min, y_max, x_max] where each value is 0–1000 (0=top/left, 1000=bottom/right). The box must start at the barline opening the measure and end at the barline closing it — do not include adjacent measures, do not span an entire system row. A single measure typically spans 10–25% of the image width.`
     : ''
 
   const bboxJson = hasVisualScore
@@ -225,7 +225,7 @@ async function generateCoachingText(
 
 Issue detected in measure ${flag.measure} (${flag.type}): ${flag.raw_detail}
 
-Write 3 sentences of coaching feedback:
+Write exactly 3 sentences of coaching feedback. No headers, no labels, no "Feedback:" prefix, no markdown — start immediately with the first sentence:
 1. Acknowledge specifically what happened and where (reference the measure and what went wrong).
 2. Explain briefly why this matters musically in this passage.
 3. Give one concrete, named practice technique specific to ${instrument} they can use right now — be precise (e.g. "slow-bow on just beats 2–3", "use a metronome at 60 bpm", "practice the shift in isolation without vibrato").

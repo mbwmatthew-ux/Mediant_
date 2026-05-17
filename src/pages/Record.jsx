@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -41,6 +41,19 @@ export default function Record() {
   const [errorMsg, setErrorMsg] = useState('')
 
   const readyToAnalyze = scoreFile && file && instrument && phase !== 'error'
+
+  // Pre-fill from library "Start Recording" click
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('mediant_prefill')
+      if (!raw) return
+      sessionStorage.removeItem('mediant_prefill')
+      const { pieceTitle: t, composer: c, instrument: ins } = JSON.parse(raw)
+      if (t)   setPieceTitle(t)
+      if (c)   setComposer(c)
+      if (ins && INSTRUMENTS.includes(ins)) setInstrument(ins)
+    } catch { /* ignore */ }
+  }, [])
 
   // ── OCR: auto-fill title/composer from sheet music photo ──────
 

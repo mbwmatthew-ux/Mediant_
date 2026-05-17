@@ -352,26 +352,33 @@ export default function Analysis() {
                   alt="Sheet music"
                 />
                 {(take?.flags ?? []).map((f, i) => {
-                  if (!f.bbox) return null
-                  const [y0, x0, y1, x1] = f.bbox
+                  if (!f.spot) return null
+                  const [y0, x0, y1, x1] = f.spot
+                  const angle = f.spot_angle ?? 0
                   const flagId = `flag_${i}`
                   const active = activeFlag === flagId
+                  // Center the div at the midpoint, then rotate around that center
+                  const cx = (x0 + x1) / 2 / 10
+                  const cy = (y0 + y1) / 2 / 10
+                  const w  = (x1 - x0) / 10
+                  const h  = (y1 - y0) / 10
                   return (
                     <div
                       key={flagId}
                       onClick={() => setActiveFlag(a => a === flagId ? null : flagId)}
                       style={{
-                        position:     'absolute',
-                        left:         `${x0 / 10}%`,
-                        top:          `${y0 / 10}%`,
-                        width:        `${(x1 - x0) / 10}%`,
-                        height:       `${(y1 - y0) / 10}%`,
-                        background:   active ? 'rgba(225,134,118,0.25)' : 'rgba(225,134,118,0.1)',
-                        border:       `2px solid ${active ? 'rgba(225,134,118,0.9)' : 'rgba(225,134,118,0.5)'}`,
-                        borderRadius: 4,
-                        cursor:       'pointer',
-                        transition:   'background 150ms ease, border-color 150ms ease',
-                        boxSizing:    'border-box',
+                        position:        'absolute',
+                        left:            `${cx}%`,
+                        top:             `${cy}%`,
+                        width:           `${w}%`,
+                        height:          `${h}%`,
+                        transform:       `translate(-50%, -50%) rotate(${angle}deg)`,
+                        transformOrigin: 'center center',
+                        background:      active ? 'rgba(210,60,60,0.38)' : 'rgba(210,60,60,0.18)',
+                        borderRadius:    3,
+                        cursor:          'pointer',
+                        transition:      'background 150ms ease',
+                        pointerEvents:   'auto',
                       }}
                     />
                   )

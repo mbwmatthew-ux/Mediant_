@@ -212,6 +212,66 @@ async function extractMeasureNumbers(scoreFileUri: string, scoreMimeType: string
   }
 }
 
+// Dedicated spot pass: locate the specific note/passage for a flag in the score image.
+// Returns bbox of just the note/passage + the staff tilt angle so the frontend
+// can render a rotated highlight that follows the staff lines.
+async function refineSpot(
+  measureNum: number,
+  issueType: string,
+  issueDetail: string,
+  scoreFileUri: string,
+  scoreMimeType: string,
+  apiKey: string,
+): Promise<{ bbox: [number, number, number, number]; angle: number } | null> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { fileData: { mimeType: scoreMimeType, fileUri: scoreFileUri } },
+              { text: `This is a sheet music image. I need to highlight a specific performance issue.
+
+Measure: ${measureNum} (find the printed number "${measureNum}" at its opening barline)
+Issue type: ${issueType}
+What happened: ${issueDetail}
+
+Step 1 — Find measure ${measureNum} in the image.
+Step 2 — Within that measure, locate the specific note, beat, or short passage described above. Do NOT box the whole measure — identify only the 1–3 notes where the issue occurs.
+Step 3 — Draw a tight bounding box around just those notes. The box height should cover the staff lines at that location (from top staff line to bottom staff line, including ledger lines if the note uses them). The box width should cover only the problematic note(s), not the full measure.
+Step 4 — Estimate the rotation angle of the staff lines at that location in degrees. Clockwise tilt = positive (e.g. +2.5). Counter-clockwise = negative. Perfectly level = 0. Most hand-held photos are between -8 and +8 degrees.
+
+Return ONLY valid JSON, no other text:
+{"bbox": [<y_min>, <x_min>, <y_max>, <x_max>], "angle": <degrees>}
+
+All bbox values are integers 0–1000 (0=top/left corner, 1000=bottom/right corner).
+If you cannot locate the specific note with confidence, return {"bbox": null, "angle": 0}.` },
+            ],
+          }],
+          generationConfig: { temperature: 0 },
+        }),
+      }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? ''
+    const match = raw.match(/\{\s*"bbox"\s*:\s*(\[[^\]]*\]|null)\s*,\s*"angle"\s*:\s*(-?[\d.]+)\s*\}/)
+    if (!match) return null
+    if (match[1] === 'null') return null
+    const arr = JSON.parse(match[1]) as number[]
+    if (!Array.isArray(arr) || arr.length !== 4) return null
+    const [y0, x0, y1, x1] = arr.map(v => Math.max(0, Math.min(1000, Math.round(v))))
+    if (y1 <= y0 || x1 <= x0) return null
+    const angle = parseFloat(match[2])
+    return { bbox: [y0, x0, y1, x1], angle: isNaN(angle) ? 0 : Math.max(-15, Math.min(15, angle)) }
+  } catch {
+    return null
+  }
+}
+
 // ── Claude Haiku coaching text ─────────────────────────────────────────────
 
 async function generateCoachingText(
@@ -323,16 +383,22 @@ serve(async (req) => {
       videoFileUri, videoMimeType, prompt, googleApiKey, scoreFileUri, scoreGeminiMime,
     )
 
-    // Generate warm coaching text for each flag via Claude Haiku
+    // Generate coaching text + refine spot in parallel for each flag
     const flags = await Promise.all(
       rawFlags.map(async (f) => {
-        const body = await generateCoachingText(f, pieceTitle ?? 'this piece', composer ?? 'the composer', instrument ?? 'instrument')
+        const [body, spot] = await Promise.all([
+          generateCoachingText(f, pieceTitle ?? 'this piece', composer ?? 'the composer', instrument ?? 'instrument'),
+          scoreFileUri && scoreGeminiMime
+            ? refineSpot(f.measure, f.type, f.raw_detail, scoreFileUri, scoreGeminiMime, googleApiKey)
+            : Promise.resolve(null),
+        ])
         return {
           measure:         f.measure,
           type:            f.type,
           title:           f.title,
           body,
-          bbox:            f.bbox ?? null,
+          spot:            spot?.bbox  ?? null,
+          spot_angle:      spot?.angle ?? 0,
           timestamp_start: f.timestamp_start ?? null,
           timestamp_end:   f.timestamp_end   ?? null,
         }

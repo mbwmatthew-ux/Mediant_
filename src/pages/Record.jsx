@@ -155,8 +155,7 @@ export default function Record() {
 
       clearInterval(analysisTick)
 
-      if (fnError) throw new Error(fnError.message || 'Analysis failed')
-      if (!result || result.error) throw new Error(result?.error || 'Analysis failed')
+      if (fnError || result?.error) throw new Error(result?.error || fnError?.message || 'Analysis failed')
 
       localStorage.setItem('mediant_last_take', JSON.stringify({
         id:              result.takeId ?? `local-${Date.now()}`,

@@ -295,10 +295,13 @@ serve(async (req) => {
     // Upload video to Gemini Files API
     const videoFileUri = await uploadVideoToGemini(videoBytes, videoMimeType, googleApiKey)
 
-    // Pre-pass: read the printed measure numbers off the score image so Gemini
-    // doesn't have to count — it can use the exact numbers as ground truth.
+    // Pre-pass: read the printed measure numbers off the score image.
+    // Capped at 10 s so a slow image never blocks the main analysis.
     const anchoredMeasures = scoreFileUri && scoreGeminiMime
-      ? await extractMeasureNumbers(scoreFileUri, scoreGeminiMime, googleApiKey)
+      ? await Promise.race([
+          extractMeasureNumbers(scoreFileUri, scoreGeminiMime, googleApiKey),
+          new Promise<number[]>(resolve => setTimeout(() => resolve([]), 10_000)),
+        ])
       : []
 
     // Analyze with Gemini (video + optional visual score)

@@ -91,6 +91,8 @@ export default function PieceDetailPanel({ piece, onClose }) {
       pieceTitle: piece.title,
       composer:   piece.composer,
       instrument: piece.instrument,
+      pieceId:    piece.userUploaded ? piece.id : null,
+      mediaType:  piece.mediaType ?? null,
     }))
     nav('/record')
   }

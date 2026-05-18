@@ -32,6 +32,16 @@ const MOCK_CHIPS = [
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
+function timeAgo(iso) {
+  if (!iso) return null
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000)
+  if (diff < 60)   return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 // Maps a piece title to a bundled score file in /public/scores/
 function scoreFileForPiece(title) {
   if (!title) return null
@@ -337,6 +347,9 @@ export default function Analysis() {
           <p className={styles.sub}>
             {pieceComposer} · Solo Piano · {issueCount} issue{issueCount !== 1 ? 's' : ''} found
             {score != null && <> · <span style={{ color: scoreColor(score) }}>{score}/100</span></>}
+            {timeAgo(take?.created_at ?? take?.date) && (
+              <> · <span style={{ color: 'rgba(248,246,242,0.35)' }}>Analyzed {timeAgo(take?.created_at ?? take?.date)}</span></>
+            )}
           </p>
         </div>
         <div className={styles.headerActions}>

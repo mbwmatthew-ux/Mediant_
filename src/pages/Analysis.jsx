@@ -250,7 +250,13 @@ export default function Analysis() {
     const msg = chatInput.trim()
     if (!msg || chatLoading) return
     setChatInput('')
-    setChatMessages(prev => [...prev, { role: 'user', content: msg }])
+
+    // Snapshot whichever issue is active at send time so the history stays accurate
+    const flagContext = activeFlagRaw
+      ? { measure: activeFlagRaw.measure, type: activeFlagRaw.type, title: activeFlagRaw.title }
+      : null
+
+    setChatMessages(prev => [...prev, { role: 'user', content: msg, flagContext }])
     setChatLoading(true)
 
     try {
@@ -264,6 +270,7 @@ export default function Analysis() {
             pieceComposer:   take?.piece_composer ?? 'Claude Debussy',
             score:           take?.score,
             flags:           take?.flags ?? [],
+            activeFlag:      flagContext ?? null,
             measureLayout:   take?.measure_layout ?? null,
             audioAlignment:  take?.audio_alignment ?? null,
           },
@@ -495,13 +502,29 @@ export default function Analysis() {
           </div>
 
           <div className={styles.chatSection}>
-            <p className={styles.chatLabel}>Ask your coach</p>
+            <div className={styles.chatHeader}>
+              <p className={styles.chatLabel}>Ask your coach</p>
+              {activeFlagRaw && (
+                <span className={styles.chatContextPill}>
+                  Re: m.{activeFlagRaw.measure} · {capitalize(activeFlagRaw.type)}
+                </span>
+              )}
+            </div>
             <div className={styles.chatMessages}>
               {chatMessages.length === 0 && (
-                <p className={styles.chatEmpty}>Ask anything about your performance — technique, practice tips, or specific measures.</p>
+                <p className={styles.chatEmpty}>
+                  {activeFlagRaw
+                    ? `Ask about m.${activeFlagRaw.measure} · ${capitalize(activeFlagRaw.type)}, or anything else about your performance.`
+                    : 'Select an issue above, then ask your coach about it — or ask anything about your performance.'}
+                </p>
               )}
               {chatMessages.map((m, i) => (
                 <div key={i} className={m.role === 'user' ? styles.chatMsgUser : styles.chatMsgAI}>
+                  {m.role === 'user' && m.flagContext && (
+                    <span className={styles.chatMsgContext}>
+                      Re: m.{m.flagContext.measure} · {capitalize(m.flagContext.type)}
+                    </span>
+                  )}
                   {m.content}
                 </div>
               ))}

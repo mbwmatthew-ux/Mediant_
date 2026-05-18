@@ -20,6 +20,7 @@ function buildGeminiPrompt(
   hasVisualScore: boolean,
   startMeasure: number | null,
   anchoredMeasures: number[],
+  scoreDescription: string,
 ): string {
   let measureLine: string
   if (anchoredMeasures.length > 0) {
@@ -43,11 +44,15 @@ function buildGeminiPrompt(
     ? `- bbox: bounding box of the affected region as [y_min, x_min, y_max, x_max], values 0–1000. Cover exactly the problematic note(s) or passage — not the whole row.`
     : ''
 
+  const scoreContext = scoreDescription
+    ? `\nSCORE READING (what is written in the score):\n${scoreDescription}\n\nUse the score reading above as ground truth for what should be played. Compare it against what you actually hear.`
+    : ''
+
   return `You are an expert music teacher and professional ${instrument} player analyzing a student's practice recording of "${pieceTitle}" by ${composer}.
 Time signature: ${timeSig}.
 ${measureLine}
 ${hasVisualScore ? 'The sheet music image is shown first. Read every printed measure number carefully before listening. Use ONLY the printed numbers — never invent or estimate a measure number.' : ''}
-
+${scoreContext}
 Listen to the ENTIRE recording carefully. Your job is to identify ONLY issues you can clearly and specifically hear.
 
 RULES:
@@ -318,7 +323,50 @@ If you cannot find measure ${measureNum} with confidence, return {"bbox": null}.
   }
 }
 
-// ── Claude Haiku coaching text ─────────────────────────────────────────────
+// Pre-pass: Gemini reads the score image and describes what's written,
+// producing ground-truth notation context used during performance analysis.
+async function readScore(
+  scoreFileUri: string,
+  scoreMimeType: string,
+  apiKey: string,
+): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { fileData: { mimeType: scoreMimeType, fileUri: scoreFileUri } },
+              { text: `You are a professional music engraver reading sheet music. Look at this score image carefully and produce a structured description of what is written — not what a student played, but what the score says.
+
+For each measure visible, note:
+- Measure number (as printed)
+- Any tempo, dynamic, or expression markings (e.g. ff, p, cresc., rit.)
+- Notable rhythmic patterns (dotted rhythms, syncopation, fast runs)
+- Technical demands (large shifts, string crossings, wide intervals, high positions)
+- Slurs, accents, or articulation markings
+
+Also describe the overall: key signature, time signature, character/tempo marking, and the main technical challenges in this passage.
+
+Write in plain prose. Be factual and specific — this will be used to assess a student's performance against what is written.` },
+            ],
+          }],
+          generationConfig: { temperature: 0 },
+        }),
+      }
+    )
+    if (!res.ok) return ''
+    const data = await res.json()
+    return (data.candidates?.[0]?.content?.parts?.[0]?.text as string ?? '').trim()
+  } catch {
+    return ''
+  }
+}
+
+// ── Claude Sonnet coaching text ────────────────────────────────────────────
 
 async function generateCoachingText(
   flag: { measure: number; type: string; title: string; raw_detail: string },
@@ -327,8 +375,8 @@ async function generateCoachingText(
   instrument: string,
 ): Promise<string> {
   const msg = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 380,
+    model: 'claude-sonnet-4-6',
+    max_tokens: 450,
     messages: [{
       role: 'user',
       content: `You are an expert ${instrument} teacher giving feedback to a student on "${pieceTitle}" by ${composer}.
@@ -405,24 +453,24 @@ serve(async (req) => {
     // Upload video to Gemini Files API
     const videoFileUri = await uploadVideoToGemini(videoBytes, videoMimeType, googleApiKey)
 
-    // Pre-pass: read measure numbers + detect staff tilt angle in parallel.
-    // 30 s timeout — Gemini 2.5 Pro image-only calls typically take 15-25 s.
-    const [anchoredMeasures, staffAngle] = await Promise.all([
+    // Pre-passes: run all three score image analyses in parallel (30 s timeout each).
+    const timeout = <T>(p: Promise<T>, fallback: T) =>
+      Promise.race([p, new Promise<T>(r => setTimeout(() => r(fallback), 30_000))])
+
+    const [anchoredMeasures, staffAngle, scoreDescription] = await Promise.all([
       scoreFileUri && scoreGeminiMime
-        ? Promise.race([
-            extractMeasureNumbers(scoreFileUri, scoreGeminiMime, googleApiKey),
-            new Promise<number[]>(resolve => setTimeout(() => resolve([]), 30_000)),
-          ])
+        ? timeout(extractMeasureNumbers(scoreFileUri, scoreGeminiMime, googleApiKey), [] as number[])
         : Promise.resolve([] as number[]),
       scoreFileUri && scoreGeminiMime
-        ? Promise.race([
-            detectStaffAngle(scoreFileUri, scoreGeminiMime, googleApiKey),
-            new Promise<number>(resolve => setTimeout(() => resolve(0), 30_000)),
-          ])
+        ? timeout(detectStaffAngle(scoreFileUri, scoreGeminiMime, googleApiKey), 0)
         : Promise.resolve(0),
+      scoreFileUri && scoreGeminiMime
+        ? timeout(readScore(scoreFileUri, scoreGeminiMime, googleApiKey), '')
+        : Promise.resolve(''),
     ])
     console.log('[analyze-performance] anchoredMeasures:', anchoredMeasures)
     console.log('[analyze-performance] staffAngle:', staffAngle)
+    console.log('[analyze-performance] scoreDescription (first 300):', scoreDescription.slice(0, 300))
 
     const smInt = startMeasure ? parseInt(startMeasure, 10) : null
     const prompt = buildGeminiPrompt(
@@ -434,6 +482,7 @@ serve(async (req) => {
       !!scoreFileUri,
       smInt,
       anchoredMeasures,
+      scoreDescription,
     )
 
     const { score, flags: allRawFlags } = await analyzeWithGemini(

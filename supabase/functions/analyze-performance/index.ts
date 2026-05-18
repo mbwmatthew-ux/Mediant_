@@ -9,129 +9,185 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// ── Prompts ────────────────────────────────────────────────────────────────
+const GEMINI_MODEL = 'gemini-2.5-pro'
+const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
-function buildGeminiPrompt(
-  pieceTitle: string,
-  composer: string,
-  timeSig: string,
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface ScoreNote {
+  pitch: string | null         // e.g. "D3", "F#4"; null for rests
+  beat: number                 // 1.0 = downbeat
+  duration_beats: number
+  articulation: string | null
+  dynamic: string | null
+}
+interface ScoreMeasure { number: number; notes: ScoreNote[] }
+interface ScoreReading {
+  key_signature: string | null
+  time_signature: string | null
+  tempo_marking: string | null
+  measures: ScoreMeasure[]
+}
+
+interface AudioEvent {
+  time_sec: number
+  pitches: string[]
+  confidence: number
+  loudness?: string | null     // "soft" | "medium" | "loud"
+  articulation?: string | null // optional shape hint
+}
+interface AudioTranscription {
+  audio_duration_sec: number
+  events: AudioEvent[]
+  tempo_estimate_bpm: number | null
+  tempo_steadiness: string | null
+}
+
+interface AlignedEvent extends AudioEvent { measure: number }
+
+interface CoachingFlag {
+  measure: number
+  type: string
+  title: string
+  raw_detail: string
+  body: string
+  confidence: number
+  timestamp_start: number | null
+  timestamp_end: number | null
+  spot: null
+  spot_angle: number
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+const VISUAL_SCORE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'])
+const CLAUDE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+
+function bytesToBase64(bytes: Uint8Array): string {
+  // btoa(String.fromCharCode(...)) blows the stack on large arrays; chunk it.
+  const chunk = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+function extractJsonObject(raw: string): unknown | null {
+  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
+  const start = stripped.indexOf('{')
+  const end   = stripped.lastIndexOf('}')
+  if (start === -1 || end === -1) return null
+  try { return JSON.parse(stripped.slice(start, end + 1)) } catch { return null }
+}
+
+// ── Step 1: Claude reads the score image into structured notes ────────────
+
+async function readScoreNotes(
+  scoreBytes: Uint8Array,
+  scoreMimeType: string,
+  startMeasure: number,
   instrument: string,
-  totalMeasures: number | null,
-  startMeasure: number | null,
-  measureIndex: string,
-  measureRange: { first: number; last: number } | null,
-): string {
-  let measureLine: string
-  if (measureRange) {
-    measureLine = `The student plays measures ${measureRange.first}–${measureRange.last}. Every flagged measure number MUST be within ${measureRange.first}–${measureRange.last}. Never use a measure number outside this range, and never count starting from 1.`
-  } else if (startMeasure !== null && totalMeasures !== null) {
-    measureLine = `The student plays measures ${startMeasure}–${totalMeasures}. Use ${startMeasure} as your anchor — do not count from 1.`
-  } else if (startMeasure !== null) {
-    measureLine = `The recording starts at measure ${startMeasure}. Use this as your anchor — do not count from 1.`
-  } else if (totalMeasures !== null) {
-    measureLine = `The score has ${totalMeasures} measures total.`
+  timeSig: string,
+): Promise<ScoreReading> {
+  const base64 = bytesToBase64(scoreBytes)
+  let visionPart: unknown
+  if (scoreMimeType === 'application/pdf') {
+    visionPart = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+  } else if (CLAUDE_IMAGE_TYPES.has(scoreMimeType)) {
+    visionPart = { type: 'image', source: { type: 'base64', media_type: scoreMimeType, data: base64 } }
   } else {
-    measureLine = `Count measures carefully from the start using the time signature.`
+    // HEIC and others not supported by Claude vision. Return empty score.
+    console.warn('[readScoreNotes] unsupported score mime for Claude:', scoreMimeType)
+    return { key_signature: null, time_signature: null, tempo_marking: null, measures: [] }
   }
 
-  const indexBlock = measureIndex
-    ? `\nMEASURE INDEX — what is written in each visible measure (use this to match audio events to the correct measure number, do NOT count from the start):\n${measureIndex}\n\nWhen you hear an event in the recording, FIRST identify what musical content you heard (e.g. "descending arpeggio in eighth notes", "ascending scale to a high note"), THEN find the matching entry in the index above, THEN use that entry's measure number. Never report a measure number that is not in the index.\n`
-    : ''
+  const prompt = `You are an expert music engraver reading a sheet music image for a ${instrument} student.
 
-  return `You are an expert music teacher and professional ${instrument} player analyzing a student's practice recording of "${pieceTitle}" by ${composer}.
-Time signature: ${timeSig}.
-${measureLine}
-${indexBlock}
-Listen to the ENTIRE recording carefully. Your job is to identify ONLY issues you can clearly and specifically hear.
+CRITICAL: The student is playing this passage starting from measure ${startMeasure}. That is the absolute measure number of the FIRST measure visible at the top-left of the score. NUMBER ALL MEASURES SEQUENTIALLY FROM ${startMeasure}: the first measure is ${startMeasure}, the next is ${startMeasure + 1}, and so on. Do NOT trust printed measure numbers in the image — handwritten fingerings and ornaments often look like numbers. Trust the sequential count from ${startMeasure} only.
 
-RULES:
-- Quality over quantity: 0–4 flags. Returning an empty flags array is correct and expected when the performance is clean — DO NOT invent issues to fill space.
-- If you are not at least 80% confident an issue is real AND that you have the correct measure number, do not include it.
-- Before flagging, ask yourself: "Can I name the exact beat and note where this happened?" If not, drop the flag.
-- Only flag measures the student actually plays. Do not invent or assume issues.
-- Do not flag the same problem in multiple consecutive measures unless you can hear it distinctly recurring in each.
-- Name the exact beat, note, or passage where the issue happens.
-- Choose the type that matches the PRIMARY symptom you hear. Use this decision order:
-  1. INTONATION → only if a pitch is clearly sharp or flat against the harmony (string/wind/voice; never piano).
-  2. TIMING → only if a beat is measurably rushed or dragged relative to surrounding pulse.
-  3. ARTICULATION → only if note length / attack / separation is wrong (staccato vs legato, missing accent, blurred ties).
-  4. DYNAMICS → only if loudness shape is wrong relative to the phrase (peak in wrong place, no contrast).
-  5. VOICING → only if one voice/string/hand dominates and muddies the texture.
-- Do NOT label something "timing" just because it sounds off — pick the actual symptom. If two symptoms coexist, flag the more severe one and mention the other in raw_detail.
-- For TIMING: name which beat rushes or drags.
-- For DYNAMICS: name where the line peaks or falls relative to the phrase shape.
-- For ARTICULATION: name which notes are too short/long or missing separation.
-- For INTONATION: name sharp or flat, which register.
-- For VOICING: name which voice/string is too loud and why it muddies the texture.
+Time signature (if known): ${timeSig}. If you see a different time signature in the score, use what you see.
 
-FIRST, follow along with the score while listening. Build an ALIGNMENT: for every measure in the MEASURE INDEX above, note when in the recording (in seconds from 0:00) the student plays the first note of that measure and when they finish the last note. A measure at typical tempo spans 2–5 seconds. Go measure-by-measure in order. If the student stops before the end of the score, only include measures they actually played.
+For every measure visible on the page, list the printed notes:
+- pitch: scientific pitch notation (e.g. "D3", "F#4", "Bb3"). Use null for rests.
+- beat: position within the measure as a decimal (1.0 = downbeat, 2.0 = beat 2, 1.5 = "and" of 1). For 12/8, count 1.0, 1.33, 1.67, 2.0, … (each eighth = 0.33 of a beat group). For 4/4, beats are 1, 2, 3, 4.
+- duration_beats: how many beats this note lasts.
+- articulation: "staccato", "tenuto", "accent", "slur_start", "slur_end", or null.
+- dynamic: "pp", "p", "mp", "mf", "f", "ff", "cresc", "dim", or null. Carry forward — only mark when notation changes.
 
-THEN identify flagged issues. For each flag, the timestamp_start and timestamp_end MUST match the alignment entry for that measure — do not invent separate timestamps. timestamp_end must be at least 2 seconds after timestamp_start.
+If a note is illegible or ambiguous, OMIT it — do not guess. It is correct to return measures with fewer notes than the full notation.
 
-Return ONLY valid JSON, no markdown:
+Return JSON only (no markdown):
 {
-  "score": <integer 0–100>,
-  "alignment": [
-    { "measure": <integer>, "start": <seconds>, "end": <seconds> }
-  ],
-  "flags": [
+  "key_signature": "<e.g. D minor>",
+  "time_signature": "<e.g. 12/8>",
+  "tempo_marking": "<e.g. Lento, quarter = 56>",
+  "measures": [
     {
-      "measure": <integer>,
-      "type": "<timing|dynamics|voicing|articulation|intonation>",
-      "confidence": <integer 70–100>,
-      "title": "<6–10 word specific problem title>",
-      "timestamp_start": <seconds — must equal this measure's alignment.start>,
-      "timestamp_end": <seconds — must equal this measure's alignment.end>,
-      "raw_detail": "<3 sentences: what you heard · which beat/note · why it matters>"
+      "number": ${startMeasure},
+      "notes": [
+        {"pitch": "D3", "beat": 1.0, "duration_beats": 1.5, "articulation": null, "dynamic": "p"}
+      ]
     }
   ]
 }`
-}
 
-// Parse total measure count from MusicXML text
-function parseMeasureCount(xmlText: string): number | null {
-  try {
-    const matches = [...xmlText.matchAll(/<measure[^>]+number="(\d+)"/g)]
-    const nums = matches.map(m => parseInt(m[1], 10)).filter(n => !isNaN(n))
-    return nums.length > 0 ? Math.max(...nums) : null
-  } catch {
-    return null
+  const msg = await anthropic.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 8000,
+    messages: [{
+      role: 'user',
+      content: [
+        visionPart as { type: 'image' | 'document'; source: { type: 'base64'; media_type: string; data: string } },
+        { type: 'text', text: prompt },
+      ],
+    }],
+  })
+  const raw = (msg.content[0] as { type: string; text: string }).text ?? ''
+  const parsed = extractJsonObject(raw) as ScoreReading | null
+  if (!parsed) {
+    console.error('[readScoreNotes] no JSON in response:', raw.slice(0, 500))
+    return { key_signature: null, time_signature: null, tempo_marking: null, measures: [] }
+  }
+
+  // Sanity: first measure number must equal startMeasure. If Claude got that
+  // wrong, renumber sequentially from startMeasure.
+  const measures = (parsed.measures ?? []).filter(m => Array.isArray(m?.notes))
+  if (measures.length > 0 && measures[0].number !== startMeasure) {
+    console.warn('[readScoreNotes] renumbering: first measure was', measures[0].number, 'expected', startMeasure)
+    for (let i = 0; i < measures.length; i++) measures[i].number = startMeasure + i
+  }
+
+  return {
+    key_signature:  parsed.key_signature  ?? null,
+    time_signature: parsed.time_signature ?? null,
+    tempo_marking:  parsed.tempo_marking  ?? null,
+    measures,
   }
 }
 
-// ── Gemini Files API ───────────────────────────────────────────────────────
+// ── Step 2: Gemini transcribes the audio into pitch events ────────────────
 
 async function uploadVideoToGemini(videoBytes: Uint8Array, mimeType: string, apiKey: string): Promise<string> {
   const boundary = `gem_${Date.now()}`
   const metadata = JSON.stringify({ file: { displayName: 'practice-recording' } })
   const CRLF = '\r\n'
-
-  const pre = `--${boundary}${CRLF}Content-Type: application/json; charset=UTF-8${CRLF}${CRLF}${metadata}${CRLF}--${boundary}${CRLF}Content-Type: ${mimeType}${CRLF}${CRLF}`
+  const pre  = `--${boundary}${CRLF}Content-Type: application/json; charset=UTF-8${CRLF}${CRLF}${metadata}${CRLF}--${boundary}${CRLF}Content-Type: ${mimeType}${CRLF}${CRLF}`
   const post = `${CRLF}--${boundary}--`
-  const preBytes  = new TextEncoder().encode(pre)
-  const postBytes = new TextEncoder().encode(post)
-
-  const body = new Uint8Array(preBytes.length + videoBytes.length + postBytes.length)
-  body.set(preBytes)
-  body.set(videoBytes, preBytes.length)
-  body.set(postBytes, preBytes.length + videoBytes.length)
+  const preB  = new TextEncoder().encode(pre)
+  const postB = new TextEncoder().encode(post)
+  const body = new Uint8Array(preB.length + videoBytes.length + postB.length)
+  body.set(preB)
+  body.set(videoBytes, preB.length)
+  body.set(postB, preB.length + videoBytes.length)
 
   const uploadRes = await fetch(
     `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}&uploadType=multipart`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-      body: body,
-    }
+    { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body },
   )
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text()
-    throw new Error(`Gemini upload failed: ${errText}`)
-  }
-
+  if (!uploadRes.ok) throw new Error(`Gemini upload failed: ${await uploadRes.text()}`)
   const { file } = await uploadRes.json()
 
-  // Poll until ACTIVE (video processing can take a few seconds)
   const fileId = (file.name as string).split('/').pop()!
   let state: string = file.state
   let attempts = 0
@@ -142,274 +198,284 @@ async function uploadVideoToGemini(videoBytes: Uint8Array, mimeType: string, api
     attempts++
   }
   if (state !== 'ACTIVE') throw new Error(`Gemini file never became active (state: ${state})`)
-
   return file.uri as string
 }
 
-const GEMINI_MODEL = 'gemini-2.5-pro'
+async function transcribeAudio(
+  videoFileUri: string,
+  videoMimeType: string,
+  instrument: string,
+  apiKey: string,
+): Promise<AudioTranscription> {
+  const prompt = `Listen carefully to this ${instrument} performance. Your job is to transcribe the audio into a list of pitch events with timestamps.
 
-async function geminiGenerate(parts: unknown[], apiKey: string, temperature = 0.1): Promise<string> {
+STRICT RULES:
+- Report ONLY events where you are 80%+ confident of the pitch you heard. Skip ambiguous moments entirely — better to skip than to guess.
+- For each event: time_sec (when in the recording it occurred, seconds from 0:00), pitches (an array of scientific-pitch-notation strings like "D3" or "F#4"; usually 1 pitch for monophonic instruments, occasionally 2+ for double-stops/chords), and confidence (your 0-100 confidence).
+- Use scientific pitch notation: middle C = "C4". Cello open strings: C2, G2, D3, A3. Violin open strings: G3, D4, A4, E5.
+- Cover the WHOLE recording from 0:00 to the end — do not stop after the first few seconds.
+- Also estimate the overall tempo in BPM (beats per minute) and whether tempo is "steady" or "wavering".
+
+Return JSON only (no markdown):
+{
+  "audio_duration_sec": <number>,
+  "events": [
+    {"time_sec": 0.00, "pitches": ["D3"], "confidence": 95, "loudness": "medium"}
+  ],
+  "tempo_estimate_bpm": <number or null>,
+  "tempo_steadiness": "steady" | "wavering"
+}`
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts }],
+        contents: [{
+          parts: [
+            { fileData: { mimeType: videoMimeType, fileUri: videoFileUri } },
+            { text: prompt },
+          ],
+        }],
         generationConfig: {
-          temperature,
+          temperature: 0,
           responseMimeType: 'application/json',
           maxOutputTokens: 16384,
         },
       }),
-    }
+    },
   )
-  if (!res.ok) throw new Error(`Gemini generateContent failed: ${await res.text()}`)
+  if (!res.ok) throw new Error(`Gemini transcribeAudio failed: ${await res.text()}`)
   const data = await res.json()
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
   if (!text) {
-    console.error('[geminiGenerate] empty/blocked response:', JSON.stringify(data).slice(0, 800))
-    throw new Error('Gemini returned no text — likely truncated or blocked')
+    console.error('[transcribeAudio] empty response:', JSON.stringify(data).slice(0, 600))
+    throw new Error('Gemini returned no text from transcribeAudio')
   }
-  return text
-}
+  const parsed = extractJsonObject(text) as Partial<AudioTranscription> | null
+  if (!parsed) throw new Error('transcribeAudio: could not parse JSON')
 
-function buildParts(
-  videoFileUri: string,
-  videoMimeType: string,
-  prompt: string,
-  scoreFileUri?: string,
-  scoreMimeType?: string,
-): unknown[] {
-  const parts: unknown[] = []
-  if (scoreFileUri && scoreMimeType)
-    parts.push({ fileData: { mimeType: scoreMimeType, fileUri: scoreFileUri } })
-  parts.push({ fileData: { mimeType: videoMimeType, fileUri: videoFileUri } })
-  parts.push({ text: prompt })
-  return parts
-}
+  // Filter to confidence >= 80, sort by time
+  const events = (parsed.events ?? [])
+    .filter(e => typeof e?.time_sec === 'number' && Array.isArray(e.pitches) && e.pitches.length > 0)
+    .filter(e => (e.confidence ?? 100) >= 80)
+    .map(e => ({
+      time_sec: e.time_sec!,
+      pitches: e.pitches!.map(String),
+      confidence: e.confidence ?? 100,
+      loudness: (e as AudioEvent).loudness ?? null,
+    }))
+    .sort((a, b) => a.time_sec - b.time_sec)
 
-async function analyzeWithGemini(
-  videoFileUri: string,
-  videoMimeType: string,
-  prompt: string,
-  apiKey: string,
-  scoreFileUri?: string,
-  scoreMimeType?: string,
-) {
-  const raw = await geminiGenerate(buildParts(videoFileUri, videoMimeType, prompt, scoreFileUri, scoreMimeType), apiKey, 0.1)
-  // Strip markdown code fences if present, then extract the outermost JSON object
-  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
-  const start = stripped.indexOf('{')
-  const end   = stripped.lastIndexOf('}')
-  if (start === -1 || end === -1) throw new Error('Gemini did not return valid JSON in Pass 2')
-  return JSON.parse(stripped.slice(start, end + 1)) as {
-    score: number;
-    alignment?: Array<{ measure: number; start: number; end: number }>;
-    flags: Array<{ measure: number; type: string; title: string; confidence?: number; raw_detail: string; timestamp_start?: number; timestamp_end?: number; bbox?: [number, number, number, number] }>;
+  return {
+    audio_duration_sec: parsed.audio_duration_sec ?? (events[events.length - 1]?.time_sec ?? 0) + 2,
+    events,
+    tempo_estimate_bpm: parsed.tempo_estimate_bpm ?? null,
+    tempo_steadiness:   parsed.tempo_steadiness   ?? null,
   }
 }
 
-const VISUAL_SCORE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'])
+// ── Step 3: Anchor & align (pure code) ─────────────────────────────────────
 
-// Per-measure entry returned by extractMeasureLayout.
-interface LayoutMeasure {
-  number: number
-  bbox: [number, number, number, number]   // [y0, x0, y1, x1] in 0–1000 units
-  content: string                            // one-sentence factual description
-}
-interface ScoreLayout {
-  staff_angle: number
-  measures: LayoutMeasure[]
-}
-
-// Single rich pre-pass: ask Gemini to map out every visible measure on the
-// score — number, bbox, and a one-sentence factual description of what's
-// written. This index is the foundation for both correct measure labeling
-// (audio-to-content matching) and accurate highlight boxes (lookup, not guess).
-async function extractMeasureLayout(
-  scoreFileUri: string,
-  scoreMimeType: string,
-  apiKey: string,
-): Promise<ScoreLayout> {
-  const prompt = `You are a professional music engraver building a structured layout map of a sheet music photo. Look at every measure visible in this image and return a JSON object describing them all.
-
-For staff_angle:
-- Estimate the clockwise rotation of the horizontal staff lines in degrees.
-- Positive = right side lower than left. Negative = right side higher. A level photo = 0. Clamp to [-15, 15].
-
-For measures, walk the page in reading order (top system left → right, then next system left → right):
-- number: the printed measure number when shown. When a measure is NOT printed, infer it from the nearest printed anchor and the time signature (each system adds measures consecutively). Never output 0; never reset to 1 mid-page.
-- bbox: a 4-integer array [y_min, x_min, y_max, x_max] in 0–1000 units (0 = top-left of the image, 1000 = bottom-right). The box must cover the FULL staff height for this measure (from the top staff line to the bottom staff line at this horizontal position, including ledger lines for high/low notes) AND the horizontal span from the opening barline to the closing barline of this single measure. Do NOT span multiple measures in one box.
-- content: ONE short factual sentence describing what is written in this measure — the dominant rhythm or note pattern, plus any dynamic, tempo, articulation, or expression marking. Examples: "Descending F# minor arpeggio in eighth notes, p marking." / "Half note then two staccato quarters, crescendo to f." / "Rising chromatic run, sixteenth notes, no dynamic change."
-
-List every measure you can see. Be exhaustive — do not skip any.`
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { fileData: { mimeType: scoreMimeType, fileUri: scoreFileUri } },
-              { text: prompt },
-            ],
-          }],
-          generationConfig: {
-            temperature: 0,
-            responseMimeType: 'application/json',
-            maxOutputTokens: 8192,
-          },
-        }),
-      }
-    )
-    if (!res.ok) {
-      console.error('[extractMeasureLayout] HTTP error:', res.status, await res.text())
-      return { staff_angle: 0, measures: [] }
-    }
-    const data = await res.json()
-    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? ''
-    // Strip code fences if present, then extract outer JSON object.
-    const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
-    const objStart = stripped.indexOf('{')
-    const objEnd   = stripped.lastIndexOf('}')
-    if (objStart === -1 || objEnd === -1) {
-      console.error('[extractMeasureLayout] no JSON object in response:', raw.slice(0, 300))
-      return { staff_angle: 0, measures: [] }
-    }
-    let parsed: { staff_angle?: number; measures?: unknown[] }
-    try { parsed = JSON.parse(stripped.slice(objStart, objEnd + 1)) }
-    catch (e) {
-      console.error('[extractMeasureLayout] parse error:', (e as Error).message, 'raw:', raw.slice(0, 300))
-      return { staff_angle: 0, measures: [] }
-    }
-    const staff_angle = typeof parsed.staff_angle === 'number'
-      ? Math.max(-15, Math.min(15, parsed.staff_angle))
-      : 0
-    const measures: LayoutMeasure[] = []
-    for (const m of (parsed.measures ?? [])) {
-      const obj = m as { number?: unknown; bbox?: unknown; content?: unknown }
-      if (typeof obj.number !== 'number' || !Number.isFinite(obj.number)) continue
-      if (!Array.isArray(obj.bbox) || obj.bbox.length !== 4) continue
-      const [y0, x0, y1, x1] = (obj.bbox as number[]).map(v => Math.max(0, Math.min(1000, Math.round(v))))
-      if (y1 <= y0 || x1 <= x0) continue
-      const content = typeof obj.content === 'string' ? obj.content.trim() : ''
-      measures.push({ number: Math.round(obj.number), bbox: [y0, x0, y1, x1], content })
-    }
-    return { staff_angle, measures }
-  } catch {
-    return { staff_angle: 0, measures: [] }
+function anchorAndAlign(
+  score: ScoreReading,
+  audio: AudioTranscription,
+  startMeasure: number,
+): { aligned: AlignedEvent[]; secPerMeasure: number; alignmentRanges: Array<{ measure: number; start: number; end: number }> } {
+  if (audio.events.length === 0 || score.measures.length === 0) {
+    return { aligned: [], secPerMeasure: 0, alignmentRanges: [] }
   }
-}
 
-// Narrow a whole-measure bbox to the specific note/beat referenced in the
-// flag's raw_detail. Only called when the detail clearly points at a single
-// spot in the measure. Returns the narrowed bbox or null (caller falls back
-// to the whole-measure bbox).
-async function refineToNote(
-  measureBbox: [number, number, number, number],
-  measureContent: string,
-  rawDetail: string,
-  scoreFileUri: string,
-  scoreMimeType: string,
-  apiKey: string,
-): Promise<[number, number, number, number] | null> {
-  const [y0, x0, y1, x1] = measureBbox
-  const prompt = `Below is a sheet music image. Inside it, ONE measure is at bounding box [y_min=${y0}, x_min=${x0}, y_max=${y1}, x_max=${x1}] (0–1000 coordinate space, 0 = top-left).
-
-That measure contains: ${measureContent}
-
-A performance issue occurred in this measure. The student's actual mistake was:
-"${rawDetail}"
-
-Locate the SPECIFIC note(s) or beat inside this measure where the issue happened. Return a narrower bounding box covering only that note or beat — it must lie entirely inside the measure box above, and should be at most about 40% as wide as the measure.
-
-Return ONLY JSON: {"bbox": [y_min, x_min, y_max, x_max]} with integers 0–1000. If you cannot pinpoint the spot inside this measure, return {"bbox": null}.`
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { fileData: { mimeType: scoreMimeType, fileUri: scoreFileUri } },
-              { text: prompt },
-            ],
-          }],
-          generationConfig: { temperature: 0 },
-        }),
-      }
-    )
-    if (!res.ok) return null
-    const data = await res.json()
-    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? ''
-    const jsonMatch = raw.match(/\{[\s\S]*?\}/)
-    if (!jsonMatch) return null
-    let parsed: { bbox?: unknown }
-    try { parsed = JSON.parse(jsonMatch[0]) } catch { return null }
-    if (!parsed.bbox || !Array.isArray(parsed.bbox) || parsed.bbox.length !== 4) return null
-    const [ny0, nx0, ny1, nx1] = (parsed.bbox as number[]).map(v => Math.max(0, Math.min(1000, Math.round(v))))
-    if (ny1 <= ny0 || nx1 <= nx0) return null
-    // Reject if it escapes the parent measure box (with a small slack).
-    const slack = 10
-    if (ny0 < y0 - slack || nx0 < x0 - slack || ny1 > y1 + slack || nx1 > x1 + slack) return null
-    return [ny0, nx0, ny1, nx1]
-  } catch {
-    return null
+  // Find anchor: first audio event whose pitch matches one of the first measure's pitches.
+  const firstMeasurePitches = new Set(
+    (score.measures[0].notes ?? []).map(n => n.pitch).filter((p): p is string => !!p)
+  )
+  let anchorEvent: AudioEvent = audio.events[0]
+  for (const ev of audio.events) {
+    if (ev.pitches.some(p => firstMeasurePitches.has(p))) { anchorEvent = ev; break }
   }
+  const tAnchor = anchorEvent.time_sec
+
+  // Estimate seconds per measure. Prefer the score's tempo marking + time sig.
+  // Fallback: divide remaining duration by visible measure count.
+  let secPerMeasure: number
+  const playedDuration = Math.max(0.5, audio.audio_duration_sec - tAnchor)
+  const visibleCount   = score.measures.length
+  if (audio.tempo_estimate_bpm && score.time_signature) {
+    const bpm = audio.tempo_estimate_bpm
+    const [num, denom] = score.time_signature.split('/').map(s => parseInt(s, 10))
+    if (num && denom) {
+      // bpm is typically quarter-note BPM. measure_seconds = (num / denom) * (60 / bpm) * 4
+      secPerMeasure = (num / denom) * (60 / bpm) * 4
+    } else {
+      secPerMeasure = playedDuration / visibleCount
+    }
+  } else {
+    secPerMeasure = playedDuration / visibleCount
+  }
+  // Clamp to sane range
+  secPerMeasure = Math.max(1.0, Math.min(15.0, secPerMeasure))
+
+  // Bucket events to measures
+  const validMeasures = new Set(score.measures.map(m => m.number))
+  const aligned: AlignedEvent[] = []
+  for (const ev of audio.events) {
+    const m = startMeasure + Math.round((ev.time_sec - tAnchor) / secPerMeasure)
+    if (validMeasures.has(m)) aligned.push({ ...ev, measure: m })
+  }
+
+  // Build measure → time range map for the coach
+  const rangesByMeasure = new Map<number, { start: number; end: number }>()
+  for (const ev of aligned) {
+    const existing = rangesByMeasure.get(ev.measure)
+    if (existing) {
+      rangesByMeasure.set(ev.measure, {
+        start: Math.min(existing.start, ev.time_sec),
+        end:   Math.max(existing.end,   ev.time_sec),
+      })
+    } else {
+      rangesByMeasure.set(ev.measure, { start: ev.time_sec, end: ev.time_sec })
+    }
+  }
+  // Ensure each range is at least secPerMeasure wide
+  const alignmentRanges = Array.from(rangesByMeasure.entries())
+    .map(([measure, r]) => ({
+      measure,
+      start: r.start,
+      end:   Math.max(r.end, r.start + secPerMeasure * 0.9),
+    }))
+    .sort((a, b) => a.measure - b.measure)
+
+  return { aligned, secPerMeasure, alignmentRanges }
 }
 
-// True when raw_detail mentions a specific note/beat worth zooming in on.
-function isNoteLevelIssue(rawDetail: string): boolean {
-  return /\bbeat\b|\bdownbeat\b|first note|last note|second note|third note|fourth note|high\s*[A-G][#b♯♭]?|low\s*[A-G][#b♯♭]?|\b[A-G][#b♯♭]?\d?\b/i.test(rawDetail)
-}
+// ── Step 4: Claude compares score vs. performance and writes flags ─────────
 
-// ── Claude Sonnet coaching text ────────────────────────────────────────────
-
-async function generateCoachingText(
-  flag: { measure: number; type: string; title: string; raw_detail: string },
+async function compareAndCoach(
+  score: ScoreReading,
+  aligned: AlignedEvent[],
+  alignmentRanges: Array<{ measure: number; start: number; end: number }>,
+  tempo: { bpm: number | null; steadiness: string | null },
   pieceTitle: string,
   composer: string,
   instrument: string,
-): Promise<string> {
+): Promise<CoachingFlag[]> {
+  // Build per-measure comparison
+  const eventsByMeasure = new Map<number, AudioEvent[]>()
+  for (const ev of aligned) {
+    if (!eventsByMeasure.has(ev.measure)) eventsByMeasure.set(ev.measure, [])
+    eventsByMeasure.get(ev.measure)!.push(ev)
+  }
+  const validMeasures = new Set(score.measures.map(m => m.number))
+  const playedMeasures = score.measures.filter(m => eventsByMeasure.has(m.number))
+
+  if (playedMeasures.length === 0) {
+    console.warn('[compareAndCoach] no measures aligned with audio')
+    return []
+  }
+
+  const measureBlocks = playedMeasures.map(m => {
+    const written = m.notes.length === 0
+      ? '(no notes parsed)'
+      : m.notes.map(n => {
+          const parts = [`${n.pitch ?? 'rest'} @ beat ${n.beat} (${n.duration_beats}b)`]
+          if (n.articulation) parts.push(n.articulation)
+          if (n.dynamic)      parts.push(n.dynamic)
+          return parts.join(' ')
+        }).join(', ')
+    const heard = (eventsByMeasure.get(m.number) ?? [])
+      .map(e => `${e.pitches.join('/')} @ ${e.time_sec.toFixed(2)}s${e.loudness ? ' [' + e.loudness + ']' : ''}`)
+      .join(', ')
+    return `Measure ${m.number}:\n  WRITTEN: ${written}\n  HEARD:   ${heard}`
+  }).join('\n\n')
+
+  const validMeasuresList = Array.from(validMeasures).sort((a, b) => a - b)
+
+  const prompt = `You are a master ${instrument} teacher giving specific, grounded feedback to a student on "${pieceTitle}" by ${composer}.
+
+Below is a measure-by-measure comparison of WRITTEN notation (from the score) and HEARD audio events (transcribed from the student's recording). Use ONLY this data — do not invent details that aren't here.
+
+${measureBlocks}
+
+Tempo: ${tempo.bpm ?? '?'} BPM, ${tempo.steadiness ?? '?'}.
+Key: ${score.key_signature ?? '?'}. Time signature: ${score.time_signature ?? '?'}.
+
+YOUR TASK:
+Identify 0–4 SPECIFIC issues that are clearly evident in the comparison above. For each issue, you MUST cite the specific note(s) — like "written B♭3 on beat 1, heard B♮3 (sharp by a half-step)" or "written staccato eighth notes, heard legato".
+
+HARD RULES:
+- Every "measure" field MUST be one of: [${validMeasuresList.join(', ')}].
+- If you cannot cite a specific note-level comparison from the data, DROP that flag.
+- Returning {"flags": []} is correct for a clean performance. Do NOT invent issues to fill space.
+- Use confidence 80+ only.
+- "type" must be one of: intonation, timing, rhythm, articulation, dynamics, voicing.
+
+Return JSON only (no markdown):
+{
+  "flags": [
+    {
+      "measure": <int from the allowed list>,
+      "beat": <number, 1-based>,
+      "type": "<intonation|timing|rhythm|articulation|dynamics|voicing>",
+      "confidence": <80-100>,
+      "title": "<6–10 word specific title naming the note/beat>",
+      "raw_detail": "<one sentence citing exactly what was written vs what was heard>",
+      "body": "<3-sentence warm coaching paragraph: what happened, why it matters, one specific practice technique>"
+    }
+  ]
+}`
+
   const msg = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 450,
-    messages: [{
-      role: 'user',
-      content: `You are an expert ${instrument} teacher giving feedback to a student on "${pieceTitle}" by ${composer}.
-
-Issue detected in measure ${flag.measure} (${flag.type}): ${flag.raw_detail}
-
-Write exactly 3 sentences of coaching feedback. No headers, no labels, no "Feedback:" prefix, no markdown — start immediately with the first sentence:
-1. Acknowledge specifically what happened and where (reference the measure and what went wrong).
-2. Explain briefly why this matters musically in this passage.
-3. Give one concrete, named practice technique specific to ${instrument} they can use right now — be precise (e.g. "slow-bow on just beats 2–3", "use a metronome at 60 bpm", "practice the shift in isolation without vibrato").
-
-Be direct and specific. Do not be vague or generic. Sound like a master teacher, not a chatbot.`,
-    }],
+    model: CLAUDE_MODEL,
+    max_tokens: 4000,
+    messages: [{ role: 'user', content: prompt }],
   })
-  return (msg.content[0] as { type: string; text: string }).text.trim()
+  const raw = (msg.content[0] as { type: string; text: string }).text ?? ''
+  const parsed = extractJsonObject(raw) as { flags?: Array<Partial<CoachingFlag> & { beat?: number }> } | null
+  if (!parsed) {
+    console.error('[compareAndCoach] no JSON in response:', raw.slice(0, 500))
+    return []
+  }
+
+  const rangeMap = new Map(alignmentRanges.map(r => [r.measure, r]))
+  const flags: CoachingFlag[] = []
+  for (const f of (parsed.flags ?? [])) {
+    if (typeof f.measure !== 'number' || !validMeasures.has(f.measure)) {
+      console.warn('[compareAndCoach] dropping flag with invalid measure:', f.measure)
+      continue
+    }
+    if ((f.confidence ?? 100) < 80) continue
+    if (!f.type || !f.title || !f.raw_detail || !f.body) continue
+
+    const range = rangeMap.get(f.measure)
+    flags.push({
+      measure:         f.measure,
+      type:            String(f.type),
+      title:           String(f.title),
+      raw_detail:      String(f.raw_detail),
+      body:            String(f.body),
+      confidence:      f.confidence ?? 100,
+      timestamp_start: range?.start ?? null,
+      timestamp_end:   range?.end   ?? null,
+      spot:            null,
+      spot_angle:      0,
+    })
+  }
+  return flags
 }
 
-// ── Handler ────────────────────────────────────────────────────────────────
+// ── Handler ───────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
 
   try {
-    // Auth
     const authHeader = req.headers.get('Authorization')!
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
+      { global: { headers: { Authorization: authHeader } } },
     )
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) throw new Error('Unauthorized')
@@ -417,176 +483,88 @@ serve(async (req) => {
     const { videoPath, videoMimeType, scorePath, scoreMimeType, pieceTitle, composer, timeSig, instrument, startMeasure } = await req.json()
     if (!videoPath || !videoMimeType) throw new Error('videoPath and videoMimeType are required')
 
-    // Download video from Supabase Storage via service role
+    const startMeasureNum = startMeasure ? parseInt(startMeasure, 10) : 1
+    const safeStart = Number.isFinite(startMeasureNum) && startMeasureNum >= 1 ? startMeasureNum : 1
+
     const admin = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
-    const { data: videoBlob, error: dlError } = await admin.storage
-      .from('recordings')
-      .download(videoPath)
-    if (dlError || !videoBlob) throw new Error(`Video download failed: ${dlError?.message}`)
 
+    // Download video
+    const { data: videoBlob, error: vErr } = await admin.storage.from('recordings').download(videoPath)
+    if (vErr || !videoBlob) throw new Error(`Video download failed: ${vErr?.message}`)
     const videoBytes = new Uint8Array(await videoBlob.arrayBuffer())
-    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')!
 
-    // Handle score file: image/PDF → upload to Gemini for visual analysis;
-    // XML → parse measure count for text context
-    let totalMeasures: number | null = null
-    let scoreFileUri: string | undefined
-    let scoreGeminiMime: string | undefined
-
-    if (scorePath && scoreMimeType) {
-      const { data: scoreBlob } = await admin.storage.from('sheet-music').download(scorePath)
-      if (scoreBlob) {
-        if (VISUAL_SCORE_TYPES.has(scoreMimeType)) {
-          // Upload image/PDF to Gemini so it can visually see the sheet music
-          const scoreBytes = new Uint8Array(await scoreBlob.arrayBuffer())
-          scoreFileUri   = await uploadVideoToGemini(scoreBytes, scoreMimeType, googleApiKey)
-          scoreGeminiMime = scoreMimeType
-        } else {
-          // Try to parse measure count from XML
-          try {
-            const xmlText = await scoreBlob.text()
-            totalMeasures = parseMeasureCount(xmlText)
-          } catch { /* not plain XML */ }
-        }
+    // Download score (if visual)
+    let scoreBytes: Uint8Array | null = null
+    let resolvedScoreMime: string | null = null
+    if (scorePath && scoreMimeType && VISUAL_SCORE_TYPES.has(scoreMimeType)) {
+      const { data: sBlob } = await admin.storage.from('sheet-music').download(scorePath)
+      if (sBlob) {
+        scoreBytes = new Uint8Array(await sBlob.arrayBuffer())
+        resolvedScoreMime = scoreMimeType
       }
     }
 
-    // Upload video to Gemini Files API
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')!
+
+    // Upload video to Gemini (sequential with file processing)
     const videoFileUri = await uploadVideoToGemini(videoBytes, videoMimeType, googleApiKey)
 
-    // Single rich pre-pass: build the measure layout (number → bbox → content).
-    // 45 s timeout — this is heavier than the old per-pass calls.
-    const timeout = <T>(p: Promise<T>, fallback: T) =>
-      Promise.race([p, new Promise<T>(r => setTimeout(() => r(fallback), 45_000))])
+    // Step 1 + Step 2 in parallel
+    const [score, audio] = await Promise.all([
+      scoreBytes && resolvedScoreMime
+        ? readScoreNotes(scoreBytes, resolvedScoreMime, safeStart, instrument ?? 'instrument', timeSig ?? '4/4')
+        : Promise.resolve({ key_signature: null, time_signature: null, tempo_marking: null, measures: [] } as ScoreReading),
+      transcribeAudio(videoFileUri, videoMimeType, instrument ?? 'instrument', googleApiKey),
+    ])
+    console.log('[analyze-performance] score measures:', score.measures.length, 'starting at', score.measures[0]?.number ?? '?')
+    console.log('[analyze-performance] audio events (high-conf):', audio.events.length, 'duration:', audio.audio_duration_sec, 'tempo:', audio.tempo_estimate_bpm)
 
-    const layout: ScoreLayout = (scoreFileUri && scoreGeminiMime)
-      ? await timeout(
-          extractMeasureLayout(scoreFileUri, scoreGeminiMime, googleApiKey),
-          { staff_angle: 0, measures: [] } as ScoreLayout,
-        )
-      : { staff_angle: 0, measures: [] }
+    // Step 3: anchor & align
+    const { aligned, secPerMeasure, alignmentRanges } = anchorAndAlign(score, audio, safeStart)
+    console.log('[analyze-performance] aligned events:', aligned.length, 'sec/measure:', secPerMeasure.toFixed(2))
+    console.log('[analyze-performance] measures with audio:', alignmentRanges.map(r => r.measure))
 
-    const layoutMap = new Map<number, LayoutMeasure>()
-    for (const m of layout.measures) layoutMap.set(m.number, m)
-
-    const measureIndex = layout.measures
-      .map(m => `${m.number} — ${m.content}`)
-      .join('\n')
-    const measureRange = layout.measures.length > 0
-      ? { first: layout.measures[0].number, last: layout.measures[layout.measures.length - 1].number }
-      : null
-    console.log('[analyze-performance] layout:', layout.measures.length, 'measures, angle:', layout.staff_angle)
-    console.log('[analyze-performance] measureIndex (first 500):', measureIndex.slice(0, 500))
-
-    const smInt = startMeasure ? parseInt(startMeasure, 10) : null
-    const prompt = buildGeminiPrompt(
-      pieceTitle  ?? 'this piece',
-      composer    ?? 'unknown composer',
-      timeSig     ?? '4/4',
-      instrument  ?? 'Piano',
-      totalMeasures,
-      smInt,
-      measureIndex,
-      measureRange,
+    // Step 4: compare & coach
+    const flags = await compareAndCoach(
+      score,
+      aligned,
+      alignmentRanges,
+      { bpm: audio.tempo_estimate_bpm, steadiness: audio.tempo_steadiness },
+      pieceTitle ?? 'this piece',
+      composer  ?? 'the composer',
+      instrument ?? 'musician',
     )
+    console.log('[analyze-performance] coaching flags:', flags.map(f => `m.${f.measure} (${f.type})`))
 
-    const { score, alignment: rawAlignment, flags: allRawFlags } = await analyzeWithGemini(
-      videoFileUri, videoMimeType, prompt, googleApiKey, scoreFileUri, scoreGeminiMime,
-    )
-    console.log('[analyze-performance] raw flags:', JSON.stringify(allRawFlags))
+    // Overall score: simple inverse-flag heuristic, capped 50–98
+    const baseScore = Math.max(50, Math.min(98, 95 - flags.length * 6))
 
-    // Build alignment map: measure number → {start, end} from the recording.
-    // Sanitize: must be finite, ordered, non-overlapping after sort.
-    const alignmentList = (rawAlignment ?? [])
-      .filter(a => typeof a?.measure === 'number' && typeof a?.start === 'number' && typeof a?.end === 'number')
-      .filter(a => Number.isFinite(a.start) && Number.isFinite(a.end) && a.end > a.start)
-      .map(a => ({ measure: Math.round(a.measure), start: a.start, end: a.end }))
-      .sort((a, b) => a.start - b.start)
-    const alignmentMap = new Map<number, { start: number; end: number }>()
-    for (const a of alignmentList) alignmentMap.set(a.measure, { start: a.start, end: a.end })
-    console.log('[analyze-performance] alignment entries:', alignmentList.length)
-
-    // Drop flags Gemini isn't confident about, AND drop any flag whose measure
-    // isn't in the layout (means Gemini hallucinated a measure outside the page).
-    const rawFlags = allRawFlags
-      .filter(f => (f.confidence ?? 100) >= 80)
-      .filter(f => layoutMap.size === 0 || layoutMap.has(f.measure))
-    console.log('[analyze-performance] flags after filtering:', JSON.stringify(rawFlags))
-
-    // Coaching text + bbox lookup (with optional note-level zoom) per flag.
-    // If the layout pass failed, fall back to a per-flag bbox find using the
-    // full image as the parent region so the user still gets highlights.
-    const flags = await Promise.all(
-      rawFlags.map(async (f) => {
-        const measureEntry = layoutMap.get(f.measure)
-        const measureBbox  = measureEntry?.bbox ?? null
-
-        let bboxPromise: Promise<[number, number, number, number] | null>
-        if (measureBbox && measureEntry && scoreFileUri && scoreGeminiMime && isNoteLevelIssue(f.raw_detail)) {
-          bboxPromise = refineToNote(measureBbox, measureEntry.content, f.raw_detail, scoreFileUri, scoreGeminiMime, googleApiKey)
-        } else if (!measureEntry && scoreFileUri && scoreGeminiMime) {
-          // Fallback: layout missing this measure — locate it directly.
-          bboxPromise = refineToNote(
-            [0, 0, 1000, 1000],
-            `measure ${f.measure} of the score`,
-            `Locate measure ${f.measure}. ${f.raw_detail}`,
-            scoreFileUri, scoreGeminiMime, googleApiKey,
-          )
-        } else {
-          bboxPromise = Promise.resolve(null)
-        }
-
-        const [body, narrowed] = await Promise.all([
-          generateCoachingText(f, pieceTitle ?? 'this piece', composer ?? 'the composer', instrument ?? 'musician'),
-          bboxPromise,
-        ])
-
-        // Prefer the alignment map (ground truth from the score-follow pass)
-        // over per-flag timestamps. Fall back to flag timestamps if missing.
-        const aligned = alignmentMap.get(f.measure)
-        const tsStart = aligned?.start ?? f.timestamp_start ?? null
-        const tsEnd   = aligned?.end   ?? f.timestamp_end   ?? null
-        const validTs = tsStart !== null && tsEnd !== null
-          && tsStart >= 0 && tsEnd > tsStart && (tsEnd - tsStart) >= 1.5
-        return {
-          measure:         f.measure,
-          type:            f.type,
-          title:           f.title,
-          body,
-          spot:            narrowed ?? measureBbox ?? null,
-          spot_angle:      layout.staff_angle,
-          timestamp_start: validTs ? tsStart : null,
-          timestamp_end:   validTs ? tsEnd   : null,
-        }
-      })
-    )
-
-    // Store results in takes table
     const { data: take, error: insertError } = await admin
       .from('takes')
       .insert({
         user_id:         user.id,
-        piece_title:     pieceTitle  ?? 'Untitled',
-        piece_composer:  composer    ?? 'Unknown',
+        piece_title:     pieceTitle ?? 'Untitled',
+        piece_composer:  composer   ?? 'Unknown',
         video_path:      videoPath,
         video_mime_type: videoMimeType,
         score_path:      scorePath ?? null,
-        score:           Math.round(score),
+        score:           baseScore,
         flags,
-        measure_layout:  layout.measures.length > 0 ? layout : null,
-        audio_alignment: alignmentList.length > 0 ? alignmentList : null,
+        measure_layout:  score.measures.length > 0 ? score : null,
+        audio_alignment: alignmentRanges.length > 0 ? alignmentRanges : null,
       })
       .select('id')
       .single()
     if (insertError) throw new Error(`DB insert failed: ${insertError.message}`)
 
-    return new Response(JSON.stringify({ takeId: take.id, score: Math.round(score), flags }), {
+    return new Response(JSON.stringify({ takeId: take.id, score: baseScore, flags }), {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })
   } catch (err) {
+    console.error('[analyze-performance] error:', (err as Error).message)
     return new Response(JSON.stringify({ error: (err as Error).message }), {
       status: 400,
       headers: { 'Content-Type': 'application/json', ...CORS },

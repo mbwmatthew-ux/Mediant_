@@ -356,7 +356,7 @@ export default function Record() {
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>
-                  Starting measure <span className={styles.formOptional}>(optional)</span>
+                  Starting measure
                 </label>
                 <input
                   className={styles.formInput}
@@ -364,8 +364,11 @@ export default function Record() {
                   min="1"
                   value={startMeasure}
                   onChange={e => setStartMeasure(e.target.value)}
-                  placeholder="e.g. 216"
+                  placeholder="1"
                 />
+                <span className={styles.formOptional} style={{ marginTop: 4, display: 'block' }}>
+                  What measure does the recording begin on? This anchors the AI to the right place in the score.
+                </span>
               </div>
               <div className={styles.formGroup} />
             </div>

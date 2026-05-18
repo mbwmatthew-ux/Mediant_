@@ -214,26 +214,6 @@ async function extractMeasureLayout(
   scoreMimeType: string,
   apiKey: string,
 ): Promise<ScoreLayout> {
-  const layoutSchema = {
-    type: 'object',
-    properties: {
-      staff_angle: { type: 'number' },
-      measures: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            number:  { type: 'integer' },
-            bbox:    { type: 'array', items: { type: 'integer' } },
-            content: { type: 'string' },
-          },
-          required: ['number', 'bbox', 'content'],
-        },
-      },
-    },
-    required: ['staff_angle', 'measures'],
-  }
-
   const prompt = `You are a professional music engraver building a structured layout map of a sheet music photo. Look at every measure visible in this image and return a JSON object describing them all.
 
 For staff_angle:
@@ -263,16 +243,31 @@ List every measure you can see. Be exhaustive — do not skip any.`
           generationConfig: {
             temperature: 0,
             responseMimeType: 'application/json',
-            responseSchema: layoutSchema,
+            maxOutputTokens: 8192,
           },
         }),
       }
     )
-    if (!res.ok) return { staff_angle: 0, measures: [] }
+    if (!res.ok) {
+      console.error('[extractMeasureLayout] HTTP error:', res.status, await res.text())
+      return { staff_angle: 0, measures: [] }
+    }
     const data = await res.json()
     const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text as string) ?? ''
+    // Strip code fences if present, then extract outer JSON object.
+    const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
+    const objStart = stripped.indexOf('{')
+    const objEnd   = stripped.lastIndexOf('}')
+    if (objStart === -1 || objEnd === -1) {
+      console.error('[extractMeasureLayout] no JSON object in response:', raw.slice(0, 300))
+      return { staff_angle: 0, measures: [] }
+    }
     let parsed: { staff_angle?: number; measures?: unknown[] }
-    try { parsed = JSON.parse(raw) } catch { return { staff_angle: 0, measures: [] } }
+    try { parsed = JSON.parse(stripped.slice(objStart, objEnd + 1)) }
+    catch (e) {
+      console.error('[extractMeasureLayout] parse error:', (e as Error).message, 'raw:', raw.slice(0, 300))
+      return { staff_angle: 0, measures: [] }
+    }
     const staff_angle = typeof parsed.staff_angle === 'number'
       ? Math.max(-15, Math.min(15, parsed.staff_angle))
       : 0
@@ -493,18 +488,31 @@ serve(async (req) => {
     console.log('[analyze-performance] flags after filtering:', JSON.stringify(rawFlags))
 
     // Coaching text + bbox lookup (with optional note-level zoom) per flag.
+    // If the layout pass failed, fall back to a per-flag bbox find using the
+    // full image as the parent region so the user still gets highlights.
     const flags = await Promise.all(
       rawFlags.map(async (f) => {
         const measureEntry = layoutMap.get(f.measure)
         const measureBbox  = measureEntry?.bbox ?? null
 
-        const noteZoom = (measureBbox && measureEntry && scoreFileUri && scoreGeminiMime && isNoteLevelIssue(f.raw_detail))
-          ? refineToNote(measureBbox, measureEntry.content, f.raw_detail, scoreFileUri, scoreGeminiMime, googleApiKey)
-          : Promise.resolve(null)
+        let bboxPromise: Promise<[number, number, number, number] | null>
+        if (measureBbox && measureEntry && scoreFileUri && scoreGeminiMime && isNoteLevelIssue(f.raw_detail)) {
+          bboxPromise = refineToNote(measureBbox, measureEntry.content, f.raw_detail, scoreFileUri, scoreGeminiMime, googleApiKey)
+        } else if (!measureEntry && scoreFileUri && scoreGeminiMime) {
+          // Fallback: layout missing this measure — locate it directly.
+          bboxPromise = refineToNote(
+            [0, 0, 1000, 1000],
+            `measure ${f.measure} of the score`,
+            `Locate measure ${f.measure}. ${f.raw_detail}`,
+            scoreFileUri, scoreGeminiMime, googleApiKey,
+          )
+        } else {
+          bboxPromise = Promise.resolve(null)
+        }
 
         const [body, narrowed] = await Promise.all([
           generateCoachingText(f, pieceTitle ?? 'this piece', composer ?? 'the composer', instrument ?? 'musician'),
-          noteZoom,
+          bboxPromise,
         ])
 
         // Validate timestamps — must be positive, ordered, and span at least 1.5 s

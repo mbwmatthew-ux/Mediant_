@@ -25,19 +25,45 @@ serve(async (req) => {
     const { message, context, history } = await req.json()
     if (!message) throw new Error('message is required')
 
-    const flagSummary = (context.flags ?? [])
-      .map((f: { measure: number; type: string; title: string }) =>
-        `- Measure ${f.measure} (${f.type}): ${f.title}`)
-      .join('\n')
+    const flags = (context.flags ?? []) as Array<{
+      measure: number; type: string; title: string;
+      body?: string; raw_detail?: string;
+      timestamp_start?: number | null; timestamp_end?: number | null;
+    }>
 
-    const system = `You are a warm, expert music coach helping a student improve their piano performance.
+    const flagSummary = flags.length === 0
+      ? '(no specific issues were flagged in this take)'
+      : flags.map((f, i) => {
+          const ts = (f.timestamp_start != null && f.timestamp_end != null)
+            ? ` [audio ${f.timestamp_start.toFixed(1)}s–${f.timestamp_end.toFixed(1)}s]`
+            : ''
+          return `#${i + 1}. Measure ${f.measure} · ${f.type}${ts}
+  Title: ${f.title}
+  What was heard: ${f.raw_detail ?? '(not recorded)'}
+  Coaching given to student: ${f.body ?? '(not recorded)'}`
+        }).join('\n\n')
+
+    const measuresFlagged = flags.map(f => f.measure)
+    const measureRangeLine = measuresFlagged.length > 0
+      ? `Measures with flagged issues: ${measuresFlagged.join(', ')}.`
+      : ''
+
+    const system = `You are a warm, expert music coach helping a student improve their performance.
 
 The student just performed "${context.pieceTitle ?? 'a piece'}" by ${context.pieceComposer ?? 'unknown composer'}.
 Overall score: ${context.score != null ? `${context.score}/100` : 'not scored'}.
-Issues identified:
-${flagSummary || '(none)'}
 
-Answer their questions helpfully and specifically. Be encouraging but honest. Keep responses to 2–4 sentences unless they ask for more detail.`
+${measureRangeLine}
+
+DETAILED ISSUE LIST (this is the ONLY information you have about this take):
+${flagSummary}
+
+GROUNDING RULES — read carefully:
+- The list above is your ENTIRE knowledge of this take. You did NOT hear the recording yourself.
+- You do NOT know how far through the piece the student played, what tempo they took, or anything beyond what's in the list above.
+- If the student asks about anything not covered above (e.g. "did I play measure 55?", "how was my tempo overall?"), say honestly that you don't have that information — never guess or invent measure numbers, dynamics, or events.
+- When referencing an issue, cite the measure number EXACTLY as listed above. Do not refer to measures that are not in the list.
+- Be encouraging but accurate. Keep responses to 2–4 sentences unless asked for more detail.`
 
     const messages = [
       ...(history ?? []).map((m: { role: string; content: string }) => ({

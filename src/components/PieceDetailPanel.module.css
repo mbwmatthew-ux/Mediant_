@@ -190,6 +190,25 @@
   font-size: 0.82rem;
 }
 
+.sessionRowRight {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.deleteBtn {
+  background: none;
+  border: none;
+  color: rgba(88,121,101,0.3);
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 2px 4px;
+  transition: color 140ms ease;
+}
+.deleteBtn:hover { color: var(--coral); }
+.deleteBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .sessionScore {
   font-size: 0.95rem;
   font-weight: 700;

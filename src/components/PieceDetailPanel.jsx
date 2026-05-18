@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { getFile } from '../lib/fileStore'
+import { supabase } from '../lib/supabase'
 import styles from './PieceDetailPanel.module.css'
 
 function scoreColor(n) {
@@ -25,6 +26,7 @@ export default function PieceDetailPanel({ piece, onClose }) {
   const [scoreSource,   setScoreSource]   = useState(null)
   const [fileURL,       setFileURL]       = useState(null)  // object URL for uploaded file
   const [pastSessions,  setPastSessions]  = useState([])
+  const [deletingId,    setDeletingId]    = useState(null)
 
   // Load past sessions for this piece from localStorage
   useEffect(() => {
@@ -85,6 +87,27 @@ export default function PieceDetailPanel({ piece, onClose }) {
     load()
     return () => { if (objectURL) URL.revokeObjectURL(objectURL) }
   }, [piece.id, piece.title, piece.composer, piece.userUploaded])
+
+  async function deleteSession(take) {
+    if (!window.confirm(`Delete this recording from ${formatDate(take.date)}? This cannot be undone.`)) return
+    setDeletingId(take.id)
+    try {
+      // Remove from localStorage
+      const all = JSON.parse(localStorage.getItem('mediant_takes') || '[]')
+      localStorage.setItem('mediant_takes', JSON.stringify(all.filter(t => t.id !== take.id)))
+      setPastSessions(prev => prev.filter(t => t.id !== take.id))
+
+      // Delete video from Supabase Storage
+      if (take.video_path) {
+        await supabase.storage.from('recordings').remove([take.video_path])
+      }
+      // Delete sheet music from Supabase Storage
+      if (take.score_path) {
+        await supabase.storage.from('sheet-music').remove([take.score_path])
+      }
+    } catch { /* storage errors are non-fatal */ }
+    finally { setDeletingId(null) }
+  }
 
   function startRecording() {
     sessionStorage.setItem('mediant_prefill', JSON.stringify({
@@ -179,11 +202,21 @@ export default function PieceDetailPanel({ piece, onClose }) {
                   <div key={t.id || i} className={styles.sessionCard}>
                     <div className={styles.sessionRow}>
                       <span className={styles.sessionDate}>{formatDate(t.date)}</span>
-                      {t.score != null && (
-                        <span className={styles.sessionScore} style={{ color: scoreColor(t.score) }}>
-                          {t.score}/100
-                        </span>
-                      )}
+                      <div className={styles.sessionRowRight}>
+                        {t.score != null && (
+                          <span className={styles.sessionScore} style={{ color: scoreColor(t.score) }}>
+                            {t.score}/100
+                          </span>
+                        )}
+                        <button
+                          className={styles.deleteBtn}
+                          onClick={() => deleteSession(t)}
+                          disabled={deletingId === t.id}
+                          title="Delete recording"
+                        >
+                          {deletingId === t.id ? '…' : '✕'}
+                        </button>
+                      </div>
                     </div>
                     {t.flags?.length > 0 && (
                       <div className={styles.flagList}>

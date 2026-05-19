@@ -35,8 +35,8 @@ image = (
         "libsndfile1",
     )
     .run_commands(
-        # CPU-only PyTorch first (prevents pip from pulling the 3 GB CUDA variant)
-        "pip install torch --index-url https://download.pytorch.org/whl/cpu",
+        # Install torch + torchaudio CPU-only together so torchaudio doesn't pull CUDA libs
+        "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu",
         "pip install torchcrepe",
     )
     .pip_install(

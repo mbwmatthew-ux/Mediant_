@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import Tuner from '../components/Tuner'
 import styles from './Page.module.css'
 
 function scoreColor(n) {
@@ -96,6 +97,9 @@ export default function Home() {
           </button>
         ))}
       </div>
+
+      {/* Tuner */}
+      <Tuner />
 
       {/* Recent sessions */}
       <div className={styles.section}>

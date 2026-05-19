@@ -1,0 +1,158 @@
+.tuner {
+  background: var(--cream-strong);
+  border: 1px solid rgba(88, 121, 101, 0.14);
+  border-radius: 16px;
+  padding: 22px 28px;
+}
+
+.tunerTop {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tunerLabel {
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  margin: 0 0 2px;
+  text-transform: uppercase;
+}
+
+.tunerSub {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.tunerBtn {
+  background: rgba(88, 121, 101, 0.09);
+  border: 1px solid rgba(88, 121, 101, 0.2);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 8px 18px;
+  transition: background 140ms ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tunerBtn:hover { background: rgba(88, 121, 101, 0.16); }
+
+.tunerBtnActive {
+  background: rgba(225, 134, 118, 0.1);
+  border-color: rgba(225, 134, 118, 0.3);
+  color: var(--coral);
+}
+.tunerBtnActive:hover { background: rgba(225, 134, 118, 0.18); }
+
+.tunerError {
+  color: var(--coral);
+  font-size: 0.84rem;
+  margin: 12px 0 0;
+}
+
+/* ── Display ──────────────────────────────────────────────── */
+.display {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 22px;
+}
+
+.noteWrap {
+  align-items: baseline;
+  display: flex;
+  gap: 3px;
+  line-height: 1;
+}
+
+.noteName {
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 5rem;
+  font-weight: 400;
+  transition: color 100ms ease;
+}
+
+.noteOctave {
+  color: var(--text-soft);
+  font-size: 1.6rem;
+  font-weight: 400;
+}
+
+/* ── Gauge ────────────────────────────────────────────────── */
+.gaugeWrap {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  max-width: 340px;
+  width: 100%;
+}
+
+.gaugeSide {
+  color: var(--text-soft);
+  font-size: 1.1rem;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.gaugeTrack {
+  background: rgba(88, 121, 101, 0.1);
+  border-radius: 999px;
+  flex: 1;
+  height: 6px;
+  position: relative;
+}
+
+.gaugeCenter {
+  background: rgba(88, 121, 101, 0.35);
+  border-radius: 999px;
+  height: 100%;
+  left: 50%;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 2px;
+}
+
+.needle {
+  border-radius: 999px;
+  height: 18px;
+  margin-top: -6px;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  transition: left 70ms ease, background 100ms ease;
+  width: 4px;
+}
+
+/* ── Status ───────────────────────────────────────────────── */
+.status {
+  align-items: center;
+  color: var(--text-soft);
+  display: flex;
+  font-size: 0.88rem;
+  gap: 14px;
+  margin: 0;
+  min-height: 1.2em;
+}
+
+.statusMuted { color: rgba(88, 121, 101, 0.45); }
+
+.freq {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+/* ── Mobile ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .tuner { padding: 18px 20px; }
+  .tunerTop { flex-wrap: wrap; }
+  .tunerBtn { width: 100%; text-align: center; }
+  .noteName { font-size: 4rem; }
+}

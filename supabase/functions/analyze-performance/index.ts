@@ -104,18 +104,24 @@ async function readScoreNotes(
 
   const prompt = `You are an expert music engraver reading a sheet music image for a ${instrument} student.
 
-CRITICAL: The student is playing this passage starting from measure ${startMeasure}. That is the absolute measure number of the FIRST measure visible at the top-left of the score. NUMBER ALL MEASURES SEQUENTIALLY FROM ${startMeasure}: the first measure is ${startMeasure}, the next is ${startMeasure + 1}, and so on. Do NOT trust printed measure numbers in the image — handwritten fingerings and ornaments often look like numbers. Trust the sequential count from ${startMeasure} only.
+MEASURE NUMBERING — CRITICAL:
+The student's recording starts at measure ${startMeasure}. The FIRST complete measure visible at the top-left of the score is measure ${startMeasure}. Number all measures sequentially from there: ${startMeasure}, ${startMeasure + 1}, ${startMeasure + 2}, …
+Do NOT trust any printed numbers in the image — handwritten fingerings, rehearsal letters, and ornaments all look like numbers. Count measures visually: count how many barlines you cross, starting from 0 at the left edge.
 
-Time signature (if known): ${timeSig}. If you see a different time signature in the score, use what you see.
+Time signature (if known): ${timeSig}. Use what you see in the image if different.
 
-For every measure visible on the page, list the printed notes:
-- pitch: scientific pitch notation (e.g. "D3", "F#4", "Bb3"). Use null for rests.
-- beat: position within the measure as a decimal (1.0 = downbeat, 2.0 = beat 2, 1.5 = "and" of 1). For 12/8, count 1.0, 1.33, 1.67, 2.0, … (each eighth = 0.33 of a beat group). For 4/4, beats are 1, 2, 3, 4.
-- duration_beats: how many beats this note lasts.
+WHAT TO RETURN — CRITICAL:
+Return EVERY measure bar-to-bar across the ENTIRE page, even if you cannot read its notes. A measure with illegible content must still appear with an empty notes array:
+  {"number": ${startMeasure + 2}, "notes": []}
+
+For each note you CAN read:
+- pitch: scientific pitch notation ("D3", "F#4", "Bb3"). Use null for rests or if pitch is ambiguous.
+- beat: position within the measure (1.0 = downbeat, 2.0 = beat 2, 1.5 = "and" of 1). For 12/8, each eighth-note group = 0.33 beats.
+- duration_beats: number of beats this note lasts.
 - articulation: "staccato", "tenuto", "accent", "slur_start", "slur_end", or null.
-- dynamic: "pp", "p", "mp", "mf", "f", "ff", "cresc", "dim", or null. Carry forward — only mark when notation changes.
+- dynamic: "pp", "p", "mp", "mf", "f", "ff", "cresc", "dim", or null (carry forward; only mark changes).
 
-If a note is illegible or ambiguous, OMIT it — do not guess. It is correct to return measures with fewer notes than the full notation.
+Do NOT omit measures. Include every measure with whatever notes you can read. An empty notes array is correct when the measure is unreadable.
 
 Return JSON only (no markdown):
 {
@@ -128,6 +134,10 @@ Return JSON only (no markdown):
       "notes": [
         {"pitch": "D3", "beat": 1.0, "duration_beats": 1.5, "articulation": null, "dynamic": "p"}
       ]
+    },
+    {
+      "number": ${startMeasure + 1},
+      "notes": []
     }
   ]
 }`
@@ -303,35 +313,29 @@ function anchorAndAlign(
     return { aligned: [], secPerMeasure: 0, alignmentRanges: [] }
   }
 
-  // Find anchor: first audio event whose pitch matches one of the first measure's pitches.
-  const firstMeasurePitches = new Set(
-    (score.measures[0].notes ?? []).map(n => n.pitch).filter((p): p is string => !!p)
-  )
-  let anchorEvent: AudioEvent = audio.events[0]
-  for (const ev of audio.events) {
-    if (ev.pitches.some(p => firstMeasurePitches.has(p))) { anchorEvent = ev; break }
-  }
-  const tAnchor = anchorEvent.time_sec
+  // Anchor: student recordings start when they start playing, so events[0] ≈ startMeasure.
+  // Pitch-matching is fragile (notes may be empty); just use the first event.
+  const tAnchor = audio.events[0].time_sec
 
-  // Estimate seconds per measure. Prefer the score's tempo marking + time sig.
-  // Fallback: divide remaining duration by visible measure count.
-  let secPerMeasure: number
-  const playedDuration = Math.max(0.5, audio.audio_duration_sec - tAnchor)
+  // secPerMeasure: primary = audio duration / measure count (reliable for practice recordings).
+  // Only override with tempo-based estimate if duration/count gives an unreasonable value.
+  const playedDuration = Math.max(1, audio.audio_duration_sec - tAnchor)
   const visibleCount   = score.measures.length
+  let secPerMeasure    = playedDuration / visibleCount
+
   if (audio.tempo_estimate_bpm && score.time_signature) {
     const bpm = audio.tempo_estimate_bpm
     const [num, denom] = score.time_signature.split('/').map(s => parseInt(s, 10))
     if (num && denom) {
-      // bpm is typically quarter-note BPM. measure_seconds = (num / denom) * (60 / bpm) * 4
-      secPerMeasure = (num / denom) * (60 / bpm) * 4
-    } else {
-      secPerMeasure = playedDuration / visibleCount
+      const tempoBased = (num / denom) * (60 / bpm) * 4
+      // Prefer tempo only when duration/count is pathological and tempo is sane
+      if ((secPerMeasure < 1.0 || secPerMeasure > 20.0) && tempoBased >= 1.0 && tempoBased <= 20.0) {
+        secPerMeasure = tempoBased
+      }
     }
-  } else {
-    secPerMeasure = playedDuration / visibleCount
   }
-  // Clamp to sane range
-  secPerMeasure = Math.max(1.0, Math.min(15.0, secPerMeasure))
+  secPerMeasure = Math.max(1.0, Math.min(20.0, secPerMeasure))
+  console.log('[anchorAndAlign] duration/count secPerMeasure:', (playedDuration / visibleCount).toFixed(2), 'tempoEstimate:', audio.tempo_estimate_bpm, 'using:', secPerMeasure.toFixed(2))
 
   // Bucket events to measures — clamp to valid range rather than dropping.
   // This keeps events even when secPerMeasure is slightly off.
@@ -408,19 +412,27 @@ async function compareAndCoach(
     return []
   }
 
+  // For rhythm analysis: get the measure start time from alignmentRanges so we can
+  // express event times as offsets within the measure (beat positions).
+  const rangeStartMap = new Map(alignmentRanges.map(r => [r.measure, r.start]))
+
   const measureBlocks = playedMeasures.map(m => {
     const written = m.notes.length === 0
-      ? '(score notes not parsed for this measure — give rhythm/tempo feedback based on heard events)'
+      ? '(score notation not parsed — analyze event spacing for rhythm/timing issues)'
       : m.notes.map(n => {
           const parts = [`${n.pitch ?? 'rest'} @ beat ${n.beat} (${n.duration_beats}b)`]
           if (n.articulation) parts.push(n.articulation)
           if (n.dynamic)      parts.push(n.dynamic)
           return parts.join(' ')
         }).join(', ')
+    const mStart = rangeStartMap.get(m.number) ?? 0
     const heard = (eventsByMeasure.get(m.number) ?? [])
-      .map(e => `${e.pitches.join('/')} @ ${e.time_sec.toFixed(2)}s${e.loudness ? ' [' + e.loudness + ']' : ''}`)
+      .map(e => {
+        const offsetSec = (e.time_sec - mStart).toFixed(2)
+        return `${e.pitches.join('/')} @ +${offsetSec}s${e.loudness ? ' [' + e.loudness + ']' : ''}`
+      })
       .join(', ')
-    return `Measure ${m.number}:\n  WRITTEN: ${written}\n  HEARD:   ${heard}`
+    return `Measure ${m.number}:\n  WRITTEN: ${written}\n  HEARD:   ${heard || '(no events)'}`
   }).join('\n\n')
 
   const validMeasuresList = Array.from(validMeasures).sort((a, b) => a - b)
@@ -437,9 +449,9 @@ Key: ${score.key_signature ?? '?'}. Time signature: ${score.time_signature ?? '?
 YOUR TASK:
 Identify 1–4 issues that are reasonably supported by the data above. Order of preference for what to flag:
 1. **Specific pitch mismatch** (e.g. written B♭3 on beat 1, heard B♮3 — sharp by a half-step). When you can cite this, do so.
-2. **Rhythm/timing patterns** (e.g. tempo is "wavering", or events spaced unevenly relative to written rhythm).
-3. **Coverage / position** (e.g. the student missed beats in a measure, or notes were ambiguous enough that they may not have been clean).
-4. **Tempo issues overall** (e.g. tempo too slow/fast given the marking).
+2. **Rhythm/timing patterns** — look at the HEARD event offsets within each measure. Events should be evenly spaced relative to the time signature. Uneven gaps (e.g., first note rushed, or long silence) = timing flag. Cite the specific +Ns offset that looks off.
+3. **Coverage gaps** — a measure that says "(no events)" or has very few events may indicate hesitation, dropped notes, or a stop-and-restart.
+4. **Tempo issues overall** (e.g. tempo too slow/fast, steadiness "wavering").
 
 HARD RULES:
 - Every "measure" field MUST be one of: [${validMeasuresList.join(', ')}].

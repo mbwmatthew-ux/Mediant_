@@ -31,9 +31,13 @@ serve(async (req) => {
       timestamp_start?: number | null; timestamp_end?: number | null;
     }>
 
+    type ScoreNote = { pitch: string | null; beat: number; duration_beats: number; articulation: string | null; dynamic: string | null }
+    type ScoreMeasure = { number: number; notes?: ScoreNote[] }
     const layout = context.measureLayout as {
-      staff_angle?: number;
-      measures?: Array<{ number: number; content: string }>
+      key_signature?: string | null;
+      time_signature?: string | null;
+      tempo_marking?: string | null;
+      measures?: ScoreMeasure[]
     } | null
 
     const alignment = (context.audioAlignment as Array<{ measure: number; start: number; end: number }> | null) ?? []
@@ -53,15 +57,35 @@ serve(async (req) => {
       ? Math.max(...alignment.map(a => a.end))
       : null
 
-    // Per-measure index combining notation content with the audio window
-    // where it was played, so the coach can answer "what was happening at 0:14?"
+    // Summarise notes for one measure into a readable string
+    function summariseMeasure(m: ScoreMeasure): string {
+      if (!m.notes || m.notes.length === 0) return '(notation not captured)'
+      return m.notes
+        .map(n => {
+          let s = `${n.pitch ?? 'rest'} beat ${n.beat}`
+          if (n.articulation) s += ` [${n.articulation}]`
+          if (n.dynamic)      s += ` [${n.dynamic}]`
+          return s
+        })
+        .join('; ')
+    }
+
+    // Per-measure index — use score notation when available, fall back to flags.
     const scoreIndex = layoutMeasures.length > 0
       ? layoutMeasures.map(m => {
           const ts = alignmentMap.get(m.number)
           const tsStr = ts ? ` [played ${ts.start.toFixed(1)}s–${ts.end.toFixed(1)}s]` : ' [not played]'
-          return `  ${m.number}${tsStr}: ${m.content}`
+          return `  ${m.number}${tsStr}: ${summariseMeasure(m)}`
         }).join('\n')
-      : '(score layout not available for this take)'
+      : flags.length > 0
+        ? `(Detailed notation not available. Issues were found at these measures:)\n` +
+          flags.map(f => {
+            const ts = (f.timestamp_start != null && f.timestamp_end != null)
+              ? ` [audio ${f.timestamp_start.toFixed(1)}s–${f.timestamp_end.toFixed(1)}s]`
+              : ''
+            return `  Measure ${f.measure}${ts}: ${f.type} — ${f.title}`
+          }).join('\n')
+        : '(no score notation or flagged issues available for this take)'
 
     const rangeLine = (firstMeasure != null && lastMeasure != null)
       ? `The student played measures ${firstMeasure}–${lastMeasure}${totalDuration != null ? ` over ${totalDuration.toFixed(1)} seconds of recording` : ''}. That is the exact range — do not claim they played outside it.`

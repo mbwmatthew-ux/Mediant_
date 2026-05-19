@@ -115,7 +115,7 @@ Return EVERY measure bar-to-bar across the ENTIRE page, even if you cannot read 
   {"number": ${startMeasure + 2}, "notes": []}
 
 For each note you CAN read:
-- pitch: scientific pitch notation ("D3", "F#4", "Bb3"). Use null for rests or if pitch is ambiguous.
+- pitch: scientific pitch notation ("D3", "F#4", "Bb3"). Use the literal string "rest" for written rests. Use null ONLY when you can see a note-head but cannot determine its pitch (e.g. smudged, covered by fingering). Do NOT use null for rests — rests are not notes, they are explicit silences.
 - beat: position within the measure (1.0 = downbeat, 2.0 = beat 2, 1.5 = "and" of 1). For 12/8, each eighth-note group = 0.33 beats.
 - duration_beats: number of beats this note lasts.
 - articulation: "staccato", "tenuto", "accent", "slur_start", "slur_end", or null.
@@ -132,7 +132,8 @@ Return JSON only (no markdown):
     {
       "number": ${startMeasure},
       "notes": [
-        {"pitch": "D3", "beat": 1.0, "duration_beats": 1.5, "articulation": null, "dynamic": "p"}
+        {"pitch": "D3", "beat": 1.0, "duration_beats": 1.5, "articulation": null, "dynamic": "p"},
+        {"pitch": "rest", "beat": 2.5, "duration_beats": 0.5, "articulation": null, "dynamic": null}
       ]
     },
     {
@@ -444,7 +445,8 @@ async function compareAndCoach(
     const written = m.notes.length === 0
       ? '(score notation not parsed — analyze event spacing for rhythm/timing issues)'
       : m.notes.map(n => {
-          const parts = [`${n.pitch ?? 'rest'} @ beat ${n.beat} (${n.duration_beats}b)`]
+          const pitchLabel = n.pitch === null ? '(unclear)' : n.pitch
+          const parts = [`${pitchLabel} @ beat ${n.beat} (${n.duration_beats}b)`]
           if (n.articulation) parts.push(n.articulation)
           if (n.dynamic)      parts.push(n.dynamic)
           return parts.join(' ')
@@ -464,6 +466,8 @@ async function compareAndCoach(
   const prompt = `You are a master ${instrument} teacher giving feedback to a student on "${pieceTitle}" by ${composer}.
 
 Below is a measure-by-measure record of what is WRITTEN in the score and what was HEARD in the student's recording. Use this data to identify issues. Audio transcription is imperfect — sparse "heard" lines mean some notes weren't transcribed, not that nothing was played.
+
+IMPORTANT: In the WRITTEN column, "(unclear)" means the score had a note-head but its pitch could not be read — it is NOT a rest. Only "rest" means a written rest. Do NOT flag a student for playing during an "(unclear)" note, and do NOT assume "(unclear)" means silence.
 
 ${measureBlocks}
 

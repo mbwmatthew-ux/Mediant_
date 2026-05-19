@@ -144,11 +144,11 @@ export default function AppShell() {
                   <div className={styles.acctExpanded}>
                     <div className={styles.planCard}>
                       <strong className={styles.planCardName}>Free</strong>
-                      <p className={styles.planCardDesc}>Unlimited uploads · AI performance feedback · Community support</p>
+                      <p className={styles.planCardDesc}>Unlimited uploads · Performance feedback · Community support</p>
                     </div>
                     <div className={`${styles.planCard} ${styles.planCardPro}`}>
                       <strong className={`${styles.planCardName} ${styles.planCardNamePro}`}>Pro — coming soon</strong>
-                      <p className={styles.planCardDesc}>Priority AI analysis · PDF export · Advanced history · Early access features</p>
+                      <p className={styles.planCardDesc}>Priority analysis · PDF export · Advanced history · Early access features</p>
                     </div>
                   </div>
                 )}
@@ -164,7 +164,7 @@ export default function AppShell() {
                 </button>
                 {expanded === 'privacy' && (
                   <div className={styles.acctExpanded}>
-                    <p className={styles.acctExpandBody}>Your recordings and analysis results are stored locally in your browser and are never shared with third parties. AI analysis calls are processed by Anthropic and are subject to their privacy policy.</p>
+                    <p className={styles.acctExpandBody}>Your recordings and analysis results are stored locally in your browser and are never shared with third parties. Analysis is processed securely and is subject to our privacy policy.</p>
                     <button className={styles.acctDangerBtn} onClick={() => { localStorage.clear(); setPanel(null) }}>
                       Clear all local data
                     </button>
@@ -252,7 +252,7 @@ export default function AppShell() {
                   <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>ℹ</span>
                   <div className={styles.acctRowText}>
                     <span className={styles.acctRowLabel}>Mediant</span>
-                    <span className={styles.acctRowSub}>Version 0.1 · AI-powered music coaching</span>
+                    <span className={styles.acctRowSub}>Version 0.1 · Intelligent music coaching</span>
                   </div>
                 </div>
               </div>

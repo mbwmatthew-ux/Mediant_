@@ -23,7 +23,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
   const [drag,       setDrag]       = useState(false)
   const [instrument, setInstrument] = useState('')
   const [phase,      setPhase]      = useState('idle')   // idle | analyzing | ready
-  const [form,       setForm]       = useState(null)     // AI-filled values
+  const [form,       setForm]       = useState(null)
   const [error,      setError]      = useState(null)
 
   async function analyze(f) {
@@ -99,7 +99,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
         </div>
 
         <p className={styles.modalSub}>
-          Drop your sheet music and AI will fill in the details. You just need to select the instrument.
+          Drop your sheet music and Mediant will fill in the details. You just need to select the instrument.
         </p>
 
         {/* Drop zone */}
@@ -138,7 +138,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
           <div className={styles.progress}>
             <div className={styles.spinner} />
             <p className={styles.progressLabel}>Reading your sheet music…</p>
-            <p className={styles.progressSub}>AI is extracting the title, composer, key, and more.</p>
+            <p className={styles.progressSub}>Extracting the title, composer, key, and more.</p>
           </div>
         )}
 
@@ -157,7 +157,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
 
             <div className={styles.formDivider} />
 
-            <p className={styles.formAiLabel}>Detected by AI — edit if needed</p>
+            <p className={styles.formAiLabel}>Auto-detected — edit if needed</p>
 
             <div className={styles.formRow}>
               <label className={styles.formLabel}>Title</label>

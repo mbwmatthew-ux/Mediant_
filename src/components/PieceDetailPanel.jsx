@@ -179,7 +179,7 @@ export default function PieceDetailPanel({ piece, onClose }) {
               <p className={styles.sourceLabel}>
                 {scoreSource === 'mutopia'
                   ? 'Sheet music from Mutopia Project (public domain)'
-                  : 'AI-approximated sheet music — may not be note-perfect'}
+                  : 'Approximated sheet music — may not be note-perfect'}
               </p>
             )}
             {scoreReady && !scoreSource && !scoreFetching && !fileURL && (

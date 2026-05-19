@@ -226,7 +226,7 @@ export default function Record() {
   if (phase === 'uploading' || phase === 'analyzing') {
     const title = phase === 'uploading'
       ? 'Uploading your files…'
-      : 'AI is listening to your performance…'
+      : 'Analyzing your performance…'
     const sub = phase === 'uploading'
       ? 'Sending your recording and sheet music to the server.'
       : 'Gemini is analyzing timing, dynamics, and technique. This takes about 30 seconds.'
@@ -317,7 +317,7 @@ export default function Record() {
                 <label className={styles.formLabel}>
                   Title
                   {ocrLoading && <span className={styles.ocrBadge}>reading…</span>}
-                  {!ocrLoading && pieceTitle && <span className={styles.ocrBadge}>AI detected</span>}
+                  {!ocrLoading && pieceTitle && <span className={styles.ocrBadge}>Auto-detected</span>}
                 </label>
                 <input
                   className={styles.formInput}
@@ -329,7 +329,7 @@ export default function Record() {
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>
                   Composer
-                  {!ocrLoading && composer && <span className={styles.ocrBadge}>AI detected</span>}
+                  {!ocrLoading && composer && <span className={styles.ocrBadge}>Auto-detected</span>}
                 </label>
                 <input
                   className={styles.formInput}
@@ -454,11 +454,11 @@ export default function Record() {
 
           <div className={styles.captureGrid}>
             <div className={styles.captureCard}>
-              <p className={styles.label}>What AI sees</p>
+              <p className={styles.label}>What Mediant sees</p>
               <strong>Sheet music · Measure structure · Notation</strong>
             </div>
             <div className={styles.captureCard}>
-              <p className={styles.label}>What AI listens for</p>
+              <p className={styles.label}>What Mediant listens for</p>
               <strong>Timing · Dynamics · Articulation · Intonation</strong>
             </div>
           </div>

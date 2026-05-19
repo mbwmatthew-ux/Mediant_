@@ -8,7 +8,7 @@ import styles from './Pricing.module.css'
 
 const FEATURES = [
   'Unlimited recording uploads',
-  'AI score alignment & analysis',
+  'Score alignment & analysis',
   'Measure-by-measure feedback',
   'Follow Along playback coach',
   'Session summaries & history',
@@ -59,7 +59,7 @@ export default function Pricing() {
           One plan. Everything included.
         </h1>
         <p className={styles.subtitle}>
-          Full access to AI coaching, score analysis, and practice tools — for serious musicians.
+          Full access to coaching, score analysis, and practice tools — for serious musicians.
         </p>
       </section>
 

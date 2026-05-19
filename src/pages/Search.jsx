@@ -134,7 +134,7 @@ export default function Search() {
           {userPieces.length === 0 ? (
             <>
               <p className={styles.emptyLibraryTitle}>Your library is empty</p>
-              <p className={styles.emptyLibrarySub}>Upload a piece of sheet music to get started. The AI will read it and add it to your library automatically.</p>
+              <p className={styles.emptyLibrarySub}>Upload a piece of sheet music to get started. Mediant will read it and add it to your library automatically.</p>
               <button className={styles.primaryBtn} onClick={() => setShowUpload(true)}>↑ Upload your first piece</button>
             </>
           ) : (

@@ -3,6 +3,11 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
+function getEmailRedirectUrl() {
+  if (typeof window === 'undefined') return undefined
+  return `${window.location.origin}/#/login`
+}
+
 function userFromSession(session) {
   if (!session?.user) return null
   const { user } = session
@@ -62,7 +67,10 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name, instrument } },
+      options: {
+        data: { name, instrument },
+        emailRedirectTo: getEmailRedirectUrl(),
+      },
     })
     if (error) return { ok: false, error: error.message }
     return { ok: true, user: userFromSession(data.session) }

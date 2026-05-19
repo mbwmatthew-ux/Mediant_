@@ -73,6 +73,10 @@ export function AuthProvider({ children }) {
       },
     })
     if (error) return { ok: false, error: error.message }
+    // Supabase returns an empty identities array when the email is already registered
+    if (data.user?.identities?.length === 0) {
+      return { ok: false, error: 'An account with this email already exists. Please log in instead.' }
+    }
     return { ok: true, user: userFromSession(data.session) }
   }
 

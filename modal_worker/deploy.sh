@@ -34,7 +34,7 @@ if [ -n "$SUPABASE_REF" ]; then
   if [ -n "$MODAL_URL" ]; then
     echo "==> Setting MODAL_WORKER_URL in Supabase secrets..."
     npx supabase secrets set MODAL_WORKER_URL="$MODAL_URL" --project-ref "$SUPABASE_REF"
-    echo "    Done. The pipeline will now use Basic Pitch + librosa for audio analysis."
+    echo "    Done. The pipeline will now use the Modal measurement worker (CREPE + librosa + music21)."
   else
     echo "    Skipped. Set it later with:"
     echo "    npx supabase secrets set MODAL_WORKER_URL='<url>' --project-ref $SUPABASE_REF"

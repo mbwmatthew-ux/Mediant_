@@ -41,6 +41,7 @@ export default function Record() {
   const [phase,    setPhase]    = useState('idle')  // idle | uploading | analyzing | error
   const [progress, setProgress] = useState(0)
   const [errorMsg, setErrorMsg] = useState('')
+  const [errorDetails, setErrorDetails] = useState([])
 
   const readyToAnalyze = scoreFile && file && instrument && phase !== 'error'
 
@@ -125,6 +126,7 @@ export default function Record() {
     setPhase('uploading')
     setProgress(0)
     setErrorMsg('')
+    setErrorDetails([])
 
     try {
       // Tick upload progress
@@ -181,13 +183,21 @@ export default function Record() {
       if (fnError || result?.error) {
         // Try to extract the real error body from the Edge Function response
         let realError = result?.error || fnError?.message || 'Analysis failed'
+        let realDetails = []
         try {
           if (fnError?.context) {
             const body = await fnError.context.json()
             if (body?.error) realError = body.error
+            if (Array.isArray(body?.analysisQuality?.reasons)) {
+              realDetails = body.analysisQuality.reasons
+            } else if (Array.isArray(body?.suggestions)) {
+              realDetails = body.suggestions
+            }
           }
         } catch { /* ignore */ }
-        throw new Error(realError)
+        const error = new Error(realError)
+        error.details = realDetails
+        throw error
       }
 
       const takeRecord = {
@@ -199,6 +209,8 @@ export default function Record() {
         video_path:      filePath,
         video_mime_type: file.type || 'video/mp4',
         score_path:      scorePath,
+        analysis_quality: result.analysisQuality ?? null,
+        analysis_backend: result.analysisBackend ?? null,
         date:            new Date().toISOString(),
       }
 
@@ -217,6 +229,7 @@ export default function Record() {
 
     } catch (err) {
       setErrorMsg(err.message ?? 'Something went wrong. Please try again.')
+      setErrorDetails(Array.isArray(err.details) ? err.details : [])
       setPhase('error')
     }
   }
@@ -265,6 +278,13 @@ export default function Record() {
       {phase === 'error' && (
         <div className={styles.errorBanner}>
           <strong>Analysis failed:</strong> {errorMsg}
+          {errorDetails.length > 0 && (
+            <ul className={styles.analysisNoticeList} style={{ marginTop: 10 }}>
+              {errorDetails.map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          )}
           <button className={styles.errorRetry} onClick={() => setPhase('idle')}>Try again</button>
         </div>
       )}

@@ -16,6 +16,19 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function trustLabel(level) {
+  if (level === 'high') return 'High-trust analysis'
+  if (level === 'medium') return 'Medium-trust analysis'
+  if (level === 'low') return 'Low-trust analysis'
+  return 'Analysis quality'
+}
+
+function trustTone(level) {
+  if (level === 'high') return 'High'
+  if (level === 'medium') return 'Medium'
+  return 'Low'
+}
+
 // Maps a piece title to a bundled score file in /public/scores/
 function scoreFileForPiece(title) {
   if (!title) return null
@@ -60,7 +73,7 @@ export default function Analysis() {
       if (takeId) {
         const { data, error } = await supabase
           .from('takes')
-          .select('id, piece_title, piece_composer, instrument, score, flags, video_path, video_mime_type, score_path, measure_layout, audio_alignment, created_at')
+          .select('id, piece_title, piece_composer, instrument, score, flags, video_path, video_mime_type, score_path, measure_layout, audio_alignment, analysis_quality, analysis_backend, created_at')
           .eq('id', takeId)
           .single()
 
@@ -290,6 +303,8 @@ export default function Analysis() {
   const issueCount    = chips.length
   const score         = take?.score
   const hasScore      = !!scoreUrl || !!scoreFileForPiece(pieceTitle)
+  const analysisQuality = take?.analysis_quality ?? null
+  const analysisBackend = take?.analysis_backend ?? null
 
   // Raw flag data for the active flag (has timestamps, bbox, etc.)
   const activeFlagIndex = activeFlag ? parseInt(activeFlag.replace('flag_', ''), 10) : -1
@@ -343,6 +358,25 @@ export default function Analysis() {
           <button className={styles.primaryBtn} onClick={() => nav('/follow')}>Follow Along ▶</button>
         </div>
       </div>
+
+      {analysisQuality && (
+        <div className={`${styles.analysisNotice} ${styles[`analysisNotice${trustTone(analysisQuality.trust)}`]}`}>
+          <p className={styles.analysisNoticeTitle}>{trustLabel(analysisQuality.trust)}</p>
+          <p className={styles.analysisNoticeBody}>
+            {analysisBackend ? `Pipeline: ${analysisBackend}. ` : ''}
+            {analysisQuality.trust === 'high'
+              ? 'This review is grounded in aligned score and recording evidence with direct listening corroboration.'
+              : 'This review was generated from usable evidence, but some parts of the analysis chain were weaker than ideal.'}
+          </p>
+          {Array.isArray(analysisQuality.reasons) && analysisQuality.reasons.length > 0 && (
+            <ul className={styles.analysisNoticeList}>
+              {analysisQuality.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className={styles.issueStrip}>
         <span className={styles.issueStripLabel}>Issues:</span>

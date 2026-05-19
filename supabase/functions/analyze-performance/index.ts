@@ -60,6 +60,32 @@ interface CoachingFlag {
   spot_angle: number
 }
 
+interface AnalysisQuality {
+  trust: 'high' | 'medium' | 'low'
+  canProceed: boolean
+  reasons: string[]
+}
+
+function improvementSuggestions(quality: AnalysisQuality): string[] {
+  const suggestions: string[] = []
+  for (const reason of quality.reasons) {
+    if (reason.includes('transcription worker')) {
+      suggestions.push('Verify that the Modal worker is deployed and that MODAL_WORKER_URL is set in Supabase secrets.')
+    } else if (reason.includes('score could not be parsed')) {
+      suggestions.push('Upload a clearer score image or, for highest trust, use MusicXML/MXL instead of a photo or PDF.')
+    } else if (reason.includes('Too few audio events')) {
+      suggestions.push('Use a shorter excerpt with a cleaner solo recording and reduce background noise.')
+    } else if (reason.includes('aligned to score measures')) {
+      suggestions.push('Trim the clip to one clear excerpt and make sure the uploaded score matches exactly what is being played.')
+    } else if (reason.includes('aligned to a very small number of measures')) {
+      suggestions.push('Record a slightly longer continuous passage so the system can anchor the timing across multiple measures.')
+    } else if (reason.includes('Direct listening corroboration')) {
+      suggestions.push('Check that the Gemini API key is valid and that the uploaded video can be processed successfully.')
+    }
+  }
+  return [...new Set(suggestions)]
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 const VISUAL_SCORE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'])
@@ -81,6 +107,43 @@ function extractJsonObject(raw: string): unknown | null {
   const end   = stripped.lastIndexOf('}')
   if (start === -1 || end === -1) return null
   try { return JSON.parse(stripped.slice(start, end + 1)) } catch { return null }
+}
+
+function assessAnalysisQuality(
+  score: ScoreReading,
+  audio: AudioTranscription,
+  aligned: AlignedEvent[],
+  alignmentRanges: Array<{ measure: number; start: number; end: number }>,
+  usedModal: boolean,
+  geminiAssessment: GeminiAssessment | null,
+): AnalysisQuality {
+  const reasons: string[] = []
+  const readableMeasures = score.measures.filter(m => m.notes.length > 0).length
+
+  if (!usedModal) {
+    reasons.push('The dedicated transcription worker was unavailable, so the analysis fell back to a lower-trust transcription path.')
+  }
+  if (readableMeasures < 2) {
+    reasons.push('The score could not be parsed into enough readable measures.')
+  }
+  if (audio.events.length < 8) {
+    reasons.push('Too few audio events were extracted from the recording.')
+  }
+  if (aligned.length < 8) {
+    reasons.push('Too few note events could be aligned to score measures.')
+  }
+  if (alignmentRanges.length < 2) {
+    reasons.push('The recording only aligned to a very small number of measures.')
+  }
+  if (!geminiAssessment) {
+    reasons.push('Direct listening corroboration from Gemini was unavailable.')
+  }
+
+  if (reasons.length === 0) return { trust: 'high', canProceed: true, reasons }
+  if (reasons.length <= 2 && usedModal && readableMeasures >= 2 && aligned.length >= 8) {
+    return { trust: 'medium', canProceed: true, reasons }
+  }
+  return { trust: 'low', canProceed: false, reasons }
 }
 
 // ── Step 1: Claude reads the score image into structured notes ────────────
@@ -423,6 +486,7 @@ async function compareAndCoach(
   pieceTitle: string,
   composer: string,
   instrument: string,
+  geminiAssessment: GeminiAssessment | null,
 ): Promise<CoachingFlag[]> {
   // Build per-measure comparison
   const eventsByMeasure = new Map<number, AudioEvent[]>()
@@ -468,6 +532,7 @@ async function compareAndCoach(
   }).join('\n\n')
 
   const validMeasuresList = Array.from(validMeasures).sort((a, b) => a - b)
+  const geminiEvidence = buildGeminiAssessmentBlock(geminiAssessment)
 
   const prompt = `You are a master ${instrument} teacher giving feedback to a student on "${pieceTitle}" by ${composer}.
 
@@ -479,6 +544,7 @@ ${measureBlocks}
 
 Tempo: ${tempo.bpm ?? '?'} BPM, ${tempo.steadiness ?? '?'}.
 Key: ${score.key_signature ?? '?'}. Time signature: ${score.time_signature ?? '?'}.
+${geminiEvidence}
 
 CENTS NOTATION: Numbers like "(+32¢)" or "(-18¢)" after a pitch mean the student's pitch deviated from the nearest semitone by that many cents. 100¢ = 1 semitone.
 - ±5–15¢: imperceptible to most listeners
@@ -493,11 +559,12 @@ Identify 1–4 issues that are reasonably supported by the data above. Order of 
 3. **Rhythm/timing patterns** — look at the HEARD event offsets within each measure. Events should be evenly spaced relative to the time signature. Uneven gaps (e.g., first note rushed, or long silence) = timing flag. Cite the specific +Ns offset that looks off.
 4. **Coverage gaps** — a measure that says "(no events)" or has very few events may indicate hesitation, dropped notes, or a stop-and-restart.
 5. **Tempo issues overall** (e.g. tempo too slow/fast, steadiness "wavering").
+6. When the direct listening cross-check names a timestamped issue, strongly prefer flags that match that issue's type and passage. If the direct listening block says a category sounds clean, do not force a flag in that category unless the written/heard evidence is overwhelming.
 
 HARD RULES:
 - Every "measure" field MUST be one of: [${validMeasuresList.join(', ')}].
 - If the recording sounds genuinely clean and you have NO basis for concern, return fewer or zero flags.
-- For an amateur student practice recording, returning zero flags is usually WRONG — find what you can. Don't be timid.
+- Do NOT invent a flag just to avoid returning zero. Precision matters more than quantity.
 - "type" must be one of: intonation, timing, rhythm, articulation, dynamics, voicing.
 - raw_detail should cite the evidence (which note/beat/measure and what's off). If the evidence is rhythm-based or tempo-based rather than a specific pitch, say so clearly.
 
@@ -535,6 +602,7 @@ Return JSON only (no markdown):
   }
 
   const rangeMap = new Map(alignmentRanges.map(r => [r.measure, r]))
+  const allowedTypes = new Set(['intonation', 'timing', 'rhythm', 'articulation', 'dynamics', 'voicing'])
   const flags: CoachingFlag[] = []
   for (const f of (parsed.flags ?? [])) {
     if (typeof f.measure !== 'number' || !validMeasures.has(f.measure)) {
@@ -543,8 +611,13 @@ Return JSON only (no markdown):
     }
     if ((f.confidence ?? 100) < 60) continue
     if (!f.type || !f.title || !f.raw_detail || !f.body) continue
+    if (!allowedTypes.has(String(f.type))) continue
 
     const range = rangeMap.get(f.measure)
+    if (!range) {
+      console.warn('[compareAndCoach] dropping flag without alignment range:', f.measure)
+      continue
+    }
     flags.push({
       measure:         f.measure,
       type:            String(f.type),
@@ -559,6 +632,10 @@ Return JSON only (no markdown):
     })
   }
   return flags
+    .sort((a, b) => b.confidence - a.confidence)
+    .filter((flag, index, all) =>
+      all.findIndex(other => other.measure === flag.measure && other.type === flag.type) === index)
+    .slice(0, 4)
 }
 
 // ── Beat-level alignment (used when Modal worker returns beat_times) ─────────
@@ -613,6 +690,96 @@ function buildAlignmentRanges(
       end:   Math.max(r.end, r.start + Math.max(0.5, secPerMeasure * 0.9)),
     }))
     .sort((a, b) => a.measure - b.measure)
+}
+
+// ── Gemini direct listening evaluation ───────────────────────────────────
+
+interface GeminiAssessment {
+  intonation_issues: string[]
+  rhythm_issues: string[]
+  technique_issues: string[]
+  overall: string
+}
+
+function buildGeminiAssessmentBlock(assessment: GeminiAssessment | null): string {
+  if (!assessment) return 'DIRECT LISTENING CROSS-CHECK: unavailable.'
+
+  return [
+    'DIRECT LISTENING CROSS-CHECK (Gemini listening to the actual recording):',
+    `- Intonation: ${assessment.intonation_issues.length ? assessment.intonation_issues.join(' | ') : 'No clear intonation issues reported.'}`,
+    `- Rhythm: ${assessment.rhythm_issues.length ? assessment.rhythm_issues.join(' | ') : 'No clear rhythm issues reported.'}`,
+    `- Technique: ${assessment.technique_issues.length ? assessment.technique_issues.join(' | ') : 'No clear technique issues reported.'}`,
+    `- Overall: ${assessment.overall || 'No overall note provided.'}`,
+    'Treat this block as corroborating evidence. Prefer issues that are supported by BOTH the written/heard alignment and the direct listening observations.',
+  ].join('\n')
+}
+
+async function evaluatePerformanceWithGemini(
+  videoFileUri: string,
+  videoMimeType: string,
+  instrument: string,
+  pieceTitle: string,
+  composer: string,
+  startMeasure: number,
+  endMeasure: number | null,
+  apiKey: string,
+): Promise<GeminiAssessment | null> {
+  const endInfo = endMeasure ? ` through measure ${endMeasure}` : ''
+  const prompt = `You are an expert ${instrument} teacher. Listen carefully to this student recording of "${pieceTitle}" by ${composer}, starting at measure ${startMeasure}${endInfo}.
+
+Listen to the ENTIRE recording from start to finish. Then give me concrete, specific observations — NOT vague generalities.
+
+INTONATION: List every passage where the pitch sounds noticeably flat or sharp. Give a timestamp and say which direction. E.g. "0:08 — opening note sounds a quarter-step flat", "0:32 — upper notes consistently sharp throughout the phrase". If intonation sounds generally clean, say so explicitly.
+
+RHYTHM: List any rushed or dragged passages, hesitations, uneven note-spacing, or beat instability. Give timestamps. E.g. "0:15 — slight rush into beat 3", "0:40 — long note is cut short, creating a gap". If rhythm sounds solid, say so.
+
+TECHNIQUE: List bow/breath noise, tone quality issues, insecure shifts, unclear articulation. Give timestamps. If technique sounds clean, say so.
+
+OVERALL: One sentence — the single most important thing for this student to work on in this excerpt.
+
+RULES:
+- Be direct. Vague feedback like "intonation could be better" is useless — name the specific note or passage and timestamp it.
+- If something is genuinely clean, say so. Do NOT fabricate issues.
+- Focus on the 1-3 most important issues, not every tiny imperfection.
+
+Return JSON only:
+{
+  "intonation_issues": ["<timestamp>: <specific observation>"],
+  "rhythm_issues": ["<timestamp>: <specific observation>"],
+  "technique_issues": ["<timestamp>: <specific observation>"],
+  "overall": "<one sentence>"
+}`
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { fileData: { mimeType: videoMimeType, fileUri: videoFileUri } },
+          { text: prompt },
+        ]}],
+        generationConfig: { temperature: 0, responseMimeType: 'application/json', maxOutputTokens: 4096 },
+      }),
+    },
+  )
+  if (!res.ok) {
+    console.error('[evaluateWithGemini] HTTP error:', res.status)
+    return null
+  }
+  const data = await res.json()
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+  if (!text) return null
+  const parsed = extractJsonObject(text) as Partial<GeminiAssessment> | null
+  if (!parsed) return null
+  console.log('[evaluateWithGemini] assessment received. overall:', parsed.overall?.slice(0, 100))
+  return {
+    intonation_issues: parsed.intonation_issues ?? [],
+    rhythm_issues:     parsed.rhythm_issues     ?? [],
+    technique_issues:  parsed.technique_issues  ?? [],
+    overall:           parsed.overall           ?? '',
+  }
 }
 
 // ── Modal worker call ─────────────────────────────────────────────────────
@@ -736,129 +903,142 @@ serve(async (req) => {
     let alignmentRanges: Array<{ measure: number; start: number; end: number }> = []
     let secPerMeasure = 4.0
     let usedModal = false
+    let geminiAssessment: GeminiAssessment | null = null
 
-    // ── Pre-fetch score bytes (needed for Claude vision; fetch once, use in parallel) ─
-    let scoreBytesForClaude: Uint8Array | null = null
-    if (isVisualScore && scorePath) {
-      const { data: sBlob } = await admin.storage.from('sheet-music').download(scorePath).catch(() => ({ data: null }))
-      if (sBlob) scoreBytesForClaude = new Uint8Array(await sBlob.arrayBuffer())
+    // ── Fire Modal immediately — it only needs the signed URL ─────────────
+    const modalPromise: Promise<ModalWorkerResult | null> = (modalUrl && videoSignedUrl)
+      ? callModalWorker(modalUrl, {
+          video_url:     videoSignedUrl,
+          score_url:     isXmlScore && scoreSignedUrl ? scoreSignedUrl : undefined,
+          score_mime:    scoreMimeType ?? undefined,
+          instrument:    instrument ?? 'instrument',
+          start_measure: safeStart,
+          time_sig:      tSig,
+        }).catch(err => {
+          console.error('[analyze-performance] Modal worker threw:', (err as Error).message)
+          return null
+        })
+      : Promise.resolve(null)
+
+    // ── Download score bytes + video bytes in parallel with Modal ─────────
+    // Video bytes are needed to upload to Gemini for direct listening evaluation.
+    const [scoreBlobRes, videoBlobRes] = await Promise.all([
+      isVisualScore && scorePath
+        ? admin.storage.from('sheet-music').download(scorePath).catch(() => ({ data: null }))
+        : Promise.resolve({ data: null }),
+      admin.storage.from('recordings').download(videoPath).catch(() => ({ data: null })),
+    ])
+    const scoreBytesForClaude = scoreBlobRes.data
+      ? new Uint8Array(await scoreBlobRes.data.arrayBuffer()) : null
+    const videoBytes = videoBlobRes.data
+      ? new Uint8Array(await videoBlobRes.data.arrayBuffer()) : null
+
+    // ── Upload video to Gemini; chain direct-listening evaluation off it ──
+    // This runs in parallel with Modal (Modal started above). Gemini upload
+    // (~5s) + eval (~15s) finishes well before Modal (~60s).
+    const geminiUploadPromise: Promise<string | null> = (videoBytes && googleApiKey)
+      ? uploadVideoToGemini(videoBytes, videoMimeType, googleApiKey)
+          .catch(err => {
+            console.error('[analyze-performance] Gemini upload failed:', (err as Error).message)
+            return null
+          })
+      : Promise.resolve(null)
+
+    const geminiEvalPromise: Promise<GeminiAssessment | null> = geminiUploadPromise.then(fileUri =>
+      fileUri
+        ? evaluatePerformanceWithGemini(
+            fileUri, videoMimeType,
+            instrument ?? 'instrument',
+            pieceTitle  ?? 'this piece',
+            composer    ?? 'the composer',
+            safeStart, safeEnd, googleApiKey,
+          ).catch(err => {
+            console.error('[analyze-performance] Gemini eval threw:', (err as Error).message)
+            return null
+          })
+        : null
+    )
+
+    // ── Claude reads score in parallel (score bytes already downloaded) ───
+    const scorePromise: Promise<ScoreReading> = (scoreBytesForClaude && isVisualScore)
+      ? readScoreNotes(scoreBytesForClaude, scoreMimeType, safeStart, instrument ?? 'instrument', tSig)
+          .catch(err => {
+            console.error('[analyze-performance] readScoreNotes threw:', (err as Error).message)
+            return { key_signature: null, time_signature: null, tempo_marking: null, measures: [] } as ScoreReading
+          })
+      : Promise.resolve({ key_signature: null, time_signature: null, tempo_marking: null, measures: [] })
+
+    // ── Await all three parallel tasks ────────────────────────────────────
+    const [workerResult, scoreResult, geminiEval] = await Promise.all([
+      modalPromise, scorePromise, geminiEvalPromise,
+    ])
+    geminiAssessment = geminiEval
+    console.log('[analyze-performance] parallel done | Modal:', workerResult ? 'ok' : 'null',
+      '| score measures:', scoreResult.measures.length,
+      '| gemini eval:', geminiAssessment ? 'ok' : 'null')
+
+    // Apply Claude score result
+    if (scoreResult.measures.length > 0) {
+      score = scoreResult
     }
 
-    // ── Path A: Modal audio + Claude score reading IN PARALLEL ────────────
-    if (modalUrl && videoSignedUrl) {
-      console.log('[analyze-performance] starting Modal + Claude score read in parallel')
+    // ── Path A: process Modal result ──────────────────────────────────────
+    if (workerResult && !workerResult.error && workerResult.audio) {
+      const wa = workerResult.audio
+      const rawEvents: AudioEvent[] = wa.events.map(e => ({
+        time_sec:     e.time_sec,
+        pitches:      e.pitches,
+        confidence:   e.confidence,
+        loudness:     e.loudness ?? null,
+        articulation: null,
+        pitch_hz:     e.pitch_hz     ?? null,
+        cents_offset: e.cents_offset ?? null,
+      }))
 
-      // Claude reads the visual score while Modal processes audio
-      const scorePromise: Promise<ScoreReading> = scoreBytesForClaude
-        ? readScoreNotes(scoreBytesForClaude, scoreMimeType, safeStart, instrument ?? 'instrument', tSig)
-            .catch(err => {
-              console.error('[analyze-performance] readScoreNotes threw:', (err as Error).message)
-              return { key_signature: null, time_signature: null, tempo_marking: null, measures: [] } as ScoreReading
-            })
-        : Promise.resolve({ key_signature: null, time_signature: null, tempo_marking: null, measures: [] })
-
-      const modalPromise = callModalWorker(modalUrl, {
-        video_url:     videoSignedUrl,
-        score_url:     isXmlScore && scoreSignedUrl ? scoreSignedUrl : undefined,
-        score_mime:    scoreMimeType ?? undefined,
-        instrument:    instrument ?? 'instrument',
-        start_measure: safeStart,
-        time_sig:      tSig,
-      }).catch(err => {
-        console.error('[analyze-performance] Modal worker threw:', (err as Error).message)
-        return null
-      })
-
-      const [workerResult, scoreResult] = await Promise.all([modalPromise, scorePromise])
-
-      // Apply Claude score result (if Modal didn't parse score from music21)
-      if (scoreResult.measures.length > 0) {
-        score = scoreResult
-        console.log('[analyze-performance] Claude score read:', score.measures.length, 'measures')
+      audio = {
+        audio_duration_sec: wa.audio_duration_sec,
+        events:             rawEvents,
+        tempo_estimate_bpm: wa.tempo_estimate_bpm,
+        tempo_steadiness:   wa.tempo_steadiness,
       }
 
-      if (workerResult && !workerResult.error && workerResult.audio) {
-        const wa = workerResult.audio
-        const rawEvents: AudioEvent[] = wa.events.map(e => ({
-          time_sec:     e.time_sec,
-          pitches:      e.pitches,
-          confidence:   e.confidence,
-          loudness:     e.loudness ?? null,
-          articulation: null,
-          pitch_hz:     e.pitch_hz    ?? null,
-          cents_offset: e.cents_offset ?? null,
-        }))
-
-        audio = {
-          audio_duration_sec: wa.audio_duration_sec,
-          events:             rawEvents,
-          tempo_estimate_bpm: wa.tempo_estimate_bpm,
-          tempo_steadiness:   wa.tempo_steadiness,
+      const beatTimes = wa.beat_times ?? []
+      if (beatTimes.length > 0) {
+        aligned = alignWithBeats(rawEvents, beatTimes, beatsPerMeasure, safeStart, safeEnd)
+        if (beatTimes.length >= 2) {
+          const avgBeatSec = (beatTimes[beatTimes.length - 1] - beatTimes[0]) / (beatTimes.length - 1)
+          secPerMeasure = avgBeatSec * beatsPerMeasure
         }
-
-        const beatTimes = wa.beat_times ?? []
-        if (beatTimes.length > 0) {
-          aligned = alignWithBeats(rawEvents, beatTimes, beatsPerMeasure, safeStart, safeEnd)
-          if (beatTimes.length >= 2) {
-            const avgBeatSec = (beatTimes[beatTimes.length - 1] - beatTimes[0]) / (beatTimes.length - 1)
-            secPerMeasure = avgBeatSec * beatsPerMeasure
-          }
-          alignmentRanges = buildAlignmentRanges(aligned, secPerMeasure)
-          console.log('[analyze-performance] Modal beat alignment: aligned', aligned.length, 'events, secPerMeasure', secPerMeasure.toFixed(2))
-        }
-        usedModal = true
-
-        // Override with music21 score if Modal parsed one (XML upload path)
-        if (workerResult.score && !workerResult.score.error && (workerResult.score.measures?.length ?? 0) > 0) {
-          score = {
-            key_signature:  workerResult.score.key_signature,
-            time_signature: workerResult.score.time_signature,
-            tempo_marking:  workerResult.score.tempo_marking,
-            measures:       workerResult.score.measures,
-          }
-          console.log('[analyze-performance] Modal music21 score:', score.measures.length, 'measures')
-        }
-      } else {
-        if (workerResult?.error) {
-          console.error('[analyze-performance] Modal returned error:', workerResult.error)
-        }
-        console.log('[analyze-performance] Modal failed or timed out — falling back to Gemini')
+        alignmentRanges = buildAlignmentRanges(aligned, secPerMeasure)
+        console.log('[analyze-performance] Modal beat alignment:', aligned.length, 'events, secPerMeasure', secPerMeasure.toFixed(2))
       }
+      usedModal = true
+
+      if (workerResult.score && !workerResult.score.error && (workerResult.score.measures?.length ?? 0) > 0) {
+        score = {
+          key_signature:  workerResult.score.key_signature,
+          time_signature: workerResult.score.time_signature,
+          tempo_marking:  workerResult.score.tempo_marking,
+          measures:       workerResult.score.measures,
+        }
+        console.log('[analyze-performance] Modal music21 score:', score.measures.length, 'measures')
+      }
+    } else {
+      if (workerResult?.error) console.error('[analyze-performance] Modal error:', workerResult.error)
+      console.log('[analyze-performance] Modal unavailable — falling back to Gemini transcription')
     }
 
-    // ── Path B: Gemini audio (if Modal skipped or failed) ─────────────────
+    // ── Path B: Gemini transcription fallback ─────────────────────────────
     if (!usedModal) {
-      // Score reading already happened in parallel above (if applicable).
-      // If score is still empty and we haven't read it yet (non-Modal path), read it now.
-      if (score.measures.length === 0 && scoreBytesForClaude && isVisualScore) {
-        try {
-          score = await readScoreNotes(scoreBytesForClaude, scoreMimeType, safeStart, instrument ?? 'instrument', tSig)
-          console.log('[analyze-performance] Claude score read (Gemini path):', score.measures.length, 'measures')
-        } catch (err) {
-          console.error('[analyze-performance] readScoreNotes threw:', (err as Error).message)
-        }
-      }
+      const geminiFileUri = await geminiUploadPromise  // already resolved, no extra wait
+      if (!geminiFileUri) throw new Error('Video upload to Gemini failed and Modal worker is unavailable')
 
-      const { data: videoBlob, error: vErr } = await admin.storage.from('recordings').download(videoPath)
-      if (vErr || !videoBlob) throw new Error(`Video download failed: ${vErr?.message}`)
-      const videoBytes = new Uint8Array(await videoBlob.arrayBuffer())
-
-      console.log('[analyze-performance] uploading video to Gemini, bytes:', videoBytes.length)
-      let videoFileUri: string
-      try {
-        videoFileUri = await uploadVideoToGemini(videoBytes, videoMimeType, googleApiKey)
-      } catch (err) {
-        throw new Error(`Video upload to Gemini failed: ${(err as Error).message}`)
-      }
-      console.log('[analyze-performance] video uploaded:', videoFileUri)
-
-      audio = await transcribeAudio(videoFileUri, videoMimeType, instrument ?? 'instrument', googleApiKey)
+      audio = await transcribeAudio(geminiFileUri, videoMimeType, instrument ?? 'instrument', googleApiKey)
         .catch(err => {
           console.error('[analyze-performance] transcribeAudio threw:', (err as Error).message)
           return { audio_duration_sec: 0, events: [], tempo_estimate_bpm: null, tempo_steadiness: null } as AudioTranscription
         })
-
-      console.log('[analyze-performance] Gemini events:', audio.events.length, 'tempo:', audio.tempo_estimate_bpm)
+      console.log('[analyze-performance] Gemini transcription:', audio.events.length, 'events, tempo:', audio.tempo_estimate_bpm)
     }
 
     console.log('[analyze-performance] score measures:', score.measures.length, '| audio events:', audio.events.length, '| tempo:', audio.tempo_estimate_bpm)
@@ -898,6 +1078,28 @@ serve(async (req) => {
     console.log('[analyze-performance] aligned events:', aligned.length, 'sec/measure:', secPerMeasure.toFixed(2))
     console.log('[analyze-performance] measures with audio:', alignmentRanges.map(r => r.measure))
 
+    const analysisQuality = assessAnalysisQuality(
+      score,
+      audio,
+      aligned,
+      alignmentRanges,
+      usedModal,
+      geminiAssessment,
+    )
+    console.log('[analyze-performance] trust:', analysisQuality.trust, '| reasons:', analysisQuality.reasons)
+
+    if (!analysisQuality.canProceed) {
+      return new Response(JSON.stringify({
+        error: 'Analysis confidence is too low for precise feedback.',
+        code: 'LOW_TRUST_ANALYSIS',
+        analysisQuality,
+        suggestions: improvementSuggestions(analysisQuality),
+      }), {
+        status: 422,
+        headers: { 'Content-Type': 'application/json', ...CORS },
+      })
+    }
+
     // ── Step 4: compare & coach ────────────────────────────────────────────
     const flags = await compareAndCoach(
       score,
@@ -907,6 +1109,7 @@ serve(async (req) => {
       pieceTitle ?? 'this piece',
       composer   ?? 'the composer',
       instrument ?? 'musician',
+      geminiAssessment,
     )
     console.log('[analyze-performance] coaching flags:', flags.map(f => `m.${f.measure} (${f.type})`))
 
@@ -926,12 +1129,20 @@ serve(async (req) => {
         flags,
         measure_layout:  score.measures.length > 0 ? score : null,
         audio_alignment: alignmentRanges.length > 0 ? alignmentRanges : null,
+        analysis_quality: analysisQuality,
+        analysis_backend: usedModal ? 'modal+gemini+claude' : 'gemini+claude-fallback',
       })
       .select('id')
       .single()
     if (insertError) throw new Error(`DB insert failed: ${insertError.message}`)
 
-    return new Response(JSON.stringify({ takeId: take.id, score: baseScore, flags }), {
+    return new Response(JSON.stringify({
+      takeId: take.id,
+      score: baseScore,
+      flags,
+      analysisQuality,
+      analysisBackend: usedModal ? 'modal+gemini+claude' : 'gemini+claude-fallback',
+    }), {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })
   } catch (err) {

@@ -7,7 +7,7 @@ const FEATURES = [
     body: 'Mediant maps your recording directly to the sheet music — not just pitch detection. Every flag is tied to a specific measure, beat, and voice.',
   },
   {
-    title: 'AI Coaching Feedback',
+    title: 'Coaching Feedback',
     body: 'Receive warm, specific feedback that sounds like a teacher, not a metronome app. Mediant understands musical context and phrasing.',
   },
   {
@@ -36,7 +36,7 @@ const STEPS = [
   },
   {
     num: '02',
-    title: 'AI maps it to the score',
+    title: 'Maps it to the score',
     body: 'Mediant aligns your performance to the sheet music measure by measure, detecting timing, dynamics, and voicing issues with musical precision.',
   },
   {
@@ -72,11 +72,15 @@ export default function Landing() {
 
       {/* Nav */}
       <nav className={styles.nav}>
-        <Link to="/" className={styles.brand}>
-          <LogoMark />
-          <span className={styles.brandName}>Mediant</span>
-        </Link>
-        <div className={styles.navLinks}>
+        <div className={styles.navLeft}>
+          <Link to="/" className={styles.brand}>
+            <LogoMark />
+          </Link>
+          <span className={styles.navSep}>/</span>
+          <span className={styles.navOrg}>Mediant</span>
+          <span className={styles.navBadge}>PRACTICE</span>
+        </div>
+        <div className={styles.navRight}>
           <Link to="/login"  className={styles.navLogin}>Log in</Link>
           <Link to="/signup" className={styles.navCta}>Get started free</Link>
         </div>
@@ -84,7 +88,7 @@ export default function Landing() {
 
       {/* Hero */}
       <section className={styles.hero}>
-        <span className={styles.eyebrow}>AI-Powered Practice Coach</span>
+        <span className={styles.eyebrow}>Intelligent Practice Coach</span>
         <h1 className={styles.heroHeading}>
           The practice coach<br />
           <em>that actually listens.</em>
@@ -303,7 +307,7 @@ export default function Landing() {
             <LogoMark />
             <span className={styles.brandName}>Mediant</span>
           </Link>
-          <p className={styles.footerTagline}>AI-powered music practice coaching.</p>
+          <p className={styles.footerTagline}>Intelligent music practice coaching.</p>
         </div>
         <div className={styles.footerLinks}>
           <a href="#" className={styles.footerLink}>Privacy</a>

@@ -8,47 +8,66 @@
 /* ── Nav ─────────────────────────────────────────────────── */
 .nav {
   align-items: center;
-  backdrop-filter: blur(14px);
-  background: rgba(45,60,55,0.85);
+  background: var(--bg-deep);
   border-bottom: 1px solid rgba(255,255,255,0.07);
   display: flex;
+  height: 48px;
   justify-content: space-between;
-  padding: 18px 56px;
+  padding: 0 20px;
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+.navLeft {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.navRight {
+  align-items: center;
+  display: flex;
+  gap: 8px;
 }
 
 .brand {
   align-items: center;
   color: var(--text-inverse);
   display: flex;
-  gap: 10px;
   text-decoration: none;
 }
 
-.brandName {
-  color: rgba(248,246,242,0.88);
-  font-family: "Iowan Old Style", Georgia, serif;
-  font-size: 1.1rem;
-  letter-spacing: 0.04em;
+.navSep {
+  color: rgba(255,255,255,0.2);
+  font-size: 0.85rem;
 }
 
-.navLinks {
-  align-items: center;
-  display: flex;
-  gap: 10px;
+.navOrg {
+  color: rgba(248,246,242,0.5);
+  font-size: 0.82rem;
+}
+
+.navBadge {
+  background: rgba(88,121,101,0.25);
+  border: 1px solid rgba(88,121,101,0.4);
+  border-radius: 6px;
+  color: #8fbe9f;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 2px 7px;
 }
 
 .navLogin {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
   border-radius: 8px;
-  color: rgba(248,246,242,0.75);
-  font-size: 0.85rem;
-  padding: 8px 16px;
+  color: rgba(248,246,242,0.65);
+  font-size: 0.82rem;
+  padding: 6px 14px;
   text-decoration: none;
-  transition: background 150ms ease;
+  transition: background 150ms ease, color 150ms ease;
 }
 .navLogin:hover { background: rgba(255,255,255,0.1); color: var(--text-inverse); }
 
@@ -56,9 +75,9 @@
   background: var(--gold);
   border-radius: 8px;
   color: #3a3520;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  padding: 8px 18px;
+  padding: 6px 16px;
   text-decoration: none;
   transition: filter 150ms ease;
 }
@@ -769,7 +788,7 @@
 }
 
 @media (max-width: 860px) {
-  .nav            { padding: 16px 24px; }
+  .nav            { padding: 0 16px; }
   .hero           { padding: 72px 24px 56px; }
   .previewWrap    { padding: 0 16px 48px; }
   .instrumentsWrap { padding: 20px 24px; flex-direction: column; align-items: flex-start; }

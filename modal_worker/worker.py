@@ -112,7 +112,18 @@ def extract_audio_from_video(video_bytes: bytes, target_sr: int = 22050) -> tupl
             os.unlink(out_path)
 
 
-def run_pitch_tracking(wav_bytes: bytes) -> list[dict]:
+def _dedupe_times(times: list[float], min_separation: float = 0.05) -> list[float]:
+    if not times:
+        return []
+    times = sorted(float(t) for t in times)
+    deduped = [times[0]]
+    for t in times[1:]:
+        if t - deduped[-1] >= min_separation:
+            deduped.append(t)
+    return deduped
+
+
+def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None) -> list[dict]:
     """
     Detect note events using CREPE (neural pitch tracking) + librosa onset detection.
 
@@ -122,9 +133,10 @@ def run_pitch_tracking(wav_bytes: bytes) -> list[dict]:
     Strategy:
       1. Resample to 16 kHz (CREPE's expected sample rate)
       2. torchcrepe.predict → per-frame (Hz, periodicity/confidence) at 10 ms resolution
-      3. librosa onset detection → note boundaries at original 22050 Hz
-      4. For each onset window, weighted-average the confident CREPE frames
-      5. Emit one event per onset that has a confident voiced pitch
+      3. librosa onset detection + beat-guided candidate times
+      4. detect voiced segments so sustained or soft notes are not skipped
+      5. For each candidate window, weighted-average the confident CREPE frames
+      6. Emit denser events, not just one event per onset
     """
     import tempfile, os, math
     import numpy as np
@@ -150,15 +162,16 @@ def run_pitch_tracking(wav_bytes: bytes) -> list[dict]:
         y16 = librosa.resample(y, orig_sr=SR, target_sr=CREPE_SR)
         audio_tensor = torch.from_numpy(y16).unsqueeze(0).float()  # (1, N)
 
-        # weighted_argmax is faster than viterbi; good enough for note-level analysis
+        # Use the full model for higher fidelity. This is slower than "tiny" but
+        # much better aligned with Mediant's "fewer misses, higher trust" goal.
         pitch, periodicity = torchcrepe.predict(
             audio_tensor,
             CREPE_SR,
             CREPE_HOP,
             fmin=32.70,    # C1 — well below cello low C
             fmax=2093.0,   # C7 — covers violin high E
-            model="tiny",  # tiny: ~10x faster than full, ~2 dB worse — fine for pitch-class
-            batch_size=512,
+            model="full",
+            batch_size=256,
             device="cpu",
             decoder=torchcrepe.decode.weighted_argmax,
             return_periodicity=True,
@@ -179,20 +192,62 @@ def run_pitch_tracking(wav_bytes: bytes) -> list[dict]:
         if not onset_times:
             onset_times = np.arange(0, duration, 0.5).tolist()
 
-        # ── Assign CREPE pitch to each onset ──────────────────────────────
+        # Candidate windows should be denser than pure onset detection.
+        # We also use beat guide times and voiced-segment coverage so quieter or
+        # sustained passages don't disappear just because onset detection missed them.
+        candidate_times: list[float] = list(onset_times)
+        if guide_times:
+            candidate_times.extend(guide_times)
+            for i in range(len(guide_times) - 1):
+                gap = guide_times[i + 1] - guide_times[i]
+                if gap >= 0.45:
+                    candidate_times.append((guide_times[i] + guide_times[i + 1]) / 2)
+
         CONF_THRESHOLD = 0.45  # periodicity threshold — higher = fewer false positives
+        voiced_mask = (conf_np >= 0.30) & (pitch_np > 0)
+
+        voiced_segments: list[tuple[float, float]] = []
+        seg_start = None
+        for idx, voiced in enumerate(voiced_mask):
+            if voiced and seg_start is None:
+                seg_start = frame_times[idx]
+            elif not voiced and seg_start is not None:
+                seg_end = frame_times[max(0, idx - 1)]
+                if seg_end - seg_start >= 0.08:
+                    voiced_segments.append((float(seg_start), float(seg_end)))
+                seg_start = None
+        if seg_start is not None:
+            seg_end = frame_times[len(frame_times) - 1]
+            if seg_end - seg_start >= 0.08:
+                voiced_segments.append((float(seg_start), float(seg_end)))
+
+        for seg_start, seg_end in voiced_segments:
+            if not any((seg_start - 0.03) <= t <= (seg_end + 0.03) for t in candidate_times):
+                candidate_times.append(seg_start)
+            probe = seg_start + 0.35
+            while probe < seg_end - 0.10:
+                candidate_times.append(probe)
+                probe += 0.35
+
+        candidate_times = _dedupe_times(
+            [t for t in candidate_times if 0 <= t <= max(duration, frame_times[-1] if len(frame_times) else 0)],
+            min_separation=0.05,
+        )
 
         events: list[dict] = []
-        for i, onset_t in enumerate(onset_times):
-            next_t = onset_times[i + 1] if i + 1 < len(onset_times) else onset_t + 1.0
-            window_end = min(onset_t + 0.20, next_t - 0.02)
+        for i, event_t in enumerate(candidate_times):
+            next_t = candidate_times[i + 1] if i + 1 < len(candidate_times) else event_t + 0.35
+            window_start = max(0.0, event_t - 0.03)
+            window_end = min(event_t + 0.18, next_t - 0.01, duration + 0.01)
+            if window_end <= window_start:
+                window_end = min(event_t + 0.10, duration + 0.01)
 
-            mask = (frame_times >= onset_t) & (frame_times < window_end) & (conf_np >= CONF_THRESHOLD)
+            mask = (frame_times >= window_start) & (frame_times < window_end) & (conf_np >= CONF_THRESHOLD)
             if not mask.any():
                 # Widen window and lower threshold once
                 mask = (
-                    (frame_times >= onset_t)
-                    & (frame_times < min(onset_t + 0.30, next_t))
+                    (frame_times >= max(0.0, event_t - 0.05))
+                    & (frame_times < min(event_t + 0.28, next_t, duration + 0.01))
                     & (conf_np >= 0.25)
                 )
             if not mask.any():
@@ -213,7 +268,7 @@ def run_pitch_tracking(wav_bytes: bytes) -> list[dict]:
             cents_offset = round((midi_float - midi) * 100)  # -50..+50 ¢
 
             # RMS-based loudness
-            s   = int(onset_t * SR)
+            s   = int(event_t * SR)
             e   = min(len(y), s + SR // 10)
             rms = float(np.sqrt(np.mean(y[s:e] ** 2))) if e > s else 0.0
             loudness = "loud" if rms > 0.15 else "medium" if rms > 0.04 else "soft"
@@ -221,7 +276,7 @@ def run_pitch_tracking(wav_bytes: bytes) -> list[dict]:
             confidence = int(min(100, float(np.mean(window_conf)) * 100))
 
             events.append({
-                "time_sec":    float(onset_t),
+                "time_sec":    float(event_t),
                 "end_sec":     float(next_t),
                 "pitches":     [midi_to_scientific(midi)],
                 "midi":        midi,
@@ -229,11 +284,15 @@ def run_pitch_tracking(wav_bytes: bytes) -> list[dict]:
                 "cents_offset": cents_offset,
                 "confidence":  confidence,
                 "loudness":    loudness,
-                "source":      "crepe+librosa",
+                "source":      "crepe+librosa+dense",
             })
 
         events.sort(key=lambda e: e["time_sec"])
-        print(f"[pitch_tracking] {len(onset_times)} onsets → {len(events)} voiced events (CREPE), duration={duration:.1f}s")
+        print(
+            f"[pitch_tracking] {len(onset_times)} onsets, "
+            f"{len(voiced_segments)} voiced segments, {len(candidate_times)} candidates "
+            f"→ {len(events)} voiced events (CREPE), duration={duration:.1f}s"
+        )
         return events
 
     finally:
@@ -458,8 +517,9 @@ def analyze(body: dict) -> dict:
         # Beat tracking first (fast, gives tempo hint)
         beats = run_beat_tracking(wav_bytes)
 
-        # CREPE pitch tracking
-        raw_events = run_pitch_tracking(wav_bytes)
+        # CREPE pitch tracking, guided by beat locations so we don't skip
+        # quieter internal moments between strong onsets.
+        raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"])
 
         beat_times = beats["beat_times"]
         events_with_measures = assign_events_to_measures(

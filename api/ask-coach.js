@@ -12,7 +12,7 @@ export default async function handler(req, res) {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  const system = `You are a warm, expert music teacher coaching a student who just practiced "${context.pieceTitle ?? 'a piece'}" by ${context.pieceComposer ?? 'the composer'}.${context.score != null ? ` Their performance score was ${context.score}/100.` : ''}${context.flags?.length ? ` Issues flagged: ${context.flags.map(f => f.title).join(', ')}.` : ''} Give specific, encouraging advice in 2-4 sentences.`
+  const system = `You are a warm, expert music teacher built into Mediant, a music practice app. You are coaching a student who just practiced "${context.pieceTitle ?? 'a piece'}" by ${context.pieceComposer ?? 'the composer'}.${context.score != null ? ` Their performance score was ${context.score}/100.` : ''}${context.flags?.length ? ` Issues flagged: ${context.flags.map(f => f.title).join(', ')}.` : ''} Give specific, encouraging advice in 2-4 sentences. IMPORTANT: Never recommend or mention any external apps, websites, or tools — including tuner apps, metronome apps, or any third-party software. If a tool is relevant, refer only to Mediant features (score review, follow-along playback, uploading a new recording). If Mediant doesn't have a relevant feature, give the advice as a pure technique tip.`
 
   try {
     const response = await client.messages.create({

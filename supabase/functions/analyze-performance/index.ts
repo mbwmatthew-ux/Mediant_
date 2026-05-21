@@ -11,10 +11,12 @@ const CORS = {
 
 const GEMINI_MODEL = 'gemini-2.5-pro'
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
-const MODAL_TIMEOUT_MS = 105_000
-// Gemini eval runs in parallel with Modal. Budget: 150s total limit
-// minus ~15s for Claude coaching = 135s; we cap Gemini at 85s so
-// Promise.all always resolves before Modal's 105s deadline.
+// Hard wall for Modal worker fetch. AbortController cancels the network
+// request; withTimeout() guarantees Promise.all resolves even if the
+// abort doesn't fire correctly in some Deno environments.
+const MODAL_TIMEOUT_MS = 90_000
+// Gemini eval (fallback path only). 85s leaves ~45s for coaching after
+// Promise.all resolves: well within Supabase Edge's 150s hard limit.
 const GEMINI_EVAL_TIMEOUT_MS = 85_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -1109,7 +1111,7 @@ serve(async (req) => {
     // in time its observations become the primary coaching signal; if it
     // times out, Modal + Claude still produce a full analysis.
     const [workerResult, scoreResult, geminiEval] = await Promise.all([
-      modalPromise,
+      withTimeout(modalPromise, MODAL_TIMEOUT_MS, null),
       scorePromise,
       withTimeout(geminiEvalPromise, GEMINI_EVAL_TIMEOUT_MS, null),
     ])

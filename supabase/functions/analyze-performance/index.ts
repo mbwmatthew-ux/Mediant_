@@ -15,7 +15,7 @@ const CLAUDE_MODEL = 'claude-sonnet-4-6'
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface ScoreNote {
-  pitch: string | null         // e.g. "D3", "F#4"; null for rests
+  pitch: string | null         // e.g. "D3", "F#4"; null when unreadable
   beat: number                 // 1.0 = downbeat
   duration_beats: number
   articulation: string | null
@@ -49,6 +49,7 @@ interface AlignedEvent extends AudioEvent { measure: number }
 
 interface CoachingFlag {
   measure: number
+  beat: number | null
   type: string
   title: string
   raw_detail: string
@@ -191,8 +192,9 @@ WHAT TO RETURN — CRITICAL:
 Return EVERY measure bar-to-bar across the ENTIRE page, even if you cannot read its notes. A measure with illegible content must still appear with an empty notes array:
   {"number": ${startMeasure + 2}, "notes": []}
 
-For each note you CAN read:
-- pitch: scientific pitch notation ("D3", "F#4", "Bb3"). Use the literal string "rest" for written rests. Use null ONLY when you can see a note-head but cannot determine its pitch (e.g. smudged, covered by fingering). Do NOT use null for rests — rests are not notes, they are explicit silences.
+For each sounded note you CAN read:
+- pitch: scientific pitch notation ("D3", "F#4", "Bb3"). Use null ONLY when you can see a note-head but cannot determine its pitch (e.g. smudged, covered by fingering).
+- IMPORTANT: Do NOT include rests in the notes array. Do not infer rests from blank space. Rests are ignored in this version because false rest detection creates bad feedback.
 - beat: position within the measure (1.0 = downbeat, 2.0 = beat 2, 1.5 = "and" of 1). For 12/8, each eighth-note group = 0.33 beats.
 - duration_beats: number of beats this note lasts.
 - articulation: "staccato", "tenuto", "accent", "slur_start", "slur_end", or null.
@@ -210,7 +212,7 @@ Return JSON only (no markdown):
       "number": ${startMeasure},
       "notes": [
         {"pitch": "D3", "beat": 1.0, "duration_beats": 1.5, "articulation": null, "dynamic": "p"},
-        {"pitch": "rest", "beat": 2.5, "duration_beats": 0.5, "articulation": null, "dynamic": null}
+        {"pitch": "F#3", "beat": 2.5, "duration_beats": 0.5, "articulation": null, "dynamic": null}
       ]
     },
     {
@@ -246,7 +248,12 @@ Return JSON only (no markdown):
 
   // Sanity: first measure number must equal startMeasure. If Claude got that
   // wrong, renumber sequentially from startMeasure.
-  const measures = (parsed.measures ?? []).filter(m => Array.isArray(m?.notes))
+  const measures = (parsed.measures ?? [])
+    .filter(m => Array.isArray(m?.notes))
+    .map(m => ({
+      ...m,
+      notes: m.notes.filter(n => String(n?.pitch ?? '').toLowerCase() !== 'rest'),
+    }))
   if (measures.length > 0 && measures[0].number !== startMeasure) {
     console.warn('[readScoreNotes] renumbering: first measure was', measures[0].number, 'expected', startMeasure)
     for (let i = 0; i < measures.length; i++) measures[i].number = startMeasure + i
@@ -518,12 +525,52 @@ async function compareAndCoach(
   // For rhythm analysis: get the measure start time from alignmentRanges so we can
   // express event times as offsets within the measure (beat positions).
   const rangeStartMap = new Map(alignmentRanges.map(r => [r.measure, r.start]))
+  const rangeMapForEvidence = new Map(alignmentRanges.map(r => [r.measure, r]))
+  const beatsPerMeasure = beatsPerMeasureFromTimeSig(score.time_signature)
+
+  const evidenceCandidates: string[] = []
+  for (const m of playedMeasures) {
+    const events = (eventsByMeasure.get(m.number) ?? []).slice().sort((a, b) => a.time_sec - b.time_sec)
+    const range = rangeMapForEvidence.get(m.number)
+    const mStart = range?.start ?? events[0]?.time_sec ?? 0
+    const mDur = range ? Math.max(0.5, range.end - range.start) : 4
+    const secPerBeat = mDur / Math.max(1, beatsPerMeasure)
+
+    for (const e of events) {
+      if (e.cents_offset == null || Math.abs(e.cents_offset) < 30 || e.confidence < 45) continue
+      const beat = Math.max(1, Number(((e.time_sec - mStart) / secPerBeat + 1).toFixed(2)))
+      evidenceCandidates.push(
+        `intonation | measure ${m.number} beat ${beat} | ${e.pitches.join('/')} is ${e.cents_offset > 0 ? '+' : ''}${e.cents_offset}¢ at ${e.time_sec.toFixed(2)}s`,
+      )
+    }
+
+    const gaps = events.slice(1).map((e, i) => e.time_sec - events[i].time_sec).filter(g => g > 0)
+    if (gaps.length >= 4) {
+      const sorted = [...gaps].sort((a, b) => a - b)
+      const median = sorted[Math.floor(sorted.length / 2)]
+      gaps.forEach((gap, i) => {
+        if (median > 0 && gap > median * 2.2 && gap > 0.8) {
+          const beat = Math.max(1, Number(((events[i].time_sec - mStart) / secPerBeat + 1).toFixed(2)))
+          evidenceCandidates.push(
+            `timing | measure ${m.number} near beat ${beat} | ${gap.toFixed(2)}s gap after ${events[i].pitches.join('/')} at ${events[i].time_sec.toFixed(2)}s`,
+          )
+        }
+      })
+    }
+  }
+
+  const strongestEvidence = evidenceCandidates.slice(0, 8)
+  if (strongestEvidence.length === 0) {
+    console.warn('[compareAndCoach] no measurable evidence candidates; returning no flags')
+    return []
+  }
 
   const measureBlocks = playedMeasures.map(m => {
-    const written = m.notes.length === 0
+    const soundedNotes = m.notes.filter(n => String(n?.pitch ?? '').toLowerCase() !== 'rest')
+    const written = soundedNotes.length === 0
       ? '(score notation not parsed — analyze event spacing for rhythm/timing issues)'
-      : m.notes.map(n => {
-          const pitchLabel = n.pitch === null ? '(unclear)' : n.pitch
+      : soundedNotes.map(n => {
+          const pitchLabel = n.pitch === null ? '(unreadable notehead)' : n.pitch
           const parts = [`${pitchLabel} @ beat ${n.beat} (${n.duration_beats}b)`]
           if (n.articulation) parts.push(n.articulation)
           if (n.dynamic)      parts.push(n.dynamic)
@@ -550,9 +597,12 @@ async function compareAndCoach(
 
 Below is a measure-by-measure record of what is WRITTEN in the score and what was HEARD in the student's recording. Use this data to identify issues. Audio transcription is imperfect — sparse "heard" lines mean some notes weren't transcribed, not that nothing was played.
 
-IMPORTANT: In the WRITTEN column, "(unclear)" means the score had a note-head but its pitch could not be read — it is NOT a rest. Only "rest" means a written rest. Do NOT flag a student for playing during an "(unclear)" note, and do NOT assume "(unclear)" means silence.
+IMPORTANT: In the WRITTEN column, "(unreadable notehead)" means the score had a note-head but its pitch could not be read. Do NOT assume silence. Do NOT comment on rests, missing rests, skipped notes, or playing during rests. Rest detection is intentionally disabled because false rest feedback is not acceptable.
 
 ${measureBlocks}
+
+MEASURABLE ISSUE CANDIDATES:
+${strongestEvidence.map((e, i) => `${i + 1}. ${e}`).join('\n')}
 
 Tempo: ${tempo.bpm ?? '?'} BPM, ${tempo.steadiness ?? '?'}.
 Key: ${score.key_signature ?? '?'}. Time signature: ${score.time_signature ?? '?'}.
@@ -565,18 +615,21 @@ CENTS NOTATION: Numbers like "(+32¢)" or "(-18¢)" after a pitch mean the stude
 - ±45–50¢: borderline between two semitones — may be a wrong note entirely
 
 YOUR TASK:
-Identify 1–4 issues that are reasonably supported by the data above. Order of preference for what to flag:
+Identify 1–4 issues, but ONLY from MEASURABLE ISSUE CANDIDATES above. Order of preference for what to flag:
 1. **Specific intonation issue** — if a pitch shows a cents deviation ≥15¢, flag it by name. E.g. "D3 was +38¢ (sharp) on beat 2 of measure 9". If deviation is ≥30¢, this is your top priority flag.
 2. **Pitch mismatch** (e.g. written B♭3 on beat 1, heard B♮3 — sharp by a half-step). When you can cite this, do so.
 3. **Rhythm/timing patterns** — look at the HEARD event offsets within each measure. Events should be evenly spaced relative to the time signature. Uneven gaps (e.g., first note rushed, or long silence) = timing flag. Cite the specific +Ns offset that looks off.
-4. **Coverage gaps** — a measure that says "(no events)" or has very few events may indicate hesitation, dropped notes, or a stop-and-restart.
-5. **Tempo issues overall** (e.g. tempo too slow/fast, steadiness "wavering").
-6. When the direct listening cross-check names a timestamped issue, strongly prefer flags that match that issue's type and passage. If the direct listening block says a category sounds clean, do not force a flag in that category unless the written/heard evidence is overwhelming.
+4. **Tempo issues overall** (e.g. tempo too slow/fast, steadiness "wavering").
+5. When the direct listening cross-check names a timestamped issue, strongly prefer flags that match that issue's type and passage. If the direct listening block says a category sounds clean, do not force a flag in that category unless the written/heard evidence is overwhelming.
 
 HARD RULES:
 - Every "measure" field MUST be one of: [${validMeasuresList.join(', ')}].
+- Every flag MUST correspond to one of the numbered MEASURABLE ISSUE CANDIDATES.
 - If the recording sounds genuinely clean and you have NO basis for concern, return fewer or zero flags.
 - Do NOT invent a flag just to avoid returning zero. Precision matters more than quantity.
+- Do NOT flag rests, silence, missing notes, skipped measures, dropped notes, or "coverage gaps".
+- For intonation flags, raw_detail MUST cite a cents value from HEARD, and the absolute value must be at least 15¢.
+- For rhythm/timing flags, raw_detail MUST cite observed timestamp offsets or uneven gaps from HEARD.
 - "type" must be one of: intonation, timing, rhythm, articulation, dynamics, voicing.
 - raw_detail should cite the evidence (which note/beat/measure and what's off). If the evidence is rhythm-based or tempo-based rather than a specific pitch, say so clearly.
 
@@ -624,21 +677,37 @@ Return JSON only (no markdown):
     if ((f.confidence ?? 100) < 60) continue
     if (!f.type || !f.title || !f.raw_detail || !f.body) continue
     if (!allowedTypes.has(String(f.type))) continue
+    if (String(f.type) === 'intonation' && !/[+-]\d+¢/.test(String(f.raw_detail))) continue
+    if (/(rest|silence|missing note|skipped measure|dropped note|coverage gap|no events)/i.test(String(f.raw_detail))) continue
 
     const range = rangeMap.get(f.measure)
     if (!range) {
       console.warn('[compareAndCoach] dropping flag without alignment range:', f.measure)
       continue
     }
+
+    const beat = typeof f.beat === 'number' && Number.isFinite(f.beat) ? f.beat : null
+    let timestampStart = range.start
+    let timestampEnd = range.end
+    if (beat != null && beatsPerMeasure > 0) {
+      const measureDuration = Math.max(0.5, range.end - range.start)
+      const secPerBeat = measureDuration / beatsPerMeasure
+      const center = range.start + Math.max(0, beat - 1) * secPerBeat
+      timestampStart = Math.max(range.start, center - 0.45)
+      timestampEnd = Math.min(range.end, center + Math.max(1.0, secPerBeat * 1.25))
+      if (timestampEnd <= timestampStart) timestampEnd = Math.min(range.end, timestampStart + 1.0)
+    }
+
     flags.push({
       measure:         f.measure,
+      beat,
       type:            String(f.type),
       title:           String(f.title),
       raw_detail:      String(f.raw_detail),
       body:            String(f.body),
       confidence:      f.confidence ?? 100,
-      timestamp_start: range?.start ?? null,
-      timestamp_end:   range?.end   ?? null,
+      timestamp_start: timestampStart,
+      timestamp_end:   timestampEnd,
       spot:            null,
       spot_angle:      0,
     })

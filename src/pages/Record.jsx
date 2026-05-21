@@ -186,7 +186,11 @@ export default function Record() {
       if (fnError || result?.error) {
         // Try to extract the real error body from the Edge Function response
         let realError = result?.error || fnError?.message || 'Analysis failed'
-        let realDetails = []
+        let realDetails = Array.isArray(result?.analysisQuality?.reasons)
+          ? result.analysisQuality.reasons
+          : Array.isArray(result?.suggestions)
+            ? result.suggestions
+            : []
         try {
           if (fnError?.context) {
             const rawText = await fnError.context.text()

@@ -11,6 +11,7 @@ const CORS = {
 
 const GEMINI_MODEL = 'gemini-2.5-pro'
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
+const MODAL_TIMEOUT_MS = 105_000
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,19 @@ interface AnalysisQuality {
   trust: 'high' | 'medium' | 'low'
   canProceed: boolean
   reasons: string[]
+}
+
+function controlledAnalysisUnavailable(message: string, reasons: string[], suggestions: string[]): Response {
+  const analysisQuality: AnalysisQuality = { trust: 'low', canProceed: false, reasons }
+  return new Response(JSON.stringify({
+    error: message,
+    code: 'ANALYSIS_TEMPORARILY_UNAVAILABLE',
+    analysisQuality,
+    suggestions,
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...CORS },
+  })
 }
 
 function improvementSuggestions(quality: AnalysisQuality): string[] {
@@ -899,7 +913,9 @@ async function callModalWorker(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(150_000),  // allow ~1 minute takes to finish dense pitch extraction reliably
+    // Stay below Supabase Edge's request ceiling so we can return a controlled
+    // JSON response instead of the platform killing the request as a non-2xx.
+    signal: AbortSignal.timeout(MODAL_TIMEOUT_MS),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '(no body)')
@@ -1102,7 +1118,18 @@ serve(async (req) => {
       usedModal = true
     } else {
       if (workerResult?.error) console.error('[analyze-performance] Modal error:', workerResult.error)
-      console.log('[analyze-performance] Modal unavailable — falling back to Gemini transcription')
+      console.log('[analyze-performance] Modal unavailable')
+      if (modalUrl && videoSignedUrl) {
+        return controlledAnalysisUnavailable(
+          'Analysis timed out before enough musical evidence could be measured.',
+          ['The dedicated transcription worker did not finish before the safe request deadline.'],
+          [
+            'Try a shorter excerpt first, ideally 15-45 seconds.',
+            'For score accuracy, upload MusicXML/MXL if you have it.',
+            'If using a screenshot or photo, use a clean cropped score image instead of a full-screen screenshot.',
+          ],
+        )
+      }
     }
 
     if (score.measures.length === 0 && scoreBytesForClaude && isVisualScore) {

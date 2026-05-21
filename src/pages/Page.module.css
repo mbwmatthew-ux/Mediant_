@@ -128,8 +128,13 @@
   padding: 9px 18px;
   transition: filter 150ms ease, transform 150ms ease;
 }
-.primaryBtn:hover { filter: brightness(1.1); transform: translateY(-1px); }
-.primaryBtn:active { transform: translateY(0); }
+.primaryBtn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+.primaryBtn:active:not(:disabled) { transform: translateY(0); }
+.primaryBtn:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+  opacity: 0.45;
+}
 
 .ghostBtn {
   background: rgba(255,255,255,0.05);

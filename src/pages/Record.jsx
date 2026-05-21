@@ -44,7 +44,7 @@ export default function Record() {
   const [errorMsg, setErrorMsg] = useState('')
   const [errorDetails, setErrorDetails] = useState([])
 
-  const readyToAnalyze = scoreFile && file && instrument && phase !== 'error'
+  const readyToAnalyze = Boolean(scoreFile && file && instrument)
 
   // Pre-fill from library "Start Recording" click
   useEffect(() => {
@@ -278,11 +278,13 @@ export default function Record() {
           <p className={styles.label}>Upload Recording</p>
           <h1 className={styles.title}>Submit your take</h1>
         </div>
-        {readyToAnalyze && (
-          <button className={styles.primaryBtn} onClick={handleSubmit}>
-            Analyze recording →
-          </button>
-        )}
+        <button
+          className={styles.primaryBtn}
+          onClick={handleSubmit}
+          disabled={!readyToAnalyze || phase === 'error'}
+        >
+          Analyze recording →
+        </button>
       </div>
 
       {phase === 'error' && (
@@ -507,11 +509,13 @@ export default function Record() {
         </div>
       </div>
 
-      {readyToAnalyze && (
-        <button className={`${styles.primaryBtn} ${styles.submitBtn}`} onClick={handleSubmit}>
-          Analyze recording →
-        </button>
-      )}
+      <button
+        className={`${styles.primaryBtn} ${styles.submitBtn}`}
+        onClick={handleSubmit}
+        disabled={!readyToAnalyze || phase === 'error'}
+      >
+        Analyze recording →
+      </button>
     </div>
   )
 }

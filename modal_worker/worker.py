@@ -163,7 +163,7 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None)
         audio_tensor = torch.from_numpy(y16).unsqueeze(0).float()  # (1, N)
 
         # Dense event sampling already improved coverage substantially. Use the
-        # smaller CREPE model here so ~1 minute takes finish reliably in
+        # supported lightweight CREPE model here so ~1 minute takes finish reliably in
         # production instead of timing out mid-analysis.
         pitch, periodicity = torchcrepe.predict(
             audio_tensor,
@@ -171,7 +171,7 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None)
             CREPE_HOP,
             fmin=32.70,    # C1 — well below cello low C
             fmax=2093.0,   # C7 — covers violin high E
-            model="small",
+            model="tiny",
             batch_size=256,
             device="cpu",
             decoder=torchcrepe.decode.weighted_argmax,

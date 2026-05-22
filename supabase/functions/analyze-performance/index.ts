@@ -11,19 +11,20 @@ const CORS = {
 
 const GEMINI_MODEL = 'gemini-2.5-pro'
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
-// Hard wall for Modal worker fetch. CREPE-only (no Audiveris) completes
-// in 15-30s on a warm container; 40s leaves headroom for cold-ish starts.
-const MODAL_TIMEOUT_MS = 40_000
+// Hard wall for Modal worker fetch. CREPE+download+FFmpeg takes 35-90s
+// for typical 0.5-2 min practice recordings on a warm container.
+// Supabase platform limit is 150s; 110s leaves 30s+ for coaching after.
+const MODAL_TIMEOUT_MS = 110_000
 // Gemini eval (fallback path only — when Modal is unavailable).
-const GEMINI_EVAL_TIMEOUT_MS = 40_000
+const GEMINI_EVAL_TIMEOUT_MS = 100_000
 // Cap on the Claude score-reading call (runs in parallel with Modal).
 const SCORE_READ_TIMEOUT_MS = 15_000
 // Hard cap on the Claude coaching call.
-const COACH_TIMEOUT_MS = 18_000
-// Top-level hard deadline. Budget: max(40s Modal, 15s score) + 18s coach
-// + ~5s overhead ≈ 63s worst case. Set at 58s so we always beat any
-// platform-level 60s gateway timeout with a controlled 200 response.
-const GLOBAL_TIMEOUT_MS = 58_000
+const COACH_TIMEOUT_MS = 20_000
+// Top-level hard deadline. Budget: max(110s Modal, 15s score) + 20s coach
+// + ~5s overhead = 135s worst case. 140s leaves 10s buffer under
+// Supabase's 150s platform limit.
+const GLOBAL_TIMEOUT_MS = 140_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([

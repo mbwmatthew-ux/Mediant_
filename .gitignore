@@ -15,3 +15,10 @@ Thumbs.db
 # Python static server cache
 __pycache__/
 
+# Frontend build and dependency output
+node_modules/
+dist/
+.vite/
+
+# Supabase local state
+supabase/.temp/

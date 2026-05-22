@@ -1,0 +1,193 @@
+/* ── Backdrop ─────────────────────────────────────────────── */
+.backdrop {
+  background: rgba(29, 40, 36, 0.45);
+  backdrop-filter: blur(4px);
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  left: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 300;
+}
+
+/* ── Modal ────────────────────────────────────────────────── */
+.modal {
+  background: var(--cream-strong);
+  border-radius: 20px;
+  box-shadow: 0 24px 80px rgba(20, 30, 26, 0.22);
+  padding: 28px 32px 32px;
+  width: 90%;
+  max-width: 420px;
+}
+
+.modalHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.modalTitle {
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.closeBtn {
+  background: rgba(88, 121, 101, 0.08);
+  border: 1px solid rgba(88, 121, 101, 0.16);
+  border-radius: 999px;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  transition: background 140ms ease;
+}
+.closeBtn:hover { background: rgba(88, 121, 101, 0.14); }
+
+/* ── Error box ────────────────────────────────────────────── */
+.errorBox {
+  background: rgba(225, 134, 118, 0.07);
+  border: 1px solid rgba(225, 134, 118, 0.2);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.errorTitle {
+  color: var(--coral);
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.errorBody {
+  color: var(--text-soft);
+  font-size: 0.87rem;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.errorSteps {
+  color: var(--text);
+  font-size: 0.87rem;
+  line-height: 1.7;
+  margin: 0 0 16px;
+  padding-left: 20px;
+}
+
+.retryBtn {
+  background: rgba(88, 121, 101, 0.1);
+  border: 1px solid rgba(88, 121, 101, 0.22);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 8px 18px;
+  transition: background 140ms ease;
+}
+.retryBtn:hover { background: rgba(88, 121, 101, 0.18); }
+
+/* ── Tuner display ────────────────────────────────────────── */
+.display {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.noteWrap {
+  align-items: baseline;
+  display: flex;
+  gap: 4px;
+  line-height: 1;
+}
+
+.noteName {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 6rem;
+  font-weight: 400;
+}
+
+.noteOctave {
+  color: var(--text-soft);
+  font-size: 1.8rem;
+  font-weight: 400;
+}
+
+/* ── Gauge ────────────────────────────────────────────────── */
+.gaugeWrap {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.gaugeSide {
+  color: var(--text-soft);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  text-align: center;
+  width: 16px;
+}
+
+.gaugeTrack {
+  background: rgba(88, 121, 101, 0.1);
+  border-radius: 999px;
+  flex: 1;
+  height: 6px;
+  position: relative;
+}
+
+.gaugeCenter {
+  background: rgba(88, 121, 101, 0.4);
+  border-radius: 999px;
+  height: 100%;
+  left: 50%;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 2px;
+}
+
+.needle {
+  border-radius: 999px;
+  height: 18px;
+  margin-top: -6px;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  transition: left 70ms ease, background 100ms ease;
+  width: 4px;
+}
+
+/* ── Status ───────────────────────────────────────────────── */
+.status {
+  align-items: center;
+  color: var(--text-soft);
+  display: flex;
+  font-size: 0.9rem;
+  gap: 16px;
+  margin: 0;
+  min-height: 1.3em;
+}
+
+.statusMuted { color: rgba(88, 121, 101, 0.4); font-style: italic; }
+
+.freq {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.reference {
+  color: rgba(88, 121, 101, 0.4);
+  font-size: 0.75rem;
+  margin: 4px 0 0;
+}

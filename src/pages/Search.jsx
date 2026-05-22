@@ -1,139 +1,203 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
+import UploadPieceModal from '../components/UploadPieceModal'
+import PieceDetailPanel from '../components/PieceDetailPanel'
 import styles from './Page.module.css'
-
-const PIECES = [
-  { id:  1, instrument: 'Piano',  era: 'Romantic',  difficulty: 'Advanced',     title: 'Clair de Lune',             composer: 'Claude Debussy',        key: 'D♭ major', time: '9/8',  scoreReady: true  },
-  { id:  2, instrument: 'Piano',  era: 'Baroque',   difficulty: 'Intermediate', title: 'Invention No. 8',           composer: 'J.S. Bach',             key: 'F major',  time: '3/4',  scoreReady: true  },
-  { id:  3, instrument: 'Voice',  era: 'Classical', difficulty: 'Beginner',     title: 'Caro Mio Ben',              composer: 'Tommaso Giordani',      key: 'G major',  time: '4/4',  scoreReady: true  },
-  { id:  4, instrument: 'Piano',  era: 'Romantic',  difficulty: 'Advanced',     title: 'Moonlight Sonata',          composer: 'Ludwig van Beethoven',  key: 'C♯ minor', time: '4/4',  scoreReady: true  },
-  { id:  5, instrument: 'Violin', era: 'Baroque',   difficulty: 'Advanced',     title: 'Partita No. 2 in D minor',  composer: 'J.S. Bach',             key: 'D minor',  time: '4/4',  scoreReady: false },
-  { id:  6, instrument: 'Piano',  era: 'Modern',    difficulty: 'Beginner',     title: 'Gymnopédie No. 1',          composer: 'Erik Satie',            key: 'G major',  time: '3/4',  scoreReady: true  },
-  { id:  7, instrument: 'Piano',  era: 'Classical', difficulty: 'Intermediate', title: 'Sonata K. 331',             composer: 'Wolfgang A. Mozart',    key: 'A major',  time: '6/8',  scoreReady: false },
-  { id:  8, instrument: 'Violin', era: 'Romantic',  difficulty: 'Intermediate', title: 'Meditation from Thaïs',     composer: 'Jules Massenet',        key: 'D major',  time: '4/4',  scoreReady: true  },
-  { id:  9, instrument: 'Piano',  era: 'Romantic',  difficulty: 'Advanced',     title: 'Ballade No. 1',             composer: 'Frédéric Chopin',       key: 'G minor',  time: '6/4',  scoreReady: true  },
-  { id: 10, instrument: 'Voice',  era: 'Classical', difficulty: 'Intermediate', title: 'Nessun Dorma',              composer: 'Giacomo Puccini',       key: 'B♭ major', time: '4/4',  scoreReady: false },
-  { id: 11, instrument: 'Piano',  era: 'Baroque',   difficulty: 'Beginner',     title: 'Minuet in G',               composer: 'J.S. Bach',             key: 'G major',  time: '3/4',  scoreReady: true  },
-  { id: 12, instrument: 'Violin', era: 'Modern',    difficulty: 'Advanced',     title: 'Violin Sonata No. 1',       composer: 'Béla Bartók',           key: 'Atonal',   time: '4/4',  scoreReady: false },
-]
-
-const INSTRUMENT_FILTERS = ['All', 'Piano', 'Voice', 'Violin']
-const ERA_FILTERS         = ['All eras', 'Baroque', 'Classical', 'Romantic', 'Modern']
-const DIFFICULTY_FILTERS  = ['Any level', 'Beginner', 'Intermediate', 'Advanced']
 
 const difficultyColor = { Beginner: 'green', Intermediate: 'gold', Advanced: 'coral' }
 
-export default function Search() {
-  const nav = useNavigate()
-  const [query, setQuery] = useState('')
-  const [instrument, setInstrument] = useState('All')
-  const [era, setEra] = useState('All eras')
-  const [difficulty, setDifficulty] = useState('Any level')
+function unique(arr) { return [...new Set(arr.filter(Boolean))].sort() }
 
-  const results = PIECES.filter(p => {
+export default function Search() {
+  const { user } = useAuth()
+  const [query,      setQuery]      = useState('')
+  const [instrument, setInstrument] = useState(null)
+  const [era,        setEra]        = useState(null)
+  const [difficulty, setDifficulty] = useState(null)
+  const [userPieces, setUserPieces] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mediant_user_pieces') || '[]') }
+    catch { return [] }
+  })
+  const [showUpload,    setShowUpload]    = useState(false)
+  const [selectedPiece, setSelectedPiece] = useState(null)
+
+  useEffect(() => {
+    localStorage.setItem('mediant_user_pieces', JSON.stringify(userPieces))
+  }, [userPieces])
+
+  function handlePieceAdded(piece) {
+    setUserPieces(prev => [piece, ...prev])
+  }
+
+  const instruments  = unique(userPieces.map(p => p.instrument))
+  const eras         = unique(userPieces.map(p => p.era))
+  const difficulties = unique(userPieces.map(p => p.difficulty))
+
+  const results = userPieces.filter(p => {
     if (query) {
       const q = query.toLowerCase()
-      if (!p.title.toLowerCase().includes(q) &&
-          !p.composer.toLowerCase().includes(q) &&
-          !p.instrument.toLowerCase().includes(q)) return false
+      if (!p.title?.toLowerCase().includes(q) &&
+          !p.composer?.toLowerCase().includes(q) &&
+          !p.instrument?.toLowerCase().includes(q)) return false
     }
-    if (instrument !== 'All' && p.instrument !== instrument) return false
-    if (era !== 'All eras' && p.era !== era) return false
-    if (difficulty !== 'Any level' && p.difficulty !== difficulty) return false
+    if (instrument && p.instrument !== instrument) return false
+    if (era        && p.era        !== era)        return false
+    if (difficulty && p.difficulty !== difficulty) return false
     return true
   })
 
   return (
     <div className={styles.page}>
+      {showUpload && (
+        <UploadPieceModal
+          onClose={() => setShowUpload(false)}
+          onAdded={handlePieceAdded}
+        />
+      )}
+      {selectedPiece && (
+        <PieceDetailPanel
+          piece={selectedPiece}
+          onClose={() => setSelectedPiece(null)}
+        />
+      )}
+
       <div className={styles.header}>
         <div>
-          <p className={styles.label}>Library</p>
-          <h1 className={styles.title}>Find your piece</h1>
-          <p className={styles.sub}>{PIECES.length} pieces available with score matching</p>
+          <h1 className={styles.title}>Music Library</h1>
+          <p className={styles.sub}>
+            {userPieces.length === 0
+              ? 'Your library is empty — upload your first piece to get started'
+              : `${userPieces.length} piece${userPieces.length !== 1 ? 's' : ''} in your library`}
+          </p>
+        </div>
+        <div className={styles.headerActions}>
+          <button className={styles.primaryBtn} onClick={() => setShowUpload(true)}>
+            ↑ Upload sheet music
+          </button>
         </div>
       </div>
 
-      <input
-        className={styles.searchInput}
-        type="text"
-        placeholder="Search by title, composer, or instrument…"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        autoFocus
-      />
+      <div className={styles.toolbar}>
+        <input
+          className={styles.searchInput}
+          type="text"
+          placeholder="Search by title, composer, or instrument…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          autoFocus
+        />
+        {userPieces.length > 0 && (
+          <div className={styles.toolbarFilters}>
+            {instruments.length >= 1 && (
+              <div className={styles.filterGroup}>
+                <span className={styles.filterGroupLabel}>Instrument</span>
+                <div className={styles.filterStrip}>
+                  <button
+                    className={`${styles.filterChip} ${!instrument ? styles.filterChipActive : ''}`}
+                    onClick={() => setInstrument(null)}
+                  >All</button>
+                  {instruments.map(f => (
+                    <button
+                      key={f}
+                      className={`${styles.filterChip} ${instrument === f ? styles.filterChipActive : ''}`}
+                      onClick={() => setInstrument(instrument === f ? null : f)}
+                    >{f}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {eras.length >= 1 && (
+              <div className={styles.filterGroup}>
+                <span className={styles.filterGroupLabel}>Era</span>
+                <div className={styles.filterStrip}>
+                  <button
+                    className={`${styles.filterChip} ${!era ? styles.filterChipActive : ''}`}
+                    onClick={() => setEra(null)}
+                  >All eras</button>
+                  {eras.map(f => (
+                    <button
+                      key={f}
+                      className={`${styles.filterChip} ${era === f ? styles.filterChipActive : ''}`}
+                      onClick={() => setEra(era === f ? null : f)}
+                    >{f}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {difficulties.length >= 1 && (
+              <div className={styles.filterGroup}>
+                <span className={styles.filterGroupLabel}>Level</span>
+                <div className={styles.filterStrip}>
+                  <button
+                    className={`${styles.filterChip} ${!difficulty ? styles.filterChipActive : ''}`}
+                    onClick={() => setDifficulty(null)}
+                  >Any level</button>
+                  {difficulties.map(f => (
+                    <button
+                      key={f}
+                      className={`${styles.filterChip} ${difficulty === f ? styles.filterChipActive : ''}`}
+                      onClick={() => setDifficulty(difficulty === f ? null : f)}
+                    >{f}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
-      {/* Filter strips */}
-      <div className={styles.filterGroup}>
-        <div className={styles.filterStrip}>
-          {INSTRUMENT_FILTERS.map(f => (
-            <button
-              key={f}
-              className={`${styles.filterChip} ${instrument === f ? styles.filterChipActive : ''}`}
-              onClick={() => setInstrument(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-        <div className={styles.filterStrip}>
-          {ERA_FILTERS.map(f => (
-            <button
-              key={f}
-              className={`${styles.filterChip} ${era === f ? styles.filterChipActive : ''}`}
-              onClick={() => setEra(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-        <div className={styles.filterStrip}>
-          {DIFFICULTY_FILTERS.map(f => (
-            <button
-              key={f}
-              className={`${styles.filterChip} ${difficulty === f ? styles.filterChipActive : ''}`}
-              onClick={() => setDifficulty(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
+      <div className={styles.sectionHeader}>
+        <span className={styles.sectionHeaderTitle}>
+          {results.length} result{results.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
       {results.length === 0 ? (
-        <p className={styles.emptyState}>No pieces match your filters. Try broadening your search.</p>
+        <div className={styles.emptyLibrary}>
+          {userPieces.length === 0 ? (
+            <>
+              <p className={styles.emptyLibraryTitle}>Your library is empty</p>
+              <p className={styles.emptyLibrarySub}>Upload a piece of sheet music to get started. Mediant will read it and add it to your library automatically.</p>
+              <button className={styles.primaryBtn} onClick={() => setShowUpload(true)}>↑ Upload your first piece</button>
+            </>
+          ) : (
+            <p className={styles.emptyLibrarySub}>No pieces match your filters.</p>
+          )}
+        </div>
       ) : (
-        <>
-          <p className={styles.resultCount}>{results.length} result{results.length !== 1 ? 's' : ''}</p>
-          <div className={styles.resultGrid}>
-            {results.map(p => (
-              <button
-                key={p.id}
-                className={styles.resultCard}
-                onClick={() => nav('/record')}
-              >
-                <div className={styles.resultCardTop}>
-                  <span className={`${styles.diffBadge} ${styles[difficultyColor[p.difficulty]]}`}>
-                    {p.difficulty}
-                  </span>
-                  {p.scoreReady && (
-                    <span className={styles.scoreReadyBadge}>Score ready</span>
-                  )}
-                </div>
-                <h3 className={styles.resultTitle}>{p.title}</h3>
-                <p className={styles.resultComposer}>{p.composer}</p>
-                <div className={styles.resultMeta}>
-                  <span>{p.instrument}</span>
-                  <span>·</span>
-                  <span>{p.era}</span>
-                  <span>·</span>
-                  <span>{p.key}</span>
-                  <span>·</span>
-                  <span>{p.time}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead className={styles.tableHead}>
+              <tr>
+                <th className={styles.th}>Title</th>
+                <th className={styles.th}>Composer</th>
+                <th className={styles.th}>Instrument</th>
+                <th className={styles.th}>Era</th>
+                <th className={styles.th}>Level</th>
+                <th className={styles.th}>Key · Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map(p => (
+                <tr key={p.id} className={styles.tableRow} onClick={() => setSelectedPiece(p)}>
+                  <td className={styles.td}>
+                    {p.title}
+                    {p.userUploaded && <span className={styles.uploadedTag}> · Uploaded</span>}
+                  </td>
+                  <td className={styles.tdSoft}>{p.composer}</td>
+                  <td className={styles.tdSoft}>{p.instrument}</td>
+                  <td className={styles.tdSoft}>{p.era}</td>
+                  <td className={styles.td}>
+                    <span className={`${styles.diffBadge} ${styles[difficultyColor[p.difficulty]]}`}>
+                      {p.difficulty}
+                    </span>
+                  </td>
+                  <td className={styles.tdSoft}>{p.key} · {p.time}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

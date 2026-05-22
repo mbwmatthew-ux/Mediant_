@@ -3,6 +3,11 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
+function getEmailRedirectUrl() {
+  if (typeof window === 'undefined') return undefined
+  return `${window.location.origin}/#/login`
+}
+
 function userFromSession(session) {
   if (!session?.user) return null
   const { user } = session
@@ -14,32 +19,64 @@ function userFromSession(session) {
   }
 }
 
+// SUBSCRIPTIONS DISABLED — run supabase migrations before re-enabling
+// async function fetchSubscription(userId) {
+//   const { data } = await supabase
+//     .from('subscriptions')
+//     .select('status, plan, current_period_end')
+//     .eq('user_id', userId)
+//     .single()
+//   return data ?? { status: 'inactive', plan: null, current_period_end: null }
+// }
+
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null)
+  const [user, setUser]   = useState(null)
   const [loading, setLoading] = useState(true)
 
+  // Stub — always active until subscriptions table is set up
+  const subscription = { status: 'active', plan: null }
+  function refreshSubscription() {}
+
   useEffect(() => {
-    // Load existing session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(userFromSession(session))
       setLoading(false)
     })
 
-    // Keep state in sync when the session changes (tab focus, token refresh, etc.)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(userFromSession(session))
     })
 
-    return () => subscription.unsubscribe()
+    return () => authSub.unsubscribe()
   }, [])
+
+  // REALTIME SUBSCRIPTION LISTENER — re-enable with subscriptions table
+  // useEffect(() => {
+  //   if (!user) return
+  //   const channel = supabase
+  //     .channel(`sub-${user.id}`)
+  //     .on('postgres_changes', {
+  //       event: '*', schema: 'public', table: 'subscriptions',
+  //       filter: `user_id=eq.${user.id}`,
+  //     }, (payload) => setSubscription(payload.new))
+  //     .subscribe()
+  //   return () => { supabase.removeChannel(channel) }
+  // }, [user?.id])
 
   async function signup(name, email, password, instrument) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name, instrument } },
+      options: {
+        data: { name, instrument },
+        emailRedirectTo: getEmailRedirectUrl(),
+      },
     })
     if (error) return { ok: false, error: error.message }
+    // Supabase returns an empty identities array when the email is already registered
+    if (data.user?.identities?.length === 0) {
+      return { ok: false, error: 'An account with this email already exists. Please log in instead.' }
+    }
     return { ok: true, user: userFromSession(data.session) }
   }
 
@@ -56,7 +93,7 @@ export function AuthProvider({ children }) {
   if (loading) return null
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, subscription, login, signup, logout, refreshSubscription }}>
       {children}
     </AuthContext.Provider>
   )

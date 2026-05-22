@@ -1,0 +1,1 @@
+ALTER TABLE takes ADD COLUMN IF NOT EXISTS score_path TEXT;

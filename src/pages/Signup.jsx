@@ -31,7 +31,12 @@ export default function Signup() {
     if (result.ok) {
       nav(result.user ? '/home' : '/confirm-email')
     } else {
-      setError(result.error || 'Something went wrong. Please try again.')
+      const msg = result.error ?? ''
+      if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {
+        setError('__email_taken__')
+      } else {
+        setError(msg || 'Something went wrong. Please try again.')
+      }
     }
   }
 
@@ -47,7 +52,17 @@ export default function Signup() {
         <p className={styles.sub}>Free to try. No credit card needed.</p>
 
         <form className={styles.form} onSubmit={handleSubmit}>
-          {error && <div className={styles.error}>{error}</div>}
+          {error && (
+            <div className={styles.error}>
+              {error === '__email_taken__' ? (
+                <>
+                  An account with that email already exists.{' '}
+                  <Link to="/login" className={styles.footerLink}>Please log in</Link>
+                  {' '}or use a different email.
+                </>
+              ) : error}
+            </div>
+          )}
 
           <div className={styles.field}>
             <label className={styles.label}>Full name</label>

@@ -1,0 +1,2 @@
+ALTER TABLE takes ADD COLUMN IF NOT EXISTS analysis_quality JSONB;
+ALTER TABLE takes ADD COLUMN IF NOT EXISTS analysis_backend TEXT;

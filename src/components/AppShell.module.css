@@ -987,6 +987,25 @@
   justify-content: center;
 }
 
+.upgradeBtn {
+  align-items: center;
+  background: rgba(214,177,104,0.12);
+  border: 1px solid rgba(214,177,104,0.28);
+  border-radius: 10px;
+  color: rgba(214,177,104,0.85);
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  width: 36px;
+}
+.upgradeBtn:hover {
+  background: rgba(214,177,104,0.22);
+  border-color: rgba(214,177,104,0.5);
+  color: var(--gold);
+}
+
 .userBtn {
   background: none;
   border: none;

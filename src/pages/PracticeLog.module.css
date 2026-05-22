@@ -1,0 +1,157 @@
+/* ── New entry form card ─────────────────────────────────────── */
+.formCard {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 20px 24px 24px;
+}
+
+.formTitle {
+  color: rgba(248,246,242,0.55);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  margin: 0 0 16px;
+  text-transform: uppercase;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formRow {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.dateInput {
+  color-scheme: dark;
+}
+
+.noteInput {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: var(--text-inverse);
+  font-family: inherit;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  padding: 9px 11px;
+  resize: vertical;
+  transition: border-color 150ms ease;
+  width: 100%;
+}
+.noteInput::placeholder { color: rgba(248,246,242,0.22); }
+.noteInput:focus { border-color: rgba(255,255,255,0.25); outline: none; }
+
+.errorText {
+  color: var(--coral);
+  font-size: 0.83rem;
+  margin: 0;
+}
+
+/* ── Log list ────────────────────────────────────────────────── */
+.logList {
+  display: flex;
+  flex-direction: column;
+}
+
+.logRow {
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 14px 0;
+}
+.logRow:last-child { border-bottom: 0; }
+
+.logLeft {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.logDate {
+  color: var(--text-inverse);
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.logNote {
+  color: rgba(248,246,242,0.52);
+  font-size: 0.83rem;
+  line-height: 1.55;
+  margin: 0;
+  word-break: break-word;
+}
+
+.logNoteMuted {
+  color: rgba(248,246,242,0.2);
+  font-size: 0.82rem;
+  font-style: italic;
+  margin: 0;
+}
+
+.logRight {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+.hoursBadge {
+  background: rgba(88,121,101,0.15);
+  border: 1px solid rgba(88,121,101,0.28);
+  border-radius: 6px;
+  color: #8fbe9f;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.deleteBtn {
+  background: none;
+  border: none;
+  color: rgba(248,246,242,0.2);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 2px 4px;
+  transition: color 140ms ease;
+}
+.deleteBtn:hover { color: var(--coral); }
+
+/* ── Empty state ─────────────────────────────────────────────── */
+.emptyState {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 52px 20px;
+  text-align: center;
+}
+
+.emptyIcon {
+  color: rgba(248,246,242,0.15);
+  font-size: 2rem;
+}
+
+.emptyTitle {
+  color: var(--text-inverse);
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .formRow { grid-template-columns: 1fr; }
+  .formCard { padding: 16px 16px 20px; }
+}

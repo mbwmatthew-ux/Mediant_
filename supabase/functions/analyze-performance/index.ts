@@ -594,7 +594,8 @@ async function compareAndCoach(
     const secPerBeat = mDur / Math.max(1, beatsPerMeasure)
 
     for (const e of events) {
-      if (e.cents_offset == null || Math.abs(e.cents_offset) < 30 || e.confidence < 45) continue
+      // Flag intonation at ≥15¢ (noticeable to listeners) with ≥30% CREPE confidence.
+      if (e.cents_offset == null || Math.abs(e.cents_offset) < 15 || e.confidence < 30) continue
       const beat = Math.max(1, Number(((e.time_sec - mStart) / secPerBeat + 1).toFixed(2)))
       evidenceCandidates.push(
         `intonation | measure ${m.number} beat ${beat} | ${e.pitches.join('/')} is ${e.cents_offset > 0 ? '+' : ''}${e.cents_offset}¢ at ${e.time_sec.toFixed(2)}s`,
@@ -602,11 +603,11 @@ async function compareAndCoach(
     }
 
     const gaps = events.slice(1).map((e, i) => e.time_sec - events[i].time_sec).filter(g => g > 0)
-    if (gaps.length >= 4) {
+    if (gaps.length >= 3) {
       const sorted = [...gaps].sort((a, b) => a - b)
       const median = sorted[Math.floor(sorted.length / 2)]
       gaps.forEach((gap, i) => {
-        if (median > 0 && gap > median * 2.2 && gap > 0.8) {
+        if (median > 0 && gap > median * 1.8 && gap > 0.4) {
           const beat = Math.max(1, Number(((events[i].time_sec - mStart) / secPerBeat + 1).toFixed(2)))
           evidenceCandidates.push(
             `timing | measure ${m.number} near beat ${beat} | ${gap.toFixed(2)}s gap after ${events[i].pitches.join('/')} at ${events[i].time_sec.toFixed(2)}s`,
@@ -616,14 +617,17 @@ async function compareAndCoach(
     }
   }
 
-  const strongestEvidence = evidenceCandidates.slice(0, 8)
+  const strongestEvidence = evidenceCandidates.slice(0, 12)
   const hasGeminiEvidence = geminiAssessment && (
     geminiAssessment.intonation_issues.length > 0 ||
     geminiAssessment.rhythm_issues.length > 0 ||
     geminiAssessment.technique_issues.length > 0
   )
-  if (strongestEvidence.length === 0 && !hasGeminiEvidence) {
-    console.warn('[compareAndCoach] no measurable evidence candidates and no Gemini observations; returning no flags')
+  // Only bail early when there are genuinely no events to analyze at all.
+  // If HEARD data exists with cents values, always pass it to Claude for review.
+  const totalPlayedEvents = playedMeasures.reduce((sum, m) => sum + (eventsByMeasure.get(m.number) ?? []).length, 0)
+  if (strongestEvidence.length === 0 && !hasGeminiEvidence && totalPlayedEvents < 3) {
+    console.warn('[compareAndCoach] no evidence and no events; returning no flags')
     return []
   }
 
@@ -665,7 +669,7 @@ IMPORTANT: In the WRITTEN column, "(unreadable notehead)" means the score had a 
 ${measureBlocks}
 
 ${crepeHasData ? `MEASURABLE ISSUE CANDIDATES (from pitch/timing analysis):
-${strongestEvidence.map((e, i) => `${i + 1}. ${e}`).join('\n')}` : 'MEASURABLE ISSUE CANDIDATES: (pitch analysis did not produce specific candidates for this recording — rely on direct listening below)'}
+${strongestEvidence.map((e, i) => `${i + 1}. ${e}`).join('\n')}` : 'MEASURABLE ISSUE CANDIDATES: (auto-threshold not reached — examine the cents values and timing offsets in the HEARD column above directly to identify issues)'}
 
 Tempo: ${tempo.bpm ?? '?'} BPM, ${tempo.steadiness ?? '?'}.
 Key: ${score.key_signature ?? '?'}. Time signature: ${score.time_signature ?? '?'}.
@@ -687,7 +691,7 @@ Identify 1–4 issues. Order of preference:
 
 HARD RULES:
 - Every "measure" field MUST be one of: [${validMeasuresList.join(', ')}].
-- ${crepeHasData ? 'Prefer flags that correspond to MEASURABLE ISSUE CANDIDATES. You may also flag issues named in the direct listening block even if they lack a CREPE candidate.' : 'Since CREPE candidates are unavailable, base flags on the DIRECT LISTENING CROSS-CHECK. Every flag must cite a timestamp or observation from that block in raw_detail.'}
+- ${crepeHasData ? 'Prefer flags that correspond to MEASURABLE ISSUE CANDIDATES. You may also flag issues visible in the HEARD data or named in the direct listening block.' : 'Auto-candidates not available. Analyze the HEARD column directly: flag pitches with ≥15¢ deviation shown in parentheses, and timing patterns from the +offset values. Cite the note, measure, and cents/offset value from HEARD in raw_detail.'}
 - If the recording sounds genuinely clean and you have NO basis for concern, return fewer or zero flags.
 - Do NOT invent a flag just to avoid returning zero. Precision matters more than quantity.
 - Do NOT flag rests, silence, missing notes, skipped measures, dropped notes, or "coverage gaps".
@@ -1087,7 +1091,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // ── Gemini direct eval — only fires when Modal is unavailable. ────────
     // Video is streamed from the signed URL to Gemini without buffering
     // it in the edge function's memory, avoiding OOM on large recordings.
-    const runGeminiEval = !modalUrl || !videoSignedUrl
+    const runGeminiEval = Boolean(googleApiKey && videoSignedUrl)
     const geminiUploadPromise: Promise<string | null> = (runGeminiEval && googleApiKey && videoSignedUrl)
       ? uploadVideoToGeminiFromUrl(videoSignedUrl, videoMimeType, googleApiKey)
           .catch(err => {

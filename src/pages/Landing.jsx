@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Landing.module.css'
 
@@ -63,6 +64,22 @@ function LogoMark() {
 }
 
 export default function Landing() {
+  useEffect(() => {
+    const els = document.querySelectorAll(`.${styles.reveal}`)
+    if (!els.length) return
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add(styles.revealVisible)
+          obs.unobserve(e.target)
+        }
+      }),
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+    )
+    els.forEach(el => obs.observe(el))
+    return () => obs.disconnect()
+  }, [])
+
   return (
     <div className={styles.page}>
 
@@ -101,7 +118,7 @@ export default function Landing() {
       </section>
 
       {/* App mockup */}
-      <div className={styles.previewWrap}>
+      <div className={`${styles.previewWrap} ${styles.reveal}`}>
         <div className={styles.previewShell}>
           {/* Fake top bar */}
           <div className={styles.previewTopBar}>
@@ -205,7 +222,7 @@ export default function Landing() {
       </div>
 
       {/* Instruments strip */}
-      <div className={styles.instrumentsWrap}>
+      <div className={`${styles.instrumentsWrap} ${styles.reveal}`}>
         <p className={styles.instrumentsLabel}>Works with</p>
         <div className={styles.instruments}>
           {INSTRUMENTS.map(i => (
@@ -216,14 +233,14 @@ export default function Landing() {
 
       {/* Features */}
       <section className={styles.features}>
-        <div className={styles.featuresHead}>
+        <div className={`${styles.featuresHead} ${styles.reveal}`}>
           <p className={styles.sectionLabel}>What you get</p>
           <h2 className={styles.featuresTitle}>Everything a serious practice session needs</h2>
           <p className={styles.featuresSub}>From raw recording to actionable feedback in under a minute.</p>
         </div>
         <div className={styles.featuresGrid}>
           {FEATURES.map((f, i) => (
-            <div key={f.title} className={styles.featureCard}>
+            <div key={f.title} className={`${styles.featureCard} ${styles.reveal}`} style={{ '--d': `${i * 70}ms` }}>
               <span className={styles.featureNum}>0{i + 1}</span>
               <h3 className={styles.featureTitle}>{f.title}</h3>
               <p className={styles.featureBody}>{f.body}</p>
@@ -234,13 +251,13 @@ export default function Landing() {
 
       {/* How it works */}
       <section className={styles.howItWorks}>
-        <div className={styles.howHead}>
+        <div className={`${styles.howHead} ${styles.reveal}`}>
           <p className={styles.sectionLabel}>How it works</p>
           <h2 className={styles.howTitle}>Three steps to better practice</h2>
         </div>
         <div className={styles.steps}>
           {STEPS.map((s, i) => (
-            <div key={s.num} className={styles.step}>
+            <div key={s.num} className={`${styles.step} ${styles.reveal}`} style={{ '--d': `${i * 90}ms` }}>
               <span className={styles.stepNum}>{s.num}</span>
               <h3 className={styles.stepTitle}>{s.title}</h3>
               <p className={styles.stepBody}>{s.body}</p>
@@ -253,7 +270,7 @@ export default function Landing() {
       {/* Difference section */}
       <section className={styles.diff}>
         <div className={styles.diffInner}>
-          <div className={styles.diffText}>
+          <div className={`${styles.diffText} ${styles.reveal}`}>
             <p className={styles.sectionLabel}>Why Mediant</p>
             <h2 className={styles.diffTitle}>Not just a tuner.<br />A real musical ear.</h2>
             <p className={styles.diffBody}>
@@ -269,7 +286,7 @@ export default function Landing() {
               Try it free →
             </Link>
           </div>
-          <div className={styles.diffVisual}>
+          <div className={`${styles.diffVisual} ${styles.reveal}`} style={{ '--d': '120ms' }}>
             <div className={styles.diffCard}>
               <p className={styles.diffCardTag}>Timing · m.16</p>
               <p className={styles.diffCardTitle}>Entrance is slightly early</p>
@@ -285,7 +302,7 @@ export default function Landing() {
       </section>
 
       {/* Final CTA */}
-      <section className={styles.ctaSection}>
+      <section className={`${styles.ctaSection} ${styles.reveal}`}>
         <p className={styles.sectionLabel}>Get started</p>
         <h2 className={styles.ctaTitle}>Practice with intention, not just repetition.</h2>
         <p className={styles.ctaSub}>Join musicians who use Mediant to turn practice time into real progress.</p>

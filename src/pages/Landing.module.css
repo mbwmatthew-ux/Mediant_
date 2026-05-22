@@ -5,6 +5,35 @@
   min-height: 100vh;
 }
 
+/* ── Scroll reveal ───────────────────────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: scale(0.96) translateY(28px);
+  transition:
+    opacity  0.65s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--d, 0ms);
+  will-change: opacity, transform;
+}
+.revealVisible {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+/* ── Hero load animation ─────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hero > * {
+  animation: fadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.hero > *:nth-child(1) { animation-delay: 60ms; }
+.hero > *:nth-child(2) { animation-delay: 140ms; }
+.hero > *:nth-child(3) { animation-delay: 210ms; }
+.hero > *:nth-child(4) { animation-delay: 280ms; }
+.hero > *:nth-child(5) { animation-delay: 340ms; }
+
 /* ── Nav ─────────────────────────────────────────────────── */
 .nav {
   align-items: center;
@@ -174,6 +203,12 @@
   display: flex;
   justify-content: center;
   padding: 0 40px 64px;
+}
+.previewWrap.reveal {
+  transform: scale(0.93) translateY(36px);
+}
+.previewWrap.revealVisible {
+  transform: scale(1) translateY(0);
 }
 
 .previewShell {

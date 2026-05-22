@@ -11,17 +11,19 @@ const CORS = {
 
 const GEMINI_MODEL = 'gemini-2.5-pro'
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
-// Hard wall for Modal worker fetch. AbortController cancels the network
-// request; withTimeout() guarantees Promise.all resolves even if the
-// abort doesn't fire correctly in some Deno environments.
-const MODAL_TIMEOUT_MS = 60_000
-// Gemini eval (fallback path only).
-const GEMINI_EVAL_TIMEOUT_MS = 75_000
-// Hard cap on the Claude coaching call so it never hangs the handler.
-const COACH_TIMEOUT_MS = 25_000
-// Top-level handler deadline — must be well under Supabase/Cloudflare's
-// hard 150s kill. All internal timeouts sum to well under this.
-const GLOBAL_TIMEOUT_MS = 110_000
+// Hard wall for Modal worker fetch. CREPE-only (no Audiveris) completes
+// in 15-30s on a warm container; 40s leaves headroom for cold-ish starts.
+const MODAL_TIMEOUT_MS = 40_000
+// Gemini eval (fallback path only — when Modal is unavailable).
+const GEMINI_EVAL_TIMEOUT_MS = 40_000
+// Cap on the Claude score-reading call (runs in parallel with Modal).
+const SCORE_READ_TIMEOUT_MS = 15_000
+// Hard cap on the Claude coaching call.
+const COACH_TIMEOUT_MS = 18_000
+// Top-level hard deadline. Budget: max(40s Modal, 15s score) + 18s coach
+// + ~5s overhead ≈ 63s worst case. Set at 58s so we always beat any
+// platform-level 60s gateway timeout with a controlled 200 response.
+const GLOBAL_TIMEOUT_MS = 58_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([
@@ -1038,7 +1040,10 @@ async function handleRequest(req: Request): Promise<Response> {
         .createSignedUrl(scorePath, 3600)
       scoreSignedUrl = sSigned?.signedUrl ?? null
     }
-    const shouldPreferWorkerScore = Boolean(modalUrl && videoSignedUrl && scoreSignedUrl && (isXmlScore || isVisualScore))
+    // Only send structured (XML/MXL) scores to Modal — music21 parses those in
+    // under 5s. Visual scores (PNG/PDF) trigger Audiveris OMR which takes
+    // 60-120s and blows the platform timeout; Claude reads those in parallel instead.
+    const shouldPreferWorkerScore = Boolean(modalUrl && videoSignedUrl && scoreSignedUrl && isXmlScore)
 
     let score: ScoreReading = { key_signature: null, time_signature: null, tempo_marking: null, measures: [] }
     let audio: AudioTranscription = { audio_duration_sec: 0, events: [], tempo_estimate_bpm: null, tempo_steadiness: null }
@@ -1052,8 +1057,8 @@ async function handleRequest(req: Request): Promise<Response> {
     const modalPromise: Promise<ModalWorkerResult | null> = (modalUrl && videoSignedUrl)
       ? callModalWorker(modalUrl, {
           video_url:     videoSignedUrl,
-          score_url:     (isXmlScore || isVisualScore) && scoreSignedUrl ? scoreSignedUrl : undefined,
-          score_mime:    scoreMimeType ?? undefined,
+          score_url:     isXmlScore && scoreSignedUrl ? scoreSignedUrl : undefined,
+          score_mime:    isXmlScore ? (scoreMimeType ?? undefined) : undefined,
           instrument:    instrument ?? 'instrument',
           start_measure: safeStart,
           time_sig:      tSig,
@@ -1099,9 +1104,9 @@ async function handleRequest(req: Request): Promise<Response> {
         : null
     )
 
-    // ── Claude reads score only when the worker cannot attempt structured parsing.
-    // If Modal has the score URL, let Audiveris/music21 try first; Claude becomes
-    // a fallback only if OMR/structured parsing returns no usable measures.
+    // ── Claude reads visual scores in parallel with Modal CREPE. ─────────────
+    // XML scores are parsed by music21 inside Modal (fast). Visual scores are
+    // always read by Claude here — Audiveris is never called for visual scores.
     const scorePromise: Promise<ScoreReading> = (scoreBytesForClaude && isVisualScore && !shouldPreferWorkerScore)
       ? readScoreNotes(scoreBytesForClaude, scoreMimeType, safeStart, instrument ?? 'instrument', tSig)
           .catch(err => {
@@ -1115,9 +1120,10 @@ async function handleRequest(req: Request): Promise<Response> {
     // the response beyond the Supabase Edge 150s hard limit. If it finishes
     // in time its observations become the primary coaching signal; if it
     // times out, Modal + Claude still produce a full analysis.
+    const emptyScore: ScoreReading = { key_signature: null, time_signature: null, tempo_marking: null, measures: [] }
     const [workerResult, scoreResult, geminiEval] = await Promise.all([
       withTimeout(modalPromise, MODAL_TIMEOUT_MS, null),
-      scorePromise,
+      withTimeout(scorePromise, SCORE_READ_TIMEOUT_MS, emptyScore),
       withTimeout(geminiEvalPromise, GEMINI_EVAL_TIMEOUT_MS, null),
     ])
     geminiAssessment = geminiEval
@@ -1214,12 +1220,16 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     if (score.measures.length === 0 && scoreBytesForClaude && isVisualScore) {
-      console.warn('[analyze-performance] structured score parsing unavailable — falling back to Claude visual score reading')
-      score = await readScoreNotes(scoreBytesForClaude, scoreMimeType, safeStart, instrument ?? 'instrument', tSig)
-        .catch(err => {
-          console.error('[analyze-performance] Claude visual fallback threw:', (err as Error).message)
-          return { key_signature: null, time_signature: null, tempo_marking: null, measures: [] } as ScoreReading
-        })
+      console.warn('[analyze-performance] parallel score read returned empty — retrying Claude with remaining budget')
+      score = await withTimeout(
+        readScoreNotes(scoreBytesForClaude, scoreMimeType, safeStart, instrument ?? 'instrument', tSig)
+          .catch(err => {
+            console.error('[analyze-performance] Claude visual fallback threw:', (err as Error).message)
+            return { key_signature: null, time_signature: null, tempo_marking: null, measures: [] } as ScoreReading
+          }),
+        SCORE_READ_TIMEOUT_MS,
+        { key_signature: null, time_signature: null, tempo_marking: null, measures: [] },
+      )
       beatsPerMeasure = beatsPerMeasureFromTimeSig(score.time_signature ?? tSig)
       console.log('[analyze-performance] Claude visual fallback measures:', score.measures.length)
     }

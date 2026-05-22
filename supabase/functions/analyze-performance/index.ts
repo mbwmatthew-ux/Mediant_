@@ -165,12 +165,13 @@ function assessAnalysisQuality(
   geminiAssessment: GeminiAssessment | null,
 ): AnalysisQuality {
   const reasons: string[] = []
-  const readableMeasures = score.measures.filter(m => m.notes.length > 0).length
 
   if (!usedModal) {
     reasons.push('The dedicated transcription worker was unavailable, so the analysis fell back to a lower-trust transcription path.')
   }
-  if (readableMeasures < 2) {
+  // Count total measures including skeleton (empty-notes) measures — those still
+  // enable time-based alignment and rhythm feedback even without pitch data.
+  if (score.measures.length < 2) {
     reasons.push('The score could not be parsed into enough readable measures.')
   }
   if (audio.events.length < 8) {
@@ -182,12 +183,17 @@ function assessAnalysisQuality(
   if (alignmentRanges.length < 2) {
     reasons.push('The recording only aligned to a very small number of measures.')
   }
-  if (!geminiAssessment) {
+  // Gemini only runs on the fallback path (when Modal is unavailable).
+  // Not having it when Modal succeeded is expected — do not penalise.
+  if (!geminiAssessment && !usedModal) {
     reasons.push('Direct listening corroboration from Gemini was unavailable.')
   }
 
   if (reasons.length === 0) return { trust: 'high', canProceed: true, reasons }
-  if (reasons.length <= 2 && usedModal && readableMeasures >= 2 && aligned.length >= 8) {
+  // Allow medium-trust analysis when Modal ran, the score has a usable
+  // skeleton, and enough events were aligned — even if individual notes
+  // are sparse or Gemini wasn't run.
+  if (usedModal && score.measures.length >= 2 && aligned.length >= 8) {
     return { trust: 'medium', canProceed: true, reasons }
   }
   return { trust: 'low', canProceed: false, reasons }

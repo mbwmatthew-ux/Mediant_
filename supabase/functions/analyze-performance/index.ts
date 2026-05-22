@@ -682,23 +682,24 @@ CENTS NOTATION: Numbers like "(+32¢)" or "(-18¢)" after a pitch mean the stude
 - ±45–50¢: borderline between two semitones — may be a wrong note entirely
 
 YOUR TASK:
-Identify 1–4 issues. Order of preference:
-1. **Direct listening observations** — The DIRECT LISTENING CROSS-CHECK above is your most reliable source. If it names a specific passage, timestamp, or issue type, use it as your primary evidence. Cite the timestamp from the Gemini block in your raw_detail (e.g. "0:08 — opening note flat, per direct listening").
-2. **Specific intonation issue from CREPE** — if a pitch shows cents deviation ≥15¢, flag it. Deviation ≥30¢ is your top CREPE priority.
-3. **Pitch mismatch** (written vs. heard note name differs). Cite it specifically.
-4. **Rhythm/timing patterns** — uneven offsets in HEARD, long gaps, rushed beats.
-5. **Tempo issues** (too slow/fast, wavering).
+Identify 2–4 real issues. Priority order:
+1. **Direct listening (Gemini)** — If the DIRECT LISTENING CROSS-CHECK names a specific passage with a timestamp, that is your strongest evidence. Flag it. Use the timestamp in raw_detail (e.g. "0:08 — opening note flat, per direct listening").
+2. **CREPE intonation candidates** — If a pitch shows ≥15¢ deviation in MEASURABLE ISSUE CANDIDATES, flag it. ≥30¢ is highest priority.
+3. **HEARD column analysis** — Pitches with "(+X¢)" or "(-X¢)" ≥15¢ shown in the HEARD column are real intonation issues. Flag them.
+4. **Rhythm/timing patterns** — Uneven +offset values in HEARD, long gaps, rushed beats.
+5. **Tempo issues** — too slow/fast/wavering.
+
+Assume there are issues — this is a student practice recording, not a professional performance.
 
 HARD RULES:
 - Every "measure" field MUST be one of: [${validMeasuresList.join(', ')}].
-- ${crepeHasData ? 'Prefer flags that correspond to MEASURABLE ISSUE CANDIDATES. You may also flag issues visible in the HEARD data or named in the direct listening block.' : 'Auto-candidates not available. Analyze the HEARD column directly: flag pitches with ≥15¢ deviation shown in parentheses, and timing patterns from the +offset values. Cite the note, measure, and cents/offset value from HEARD in raw_detail.'}
-- If the recording sounds genuinely clean and you have NO basis for concern, return fewer or zero flags.
-- Do NOT invent a flag just to avoid returning zero. Precision matters more than quantity.
+- ALWAYS flag what the DIRECT LISTENING CROSS-CHECK reports. Do not omit a Gemini observation just because CREPE has no matching candidate.
+- ${crepeHasData ? 'Also flag any MEASURABLE ISSUE CANDIDATES that are not already covered by the direct listening block.' : 'No auto-candidates. Use the DIRECT LISTENING CROSS-CHECK and the HEARD column cents values as your evidence.'}
 - Do NOT flag rests, silence, missing notes, skipped measures, dropped notes, or "coverage gaps".
-- For intonation flags, raw_detail MUST cite either a cents value from HEARD or a direct listening timestamp.
-- For rhythm/timing flags, raw_detail MUST cite observed offsets, gaps, or a direct listening timestamp.
+- For intonation flags: raw_detail MUST include either a cents value (e.g. "+22¢") OR a timestamp (e.g. "0:08"). Both is even better.
+- For rhythm/timing flags: raw_detail MUST cite observed offsets, gaps, or a timestamp.
 - "type" must be one of: intonation, timing, rhythm, articulation, dynamics, voicing.
-- raw_detail should cite the evidence (which note/beat/measure and what's off).
+- Only skip a flag if you have absolutely zero evidence for it.
 
 Return JSON only (no markdown):
 {
@@ -744,9 +745,11 @@ Return JSON only (no markdown):
     if ((f.confidence ?? 100) < 60) continue
     if (!f.type || !f.title || !f.raw_detail || !f.body) continue
     if (!allowedTypes.has(String(f.type))) continue
-    // Require cents citation for intonation flags only when CREPE candidates existed.
-    // When Gemini is the sole evidence source, timestamps are the citation format.
-    if (crepeHasData && String(f.type) === 'intonation' && !/[+-]\d+¢/.test(String(f.raw_detail))) continue
+    // Intonation flags must cite either cents (CREPE: "+22¢") or a timestamp (Gemini: "0:08").
+    // Never drop a flag just because it uses one citation format vs the other.
+    const hasCentsCitation = /[+-]\d+¢/.test(String(f.raw_detail))
+    const hasTimestampCitation = /\d:\d{2}/.test(String(f.raw_detail))
+    if (String(f.type) === 'intonation' && !hasCentsCitation && !hasTimestampCitation) continue
     if (/(rest|silence|missing note|skipped measure|dropped note|coverage gap|no events)/i.test(String(f.raw_detail))) continue
 
     const range = rangeMap.get(f.measure)
@@ -875,22 +878,23 @@ async function evaluatePerformanceWithGemini(
   apiKey: string,
 ): Promise<GeminiAssessment | null> {
   const endInfo = endMeasure ? ` through measure ${endMeasure}` : ''
-  const prompt = `You are an expert ${instrument} teacher. Listen carefully to this student recording of "${pieceTitle}" by ${composer}, starting at measure ${startMeasure}${endInfo}.
+  const prompt = `You are an expert ${instrument} teacher giving honest feedback on a student recording of "${pieceTitle}" by ${composer}, starting at measure ${startMeasure}${endInfo}.
 
-Listen to the ENTIRE recording from start to finish. Then give me concrete, specific observations — NOT vague generalities.
+Listen to the ENTIRE recording from start to finish. You are looking for real issues — this is a student, not a professional, so there will be things to work on. Your job is to find the 2-4 most important ones.
 
-INTONATION: List every passage where the pitch sounds noticeably flat or sharp. Give a timestamp and say which direction. E.g. "0:08 — opening note sounds a quarter-step flat", "0:32 — upper notes consistently sharp throughout the phrase". If intonation sounds generally clean, say so explicitly.
+INTONATION: Name every passage where pitch sounds noticeably flat or sharp. Give a timestamp and direction. E.g. "0:08 — opening note flat by roughly a quarter step", "0:32 — upper register consistently sharp". Look carefully — students nearly always have some intonation tendency.
 
-RHYTHM: List any rushed or dragged passages, hesitations, uneven note-spacing, or beat instability. Give timestamps. E.g. "0:15 — slight rush into beat 3", "0:40 — long note is cut short, creating a gap". If rhythm sounds solid, say so.
+RHYTHM: Name rushed or dragged passages, hesitations, uneven note-spacing, or beat instability. Give timestamps. E.g. "0:15 — slight rush into beat 3", "0:40 — note held too short before the phrase ends".
 
-TECHNIQUE: List bow/breath noise, tone quality issues, insecure shifts, unclear articulation. Give timestamps. If technique sounds clean, say so.
+TECHNIQUE: Name bow noise, tone issues, insecure shifts, unclear articulation. Give timestamps.
 
-OVERALL: One sentence — the single most important thing for this student to work on in this excerpt.
+OVERALL: One sentence — the single most important thing to fix first.
 
 RULES:
-- Be direct. Vague feedback like "intonation could be better" is useless — name the specific note or passage and timestamp it.
-- If something is genuinely clean, say so. Do NOT fabricate issues.
-- Focus on the 1-3 most important issues, not every tiny imperfection.
+- Be specific and honest. Name the note/passage and timestamp it. Vague feedback like "intonation could be better" is not acceptable.
+- Do NOT fabricate issues that aren't there. But assume there ARE issues — this is a student practice recording.
+- Report the 2-4 most important issues across all three categories.
+- If a category is genuinely clean, you may leave its array empty — but at least one category must have observations.
 
 Return JSON only:
 {

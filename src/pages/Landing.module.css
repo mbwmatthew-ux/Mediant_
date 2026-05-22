@@ -283,16 +283,15 @@
 .previewNavItem {
   align-items: center;
   border-radius: 7px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.28);
   display: flex;
-  font-size: 0.82rem;
-  height: 28px;
+  height: 30px;
   justify-content: center;
-  width: 32px;
+  width: 34px;
 }
 .previewNavItemActive {
   background: rgba(255,255,255,0.1);
-  color: rgba(248,246,242,0.85);
+  color: rgba(248,246,242,0.88);
 }
 
 /* Fake main area */

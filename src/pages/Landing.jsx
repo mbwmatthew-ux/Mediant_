@@ -71,7 +71,8 @@ export default function Landing() {
       entries => entries.forEach(e => {
         if (e.isIntersecting) {
           e.target.classList.add(styles.revealVisible)
-          obs.unobserve(e.target)
+        } else {
+          e.target.classList.remove(styles.revealVisible)
         }
       }),
       { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }

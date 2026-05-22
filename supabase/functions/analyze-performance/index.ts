@@ -11,12 +11,17 @@ const CORS = {
 
 const GEMINI_MODEL = 'gemini-2.5-pro'
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
-// Budget: 150s Supabase hard limit.
-// Modal gets 60s; if it fails, Gemini transcription needs ~40s + Claude ~15s = ~115s total.
-const MODAL_TIMEOUT_MS = 60_000
-// Gemini eval runs in parallel with Modal. Cap at 55s so Promise.all
-// always resolves before the 60s Modal deadline fires.
-const GEMINI_EVAL_TIMEOUT_MS = 55_000
+// Supabase platform limit is 150s. Budget breakdown:
+// Modal (CREPE + download + FFmpeg) takes 35-90s for typical recordings → cap at 110s.
+// Gemini eval runs in parallel with Modal → cap at 100s.
+// Score read (Claude vision) runs in parallel → cap at 15s.
+// Coaching (Claude) runs after → cap at 20s.
+// Worst case: max(110s, 100s) + 20s + ~5s overhead = 135s → under 140s global cap.
+const MODAL_TIMEOUT_MS = 110_000
+const GEMINI_EVAL_TIMEOUT_MS = 100_000
+const SCORE_READ_TIMEOUT_MS = 15_000
+const COACH_TIMEOUT_MS = 20_000
+const GLOBAL_TIMEOUT_MS = 140_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([
@@ -157,12 +162,12 @@ function assessAnalysisQuality(
   geminiAssessment: GeminiAssessment | null,
 ): AnalysisQuality {
   const reasons: string[] = []
-  const readableMeasures = score.measures.filter(m => m.notes.length > 0).length
-
   if (!usedModal) {
     reasons.push('The dedicated transcription worker was unavailable, so the analysis fell back to a lower-trust transcription path.')
   }
-  if (readableMeasures < 2) {
+  // Count ALL measures including skeleton (empty-notes) ones — those still enable
+  // time-based alignment and rhythm feedback even without pitch data.
+  if (score.measures.length < 2) {
     reasons.push('The score could not be parsed into enough readable measures.')
   }
   if (audio.events.length < 8) {
@@ -174,12 +179,16 @@ function assessAnalysisQuality(
   if (alignmentRanges.length < 2) {
     reasons.push('The recording only aligned to a very small number of measures.')
   }
-  if (!geminiAssessment) {
+  // Gemini only runs on the fallback path when Modal is unavailable.
+  // Not having it when Modal succeeded is expected — do not penalise.
+  if (!geminiAssessment && !usedModal) {
     reasons.push('Direct listening corroboration from Gemini was unavailable.')
   }
 
   if (reasons.length === 0) return { trust: 'high', canProceed: true, reasons }
-  if (reasons.length <= 2 && usedModal && readableMeasures >= 2 && aligned.length >= 8) {
+  // Allow medium-trust analysis when Modal ran, score has a usable skeleton,
+  // and enough events were aligned — even if Gemini timed out.
+  if (usedModal && score.measures.length >= 2 && aligned.length >= 8) {
     return { trust: 'medium', canProceed: true, reasons }
   }
   return { trust: 'low', canProceed: false, reasons }
@@ -620,7 +629,7 @@ async function compareAndCoach(
     const secPerBeat = mDur / Math.max(1, beatsPerMeasure)
 
     for (const e of events) {
-      if (e.cents_offset == null || Math.abs(e.cents_offset) < 30 || e.confidence < 45) continue
+      if (e.cents_offset == null || Math.abs(e.cents_offset) < 10 || e.confidence < 25) continue
       const beat = Math.max(1, Number(((e.time_sec - mStart) / secPerBeat + 1).toFixed(2)))
       evidenceCandidates.push(
         `intonation | measure ${m.number} beat ${beat} | ${e.pitches.join('/')} is ${e.cents_offset > 0 ? '+' : ''}${e.cents_offset}¢ at ${e.time_sec.toFixed(2)}s`,
@@ -678,7 +687,9 @@ async function compareAndCoach(
     return `Measure ${m.number}:\n  WRITTEN: ${written}\n  HEARD:   ${heard || '(no events)'}`
   }).join('\n\n')
 
-  const validMeasuresList = Array.from(validMeasures).sort((a, b) => a - b)
+  // Only expose measures with real alignment ranges — prevents Claude from assigning
+  // flags to unplayed measures where the range lookup would fail and the flag dropped.
+  const validMeasuresList = alignmentRanges.map(r => r.measure).sort((a, b) => a - b)
   const geminiEvidence = buildGeminiAssessmentBlock(geminiAssessment)
   const crepeHasData = strongestEvidence.length > 0
 
@@ -766,15 +777,24 @@ Return JSON only (no markdown):
     if ((f.confidence ?? 100) < 60) continue
     if (!f.type || !f.title || !f.raw_detail || !f.body) continue
     if (!allowedTypes.has(String(f.type))) continue
-    // Require cents citation for intonation flags only when CREPE candidates existed.
-    // When Gemini is the sole evidence source, timestamps are the citation format.
-    if (crepeHasData && String(f.type) === 'intonation' && !/[+-]\d+¢/.test(String(f.raw_detail))) continue
+    // Intonation flags must cite either cents (CREPE: "+22¢") or a timestamp (Gemini: "0:08").
+    const hasCentsCitation = /[+-]\d+¢/.test(String(f.raw_detail))
+    const hasTimestampCitation = /\d:\d{2}/.test(String(f.raw_detail))
+    if (String(f.type) === 'intonation' && !hasCentsCitation && !hasTimestampCitation) continue
     if (/(rest|silence|missing note|skipped measure|dropped note|coverage gap|no events)/i.test(String(f.raw_detail))) continue
 
-    const range = rangeMap.get(f.measure)
+    let resolvedMeasure = f.measure as number
+    let range = rangeMap.get(resolvedMeasure)
     if (!range) {
-      console.warn('[compareAndCoach] dropping flag without alignment range:', f.measure)
-      continue
+      // Snap to nearest played measure rather than dropping the flag.
+      const nearest = alignmentRanges.reduce((best, r) =>
+        Math.abs(r.measure - resolvedMeasure) < Math.abs(best.measure - resolvedMeasure) ? r : best,
+        alignmentRanges[0],
+      )
+      if (!nearest) { console.warn('[compareAndCoach] no ranges, dropping flag'); continue }
+      console.warn('[compareAndCoach] snapping flag measure', resolvedMeasure, '→', nearest.measure)
+      resolvedMeasure = nearest.measure
+      range = nearest
     }
 
     const beat = typeof f.beat === 'number' && Number.isFinite(f.beat) ? f.beat : null
@@ -790,7 +810,7 @@ Return JSON only (no markdown):
     }
 
     flags.push({
-      measure:         f.measure,
+      measure:         resolvedMeasure,
       beat,
       type:            String(f.type),
       title:           String(f.title),
@@ -1003,7 +1023,7 @@ async function callModalWorker(
 
 // ── Handler ───────────────────────────────────────────────────────────────
 
-serve(async (req) => {
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
 
   try {
@@ -1070,7 +1090,10 @@ serve(async (req) => {
         scoreSignedUrl = sSigned?.signedUrl ?? null
       }
     }
-    const shouldPreferWorkerScore = Boolean(modalUrl && videoSignedUrl && scoreSignedUrl && (isXmlScore || isVisualScore))
+    // Only send structured (XML/MXL) scores to Modal — music21 parses those in
+    // under 5s. Visual scores (PNG/PDF) trigger Audiveris OMR which takes
+    // 60-120s and blows the platform timeout; Claude reads those in parallel instead.
+    const shouldPreferWorkerScore = Boolean(modalUrl && videoSignedUrl && scoreSignedUrl && isXmlScore)
 
     let score: ScoreReading = { key_signature: null, time_signature: null, tempo_marking: null, measures: [] }
     let audio: AudioTranscription = { audio_duration_sec: 0, events: [], tempo_estimate_bpm: null, tempo_steadiness: null }
@@ -1084,8 +1107,8 @@ serve(async (req) => {
     const modalPromise: Promise<ModalWorkerResult | null> = (modalUrl && videoSignedUrl)
       ? callModalWorker(modalUrl, {
           video_url:     videoSignedUrl,
-          score_url:     (isXmlScore || isVisualScore) && scoreSignedUrl ? scoreSignedUrl : undefined,
-          score_mime:    scoreMimeType ?? undefined,
+          score_url:     isXmlScore && scoreSignedUrl ? scoreSignedUrl : undefined,
+          score_mime:    isXmlScore ? (scoreMimeType ?? undefined) : undefined,
           instrument:    instrument ?? 'instrument',
           start_measure: safeStart,
           time_sig:      tSig,
@@ -1159,9 +1182,10 @@ serve(async (req) => {
     // Both Modal and Gemini eval are capped so Promise.all always resolves
     // well within Supabase Edge's 150s hard limit, leaving time for
     // Gemini transcription fallback + Claude coaching + DB insert.
+    const emptyScore: ScoreReading = { key_signature: null, time_signature: null, tempo_marking: null, measures: [] }
     const [workerResult, scoreResult, geminiEval] = await Promise.all([
       withTimeout(modalPromise, MODAL_TIMEOUT_MS, null),
-      scorePromise,
+      withTimeout(scorePromise, SCORE_READ_TIMEOUT_MS, emptyScore),
       withTimeout(geminiEvalPromise, GEMINI_EVAL_TIMEOUT_MS, null),
     ])
     geminiAssessment = geminiEval
@@ -1342,15 +1366,19 @@ serve(async (req) => {
     }
 
     // ── Step 4: compare & coach ────────────────────────────────────────────
-    const flags = await compareAndCoach(
-      score,
-      aligned,
-      alignmentRanges,
-      { bpm: audio.tempo_estimate_bpm, steadiness: audio.tempo_steadiness },
-      pieceTitle ?? 'this piece',
-      composer   ?? 'the composer',
-      instrument ?? 'musician',
-      geminiAssessment,
+    const flags = await withTimeout(
+      compareAndCoach(
+        score,
+        aligned,
+        alignmentRanges,
+        { bpm: audio.tempo_estimate_bpm, steadiness: audio.tempo_steadiness },
+        pieceTitle ?? 'this piece',
+        composer   ?? 'the composer',
+        instrument ?? 'musician',
+        geminiAssessment,
+      ),
+      COACH_TIMEOUT_MS,
+      [],
     )
     console.log('[analyze-performance] coaching flags:', flags.map(f => `m.${f.measure} (${f.type})`))
 
@@ -1393,4 +1421,20 @@ serve(async (req) => {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })
   }
+}
+
+serve((req: Request) => {
+  const timeoutResponse = new Response(
+    JSON.stringify({
+      error: 'Analysis took too long. Please try a shorter excerpt.',
+      code: 'GLOBAL_TIMEOUT',
+      analysisQuality: { trust: 'low', canProceed: false, reasons: ['The analysis exceeded the maximum allowed time.'] },
+      suggestions: ['Try submitting a shorter clip (under 60 seconds) or a simpler score.'],
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json', ...CORS } },
+  )
+  return Promise.race([
+    handleRequest(req),
+    new Promise<Response>(resolve => setTimeout(() => resolve(timeoutResponse), GLOBAL_TIMEOUT_MS)),
+  ])
 })

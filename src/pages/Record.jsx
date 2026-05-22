@@ -103,16 +103,34 @@ export default function Record() {
     runOcr(f)
   }
 
+  const [videoError, setVideoError] = useState('')
+
+  async function applyVideoFile(f) {
+    if (!f) return
+    setVideoError('')
+    const duration = await new Promise(resolve => {
+      const v = document.createElement('video')
+      v.preload = 'metadata'
+      const url = URL.createObjectURL(f)
+      v.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(v.duration) }
+      v.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+      v.src = url
+    })
+    if (duration && duration > 60) {
+      setVideoError(`Recording is ${Math.round(duration)}s — please trim to under 60 seconds. Aim for 30–45s for best results.`)
+      return
+    }
+    setFile(f)
+  }
+
   function handleVideoDrop(e) {
     e.preventDefault()
     setVideoDrag(false)
-    const f = e.dataTransfer.files[0]
-    if (f) setFile(f)
+    applyVideoFile(e.dataTransfer.files[0])
   }
 
   function handleVideoFile(e) {
-    const f = e.target.files[0]
-    if (f) setFile(f)
+    applyVideoFile(e.target.files[0])
   }
 
   // ── Submit ────────────────────────────────────────────────────
@@ -476,8 +494,11 @@ export default function Record() {
                 <>
                   <span className={styles.dropzoneIcon}>↑</span>
                   <strong>Drag a video here or click to upload</strong>
-                  <span className={styles.dropzoneSub}>MP4, MOV, or WebM · max 200 MB</span>
+                  <span className={styles.dropzoneSub}>MP4, MOV, or WebM · under 60 seconds</span>
                 </>
+              )}
+              {videoError && (
+                <span className={styles.dropzoneSub} style={{ color: '#e05b5b', marginTop: 6 }}>{videoError}</span>
               )}
             </div>
           </div>

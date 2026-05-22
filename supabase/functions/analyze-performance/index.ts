@@ -14,10 +14,14 @@ const CLAUDE_MODEL = 'claude-sonnet-4-6'
 // Hard wall for Modal worker fetch. AbortController cancels the network
 // request; withTimeout() guarantees Promise.all resolves even if the
 // abort doesn't fire correctly in some Deno environments.
-const MODAL_TIMEOUT_MS = 90_000
-// Gemini eval (fallback path only). 85s leaves ~45s for coaching after
-// Promise.all resolves: well within Supabase Edge's 150s hard limit.
-const GEMINI_EVAL_TIMEOUT_MS = 85_000
+const MODAL_TIMEOUT_MS = 60_000
+// Gemini eval (fallback path only).
+const GEMINI_EVAL_TIMEOUT_MS = 75_000
+// Hard cap on the Claude coaching call so it never hangs the handler.
+const COACH_TIMEOUT_MS = 25_000
+// Top-level handler deadline — must be well under Supabase/Cloudflare's
+// hard 150s kill. All internal timeouts sum to well under this.
+const GLOBAL_TIMEOUT_MS = 110_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([
@@ -972,9 +976,7 @@ async function callModalWorker(
 
 // ── Handler ───────────────────────────────────────────────────────────────
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
-
+async function handleRequest(req: Request): Promise<Response> {
   try {
     const authHeader = req.headers.get('Authorization')!
     const supabase = createClient(
@@ -1301,15 +1303,19 @@ serve(async (req) => {
     }
 
     // ── Step 4: compare & coach ────────────────────────────────────────────
-    const flags = await compareAndCoach(
-      score,
-      aligned,
-      alignmentRanges,
-      { bpm: audio.tempo_estimate_bpm, steadiness: audio.tempo_steadiness },
-      pieceTitle ?? 'this piece',
-      composer   ?? 'the composer',
-      instrument ?? 'musician',
-      geminiAssessment,
+    const flags = await withTimeout(
+      compareAndCoach(
+        score,
+        aligned,
+        alignmentRanges,
+        { bpm: audio.tempo_estimate_bpm, steadiness: audio.tempo_steadiness },
+        pieceTitle ?? 'this piece',
+        composer   ?? 'the composer',
+        instrument ?? 'musician',
+        geminiAssessment,
+      ),
+      COACH_TIMEOUT_MS,
+      [],
     )
     console.log('[analyze-performance] coaching flags:', flags.map(f => `m.${f.measure} (${f.type})`))
 
@@ -1352,4 +1358,23 @@ serve(async (req) => {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })
   }
+}
+
+serve((req: Request) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
+
+  const timeoutResponse = new Response(
+    JSON.stringify({
+      error: 'Analysis took too long. Please try a shorter excerpt.',
+      code: 'GLOBAL_TIMEOUT',
+      analysisQuality: { trust: 'low', canProceed: false, reasons: ['The analysis exceeded the maximum allowed time.'] },
+      suggestions: ['Try submitting a shorter clip (under 60 seconds) or a simpler score.'],
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json', ...CORS } },
+  )
+
+  return Promise.race([
+    handleRequest(req),
+    new Promise<Response>(resolve => setTimeout(() => resolve(timeoutResponse), GLOBAL_TIMEOUT_MS)),
+  ])
 })

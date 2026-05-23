@@ -290,7 +290,7 @@ export default function Analysis() {
     ? Object.fromEntries(
         take.flags.map((f, i) => [
           `flag_${i}`,
-          { tag: `Measure ${f.measure} · ${capitalize(f.type)}`, title: f.title, body: f.body, confidence: f.confidence ?? 100 },
+          { tag: `Measure ${f.measure} · ${capitalize(f.type)}`, title: f.title, body: f.detail ?? f.body ?? '', confidence: f.confidence ?? 100 },
         ])
       )
     : {}
@@ -316,6 +316,7 @@ export default function Analysis() {
   const activeFlagIndex = activeFlag ? parseInt(activeFlag.replace('flag_', ''), 10) : -1
   const activeFlagRaw   = take?.flags?.[activeFlagIndex] ?? null
   const hasTimestamps   = activeFlagRaw?.timestamp_start != null && activeFlagRaw?.timestamp_end != null
+    && Number(activeFlagRaw.timestamp_end) > Number(activeFlagRaw.timestamp_start)
 
   const info = activeFlag ? flagsMap[activeFlag] : null
 

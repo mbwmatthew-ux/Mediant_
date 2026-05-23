@@ -84,6 +84,8 @@ Instrument: ${opts.instrument}
 ${opts.keySignature ? `Key: ${opts.keySignature}. ` : ''}Time signature: ${opts.timeSig}
 Recording covers: ${measureRange}
 
+MEASURE NUMBERING: The video starts at measure ${opts.safeStart} of the score. Number your flags using the actual score measure numbers (${opts.safeStart}, ${opts.safeStart + 1}, ${opts.safeStart + 2}...), NOT starting from 1.
+
 Watch the ENTIRE video. Listen and observe carefully for:
 - Rhythmic accuracy and steadiness
 - Intonation / pitch accuracy
@@ -98,7 +100,7 @@ Return ONLY valid JSON (no markdown fences):
   "score": <integer 0-100, where 100 = flawless professional performance>,
   "flags": [
     {
-      "measure": <integer — the measure where this issue occurs>,
+      "measure": <integer — score measure number starting from ${opts.safeStart}>,
       "type": "timing"|"intonation"|"dynamics"|"technique"|"error",
       "title": "<8 words max — name the specific issue>",
       "detail": "<2-3 sentences: what went wrong, why it matters, how to fix it>",

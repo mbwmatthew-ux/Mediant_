@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useState, useEffect, useRef } from 'react'
@@ -46,6 +46,7 @@ const NAV_SECTIONS = [
 export default function AppShell() {
   const { user, logout } = useAuth()
   const nav = useNavigate()
+  const location = useLocation()
   const [panel, setPanel]                   = useState(null)
   const [notifications, setNotifications]   = useState(NOTIFICATIONS)
   const [expanded, setExpanded]             = useState(null)
@@ -386,7 +387,7 @@ export default function AppShell() {
         </aside>
 
         <main className={styles.main}>
-          <ErrorBoundary>
+          <ErrorBoundary key={location.pathname}>
             <Outlet />
           </ErrorBoundary>
         </main>

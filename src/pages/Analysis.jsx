@@ -359,22 +359,14 @@ export default function Analysis() {
         </div>
       </div>
 
-      {analysisQuality && (
+      {analysisQuality && analysisQuality.trust === 'low' && Array.isArray(analysisQuality.reasons) && analysisQuality.reasons.length > 0 && (
         <div className={`${styles.analysisNotice} ${styles[`analysisNotice${trustTone(analysisQuality.trust)}`]}`}>
-          <p className={styles.analysisNoticeTitle}>{trustLabel(analysisQuality.trust)}</p>
-          <p className={styles.analysisNoticeBody}>
-            {analysisBackend ? `Pipeline: ${analysisBackend}. ` : ''}
-            {analysisQuality.trust === 'high'
-              ? 'This review is grounded in aligned score and recording evidence with direct listening corroboration.'
-              : 'This review was generated from usable evidence, but some parts of the analysis chain were weaker than ideal.'}
-          </p>
-          {Array.isArray(analysisQuality.reasons) && analysisQuality.reasons.length > 0 && (
-            <ul className={styles.analysisNoticeList}>
-              {analysisQuality.reasons.map((reason) => (
-                <li key={reason}>{reason}</li>
-              ))}
-            </ul>
-          )}
+          <p className={styles.analysisNoticeTitle}>Analysis quality was limited</p>
+          <ul className={styles.analysisNoticeList}>
+            {analysisQuality.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
         </div>
       )}
 

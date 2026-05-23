@@ -163,26 +163,22 @@ function assessAnalysisQuality(
   geminiAssessment: GeminiAssessment | null,
 ): AnalysisQuality {
   const reasons: string[] = []
-  if (!usedModal) {
-    reasons.push('The dedicated transcription worker was unavailable, so the analysis fell back to a lower-trust transcription path.')
-  }
-  // Count ALL measures including skeleton (empty-notes) ones — those still enable
-  // time-based alignment and rhythm feedback even without pitch data.
   if (score.measures.length < 2) {
     reasons.push('The score could not be parsed into enough readable measures.')
   }
-  if (audio.events.length < 8) {
-    reasons.push('Too few audio events were extracted from the recording.')
-  }
-  if (aligned.length < 8) {
-    reasons.push('Too few note events could be aligned to score measures.')
-  }
-  if (alignmentRanges.length < 2) {
-    reasons.push('The recording only aligned to a very small number of measures.')
-  }
-  // Gemini only runs on the fallback path when Modal is unavailable.
-  // Not having it when Modal succeeded is expected — do not penalise.
-  if (!geminiAssessment && !usedModal) {
+  // Only flag audio/alignment issues when we expected transcription but got none.
+  // When running eval-only (geminiAssessment present, no transcription), these
+  // are expected and not actionable — don't show them to the user.
+  if (!geminiAssessment) {
+    if (audio.events.length < 8) {
+      reasons.push('Too few audio events were extracted from the recording.')
+    }
+    if (aligned.length < 8) {
+      reasons.push('Too few note events could be aligned to score measures.')
+    }
+    if (alignmentRanges.length < 2) {
+      reasons.push('The recording only aligned to a very small number of measures.')
+    }
     reasons.push('Direct listening corroboration from Gemini was unavailable.')
   }
 
@@ -613,9 +609,9 @@ async function compareAndCoach(
   const validMeasures = new Set(score.measures.map(m => m.number))
   const playedMeasures = score.measures.filter(m => eventsByMeasure.has(m.number))
 
-  // If still nothing (score.measures empty), generate tempo-only flags from raw audio
-  if (playedMeasures.length === 0) {
-    console.warn('[compareAndCoach] no score measures with aligned events')
+  // If no aligned audio events, skip straight to Gemini-only coaching
+  if (playedMeasures.length === 0 && !geminiAssessment) {
+    console.warn('[compareAndCoach] no score measures with aligned events and no Gemini assessment')
     return []
   }
 

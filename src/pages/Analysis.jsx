@@ -258,26 +258,21 @@ export default function Analysis() {
     setChatLoading(true)
 
     try {
-      const res = await fetch('/api/ask-coach', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('coach-chat', {
+        body: {
           message: msg,
           context: {
-            pieceTitle:      take?.piece_title    ?? '',
-            pieceComposer:   take?.piece_composer ?? '',
-            score:           take?.score,
-            flags:           take?.flags ?? [],
-            activeFlag:      flagContext ?? null,
-            measureLayout:   take?.measure_layout ?? null,
-            audioAlignment:  take?.audio_alignment ?? null,
+            pieceTitle:    take?.piece_title    ?? '',
+            pieceComposer: take?.piece_composer ?? '',
+            instrument:    take?.instrument     ?? null,
+            flags:         take?.flags          ?? [],
+            activeFlag:    flagContext          ?? null,
           },
           history: chatMessages,
-        }),
+        },
       })
-      const { reply, error } = await res.json()
-      if (error) throw new Error(error)
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      if (error) throw new Error(error.message ?? String(error))
+      setChatMessages(prev => [...prev, { role: 'assistant', content: data?.reply ?? '' }])
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Try again.' }])
     } finally {

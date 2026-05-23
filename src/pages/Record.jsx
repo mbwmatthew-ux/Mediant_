@@ -108,6 +108,10 @@ export default function Record() {
   async function applyVideoFile(f) {
     if (!f) return
     setVideoError('')
+    if (f.size > 500 * 1024 * 1024) {
+      setVideoError(`File is ${Math.round(f.size / 1024 / 1024)} MB — please trim or compress to under 500 MB.`)
+      return
+    }
     const duration = await new Promise(resolve => {
       const v = document.createElement('video')
       v.preload = 'metadata'
@@ -116,8 +120,8 @@ export default function Record() {
       v.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
       v.src = url
     })
-    if (duration && duration > 60) {
-      setVideoError(`Recording is ${Math.round(duration)}s — please trim to under 60 seconds. Aim for 30–45s for best results.`)
+    if (duration && duration > 100) {
+      setVideoError(`Recording is ${Math.round(duration)}s — please trim to under 100 seconds. Aim for 30–60s for best results.`)
       return
     }
     setFile(f)

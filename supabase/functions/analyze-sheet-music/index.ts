@@ -6,7 +6,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const PROMPT = `You are a music educator analyzing a piece of sheet music.
+const PROMPT = `You are a music educator with expert sight-reading ability analyzing a piece of sheet music.
 Return ONLY a valid JSON object — no markdown, no explanation — with these exact fields:
 
 {
@@ -15,7 +15,7 @@ Return ONLY a valid JSON object — no markdown, no explanation — with these e
   "era":        "one of: Baroque, Classical, Romantic, Modern — or empty string if unsure",
   "difficulty": "one of: Beginner, Intermediate, Advanced — based on notation complexity, or empty string if unsure",
   "key":        "key signature including whether it is major or minor, e.g. G major, D minor, B♭ major, F# minor — or empty string if not determinable",
-  "time":       "time signature, e.g. 4/4, 3/4, 6/8, 2/2 — or empty string if not visible"
+  "time":       "time signature as two numbers separated by a slash, e.g. 4/4, 3/4, 6/8, 2/2, 12/8 — look for the stacked numerals immediately after the clef and key signature at the very start of the first staff. Do NOT guess; return empty string if you cannot clearly see the numerals."
 }`
 
 serve(async (req) => {
@@ -36,7 +36,7 @@ serve(async (req) => {
       : { type: 'image' as const,    source: { type: 'base64' as const, media_type: (mediaType ?? 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: imageBase64 } }
 
     const message = await anthropic.messages.create({
-      model:      'claude-haiku-4-5-20251001',
+      model:      'claude-sonnet-4-6',
       max_tokens: 256,
       messages:   [{ role: 'user', content: [contentBlock, { type: 'text', text: PROMPT }] }],
     })

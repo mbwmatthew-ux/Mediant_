@@ -128,6 +128,8 @@ export default function PieceDetailPanel({ piece, onClose }) {
       pieceTitle: piece.title,
       composer:   piece.composer,
       instrument: piece.instrument,
+      key:        piece.key  && piece.key  !== '—' ? piece.key  : null,
+      timeSig:    piece.time && piece.time !== '—' ? piece.time : null,
       pieceId:    piece.userUploaded ? piece.id : null,
       mediaType:  piece.mediaType ?? null,
     }))

@@ -30,6 +30,7 @@ export default function Record() {
   const [instrument,    setInstrument]    = useState('')
   const [part,          setPart]          = useState('')
   const [timeSig,       setTimeSig]       = useState('4/4')
+  const [keySignature,  setKeySignature]  = useState('')
   const [startMeasure,  setStartMeasure]  = useState('')
   const [endMeasure,    setEndMeasure]    = useState('')
 
@@ -53,10 +54,12 @@ export default function Record() {
         const raw = sessionStorage.getItem('mediant_prefill')
         if (!raw) return
         sessionStorage.removeItem('mediant_prefill')
-        const { pieceTitle: t, composer: c, instrument: ins, pieceId } = JSON.parse(raw)
+        const { pieceTitle: t, composer: c, instrument: ins, key: k, timeSig: ts, pieceId } = JSON.parse(raw)
         if (t)   setPieceTitle(t)
         if (c)   setComposer(c)
         if (ins && INSTRUMENTS.includes(ins)) setInstrument(ins)
+        if (k)   setKeySignature(k)
+        if (ts)  setTimeSig(ts)
         if (pieceId) {
           const f = await getFile(pieceId)
           if (f) setScoreFile(f)
@@ -188,6 +191,7 @@ export default function Record() {
           instrument,
           part:           part.trim() || undefined,
           timeSig:        timeSig.trim() || '4/4',
+          keySignature:   keySignature.trim() || undefined,
           startMeasure:   startMeasure || undefined,
           endMeasure:     endMeasure || undefined,
         },
@@ -430,6 +434,15 @@ export default function Record() {
                 <span className={styles.formOptional} style={{ marginTop: 4, display: 'block' }}>
                   Used to keep measure numbers aligned.
                 </span>
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Key</label>
+                <input
+                  className={styles.formInput}
+                  value={keySignature}
+                  onChange={e => setKeySignature(e.target.value)}
+                  placeholder="e.g. D minor, B♭ major"
+                />
               </div>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>Starting measure</label>

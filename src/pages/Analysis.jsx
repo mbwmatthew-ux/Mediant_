@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { supabase } from '../lib/supabase'
-import MasterclassPanel from '../components/MasterclassPanel'
 import styles from './Page.module.css'
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
@@ -583,11 +582,6 @@ export default function Analysis() {
         </aside>
       </div>
 
-      <MasterclassPanel
-        pieceTitle={pieceTitle}
-        composer={pieceComposer}
-        instrument={instrument}
-      />
     </div>
   )
 }

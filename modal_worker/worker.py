@@ -56,6 +56,8 @@ image = (
         "fastapi[standard]",
         "requests==2.31.0",
         "httpx==0.27.0",
+        # AI SDKs (used in async full-pipeline)
+        "anthropic>=0.30.0",
     )
 )
 
@@ -759,6 +761,651 @@ def analyze(body: dict) -> dict:
         tb = traceback.format_exc()
         print(f"[analyze] ERROR: {e}\n{tb}")
         return {"error": str(e), "traceback": tb}
+
+
+# ── Helpers for the async full-pipeline ───────────────────────────────────
+
+def extract_json_object(raw: str) -> dict | None:
+    import json, re
+    stripped = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.IGNORECASE).rstrip('`').strip()
+    start = stripped.find('{')
+    end   = stripped.rfind('}')
+    if start == -1 or end == -1:
+        return None
+    try:
+        return json.loads(stripped[start:end + 1])
+    except Exception:
+        return None
+
+
+def upload_video_to_gemini(video_bytes: bytes, mime_type: str, api_key: str) -> str | None:
+    import httpx, json, time
+    boundary = f"gem_{int(time.time() * 1000)}"
+    metadata = json.dumps({"file": {"displayName": "practice-recording"}})
+    CRLF = "\r\n"
+    pre  = f"--{boundary}{CRLF}Content-Type: application/json; charset=UTF-8{CRLF}{CRLF}{metadata}{CRLF}--{boundary}{CRLF}Content-Type: {mime_type}{CRLF}{CRLF}"
+    post = f"{CRLF}--{boundary}--"
+    body = pre.encode() + video_bytes + post.encode()
+    try:
+        with httpx.Client(timeout=120) as client:
+            resp = client.post(
+                f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={api_key}&uploadType=multipart",
+                content=body,
+                headers={"Content-Type": f"multipart/related; boundary={boundary}"},
+            )
+            resp.raise_for_status()
+            file_data = resp.json()["file"]
+            file_id   = file_data["name"].split("/")[-1]
+            state     = file_data.get("state", "PROCESSING")
+            for _ in range(15):
+                if state == "ACTIVE":
+                    break
+                time.sleep(3)
+                poll  = client.get(f"https://generativelanguage.googleapis.com/v1beta/files/{file_id}?key={api_key}")
+                state = poll.json().get("state", "UNKNOWN")
+            if state != "ACTIVE":
+                print(f"[upload_video_to_gemini] file never became ACTIVE (state={state})")
+                return None
+            return file_data["uri"]
+    except Exception as e:
+        print(f"[upload_video_to_gemini] error: {e}")
+        return None
+
+
+def evaluate_with_gemini(
+    file_uri: str, mime_type: str,
+    instrument: str, piece_title: str, composer: str,
+    start_measure: int, end_measure: int | None,
+    api_key: str,
+) -> dict | None:
+    import httpx
+    GEMINI_MODEL = "gemini-2.5-pro"
+    end_info = f" through measure {end_measure}" if end_measure else ""
+    prompt = f"""You are an expert {instrument} teacher. Listen carefully to this student recording of "{piece_title}" by {composer}, starting at measure {start_measure}{end_info}.
+
+Listen to the ENTIRE recording from start to finish. Give me concrete, specific observations — NOT vague generalities.
+
+INTONATION: List every passage where pitch sounds noticeably flat or sharp. Give a timestamp and direction. If intonation sounds generally clean, say so explicitly.
+
+RHYTHM: List any rushed or dragged passages, hesitations, uneven note-spacing, or beat instability with timestamps. If rhythm sounds solid, say so.
+
+TECHNIQUE: List bow/breath noise, tone quality issues, insecure shifts, unclear articulation with timestamps. If technique sounds clean, say so.
+
+OVERALL: One sentence — the single most important thing for this student to work on.
+
+RULES: Be direct. Vague feedback is useless. If something is genuinely clean, say so. Focus on 1-3 most important issues.
+
+Return JSON only:
+{{
+  "intonation_issues": ["<timestamp>: <specific observation>"],
+  "rhythm_issues": ["<timestamp>: <specific observation>"],
+  "technique_issues": ["<timestamp>: <specific observation>"],
+  "overall": "<one sentence>"
+}}"""
+    try:
+        with httpx.Client(timeout=120) as client:
+            resp = client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}",
+                json={
+                    "contents": [{"parts": [
+                        {"fileData": {"mimeType": mime_type, "fileUri": file_uri}},
+                        {"text": prompt},
+                    ]}],
+                    "generationConfig": {"temperature": 0, "responseMimeType": "application/json", "maxOutputTokens": 4096},
+                },
+            )
+        if not resp.is_success:
+            print(f"[evaluate_with_gemini] HTTP {resp.status_code}")
+            return None
+        data = resp.json()
+        text = (data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text"))
+        if not text:
+            return None
+        parsed = extract_json_object(text)
+        if not parsed:
+            return None
+        print(f"[evaluate_with_gemini] overall: {str(parsed.get('overall', ''))[:100]}")
+        return {
+            "intonation_issues": parsed.get("intonation_issues", []),
+            "rhythm_issues":     parsed.get("rhythm_issues", []),
+            "technique_issues":  parsed.get("technique_issues", []),
+            "overall":           parsed.get("overall", ""),
+        }
+    except Exception as e:
+        print(f"[evaluate_with_gemini] error: {e}")
+        return None
+
+
+def read_score_notes_claude(
+    score_bytes: bytes, score_mime: str,
+    start_measure: int, instrument: str, time_sig: str,
+    anthropic_api_key: str,
+) -> dict:
+    import base64, anthropic as ac
+    CLAUDE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    b64 = base64.b64encode(score_bytes).decode()
+    if score_mime == "application/pdf":
+        vision_part = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
+    elif score_mime in CLAUDE_IMAGE_TYPES:
+        vision_part = {"type": "image", "source": {"type": "base64", "media_type": score_mime, "data": b64}}
+    else:
+        print(f"[read_score_notes_claude] unsupported mime: {score_mime}")
+        return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+
+    prompt = f"""You are an expert music engraver reading sheet music for a {instrument} student.
+
+MEASURE NUMBERING — CRITICAL: The recording starts at measure {start_measure}. The FIRST complete measure at the top-left is measure {start_measure}. Number sequentially from there. Do NOT trust printed numbers — count barlines visually.
+
+Time signature hint: {time_sig}. Use what you see in the image if different.
+
+Return EVERY measure bar-to-bar. For each sounded note you can read:
+- pitch: scientific pitch notation ("D3", "F#4"). null only when note-head is present but pitch unreadable.
+- Do NOT include rests.
+- beat: position in measure (1.0 = downbeat).
+- duration_beats: how many beats this note lasts.
+- articulation: "staccato", "tenuto", "accent", or null.
+- dynamic: "pp", "p", "mp", "mf", "f", "ff", "cresc", "dim", or null.
+
+Return JSON only (no markdown):
+{{
+  "key_signature": "...",
+  "time_signature": "...",
+  "tempo_marking": "...",
+  "measures": [{{"number": {start_measure}, "notes": [{{"pitch": "D3", "beat": 1.0, "duration_beats": 1.5, "articulation": null, "dynamic": "p"}}]}}]
+}}"""
+
+    try:
+        client = ac.Anthropic(api_key=anthropic_api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=16000,
+            messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
+        )
+        raw    = msg.content[0].text
+        parsed = extract_json_object(raw)
+        if not parsed:
+            print(f"[read_score_notes_claude] no JSON: {raw[:300]}")
+            return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+        measures = [
+            {**m, "notes": [n for n in m.get("notes", []) if str(n.get("pitch", "")).lower() != "rest"]}
+            for m in (parsed.get("measures") or [])
+            if isinstance(m.get("notes"), list)
+        ]
+        if measures and measures[0].get("number") != start_measure:
+            for i, m in enumerate(measures):
+                m["number"] = start_measure + i
+        total_notes = sum(len(m["notes"]) for m in measures)
+        print(f"[read_score_notes_claude] {len(measures)} measures, {total_notes} notes")
+        return {
+            "key_signature":  parsed.get("key_signature"),
+            "time_signature": parsed.get("time_signature"),
+            "tempo_marking":  parsed.get("tempo_marking"),
+            "measures":       measures,
+        }
+    except Exception as e:
+        print(f"[read_score_notes_claude] error: {e}")
+        return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+
+
+def beats_per_measure_from_time_sig(time_sig: str | None) -> int:
+    import re
+    m = re.match(r'^(\d+)\s*/\s*(\d+)$', (time_sig or "").strip())
+    if not m:
+        return 4
+    num, denom = int(m.group(1)), int(m.group(2))
+    is_compound = num % 3 == 0 and num // 3 >= 2 and denom >= 8
+    return num // 3 if is_compound else num
+
+
+def anchor_and_align_py(
+    score: dict,
+    events: list[dict],
+    tempo_bpm: float | None,
+    audio_duration: float,
+    start_measure: int,
+) -> tuple[list[dict], float, list[dict]]:
+    if not events or not score.get("measures"):
+        return [], 4.0, []
+    bpm_per_measure = beats_per_measure_from_time_sig(score.get("time_signature"))
+    t_anchor        = events[0]["time_sec"]
+    played_duration = max(1.0, audio_duration - t_anchor)
+    sec_per_measure = 4.0
+    if tempo_bpm and bpm_per_measure:
+        tempo_based = bpm_per_measure * (60.0 / tempo_bpm)
+        if 1.0 <= tempo_based <= 30.0:
+            sec_per_measure = tempo_based
+    sec_per_measure = max(1.0, min(30.0, sec_per_measure))
+    estimated_measures = max(1, int(played_duration / sec_per_measure + 0.5))
+    last_measure = min(
+        start_measure + estimated_measures - 1,
+        score["measures"][-1]["number"],
+    )
+    valid = {m["number"] for m in score["measures"] if m["number"] <= last_measure}
+    aligned = []
+    for ev in events:
+        m_raw = start_measure + int(max(0, ev["time_sec"] - t_anchor) / sec_per_measure)
+        m = max(start_measure, min(last_measure, m_raw))
+        if m in valid:
+            aligned.append({**ev, "measure": m})
+    ranges_map: dict = {}
+    for ev in aligned:
+        m = ev["measure"]
+        if m not in ranges_map:
+            ranges_map[m] = {"start": ev["time_sec"], "end": ev["time_sec"]}
+        else:
+            ranges_map[m]["start"] = min(ranges_map[m]["start"], ev["time_sec"])
+            ranges_map[m]["end"]   = max(ranges_map[m]["end"],   ev["time_sec"])
+    alignment_ranges = [
+        {"measure": m, "start": r["start"], "end": max(r["end"], r["start"] + sec_per_measure * 0.9)}
+        for m, r in sorted(ranges_map.items())
+    ]
+    print(f"[anchor_and_align_py] sec/measure={sec_per_measure:.2f}, aligned={len(aligned)}, ranges={len(alignment_ranges)}")
+    return aligned, sec_per_measure, alignment_ranges
+
+
+def build_gemini_block(assessment: dict | None) -> str:
+    if not assessment:
+        return "DIRECT LISTENING CROSS-CHECK: unavailable."
+    lines = [
+        "DIRECT LISTENING CROSS-CHECK (Gemini listening to the actual recording):",
+        f"- Intonation: {' | '.join(assessment['intonation_issues']) if assessment['intonation_issues'] else 'No clear intonation issues reported.'}",
+        f"- Rhythm: {' | '.join(assessment['rhythm_issues']) if assessment['rhythm_issues'] else 'No clear rhythm issues reported.'}",
+        f"- Technique: {' | '.join(assessment['technique_issues']) if assessment['technique_issues'] else 'No clear technique issues reported.'}",
+        f"- Overall: {assessment.get('overall') or 'No overall note provided.'}",
+        "Treat this block as corroborating evidence.",
+    ]
+    return "\n".join(lines)
+
+
+def compare_and_coach_claude(
+    score: dict, aligned: list[dict], alignment_ranges: list[dict],
+    tempo: dict, piece_title: str, composer: str, instrument: str,
+    gemini_assessment: dict | None, anthropic_api_key: str,
+) -> list[dict]:
+    import anthropic as ac, re
+    CLAUDE_MODEL = "claude-sonnet-4-6"
+    allowed_types = {"intonation", "timing", "rhythm", "articulation", "dynamics", "voicing"}
+    events_by_measure: dict[int, list] = {}
+    for ev in aligned:
+        events_by_measure.setdefault(ev["measure"], []).append(ev)
+    played_measures = [m for m in score.get("measures", []) if m["number"] in events_by_measure]
+    if not played_measures and not gemini_assessment:
+        return []
+    range_map        = {r["measure"]: r for r in alignment_ranges}
+    range_start_map  = {r["measure"]: r["start"] for r in alignment_ranges}
+    valid_measures   = {m["number"] for m in score.get("measures", [])}
+    bpm              = beats_per_measure_from_time_sig(score.get("time_signature"))
+    evidence_candidates: list[str] = []
+    for m in played_measures:
+        events  = sorted(events_by_measure.get(m["number"], []), key=lambda e: e["time_sec"])
+        r       = range_map.get(m["number"])
+        m_start = r["start"] if r else (events[0]["time_sec"] if events else 0)
+        m_dur   = max(0.5, r["end"] - r["start"]) if r else 4.0
+        spb     = m_dur / max(1, bpm)
+        for ev in events:
+            cents = ev.get("cents_offset")
+            if cents is not None and abs(cents) >= 10 and ev.get("confidence", 100) >= 25:
+                beat = max(1, round((ev["time_sec"] - m_start) / spb + 1, 2))
+                sign = "+" if cents > 0 else ""
+                evidence_candidates.append(
+                    f"intonation | measure {m['number']} beat {beat} | {'/'.join(ev['pitches'])} is {sign}{cents}¢ at {ev['time_sec']:.2f}s"
+                )
+        gaps = [events[i+1]["time_sec"] - events[i]["time_sec"] for i in range(len(events) - 1)]
+        if len(gaps) >= 4:
+            median = sorted(gaps)[len(gaps) // 2]
+            for i, gap in enumerate(gaps):
+                if median > 0 and gap > median * 2.2 and gap > 0.8:
+                    beat = max(1, round((events[i]["time_sec"] - m_start) / spb + 1, 2))
+                    evidence_candidates.append(
+                        f"timing | measure {m['number']} near beat {beat} | {gap:.2f}s gap after {'/'.join(events[i]['pitches'])} at {events[i]['time_sec']:.2f}s"
+                    )
+    strongest = evidence_candidates[:8]
+    crepe_has_data = bool(strongest)
+    has_gemini = bool(gemini_assessment and any([
+        gemini_assessment.get("intonation_issues"), gemini_assessment.get("rhythm_issues"), gemini_assessment.get("technique_issues"),
+    ]))
+    if not strongest and not has_gemini:
+        print("[compare_and_coach_claude] no evidence; returning no flags")
+        return []
+    valid_list  = sorted(r["measure"] for r in alignment_ranges)
+    gemini_block = build_gemini_block(gemini_assessment)
+    measure_blocks = []
+    for m in played_measures:
+        sounded = [n for n in m.get("notes", []) if str(n.get("pitch", "")).lower() != "rest"]
+        written = (
+            "(score notation not parsed — analyze event spacing for rhythm/timing issues)"
+            if not sounded else
+            ", ".join(f"{n.get('pitch') or '(unreadable)'} @ beat {n.get('beat','?')} ({n.get('duration_beats','?')}b)" for n in sounded)
+        )
+        m_start = range_start_map.get(m["number"], 0)
+        events  = sorted(events_by_measure.get(m["number"], []), key=lambda e: e["time_sec"])
+        heard_parts = []
+        for ev in events:
+            cents = ev.get("cents_offset")
+            cents_str = f" ({'+' if (cents or 0) > 0 else ''}{cents}¢)" if cents is not None and abs(cents) >= 5 else ""
+            loudness  = f" [{ev.get('loudness')}]" if ev.get("loudness") else ""
+            heard_parts.append(f"{'/'.join(ev['pitches'])}{cents_str} @ +{ev['time_sec'] - m_start:.2f}s{loudness}")
+        heard = ", ".join(heard_parts) if heard_parts else "(no events)"
+        measure_blocks.append(f"Measure {m['number']}:\n  WRITTEN: {written}\n  HEARD:   {heard}")
+    cand_block = (
+        f"MEASURABLE ISSUE CANDIDATES:\n" + "\n".join(f"{i+1}. {e}" for i, e in enumerate(strongest))
+        if crepe_has_data else
+        "MEASURABLE ISSUE CANDIDATES: (pitch analysis did not produce specific candidates — rely on direct listening below)"
+    )
+    prompt = f"""You are a master {instrument} teacher giving feedback to a student on "{piece_title}" by {composer}.
+
+{chr(10).join(measure_blocks)}
+
+{cand_block}
+
+Tempo: {tempo.get('bpm', '?')} BPM. Key: {score.get('key_signature', '?')}. Time signature: {score.get('time_signature', '?')}.
+{gemini_block}
+
+YOUR TASK: Identify 1–4 issues. Priority: direct listening observations first, then CREPE intonation candidates, then pitch mismatches, then rhythm.
+
+HARD RULES:
+- Every "measure" field MUST be one of: [{', '.join(str(m) for m in valid_list)}].
+- Do NOT flag rests, silence, missing notes, or coverage gaps.
+- For intonation flags, raw_detail MUST cite cents ("+22¢") or a listening timestamp ("0:08").
+- "type" must be one of: intonation, timing, rhythm, articulation, dynamics, voicing.
+- If the recording sounds genuinely clean, return fewer or zero flags.
+
+Return JSON only (no markdown):
+{{
+  "flags": [
+    {{
+      "measure": <int from the allowed list>,
+      "beat": <number 1-based or null>,
+      "type": "<type>",
+      "confidence": <70-100>,
+      "title": "<6-10 word specific title>",
+      "raw_detail": "<one sentence: the evidence>",
+      "body": "<3-sentence warm coaching paragraph>"
+    }}
+  ]
+}}"""
+    try:
+        client = ac.Anthropic(api_key=anthropic_api_key)
+        msg    = client.messages.create(
+            model=CLAUDE_MODEL, max_tokens=8000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw    = msg.content[0].text
+        parsed = extract_json_object(raw)
+        if not parsed:
+            print(f"[compare_and_coach_claude] no JSON: {raw[:300]}")
+            return []
+    except Exception as e:
+        print(f"[compare_and_coach_claude] Claude API error: {e}")
+        return []
+    flags = []
+    for f in parsed.get("flags", []):
+        m_num = f.get("measure")
+        if not isinstance(m_num, (int, float)) or int(m_num) not in valid_measures:
+            continue
+        if f.get("confidence", 100) < 60:
+            continue
+        if not all(f.get(k) for k in ("type", "title", "raw_detail", "body")):
+            continue
+        if str(f.get("type")) not in allowed_types:
+            continue
+        raw_detail = str(f.get("raw_detail", ""))
+        if str(f.get("type")) == "intonation":
+            if not re.search(r'[+-]\d+¢', raw_detail) and not re.search(r'\d:\d{2}', raw_detail):
+                continue
+        if re.search(r'(rest|silence|missing note|skipped measure|dropped note|coverage gap|no events)', raw_detail, re.IGNORECASE):
+            continue
+        m_num = int(m_num)
+        r     = range_map.get(m_num)
+        if not r and alignment_ranges:
+            r     = min(alignment_ranges, key=lambda x: abs(x["measure"] - m_num))
+            m_num = r["measure"]
+        if not r:
+            continue
+        beat = f.get("beat")
+        if isinstance(beat, (int, float)):
+            m_dur = max(0.5, r["end"] - r["start"])
+            spb   = m_dur / max(1, bpm)
+            center  = r["start"] + max(0, beat - 1) * spb
+            ts_start = max(r["start"], center - 0.45)
+            ts_end   = min(r["end"], center + max(1.0, spb * 1.25))
+            if ts_end <= ts_start:
+                ts_end = min(r["end"], ts_start + 1.0)
+        else:
+            beat, ts_start, ts_end = None, r["start"], r["end"]
+        flags.append({
+            "measure": m_num, "beat": beat, "type": str(f["type"]),
+            "title": str(f["title"]), "raw_detail": raw_detail, "body": str(f.get("body", "")),
+            "confidence": int(f.get("confidence", 100)),
+            "timestamp_start": ts_start, "timestamp_end": ts_end, "spot": None, "spot_angle": 0,
+        })
+    seen: set = set()
+    deduped = []
+    for flag in sorted(flags, key=lambda x: -x["confidence"]):
+        key = (flag["measure"], flag["type"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(flag)
+    print(f"[compare_and_coach_claude] {len(deduped)} flags: {[(f['measure'], f['type']) for f in deduped]}")
+    return deduped[:4]
+
+
+def assess_quality(
+    score: dict, events: list[dict], aligned: list[dict],
+    alignment_ranges: list[dict], used_modal: bool, gemini_assessment: dict | None,
+) -> dict:
+    reasons: list[str] = []
+    if len(score.get("measures", [])) < 2:
+        reasons.append("The score could not be parsed into enough readable measures.")
+    if not gemini_assessment:
+        if len(events) < 8:
+            reasons.append("Too few audio events were extracted from the recording.")
+        if len(aligned) < 8:
+            reasons.append("Too few note events could be aligned to score measures.")
+        if len(alignment_ranges) < 2:
+            reasons.append("The recording only aligned to a very small number of measures.")
+        reasons.append("Direct listening corroboration from Gemini was unavailable.")
+    if not reasons:
+        return {"trust": "high", "canProceed": True, "reasons": []}
+    if used_modal and len(score.get("measures", [])) >= 2 and len(aligned) >= 8:
+        return {"trust": "medium", "canProceed": True, "reasons": reasons}
+    if gemini_assessment:
+        return {"trust": "medium", "canProceed": True, "reasons": reasons}
+    return {"trust": "low", "canProceed": False, "reasons": reasons}
+
+
+def post_webhook(webhook_url: str, webhook_secret: str | None, payload: dict) -> None:
+    import httpx
+    try:
+        headers = {"Content-Type": "application/json"}
+        if webhook_secret:
+            headers["x-webhook-secret"] = webhook_secret
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(webhook_url, json=payload, headers=headers)
+            print(f"[post_webhook] status={resp.status_code}")
+    except Exception as e:
+        print(f"[post_webhook] failed: {e}")
+
+
+# ── Background analysis task ───────────────────────────────────────────────
+
+@app.function(
+    image=image,
+    timeout=300,
+    memory=4096,
+)
+def run_full_analysis(payload: dict) -> None:
+    """
+    Full async pipeline: CREPE → score parsing → Gemini eval → Claude coaching → webhook.
+    Called via .spawn() so it runs detached from the dispatcher.
+    """
+    import httpx
+    from collections import defaultdict
+
+    take_id        = payload["take_id"]
+    webhook_url    = payload["webhook_url"]
+    webhook_secret = payload.get("webhook_secret")
+    video_url      = payload.get("video_url")
+    video_mime     = payload.get("video_mime_type", "video/mp4")
+    score_url      = payload.get("score_url")
+    score_mime     = payload.get("score_mime_type", "")
+    instrument     = payload.get("instrument", "instrument")
+    piece_title    = payload.get("piece_title", "this piece")
+    composer       = payload.get("composer", "the composer")
+    time_sig       = payload.get("time_sig", "4/4")
+    start_measure  = int(payload.get("start_measure", 1))
+    end_measure    = payload.get("end_measure")
+    gemini_key     = payload.get("gemini_api_key")
+    anthropic_key  = payload.get("anthropic_api_key")
+
+    try:
+        num, denom = map(int, time_sig.split("/"))
+        is_compound = num % 3 == 0 and num // 3 >= 2 and denom >= 8
+        bpm_int = num // 3 if is_compound else num
+    except Exception:
+        bpm_int = 4
+
+    try:
+        # ── Step 1: Download video + audio analysis ────────────────────────
+        print(f"[run_full_analysis] downloading video for take {take_id}")
+        with httpx.Client(timeout=120) as client:
+            vresp = client.get(video_url, follow_redirects=True)
+            vresp.raise_for_status()
+            video_bytes = vresp.content
+        print(f"[run_full_analysis] video: {len(video_bytes):,} bytes")
+
+        wav_bytes, video_duration = extract_audio_from_video(video_bytes)
+        beats      = run_beat_tracking(wav_bytes)
+        raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"])
+        events_with_measures = assign_events_to_measures(raw_events, beats["beat_times"], bpm_int, start_measure)
+
+        # ── Step 2: Parse score ────────────────────────────────────────────
+        score: dict = {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+        if score_url:
+            print("[run_full_analysis] downloading score")
+            with httpx.Client(timeout=90) as client:
+                sresp = client.get(score_url, follow_redirects=True)
+                sresp.raise_for_status()
+                score_bytes_dl = sresp.content
+            print(f"[run_full_analysis] score: {len(score_bytes_dl):,} bytes, mime={score_mime}")
+            score_kind = sniff_score_kind(score_bytes_dl, score_mime, score_url)
+            print(f"[run_full_analysis] score kind: {score_kind}")
+            if score_kind in ("xml", "mxl"):
+                res = parse_score_document(score_bytes_dl, start_measure)
+                if not res.get("error") and res.get("measures"):
+                    score = res
+            elif score_kind == "visual" and anthropic_key:
+                res = read_score_notes_claude(score_bytes_dl, score_mime, start_measure, instrument, time_sig, anthropic_key)
+                if res.get("measures"):
+                    score = res
+            elif score_kind == "visual":
+                print("[run_full_analysis] visual score but no Anthropic key")
+
+        # ── Step 3: Gemini evaluation ──────────────────────────────────────
+        gemini_assessment = None
+        if gemini_key:
+            print("[run_full_analysis] uploading video to Gemini")
+            gemini_uri = upload_video_to_gemini(video_bytes, video_mime, gemini_key)
+            if gemini_uri:
+                gemini_assessment = evaluate_with_gemini(
+                    gemini_uri, video_mime, instrument,
+                    piece_title, composer, start_measure, end_measure, gemini_key,
+                )
+
+        # ── Step 4: Build alignment ranges from beat-assigned events ───────
+        aligned = [ev for ev in events_with_measures if "measure" in ev]
+        ranges_acc: dict = defaultdict(lambda: {"start": float("inf"), "end": float("-inf")})
+        for ev in aligned:
+            m = ev["measure"]
+            ranges_acc[m]["start"] = min(ranges_acc[m]["start"], ev["time_sec"])
+            ranges_acc[m]["end"]   = max(ranges_acc[m]["end"],   ev["time_sec"])
+        avg_beat = (
+            (beats["beat_times"][-1] - beats["beat_times"][0]) / (len(beats["beat_times"]) - 1)
+            if len(beats["beat_times"]) >= 2 else 1.0
+        )
+        sec_per_measure = max(1.0, min(30.0, avg_beat * bpm_int))
+        alignment_ranges = [
+            {"measure": m, "start": r["start"], "end": max(r["end"], r["start"] + sec_per_measure * 0.9)}
+            for m, r in sorted(ranges_acc.items())
+            if r["start"] != float("inf")
+        ]
+        if end_measure:
+            aligned          = [ev for ev in aligned if ev["measure"] <= end_measure]
+            alignment_ranges = [r for r in alignment_ranges if r["measure"] <= end_measure]
+
+        # Fallback: tempo-based alignment
+        if not aligned and raw_events:
+            print("[run_full_analysis] falling back to tempo-based alignment")
+            aligned, sec_per_measure, alignment_ranges = anchor_and_align_py(
+                score, raw_events, beats["tempo_bpm"], beats["duration_sec"] or video_duration, start_measure,
+            )
+            if end_measure:
+                aligned          = [ev for ev in aligned if ev["measure"] <= end_measure]
+                alignment_ranges = [r for r in alignment_ranges if r["measure"] <= end_measure]
+
+        print(f"[run_full_analysis] aligned={len(aligned)}, ranges={len(alignment_ranges)}")
+
+        # ── Step 5: Synthesize skeleton when score parsing failed ──────────
+        if not score.get("measures") and raw_events:
+            bpm_val  = beats["tempo_bpm"] or 60.0
+            synth_s  = max(1.0, min(15.0, bpm_int * (60.0 / bpm_val)))
+            last_m   = end_measure or (start_measure + min(40, int(video_duration / synth_s)))
+            count    = last_m - start_measure + 1
+            score    = {**score, "measures": [{"number": start_measure + i, "notes": []} for i in range(count)]}
+            print(f"[run_full_analysis] synthesized {count} skeleton measures")
+
+        # ── Step 6: Quality assessment ─────────────────────────────────────
+        quality = assess_quality(score, raw_events, aligned, alignment_ranges, True, gemini_assessment)
+        print(f"[run_full_analysis] quality trust={quality['trust']}, canProceed={quality['canProceed']}")
+
+        # ── Step 7: Claude coaching ────────────────────────────────────────
+        flags: list[dict] = []
+        if quality["canProceed"] and anthropic_key:
+            flags = compare_and_coach_claude(
+                score=score, aligned=aligned, alignment_ranges=alignment_ranges,
+                tempo={"bpm": beats["tempo_bpm"], "steadiness": "steady"},
+                piece_title=piece_title, composer=composer, instrument=instrument,
+                gemini_assessment=gemini_assessment, anthropic_api_key=anthropic_key,
+            )
+        elif not quality["canProceed"]:
+            print(f"[run_full_analysis] skipping coaching (low trust): {quality['reasons']}")
+
+        base_score = max(50, min(98, 95 - len(flags) * 6))
+        backend    = "modal+gemini+claude" if gemini_assessment else "modal+claude"
+        print(f"[run_full_analysis] done | score={base_score} | flags={len(flags)} | backend={backend}")
+
+        post_webhook(webhook_url, webhook_secret, {
+            "takeId":          take_id,
+            "score":           base_score,
+            "flags":           flags,
+            "measureLayout":   score if score.get("measures") else None,
+            "audioAlignment":  alignment_ranges if alignment_ranges else None,
+            "analysisQuality": quality,
+            "analysisBackend": backend,
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"[run_full_analysis] FATAL ERROR for take {take_id}: {e}\n{traceback.format_exc()}")
+        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": str(e)})
+
+
+# ── Fire-and-forget dispatcher endpoint ───────────────────────────────────
+
+@app.function(image=image, timeout=30)
+@modal.fastapi_endpoint(method="POST", docs=True)
+def analyze_async(body: dict) -> dict:
+    """
+    Validates payload, spawns run_full_analysis in the background, returns immediately.
+    The Edge Function only needs to wait ~2s for this acknowledgement.
+    """
+    take_id   = body.get("take_id")
+    video_url = body.get("video_url")
+    if not take_id or not video_url:
+        return {"error": "take_id and video_url are required"}
+    run_full_analysis.spawn(body)
+    print(f"[analyze_async] spawned analysis for take {take_id}")
+    return {"queued": True, "take_id": take_id}
 
 
 @app.local_entrypoint()

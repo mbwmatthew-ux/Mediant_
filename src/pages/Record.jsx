@@ -120,10 +120,6 @@ export default function Record() {
       v.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
       v.src = url
     })
-    if (duration && duration > 100) {
-      setVideoError(`Recording is ${Math.round(duration)}s — please trim to under 100 seconds. Aim for 30–60s for best results.`)
-      return
-    }
     setFile(f)
   }
 
@@ -180,14 +176,11 @@ export default function Record() {
       clearInterval(progressTick)
       if (uploadError) throw new Error(uploadError.message || 'Upload failed')
 
-      // Analyzing phase
+      // Analyzing phase — dispatch job then poll for completion
       setProgress(50)
       setPhase('analyzing')
-      const analysisTick = setInterval(() => {
-        setProgress(p => Math.min(p + 2, 95))
-      }, 800)
 
-      const { data: result, error: fnError } = await supabase.functions.invoke('analyze-performance', {
+      const { data: jobResult, error: fnError } = await supabase.functions.invoke('analyze-performance', {
         body: {
           videoPath:      filePath,
           videoMimeType:  file.type || 'video/mp4',
@@ -203,65 +196,70 @@ export default function Record() {
         },
       })
 
-      clearInterval(analysisTick)
-
-      if (fnError || result?.error) {
-        // Try to extract the real error body from the Edge Function response
-        let realError = result?.error || fnError?.message || 'Analysis failed'
-        let realDetails = Array.isArray(result?.analysisQuality?.reasons)
-          ? result.analysisQuality.reasons
-          : Array.isArray(result?.suggestions)
-            ? result.suggestions
-            : []
-        try {
-          if (fnError?.context) {
-            const rawText = await fnError.context.text()
-            if (rawText) {
-              try {
-                const body = JSON.parse(rawText)
-                if (body?.error) realError = body.error
-                if (Array.isArray(body?.analysisQuality?.reasons)) {
-                  realDetails = body.analysisQuality.reasons
-                } else if (Array.isArray(body?.suggestions)) {
-                  realDetails = body.suggestions
-                }
-              } catch {
-                realError = rawText
-              }
-            }
-          }
-        } catch { /* ignore */ }
-        const error = new Error(realError)
-        error.details = realDetails
-        throw error
+      if (fnError || jobResult?.error) {
+        throw new Error(jobResult?.error || fnError?.message || 'Failed to start analysis')
       }
 
+      const jobId = jobResult?.jobId
+      if (!jobId) throw new Error('No job ID returned from analysis service')
+
+      // Poll job-status every 4s until done or failed (max 4 min = 60 attempts)
+      const { data: { session } } = await supabase.auth.getSession()
+      const token   = session?.access_token
+      const fnBase  = supabase.supabaseUrl + '/functions/v1'
+      const anonKey = supabase.supabaseKey
+
+      let finalResult = null
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise(r => setTimeout(r, 4000))
+        setProgress(p => Math.min(p + 0.75, 95))
+
+        try {
+          const resp = await fetch(
+            `${fnBase}/job-status?takeId=${encodeURIComponent(jobId)}`,
+            { headers: { Authorization: `Bearer ${token}`, apikey: anonKey } },
+          )
+          if (!resp.ok) continue
+          const status = await resp.json()
+
+          if (status.status === 'done') {
+            finalResult = status
+            break
+          }
+          if (status.status === 'failed') {
+            throw new Error(status.error || 'Analysis failed on the server.')
+          }
+        } catch (pollErr) {
+          // Re-throw real errors (not network blips)
+          if (pollErr.message && !pollErr.message.includes('Failed to fetch')) throw pollErr
+        }
+      }
+
+      if (!finalResult) throw new Error('Analysis timed out after 4 minutes. Please try a shorter recording.')
+
       const takeRecord = {
-        id:              result.takeId ?? `local-${Date.now()}`,
-        piece_title:     pieceTitle.trim() || 'Untitled',
-        piece_composer:  composer.trim() || 'Unknown',
-        score:           result.score,
-        flags:           result.flags,
-        video_path:      filePath,
-        video_mime_type: file.type || 'video/mp4',
-        score_path:      scorePath,
-        analysis_quality: result.analysisQuality ?? null,
-        analysis_backend: result.analysisBackend ?? null,
-        date:            new Date().toISOString(),
+        id:               jobId,
+        piece_title:      pieceTitle.trim() || 'Untitled',
+        piece_composer:   composer.trim() || 'Unknown',
+        score:            finalResult.score ?? null,
+        flags:            [],
+        video_path:       filePath,
+        video_mime_type:  file.type || 'video/mp4',
+        score_path:       scorePath,
+        analysis_quality: finalResult.analysisQuality ?? null,
+        analysis_backend: finalResult.analysisBackend ?? null,
+        date:             new Date().toISOString(),
       }
 
       localStorage.setItem('mediant_last_take', JSON.stringify(takeRecord))
 
-      // Append to per-piece history so the library panel can show past sessions
       try {
         const existing = JSON.parse(localStorage.getItem('mediant_takes') || '[]')
         localStorage.setItem('mediant_takes', JSON.stringify([takeRecord, ...existing]))
       } catch { /* ignore storage errors */ }
 
       setProgress(100)
-      setTimeout(() => {
-        nav(result.takeId ? `/analysis?takeId=${encodeURIComponent(result.takeId)}` : '/analysis')
-      }, 400)
+      setTimeout(() => nav(`/analysis?takeId=${encodeURIComponent(jobId)}`), 400)
 
     } catch (err) {
       setErrorMsg(err.message ?? 'Something went wrong. Please try again.')
@@ -278,7 +276,7 @@ export default function Record() {
       : 'Analyzing your performance…'
     const sub = phase === 'uploading'
       ? 'Sending your recording and sheet music to the server.'
-      : 'Gemini is analyzing timing, dynamics, and technique. This takes about 30 seconds.'
+      : 'Running full AI analysis — timing, dynamics, intonation, and technique. This takes 1–3 minutes.'
 
     return (
       <div className={styles.page}>
@@ -498,7 +496,7 @@ export default function Record() {
                 <>
                   <span className={styles.dropzoneIcon}>↑</span>
                   <strong>Drag a video here or click to upload</strong>
-                  <span className={styles.dropzoneSub}>MP4, MOV, or WebM · under 60 seconds</span>
+                  <span className={styles.dropzoneSub}>MP4, MOV, or WebM · under 5 minutes</span>
                 </>
               )}
               {videoError && (

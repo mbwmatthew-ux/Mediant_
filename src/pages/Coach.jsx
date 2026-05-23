@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
 
 const SUGGESTIONS = [
@@ -37,23 +38,20 @@ export default function Coach() {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/coach-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('coach-chat', {
+        body: {
           message: msg,
           context: take ? {
             pieceTitle:    take.piece_title,
             pieceComposer: take.piece_composer,
-            score:         take.score,
+            instrument:    take.instrument ?? null,
             flags:         take.flags ?? [],
           } : {},
           history: messages,
-        }),
+        },
       })
-      const { reply, error } = await res.json()
-      if (error) throw new Error(error)
-      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      if (error) throw new Error(error.message ?? String(error))
+      setMessages(prev => [...prev, { role: 'assistant', content: data?.reply ?? '' }])
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }])
     } finally {

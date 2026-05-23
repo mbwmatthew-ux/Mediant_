@@ -29,8 +29,7 @@ const NAV_SECTIONS = [
       { action: 'tuner',   label: 'Tuner',         icon: TunerNavIcon,    live: true  },
       { to: null,          label: 'Duet',          icon: DuetIcon,        live: false },
       { to: null,          label: 'Mock audition', icon: MicIcon,         live: false },
-      { to: null,          label: 'Master class',  icon: MasterIcon,      live: false },
-      { to: null,          label: 'Discussion',    icon: DiscussIcon,     live: false },
+      { to: '/coach',      label: 'Discussion',    icon: DiscussIcon,     live: true  },
     ],
   },
   {

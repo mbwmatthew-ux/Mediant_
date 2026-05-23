@@ -1154,9 +1154,10 @@ async function handleRequest(req: Request): Promise<Response> {
         : null
     )
 
-    // ── Gemini transcription — starts in parallel with eval on the no-Modal path.
+    // ── Gemini transcription — starts in parallel with eval (and Modal when active).
     // Chaining off the same upload promise means we don't pay upload time twice.
-    const geminiTranscribePromise: Promise<AudioTranscription | null> = (!modalUrl && googleApiKey)
+    // Running it even on the Modal path means we have results ready if Modal times out.
+    const geminiTranscribePromise: Promise<AudioTranscription | null> = googleApiKey
       ? geminiUploadPromise.then(fileUri =>
           fileUri
             ? transcribeAudio(fileUri, videoMimeType, instrument ?? 'instrument', googleApiKey)
@@ -1269,21 +1270,7 @@ async function handleRequest(req: Request): Promise<Response> {
       usedModal = true
     } else {
       if (workerResult?.error) console.error('[analyze-performance] Modal error:', workerResult.error)
-      console.log('[analyze-performance] Modal unavailable')
-      // When Modal is configured but timed out, returning a controlled error is
-      // better than falling back to Gemini transcription: a Gemini re-upload for a
-      // large video takes 60-120s extra and pushes past the 140s global timeout.
-      if (modalUrl && videoSignedUrl) {
-        return controlledAnalysisUnavailable(
-          'Analysis timed out. Please try a shorter excerpt (under 60 seconds).',
-          ['The transcription worker did not finish before the safe request deadline.'],
-          [
-            'Try a 30–60 second clip instead of the full recording.',
-            'If using a phone video, trim the clip before uploading.',
-            'For score accuracy, upload MusicXML/MXL if you have it.',
-          ],
-        )
-      }
+      console.log('[analyze-performance] Modal unavailable — falling back to Gemini results')
     }
 
     if (score.measures.length === 0 && scoreBytesForClaude && isVisualScore) {

@@ -263,7 +263,12 @@ export default function Record() {
       })
 
       if (fnError || jobResult?.error) {
-        throw new Error(jobResult?.error || fnError?.message || 'Failed to start analysis')
+        // Supabase SDK doesn't put the body into data on non-2xx — try to extract it
+        let msg = jobResult?.error || fnError?.message || 'Failed to start analysis'
+        if (msg === 'Edge Function returned a non-2xx status code' && fnError?.context) {
+          try { const b = await fnError.context.json(); if (b?.error) msg = b.error } catch { /* keep generic */ }
+        }
+        throw new Error(msg)
       }
 
       const jobId = jobResult?.jobId

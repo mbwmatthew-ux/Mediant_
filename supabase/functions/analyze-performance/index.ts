@@ -141,16 +141,14 @@ List every meaningful issue you observe, minimum 3 flags for any score below 90.
             temperature: 0.1,
             maxOutputTokens: 2048,
           },
-          // Disable thinking tokens on 2.5 series — faster response, simpler parsing
-          thinkingConfig: { thinkingBudget: 0 },
         }),
       }
     )
     if (r.ok) { genData = await r.json(); console.log(`[gemini] success: ${model}`); break }
     const errTxt = await r.text()
-    console.warn(`[gemini] ${model} → ${r.status}: ${errTxt.slice(0, 160)}`)
-    if (r.status !== 404) throw new Error(`Gemini ${model} error ${r.status}: ${errTxt.slice(0, 200)}`)
-    // 404 = model not available on this key, try next
+    console.warn(`[gemini] ${model} → ${r.status}: ${errTxt.slice(0, 200)}`)
+    // Only hard-stop on auth errors — try next model for 400/404/500
+    if (r.status === 401 || r.status === 403) throw new Error(`Gemini auth error ${r.status}: ${errTxt.slice(0, 200)}`)
   }
 
   // Cleanup file (non-fatal)

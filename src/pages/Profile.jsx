@@ -134,11 +134,11 @@ export default function Profile() {
 
       {/* Preferences */}
       <div className={styles.profileSection}>
-        <h4 className={styles.sectionLabel}>Coaching Preferences</h4>
+        <h4 className={styles.sectionLabel}>Feedback Preferences</h4>
         <div className={styles.prefList}>
           <div className={styles.prefRow}>
             <div>
-              <strong className={styles.prefLabel}>Coaching style</strong>
+              <strong className={styles.prefLabel}>Feedback style</strong>
               <p className={styles.prefSub}>How Mediant frames its feedback</p>
             </div>
             <select

@@ -255,7 +255,7 @@ export default function AppShell() {
                   <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>ℹ</span>
                   <div className={styles.acctRowText}>
                     <span className={styles.acctRowLabel}>Mediant</span>
-                    <span className={styles.acctRowSub}>Version 0.1 · Intelligent music coaching</span>
+                    <span className={styles.acctRowSub}>Version 0.1 · Music performance analysis</span>
                   </div>
                 </div>
               </div>

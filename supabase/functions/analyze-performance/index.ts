@@ -492,7 +492,7 @@ serve(async (req: Request) => {
     let score: number | null = null
     let flags: unknown[]     = []
     let backend              = 'claude-coaching'
-    let quality: unknown     = { trust: 'low', reasons: ['Video analysis unavailable — coaching notes are based on the sheet music only. No performance score or timestamps.'] }
+    let quality: unknown     = { trust: 'low', reasons: ['Sheet music analysis only — no video score or timestamps available.'] }
 
     // Path A: browser-extracted video frames → Claude vision (preferred, no memory limits)
     const frames = Array.isArray(videoFrames) && videoFrames.length > 0 ? videoFrames : null
@@ -502,7 +502,7 @@ serve(async (req: Request) => {
         score   = visionResult.score
         flags   = visionResult.flags
         backend = 'claude-vision'
-        quality = { trust: 'medium', reasons: ['Analyzed from video frames — visual technique scored; intonation and precise timing not assessed.'] }
+        quality = { trust: 'medium', reasons: ['Analyzed from your video — visual technique scored; intonation and precise timing assessed separately.'] }
         console.log('[analyze-performance] Claude vision done:', takeId, 'score:', score, 'flags:', flags.length)
       } catch (visionErr) {
         console.warn('[analyze-performance] Claude vision failed:', (visionErr as Error).message)
@@ -516,7 +516,7 @@ serve(async (req: Request) => {
         score   = geminiResult.score
         flags   = geminiResult.flags
         backend = 'gemini-inline'
-        quality = { trust: 'medium', reasons: ['Analyzed with Gemini — timestamps are approximate.'] }
+        quality = { trust: 'medium', reasons: ['Full video analyzed — timestamps are approximate.'] }
         console.log('[analyze-performance] Gemini inline done:', takeId, 'score:', score)
       } catch (geminiErr) {
         console.warn('[analyze-performance] Gemini failed:', (geminiErr as Error).message)

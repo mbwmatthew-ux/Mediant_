@@ -17,7 +17,7 @@ const PLANS = [
       { text: 'Score alignment & analysis',      included: true  },
       { text: 'Measure-by-measure feedback',     included: true  },
       { text: 'Session history (30 days)',        included: true  },
-      { text: 'Coach chat',                       included: true  },
+      { text: 'Mediant chat',                      included: true  },
       { text: 'Unlimited uploads',               included: false },
       { text: 'Priority analysis queue',         included: false },
       { text: 'Full session history',            included: false },
@@ -41,7 +41,7 @@ const PLANS = [
       { text: 'Score alignment & analysis',      included: true  },
       { text: 'Measure-by-measure feedback',     included: true  },
       { text: 'Session history (30 days)',        included: true  },
-      { text: 'Coach chat',                       included: true  },
+      { text: 'Mediant chat',                      included: true  },
       { text: 'Unlimited uploads',               included: true  },
       { text: 'Priority analysis queue',         included: true  },
       { text: 'Full session history',            included: true  },
@@ -64,7 +64,7 @@ const PLANS = [
       { text: 'Score alignment & analysis',      included: true  },
       { text: 'Measure-by-measure feedback',     included: true  },
       { text: 'Session history (30 days)',        included: true  },
-      { text: 'Coach chat',                       included: true  },
+      { text: 'Mediant chat',                      included: true  },
       { text: 'Unlimited uploads',               included: true  },
       { text: 'Priority analysis queue',         included: true  },
       { text: 'Full session history',            included: true  },
@@ -114,7 +114,7 @@ export default function Pricing() {
         <span className={styles.eyebrow}>Plans &amp; Pricing</span>
         <h1 className={styles.title}>Choose your level</h1>
         <p className={styles.subtitle}>
-          Start free, upgrade when you're ready. All plans include score-aware analysis and coaching feedback.
+          Start free, upgrade when you're ready. All plans include score-aware analysis and performance feedback.
         </p>
 
         {/* Billing toggle */}

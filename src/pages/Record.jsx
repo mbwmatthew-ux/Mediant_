@@ -133,7 +133,7 @@ export default function Record() {
     applyVideoFile(e.target.files[0])
   }
 
-  // ── Frame extraction for Claude vision analysis ──────────────
+  // ── Frame extraction for Mediant analysis ──────────────
 
   function extractVideoFrames(videoFile, count = 5) {
     return new Promise((resolve) => {
@@ -238,7 +238,7 @@ export default function Record() {
       setProgress(50)
       setPhase('analyzing')
 
-      // Extract video frames for Claude vision analysis (best-effort, non-fatal)
+      // Extract video frames for Mediant analysis (best-effort, non-fatal)
       let videoFrames = []
       try {
         videoFrames = await extractVideoFrames(file)
@@ -344,7 +344,7 @@ export default function Record() {
       : 'Analyzing your performance…'
     const sub = phase === 'uploading'
       ? 'Sending your recording and sheet music to the server.'
-      : 'Running full AI analysis — timing, dynamics, intonation, and technique. This takes 1–3 minutes.'
+      : 'Mediant is analyzing your performance — timing, dynamics, intonation, and technique. This takes 1–3 minutes.'
 
     return (
       <div className={styles.page}>

@@ -95,8 +95,8 @@ export default function Coach() {
       {/* Header */}
       <div className={styles.coachHeader}>
         <div>
-          <p className={styles.label}>Coach</p>
-          <h1 className={styles.title} style={{ marginBottom: 0 }}>Ask your coach</h1>
+          <p className={styles.label}>Mediant</p>
+          <h1 className={styles.title} style={{ marginBottom: 0 }}>Ask Mediant</h1>
         </div>
         {hasContext && (
           <div className={styles.coachContextBadge}>
@@ -112,7 +112,7 @@ export default function Coach() {
         {messages.length === 0 && (
           <div className={styles.coachWelcome}>
             <span className={styles.coachWelcomeIcon}>♩</span>
-            <p className={styles.coachWelcomeTitle}>Your practice coach is here</p>
+            <p className={styles.coachWelcomeTitle}>Mediant is ready to help</p>
             <p className={styles.coachWelcomeSub}>
               {hasContext
                 ? `Ask anything about ${take.piece_title}, or about your practice in general.`
@@ -155,7 +155,7 @@ export default function Coach() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-          placeholder="Ask your coach anything…"
+          placeholder="Ask Mediant anything…"
           disabled={loading}
         />
         <button

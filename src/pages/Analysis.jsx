@@ -364,7 +364,7 @@ export default function Analysis() {
         <div className={styles.analyzeScreen}>
           <div className={styles.analyzeIcon}>♪</div>
           <h2 className={styles.analyzeTitle}>Analysis in progress…</h2>
-          <p className={styles.analyzeSub}>Running full AI analysis — this takes 1–3 minutes. This page will update automatically.</p>
+          <p className={styles.analyzeSub}>Mediant is analyzing your performance — this takes 1–3 minutes. This page will update automatically.</p>
           {take.job_error && (
             <p style={{ color: 'var(--coral)', marginTop: 12, fontSize: 14 }}>{take.job_error}</p>
           )}
@@ -524,7 +524,7 @@ export default function Analysis() {
               {!hasScore && scoreReady && (
                 <div className={styles.scoreUnavailable}>
                   <p>Score not available for <em>{pieceTitle}</em> yet.</p>
-                  <p>Coaching feedback above is based on the audio analysis.</p>
+                  <p>Feedback above is based on the performance analysis.</p>
                 </div>
               )}
               <div style={{ position: 'relative' }}>
@@ -557,7 +557,7 @@ export default function Analysis() {
             {!info ? (
               <div className={styles.feedbackIdle}>
                 <span className={styles.feedbackIdleIcon}>♩</span>
-                <p>Click a highlighted measure in the score, or one of the issue chips above, to read coaching feedback.</p>
+                <p>Click a highlighted measure in the score, or one of the issue chips above, to read Mediant's feedback.</p>
               </div>
             ) : (
               <div className={styles.feedbackDetail}>
@@ -607,7 +607,7 @@ export default function Analysis() {
 
                 {videoUrl && !hasTimestamps && (
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
-                    Video timestamps unavailable — this is a coaching note based on the sheet music.
+                    Video timestamps unavailable — this feedback is based on the sheet music.
                     Re-upload your recording for measure-level video looping.
                   </p>
                 )}
@@ -619,7 +619,7 @@ export default function Analysis() {
 
           <div className={styles.chatSection}>
             <div className={styles.chatHeader}>
-              <p className={styles.chatLabel}>Ask your coach</p>
+              <p className={styles.chatLabel}>Ask Mediant</p>
               {activeFlagRaw && (
                 <span className={styles.chatContextPill}>
                   Re: m.{activeFlagRaw.measure} · {capitalize(activeFlagRaw.type)}
@@ -631,7 +631,7 @@ export default function Analysis() {
                 <p className={styles.chatEmpty}>
                   {activeFlagRaw
                     ? `Ask about m.${activeFlagRaw.measure} · ${capitalize(activeFlagRaw.type)}, or anything else about your performance.`
-                    : 'Select an issue above, then ask your coach about it — or ask anything about your performance.'}
+                    : 'Select an issue above, then ask Mediant about it — or ask anything about your performance.'}
                 </p>
               )}
               {chatMessages.map((m, i) => (

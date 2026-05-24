@@ -5,7 +5,7 @@ const STEPS = [
   {
     icon: '♩',
     title: 'Welcome to Mediant',
-    body: 'Your personal AI music coach. Upload a recording of yourself playing and get measure-level feedback — just like working with a professional teacher.',
+    body: 'Your personal music performance coach. Upload a recording of yourself playing and get measure-level feedback — just like working with a professional teacher.',
   },
   {
     navLabel: 'Dashboard',
@@ -20,7 +20,7 @@ const STEPS = [
   {
     navLabel: 'Library',
     title: 'Your music library',
-    body: 'Upload and organise your sheet music collection. The AI reads each piece and fills in the key, time signature, composer, and difficulty level automatically.',
+    body: 'Upload and organise your sheet music collection. Mediant reads each piece and fills in the key, time signature, composer, and difficulty level automatically.',
   },
   {
     navLabel: 'Sessions',
@@ -30,12 +30,12 @@ const STEPS = [
   {
     navLabel: 'Progress',
     title: 'Track your improvement',
-    body: 'See your scores and flags over time. Generate a weekly or monthly AI coaching report that identifies recurring patterns and sets concrete goals.',
+    body: 'See your scores and flags over time. Generate a weekly or monthly Mediant practice report that identifies recurring patterns and sets concrete goals.',
   },
   {
     navLabel: 'Discussion',
-    title: 'Ask your coach anything',
-    body: 'Chat with your AI coach at any time — about technique, theory, practice strategy, or anything flagged in a recent session.',
+    title: 'Ask Mediant anything',
+    body: 'Chat with Mediant at any time — about technique, theory, practice strategy, or anything flagged in a recent session.',
   },
   {
     icon: '✓',

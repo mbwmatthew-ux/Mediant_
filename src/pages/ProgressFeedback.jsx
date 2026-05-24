@@ -181,7 +181,7 @@ export default function ProgressFeedback() {
             {loading ? 'Generating…' : `Generate ${periodLabel}ly feedback`}
           </button>
           <p className={pStyles.generateHint}>
-            Claude will analyse your {takes.length} session{takes.length !== 1 ? 's' : ''} and give you personalised coaching insights.
+            Mediant will analyse your {takes.length} session{takes.length !== 1 ? 's' : ''} and give you personalised insights.
           </p>
         </div>
       )}

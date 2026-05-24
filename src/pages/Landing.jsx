@@ -7,7 +7,7 @@ const ROTATING_LINES = [
   { we: 'listen',  you: 'perform', color: '#e18676' },
   { we: 'analyze', you: 'refine',  color: '#d6b168' },
   { we: 'map',     you: 'improve', color: '#5cb86b' },
-  { we: 'coach',   you: 'grow',    color: '#5cb86b' },
+  { we: 'guide',   you: 'grow',    color: '#5cb86b' },
 ]
 
 const FEATURES = [
@@ -18,7 +18,7 @@ const FEATURES = [
   },
   {
     icon: CoachIcon,
-    title: 'Coaching that sounds human',
+    title: 'Feedback that sounds human',
     body: 'Feedback reads like it came from a conservatory teacher. Musical context, not just correct vs. incorrect.',
   },
   {
@@ -31,7 +31,7 @@ const FEATURES = [
 const STEPS = [
   { num: '01', title: 'Upload your recording', body: 'Drop in a video or audio file from your practice session.' },
   { num: '02', title: 'Maps it to the score',  body: 'Mediant aligns every note to your sheet music, measure by measure.' },
-  { num: '03', title: 'Get targeted feedback', body: 'Click any flagged measure for specific, actionable coaching.' },
+  { num: '03', title: 'Get targeted feedback', body: 'Click any flagged measure for specific, actionable feedback.' },
 ]
 
 const INSTRUMENTS = ['Piano', 'Violin', 'Viola', 'Cello', 'Voice', 'Flute', 'Clarinet', 'Guitar', 'Harp', 'Trumpet']
@@ -149,7 +149,7 @@ export default function Landing() {
 
         <div className={styles.heroBadge}>
           <span className={styles.heroBadgeDot} />
-          AI-powered music coaching
+          Intelligent music performance
         </div>
 
         <h1 className={styles.heroHeading}>
@@ -180,7 +180,7 @@ export default function Landing() {
 
         <p className={styles.heroSub}>
           Upload a recording. Mediant maps it to your sheet music and delivers
-          coaching that sounds like it came from a teacher — not an app.
+          feedback that sounds like it came from a teacher — not an app.
         </p>
 
         <div className={styles.heroCtas}>
@@ -350,7 +350,7 @@ export default function Landing() {
             <AnimatedLogo size={18} />
             <Wordmark />
           </Link>
-          <p className={styles.footerTagline}>Intelligent music practice coaching.</p>
+          <p className={styles.footerTagline}>Intelligent music performance analysis.</p>
         </div>
         <div className={styles.footerLinks}>
           <a href="#" className={styles.footerLink}>Privacy</a>

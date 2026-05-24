@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Landing.module.css'
 
@@ -13,16 +13,19 @@ const ROTATING_LINES = [
 const FEATURES = [
   {
     icon: ScoreIcon,
+    num: '01',
     title: 'Score-aware analysis',
     body: 'Every flag is tied to a specific measure and beat — not a vague average. Mediant reads the sheet music, not just the audio.',
   },
   {
     icon: CoachIcon,
+    num: '02',
     title: 'Feedback that sounds human',
-    body: 'Feedback reads like it came from a conservatory teacher. Musical context, not just correct vs. incorrect.',
+    body: 'Feedback reads like it came from a conservatory teacher — musical context, phrasing, and nuance. Not just correct vs. incorrect.',
   },
   {
     icon: ProgressIcon,
+    num: '03',
     title: 'Session history',
     body: 'Track exactly which passages improved across every take. See where your practice is paying off.',
   },
@@ -34,9 +37,19 @@ const STEPS = [
   { num: '03', title: 'Get targeted feedback', body: 'Click any flagged measure for specific, actionable feedback.' },
 ]
 
-const INSTRUMENTS = ['Piano', 'Violin', 'Viola', 'Cello', 'Voice', 'Flute', 'Clarinet', 'Guitar', 'Harp', 'Trumpet']
+const STATS = [
+  { value: 200, suffix: '+', label: 'Sessions analyzed' },
+  { value: 50,    suffix: '+', label: 'Instruments supported' },
+  { value: 94,    suffix: '%', label: 'Satisfaction rate' },
+]
 
-/* ── Logo mark (M icon) — luminance mask so black bg is transparent ── */
+const FEEDBACK_ITEMS = [
+  { measure: 'm.8',  type: 'Timing',   text: 'Rushing the pickup — let the phrase breathe before the downbeat.' },
+  { measure: 'm.13', type: 'Dynamics', text: 'Crescendo peaks two beats early. The climax should land on beat 3.' },
+  { measure: 'm.6',  type: 'Balance',  text: 'Left hand overpowers the melody. Aim for mp in the accompaniment.' },
+]
+
+/* ── Logo mark ── */
 function AnimatedLogo({ size = 28 }) {
   return (
     <div style={{
@@ -50,57 +63,191 @@ function AnimatedLogo({ size = 28 }) {
   )
 }
 
-/* ── Large hero logo mark ────────────────────────────────────── */
-function HeroLogo() {
+function Wordmark({ className }) {
+  return <span className={`${styles.wordmark} ${className || ''}`}>Mediant</span>
+}
+
+/* ── Per-character word materialization ── */
+function AnimatedWord({ word, visible, color }) {
   return (
-    <div className={styles.heroLogoWrap}>
-      <div className={styles.heroLogoGlow} />
-      <div
-        className={styles.heroLogoSvg}
-        style={{
-          width: 80, height: 80,
-          background: 'rgba(232,240,235,0.92)',
-          WebkitMask: `url('/logo-mark.png') center/contain no-repeat`,
-          WebkitMaskMode: 'luminance',
-          mask: `url('/logo-mark.png') center/contain no-repeat`,
-          maskMode: 'luminance',
-        }}
-      />
+    <>
+      {word.split('').map((char, i) => (
+        <span
+          key={i}
+          className={`${styles.heroChar} ${visible ? styles.heroCharIn : styles.heroCharOut}`}
+          style={{ '--ci': i, '--ct': word.length, '--w-color': color }}
+        >
+          {char}
+        </span>
+      ))}
+    </>
+  )
+}
+
+/* ── Animated stat counter ── */
+function StatCard({ value, suffix, label, delay }) {
+  const [active, setActive] = useState(false)
+  const [count, setCount]   = useState(0)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { setActive(true); obs.disconnect() }
+    }, { threshold: 0.4 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!active) return
+    const start = performance.now()
+    const dur   = 2200
+    function frame(now) {
+      const p    = Math.min((now - start) / dur, 1)
+      const ease = 1 - Math.pow(1 - p, 4)
+      setCount(Math.round(ease * value))
+      if (p < 1) requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+  }, [active, value])
+
+  return (
+    <div ref={ref} className={`${styles.statCard} ${styles.revealScale}`} style={{ '--d': delay }}>
+      <span className={styles.statValue}>{count.toLocaleString()}{suffix}</span>
+      <span className={styles.statLabel}>{label}</span>
     </div>
   )
 }
 
-/* ── Brand wordmark ──────────────────────────────────────────── */
-function Wordmark({ className }) {
+/* ── Feedback preview card ── */
+function FeedbackPreview() {
   return (
-    <span className={`${styles.wordmark} ${className || ''}`}>
-      Mediant
-    </span>
+    <div className={styles.feedCard}>
+      <div className={styles.feedHeader}>
+        <div>
+          <div className={styles.feedPiece}>Clair de Lune</div>
+          <div className={styles.feedMeta}>Debussy · Piano · Session #4</div>
+        </div>
+        <div className={styles.feedScore}>
+          <span className={styles.feedScoreNum}>78</span>
+          <span className={styles.feedScoreDen}>/100</span>
+        </div>
+      </div>
+
+      <div className={styles.feedProgress}>
+        <div className={styles.feedProgressLabels}>
+          <span>Measures analyzed</span>
+          <span>16 / 16</span>
+        </div>
+        <div className={styles.feedProgressTrack}>
+          <div className={styles.feedProgressFill} />
+        </div>
+      </div>
+
+      <div className={styles.feedItems}>
+        {FEEDBACK_ITEMS.map((item, i) => (
+          <div key={i} className={styles.feedItem} style={{ '--di': `${i * 140}ms` }}>
+            <div className={styles.feedItemMeta}>
+              <span className={styles.feedItemMeasure}>{item.measure}</span>
+              <span className={styles.feedItemType}>{item.type}</span>
+            </div>
+            <p className={styles.feedItemText}>{item.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
 export default function Landing() {
   const [wordIdx, setWordIdx]         = useState(0)
   const [wordVisible, setWordVisible] = useState(true)
+  const canvasRef = useRef(null)
 
+  /* ── Waveform canvas (breathing, not scrolling) ── */
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    let raf
+
+    const WAVES = [
+      { freq: 0.010, baseAmp: 36, breatheFreq: 0.40, breathePhase: 0.0, alpha: 0.07, yRatio: 0.35 },
+      { freq: 0.016, baseAmp: 22, breatheFreq: 0.60, breathePhase: 1.5, alpha: 0.09, yRatio: 0.50 },
+      { freq: 0.007, baseAmp: 50, breatheFreq: 0.28, breathePhase: 0.8, alpha: 0.04, yRatio: 0.65 },
+      { freq: 0.022, baseAmp: 16, breatheFreq: 0.72, breathePhase: 2.2, alpha: 0.07, yRatio: 0.43 },
+      { freq: 0.013, baseAmp: 30, breatheFreq: 0.50, breathePhase: 3.8, alpha: 0.05, yRatio: 0.72 },
+    ]
+
+    const dpr = window.devicePixelRatio || 1
+
+    function resize() {
+      canvas.width  = canvas.offsetWidth  * dpr
+      canvas.height = canvas.offsetHeight * dpr
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+
+    window.addEventListener('resize', resize)
+    resize()
+
+    function tick(now) {
+      const t = now * 0.001
+      const w = canvas.offsetWidth
+      const h = canvas.offsetHeight
+      if (!w || !h) { raf = requestAnimationFrame(tick); return }
+      ctx.clearRect(0, 0, w, h)
+
+      for (const wave of WAVES) {
+        const amp = wave.baseAmp * (0.3 + 0.7 * Math.sin(t * wave.breatheFreq + wave.breathePhase))
+        ctx.beginPath()
+        ctx.strokeStyle = `rgba(92,184,107,${wave.alpha})`
+        ctx.lineWidth = 1.5
+        for (let x = 0; x <= w; x += 3) {
+          const y = h * wave.yRatio + Math.sin(x * wave.freq) * amp
+          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+        }
+        ctx.stroke()
+      }
+
+      raf = requestAnimationFrame(tick)
+    }
+
+    raf = requestAnimationFrame(tick)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize) }
+  }, [])
+
+  /* ── Word cycling ── */
   useEffect(() => {
     const id = setInterval(() => {
       setWordVisible(false)
-      // Change word while invisible, then fade in — no key remounting needed
-      setTimeout(() => setWordIdx(i => (i + 1) % ROTATING_LINES.length), 320)
-      setTimeout(() => setWordVisible(true), 370)
-    }, 2800)
+      // Give the exit animation time to fully finish before swapping text
+      setTimeout(() => setWordIdx(i => (i + 1) % ROTATING_LINES.length), 480)
+      setTimeout(() => setWordVisible(true), 540)
+    }, 3600)
     return () => clearInterval(id)
   }, [])
 
+  /* ── Scroll reveals (bidirectional) ── */
   useEffect(() => {
-    const els = document.querySelectorAll(`.${styles.reveal}`)
+    const classes = [styles.reveal, styles.revealL, styles.revealR, styles.revealScale]
+    const query = classes.map(c => `.${c}`).join(', ')
+    const els = document.querySelectorAll(query)
     if (!els.length) return
+
+    // threshold:0 fires only when element fully leaves — user never sees the reset
+    // rootMargin shrinks trigger zone slightly so enter animation happens just after element edge crosses
     const obs = new IntersectionObserver(
       entries => entries.forEach(e => {
-        if (e.isIntersecting) e.target.classList.add(styles.revealVisible)
+        if (e.isIntersecting) {
+          e.target.classList.add(styles.revealVisible)
+        } else {
+          // Fully offscreen — reset regardless of direction so it re-animates on re-entry
+          e.target.classList.remove(styles.revealVisible)
+        }
       }),
-      { threshold: 0.06, rootMargin: '0px 0px -40px 0px' },
+      { threshold: 0, rootMargin: '-8px 0px -8px 0px' },
     )
     els.forEach(el => obs.observe(el))
     return () => obs.disconnect()
@@ -111,7 +258,7 @@ export default function Landing() {
   return (
     <div className={styles.page}>
 
-      {/* ── Nav ─────────────────────────────────────────────── */}
+      {/* ── Nav ── */}
       <nav className={styles.nav}>
         <Link to="/" className={styles.navBrand}>
           <AnimatedLogo size={34} />
@@ -123,13 +270,9 @@ export default function Landing() {
         </div>
       </nav>
 
-      {/* ── Hero ─────────────────────────────────────────────── */}
+      {/* ── Hero ── */}
       <section className={styles.hero}>
-
-        {/* Large animated logo mark */}
-        <div className={styles.heroLogoAnim}>
-          <HeroLogo />
-        </div>
+        <canvas ref={canvasRef} className={styles.waveCanvas} aria-hidden="true" />
 
         <div className={styles.heroBadge}>
           <span className={styles.heroBadgeDot} />
@@ -140,24 +283,14 @@ export default function Landing() {
           <span className={styles.heroLine}>
             <span className={styles.heroStatic}>We</span>
             <span className={styles.heroWordFrame} aria-live="polite" aria-atomic="true">
-              <span
-                className={`${styles.heroWord} ${wordVisible ? styles.heroWordIn : styles.heroWordOut}`}
-                style={{ '--w-color': current.color }}
-              >
-                {current.we}
-              </span>
+              <AnimatedWord word={current.we} visible={wordVisible} color={current.color} />
             </span>
             <span className={styles.heroComma}>,</span>
           </span>
           <span className={styles.heroLine}>
             <span className={styles.heroStatic}>you</span>
             <span className={styles.heroWordFrame} aria-live="polite" aria-atomic="true">
-              <span
-                className={`${styles.heroWord} ${wordVisible ? styles.heroWordIn : styles.heroWordOut}`}
-                style={{ '--w-color': current.color }}
-              >
-                {current.you}
-              </span>
+              <AnimatedWord word={current.you} visible={wordVisible} color={current.color} />
             </span>
           </span>
         </h1>
@@ -173,132 +306,59 @@ export default function Landing() {
         </div>
 
         <p className={styles.heroNote}>Free to start · No credit card · Any instrument</p>
+      </section>
 
-        {/* Instrument chips */}
-        <div className={styles.instrRow}>
-          <span className={styles.instrLabel}>Works with</span>
-          {INSTRUMENTS.map(i => (
-            <span key={i} className={styles.instrChip}>{i}</span>
+      {/* ── Stats ── */}
+      <section className={styles.statsSection}>
+        <div className={styles.statsGrid}>
+          {STATS.map((s, i) => (
+            <StatCard
+              key={s.label}
+              value={s.value}
+              suffix={s.suffix}
+              label={s.label}
+              delay={`${i * 130}ms`}
+            />
           ))}
-          <span className={styles.instrMore}>+ more</span>
         </div>
       </section>
 
-      {/* ── App mockup ──────────────────────────────────────── */}
-      <div className={`${styles.previewWrap} ${styles.reveal}`}>
-        <div className={styles.previewShell}>
-          <div className={styles.previewTopBar}>
-            <div className={styles.previewTopLeft}>
-              <div className={styles.previewLogoBox} />
-              <span className={styles.previewSep}>/</span>
-              <span className={styles.previewOrg}>Mediant</span>
-              <span className={styles.previewSep}>/</span>
-              <span className={styles.previewCrumb}>Score Review</span>
-              <span className={styles.previewBadge}>PRACTICE</span>
-            </div>
-            <div className={styles.previewTopRight}>
-              <span className={styles.previewNavLink}>Record</span>
-              <span className={styles.previewNavLink}>Library</span>
-              <div className={styles.previewAvatar}>MS</div>
-            </div>
-          </div>
-          <div className={styles.previewBody}>
-            <div className={styles.previewSidebar}>
-              {[
-                <svg key="h"  width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>,
-                <svg key="s"  width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>,
-                <svg key="u"  width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>,
-                <svg key="sc" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
-                <svg key="p"  width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
-              ].map((icon, i) => (
-                <div key={i} className={`${styles.previewNavItem} ${i === 2 ? styles.previewNavItemActive : ''}`}>
-                  {icon}
-                </div>
-              ))}
-            </div>
-            <div className={styles.previewMain}>
-              <div className={styles.previewContentTop}>
-                <div className={styles.previewPieceInfo}>
-                  <span className={styles.previewPieceName}>Clair de Lune</span>
-                  <span className={styles.previewPieceMeta}>Debussy · Piano</span>
-                </div>
-                <div className={styles.previewScoreBadge}>
-                  <span className={styles.previewScoreNum}>78</span>
-                  <span className={styles.previewScoreDen}>/100</span>
-                </div>
-                <div className={styles.previewIssueChips}>
-                  <div className={styles.previewChip}>Timing</div>
-                  <div className={`${styles.previewChip} ${styles.previewChipActive}`}>Rushing ×2</div>
-                  <div className={styles.previewChip}>Dynamics</div>
-                </div>
-              </div>
-              <div className={styles.previewTwoCol}>
-                <div className={styles.previewScore}>
-                  {[
-                    [{x:'22%',y:'32%'},{x:'30%',y:'60%'},{x:'38%',y:'42%'},{x:'46%',y:'72%'},{x:'58%',y:'28%'},{x:'66%',y:'56%'},{x:'74%',y:'40%'},{x:'82%',y:'66%'}],
-                    [{x:'22%',y:'56%'},{x:'30%',y:'36%'},{x:'38%',y:'70%'},{x:'46%',y:'44%'},{x:'58%',y:'76%'},{x:'66%',y:'38%'},{x:'74%',y:'62%'},{x:'82%',y:'50%'}],
-                    [{x:'22%',y:'44%'},{x:'32%',y:'68%'},{x:'42%',y:'30%'},{x:'52%',y:'58%'},{x:'62%',y:'46%'},{x:'72%',y:'72%'},{x:'82%',y:'36%'}],
-                    [{x:'22%',y:'38%'},{x:'32%',y:'64%'},{x:'42%',y:'50%'},{x:'52%',y:'30%'},{x:'62%',y:'68%'},{x:'72%',y:'44%'},{x:'82%',y:'56%'}],
-                  ].map((notes, i) => (
-                    <div key={i} className={`${styles.previewStave} ${i === 1 ? styles.previewStaveFlagged : ''}`}>
-                      <span className={styles.previewClef}>𝄞</span>
-                      {i === 0 && <div className={styles.previewTimeSig}><span>4</span><span>4</span></div>}
-                      <div className={styles.previewStaffLine}/><div className={styles.previewStaffLine}/>
-                      <div className={styles.previewStaffLine}/><div className={styles.previewStaffLine}/>
-                      <div className={styles.previewStaffLine}/>
-                      {['25%','50%','75%'].map(p => <div key={p} className={styles.previewMeasureBar} style={{left:p}}/>)}
-                      {notes.map((n, j) => (
-                        <div key={j}
-                          className={`${styles.previewNote} ${i===1?styles.previewNoteFlagged:''} ${parseFloat(n.y)<=50?'':styles.previewNoteStemDown}`}
-                          style={{left:n.x,top:n.y}}/>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-                <svg className={styles.previewConnectorSvg} viewBox="0 0 32 264" preserveAspectRatio="none" style={{overflow:'visible'}}>
-                  <circle cx="1" cy="102" r="3.5" fill="rgba(225,134,118,0.92)"/>
-                  <path d="M 1 102 C 22 102 10 46 28 46" stroke="rgba(225,134,118,0.6)" strokeWidth="1.5" strokeDasharray="4 3" fill="none"/>
-                  <circle cx="28" cy="46" r="2.5" fill="rgba(225,134,118,0.92)"/>
-                </svg>
-                <div className={styles.previewFeedback}>
-                  <span className={styles.previewFeedTag}>Timing · m.13</span>
-                  <span className={styles.previewFeedTitle}>Rushing</span>
-                  <ul className={styles.previewFeedList}>
-                    <li className={styles.previewFeedItem}>Playing ahead of the beat in mm. 12–14</li>
-                    <li className={styles.previewFeedItem}>Rushing through the 8th-note runs</li>
-                    <li className={styles.previewFeedItem}>Slow the pickup — let the phrase breathe</li>
-                  </ul>
-                  <div className={styles.previewWaveform}>
-                    {[28,45,70,38,60,82,50,35,65,44,72,30].map((h,j)=>(
-                      <span key={j} className={j<7?styles.previewWaveDone:styles.previewWaveTodo} style={{height:`${h}%`}}/>
-                    ))}
-                  </div>
-                  <button className={styles.previewFeedBtn}>Loop excerpt</button>
-                </div>
-              </div>
-            </div>
-          </div>
+      {/* ── Feedback proof ── */}
+      <section className={styles.proofSection}>
+        <div className={`${styles.proofLabel} ${styles.reveal}`}>
+          <p className={styles.sectionLabel}>What it looks like</p>
+          <h2 className={styles.proofTitle}>Measure-level feedback,<br />like a professional teacher</h2>
         </div>
-      </div>
+        <div className={`${styles.proofCardWrap} ${styles.revealScale}`} style={{ '--d': '80ms' }}>
+          <FeedbackPreview />
+        </div>
+      </section>
 
-      {/* ── Features ────────────────────────────────────────── */}
+      {/* ── Features ── */}
       <section className={styles.features}>
         <div className={`${styles.featuresHead} ${styles.reveal}`}>
           <p className={styles.sectionLabel}>What you get</p>
           <h2 className={styles.featuresTitle}>Everything a serious<br />practice session needs</h2>
         </div>
-        <div className={styles.featureGrid}>
-          {FEATURES.map((f, i) => (
-            <div key={f.title} className={`${styles.featureCard} ${styles.reveal}`} style={{ '--d': `${i * 80}ms` }}>
-              <div className={styles.featureIconWrap}><f.icon /></div>
+        {FEATURES.map((f, i) => (
+          <div
+            key={f.title}
+            className={`${styles.featureRow} ${i % 2 === 1 ? styles.featureRowFlip : ''} ${i % 2 === 0 ? styles.revealL : styles.revealR}`}
+            style={{ '--d': `${i * 60}ms` }}
+          >
+            <div className={styles.featureText}>
+              <span className={styles.featureNum}>{f.num}</span>
               <h3 className={styles.featureTitle}>{f.title}</h3>
               <p className={styles.featureBody}>{f.body}</p>
             </div>
-          ))}
-        </div>
+            <div className={styles.featureVisual}>
+              <f.icon />
+            </div>
+          </div>
+        ))}
       </section>
 
-      {/* ── How it works ────────────────────────────────────── */}
+      {/* ── How it works ── */}
       <section className={styles.howItWorks}>
         <div className={`${styles.howHead} ${styles.reveal}`}>
           <p className={styles.sectionLabel}>How it works</p>
@@ -306,7 +366,7 @@ export default function Landing() {
         </div>
         <div className={styles.steps}>
           {STEPS.map((s, i) => (
-            <div key={s.num} className={`${styles.step} ${styles.reveal}`} style={{ '--d': `${i * 100}ms` }}>
+            <div key={s.num} className={`${styles.step} ${styles.reveal}`} style={{ '--d': `${i * 160}ms` }}>
               <span className={styles.stepNum}>{s.num}</span>
               <h3 className={styles.stepTitle}>{s.title}</h3>
               <p className={styles.stepBody}>{s.body}</p>
@@ -316,7 +376,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Final CTA ───────────────────────────────────────── */}
+      {/* ── Final CTA ── */}
       <section className={`${styles.ctaSection} ${styles.reveal}`}>
         <h2 className={styles.ctaTitle}>Practice with intention,<br />not just repetition.</h2>
         <p className={styles.ctaSub}>Join musicians turning practice time into real, measurable progress.</p>
@@ -327,7 +387,7 @@ export default function Landing() {
         <p className={styles.heroNote}>No credit card · Cancel anytime</p>
       </section>
 
-      {/* ── Footer ──────────────────────────────────────────── */}
+      {/* ── Footer ── */}
       <footer className={styles.footer}>
         <div className={styles.footerLeft}>
           <Link to="/" className={styles.navBrand} style={{ opacity: 0.6 }}>
@@ -347,24 +407,24 @@ export default function Landing() {
   )
 }
 
-/* ── Icons ─────────────────────────────────────────────────── */
+/* ── Icons (large, artistic) ── */
 function ScoreIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
     </svg>
   )
 }
 function CoachIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
     </svg>
   )
 }
 function ProgressIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
     </svg>
   )

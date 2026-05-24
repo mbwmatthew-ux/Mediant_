@@ -166,21 +166,54 @@
   text-align: center;
 }
 
-/* Stagger children fade-up (skip canvas) */
-.hero > *:not(.waveCanvas) {
+/* Stagger children fade-up (skip canvas, logo, wordmark) */
+.hero > *:not(.waveCanvas):not(.heroLogoLarge):not(.heroWordmark) {
   animation: heroFadeUp 1.0s cubic-bezier(0.16, 1, 0.3, 1) both;
   position: relative;
   z-index: 1;
 }
-.hero > *:nth-child(2) { animation-delay:  60ms; }
-.hero > *:nth-child(3) { animation-delay: 160ms; }
-.hero > *:nth-child(4) { animation-delay: 260ms; }
-.hero > *:nth-child(5) { animation-delay: 350ms; }
-.hero > *:nth-child(6) { animation-delay: 430ms; }
-.hero > *:nth-child(7) { animation-delay: 500ms; }
+/* child order: 1=canvas 2=logo 3=wordmark 4=heading 5=sub 6=ctas 7=note */
+.hero > *:nth-child(4) { animation-delay: 640ms; }
+.hero > *:nth-child(5) { animation-delay: 740ms; }
+.hero > *:nth-child(6) { animation-delay: 820ms; }
+.hero > *:nth-child(7) { animation-delay: 890ms; }
 
 @keyframes heroFadeUp {
   from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Hero logo ───────────────────────────────────────────────── */
+.heroLogoLarge {
+  animation: heroLogoIn 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 0ms;
+  position: relative;
+  z-index: 1;
+}
+@keyframes heroLogoIn {
+  from { opacity: 0; transform: scale(0.5) translateY(12px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ── Hero wordmark ───────────────────────────────────────────── */
+.heroWordmark {
+  display: flex;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+.heroWChar {
+  animation: heroWCharIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--wi) * 65ms + 180ms);
+  color: var(--text);
+  display: inline-block;
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: clamp(2.4rem, 7vw, 4.8rem);
+  font-weight: 400;
+  letter-spacing: 0.22em;
+}
+@keyframes heroWCharIn {
+  from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 

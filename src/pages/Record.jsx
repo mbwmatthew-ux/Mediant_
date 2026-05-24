@@ -33,6 +33,7 @@ export default function Record() {
   const [keySignature,  setKeySignature]  = useState('')
   const [startMeasure,  setStartMeasure]  = useState('')
   const [endMeasure,    setEndMeasure]    = useState('')
+  const [tempo,         setTempo]         = useState('')
 
   // Video recording (required)
   const [file,      setFile]      = useState(null)
@@ -54,12 +55,13 @@ export default function Record() {
         const raw = sessionStorage.getItem('mediant_prefill')
         if (!raw) return
         sessionStorage.removeItem('mediant_prefill')
-        const { pieceTitle: t, composer: c, instrument: ins, key: k, timeSig: ts, pieceId } = JSON.parse(raw)
+        const { pieceTitle: t, composer: c, instrument: ins, key: k, timeSig: ts, bpm: b, pieceId } = JSON.parse(raw)
         if (t)   setPieceTitle(t)
         if (c)   setComposer(c)
         if (ins && INSTRUMENTS.includes(ins)) setInstrument(ins)
         if (k)   setKeySignature(k)
         if (ts)  setTimeSig(ts)
+        if (b)   setTempo(String(b))
         if (pieceId) {
           const f = await getFile(pieceId)
           if (f) setScoreFile(f)
@@ -83,6 +85,7 @@ export default function Record() {
       if (data?.title)    setPieceTitle(data.title)
       if (data?.composer) setComposer(data.composer)
       if (data?.time)     setTimeSig(data.time)
+      if (data?.bpm)      setTempo(String(data.bpm))
     } catch { /* silently skip — user can fill manually */ }
     finally { setOcrLoading(false) }
   }
@@ -258,6 +261,7 @@ export default function Record() {
           keySignature:   keySignature.trim() || undefined,
           startMeasure:   startMeasure || undefined,
           endMeasure:     endMeasure || undefined,
+          tempo:          tempo ? parseInt(tempo) : undefined,
           videoFrames:    videoFrames.length > 0 ? videoFrames : undefined,
         },
       })
@@ -503,8 +507,23 @@ export default function Record() {
                   onChange={e => setTimeSig(e.target.value)}
                   placeholder="4/4"
                 />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>
+                  Tempo (BPM)
+                  {tempo && <span className={styles.ocrBadge}>Auto-detected</span>}
+                </label>
+                <input
+                  className={styles.formInput}
+                  type="number"
+                  min="1"
+                  max="400"
+                  value={tempo}
+                  onChange={e => setTempo(e.target.value)}
+                  placeholder="e.g. 56"
+                />
                 <span className={styles.formOptional} style={{ marginTop: 4, display: 'block' }}>
-                  Used to keep measure numbers aligned.
+                  Used for precise measure mapping.
                 </span>
               </div>
               <div className={styles.formGroup}>

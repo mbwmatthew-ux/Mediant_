@@ -144,6 +144,7 @@ export default function PieceDetailPanel({ piece, onClose, onDeleted }) {
       instrument: piece.instrument,
       key:        piece.key  && piece.key  !== '—' ? piece.key  : null,
       timeSig:    piece.time && piece.time !== '—' ? piece.time : null,
+      bpm:        piece.bpm  || null,
       pieceId:    piece.userUploaded ? piece.id : null,
       mediaType:  piece.mediaType ?? null,
     }))

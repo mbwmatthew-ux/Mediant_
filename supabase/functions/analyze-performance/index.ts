@@ -8,6 +8,15 @@ const CORS = {
 }
 
 // ── Gemini video analysis via Files API ───────────────────────────────────────
+// ── Tempo → seconds per measure ──────────────────────────────────────────────
+function secsPerMeasure(timeSig: string, bpm: number): number | null {
+  const m = timeSig.match(/^(\d+)\/(\d+)$/)
+  if (!m || bpm <= 0) return null
+  const num = parseInt(m[1])
+  const den = parseInt(m[2])
+  return (num / den) * 240 / bpm
+}
+
 async function runGeminiVideo(opts: {
   takeId:       string
   videoUrl:     string
@@ -19,6 +28,7 @@ async function runGeminiVideo(opts: {
   keySignature: string
   safeStart:    number
   safeEnd:      number | null
+  tempo:        number
 }): Promise<{ score: number; flags: unknown[] }> {
   const apiKey = Deno.env.get('GOOGLE_AI_API_KEY')
   if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not configured')
@@ -168,15 +178,21 @@ List every meaningful issue you observe, minimum 3 flags for any score below 90.
 
   // Gemini sometimes returns a score with no flags — treat as parse failure
   const rawFlags = Array.isArray(parsed.flags) ? parsed.flags : []
-  const flags = rawFlags.map((f: any) => ({
-    // AI counts bars from 1 within the clip; we convert to absolute score measure
-    measure:         (Math.max(1, Number(f.bar) || 1) - 1) + opts.safeStart,
-    type:            String(f.type             || 'technique'),
-    title:           String(f.title            || 'Issue detected'),
-    detail:          String(f.detail           || ''),
-    timestamp_start: Number(f.timestamp_start) || 0,
-    timestamp_end:   Number(f.timestamp_end)   || 0,
-  }))
+  const spm = secsPerMeasure(opts.timeSig, opts.tempo)
+  const flags = rawFlags.map((f: any) => {
+    const ts = Number(f.timestamp_start) || 0
+    const measure = spm
+      ? opts.safeStart + Math.floor(ts / spm)
+      : (Math.max(1, Number(f.bar) || 1) - 1) + opts.safeStart
+    return {
+      measure,
+      type:            String(f.type  || 'technique'),
+      title:           String(f.title || 'Issue detected'),
+      detail:          String(f.detail || ''),
+      timestamp_start: ts,
+      timestamp_end:   Number(f.timestamp_end) || 0,
+    }
+  })
 
   // If score < 90 and no flags, the video was probably too short/unclear for Gemini
   // but we still got a score — throw so the caller falls back to Claude coaching
@@ -197,6 +213,7 @@ async function runClaudeVision(opts: {
   keySignature: string
   safeStart:    number
   safeEnd:      number | null
+  tempo:        number
 }): Promise<{ score: number; flags: unknown[] }> {
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured')
@@ -266,15 +283,21 @@ Give 4–6 flags based on what you observe. Be specific about what is visible in
   } catch { /* empty */ }
 
   const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 72)))
-  const flags = (Array.isArray(parsed.flags) ? parsed.flags : []).map((f: any) => ({
-    // AI counts bars from 1 within the clip; we convert to absolute score measure
-    measure:         (Math.max(1, Number(f.bar) || 1) - 1) + opts.safeStart,
-    type:            String(f.type             || 'technique'),
-    title:           String(f.title            || 'Technique issue'),
-    detail:          String(f.detail           || ''),
-    timestamp_start: Number(f.timestamp_start) || 0,
-    timestamp_end:   Number(f.timestamp_end)   || 0,
-  }))
+  const spm2 = secsPerMeasure(opts.timeSig, opts.tempo)
+  const flags = (Array.isArray(parsed.flags) ? parsed.flags : []).map((f: any) => {
+    const ts = Number(f.timestamp_start) || 0
+    const measure = spm2
+      ? opts.safeStart + Math.floor(ts / spm2)
+      : (Math.max(1, Number(f.bar) || 1) - 1) + opts.safeStart
+    return {
+      measure,
+      type:            String(f.type  || 'technique'),
+      title:           String(f.title || 'Technique issue'),
+      detail:          String(f.detail || ''),
+      timestamp_start: ts,
+      timestamp_end:   Number(f.timestamp_end) || 0,
+    }
+  })
 
   return { score, flags }
 }
@@ -410,6 +433,7 @@ serve(async (req: Request) => {
       timeSig, instrument, keySignature,
       startMeasure, endMeasure,
       videoFrames,
+      tempo,
     } = body
 
     if (!videoPath || !videoMimeType) {
@@ -505,6 +529,7 @@ serve(async (req: Request) => {
       keySignature: keySignature ?? '',
       safeStart,
       safeEnd,
+      tempo:        Math.max(0, parseInt(String(tempo ?? 0), 10) || 0),
     }
 
     let score: number | null = null

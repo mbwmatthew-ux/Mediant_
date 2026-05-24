@@ -15,7 +15,8 @@ Return ONLY a valid JSON object — no markdown, no explanation — with these e
   "era":        "one of: Baroque, Classical, Romantic, Modern — or empty string if unsure",
   "difficulty": "one of: Beginner, Intermediate, Advanced — based on notation complexity, or empty string if unsure",
   "key":        "key signature including whether it is major or minor, e.g. G major, D minor, B♭ major, F# minor — or empty string if not determinable",
-  "time":       "time signature as two numbers separated by a slash, e.g. 4/4, 3/4, 6/8, 2/2, 12/8 — look for the stacked numerals immediately after the clef and key signature at the very start of the first staff. Do NOT guess; return empty string if you cannot clearly see the numerals."
+  "time":       "time signature as two numbers separated by a slash, e.g. 4/4, 3/4, 6/8, 2/2, 12/8 — look for the stacked numerals immediately after the clef and key signature at the very start of the first staff. Do NOT guess; return empty string if you cannot clearly see the numerals.",
+  "bpm":        <integer — the numeric value from the tempo marking, e.g. "Lento ♩ = 56" → 56, "Allegro ♩ = 132" → 132, "♩. = 80" → 80. Return 0 if there is no numeric tempo marking visible.>
 }`
 
 serve(async (req) => {

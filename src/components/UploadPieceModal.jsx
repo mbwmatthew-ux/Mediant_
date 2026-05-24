@@ -46,12 +46,13 @@ export default function UploadPieceModal({ onClose, onAdded }) {
         difficulty: LEVELS.includes(data.difficulty) ? data.difficulty : 'Intermediate',
         key:        data.key        || '',
         time:       data.time       || '',
+        bpm:        data.bpm        || '',
       })
       setPhase('ready')
     } catch {
       setError('Could not analyze the file — fill in the details manually.')
       const name = f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
-      setForm({ title: name, composer: '', era: 'Romantic', difficulty: 'Intermediate', key: '', time: '' })
+      setForm({ title: name, composer: '', era: 'Romantic', difficulty: 'Intermediate', key: '', time: '', bpm: '' })
       setPhase('ready')
     }
   }
@@ -94,6 +95,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
           difficulty: form.difficulty,
           key:        form.key.trim()  || '—',
           time:       form.time.trim() || '—',
+          bpm:        parseInt(form.bpm) || null,
           file_path:  filePath,
         })
         .select('id')
@@ -111,6 +113,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
         instrument,
         key:          form.key.trim()  || '—',
         time:         form.time.trim() || '—',
+        bpm:          parseInt(form.bpm) || null,
         file_path:    filePath,
         userUploaded: true,
       })
@@ -221,6 +224,10 @@ export default function UploadPieceModal({ onClose, onAdded }) {
               <div className={styles.formRow}>
                 <label className={styles.formLabel}>Time</label>
                 <input className={styles.formInput} value={form.time} onChange={set('time')} placeholder="e.g. 4/4" />
+              </div>
+              <div className={styles.formRow}>
+                <label className={styles.formLabel}>Tempo (BPM)</label>
+                <input className={styles.formInput} type="number" min="1" max="400" value={form.bpm} onChange={set('bpm')} placeholder="e.g. 56" />
               </div>
             </div>
           </div>

@@ -390,21 +390,7 @@ Give 4–6 flags. Be very specific: name exact notes, intervals, fingerings, bow
     timestamp_end:   0,
   }))
 
-  return { flags: normalizeMeasures(flags, opts.safeStart) }
-}
-
-// ── Measure normalizer ────────────────────────────────────────────────────────
-// AIs often count from measure 1 regardless of the score position instruction.
-// If every flag is below safeStart, the model counted from 1 within the clip —
-// offset them so the lowest measure maps to safeStart.
-function normalizeMeasures(flags: any[], safeStart: number): any[] {
-  if (flags.length === 0 || safeStart <= 1) return flags
-  const min = Math.min(...flags.map((f: any) => Number(f.measure) || safeStart))
-  if (min < safeStart) {
-    const offset = safeStart - min
-    return flags.map((f: any) => ({ ...f, measure: (Number(f.measure) || safeStart) + offset }))
-  }
-  return flags
+  return { flags }
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────

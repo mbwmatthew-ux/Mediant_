@@ -84,6 +84,16 @@ export default function Home() {
   const streak    = useMemo(() => calcStreak(recentSessions), [recentSessions])
   const bars      = useMemo(() => seededBars(lastTake?.piece_title ?? ''), [lastTake?.piece_title])
 
+  const todayCount = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return recentSessions.filter(s => {
+      const d = new Date(s.created_at || s.date || '')
+      d.setHours(0, 0, 0, 0)
+      return d.getTime() === today.getTime()
+    }).length
+  }, [recentSessions])
+
   const tips = useMemo(() => {
     if (!lastTake?.flags?.length) return []
     return lastTake.flags.slice(0, 3).map(f => ({
@@ -195,9 +205,9 @@ export default function Home() {
         {/* Stats */}
         <div className={styles.statsCard}>
           <div className={styles.statBlock}>
-            <span className={styles.statLabel}>TODAY'S SESSION</span>
+            <span className={styles.statLabel}>TODAY'S SESSIONS</span>
             <div className={styles.statValue}>
-              {lastTake ? '—' : '0'} <span className={styles.statUnit}>min</span>
+              {todayCount} <span className={styles.statUnit}>takes</span>
             </div>
           </div>
 

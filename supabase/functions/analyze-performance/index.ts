@@ -71,10 +71,10 @@ async function runGeminiVideo(opts: {
   const fileName = fileInfo.file?.name
   if (!fileUri) throw new Error('No fileUri from Gemini upload')
 
-  // Wait until ACTIVE
+  // Wait until ACTIVE — max 24s (8 × 3s)
   let state = fileInfo.file?.state ?? 'PROCESSING'
-  for (let i = 0; i < 20 && state === 'PROCESSING'; i++) {
-    await new Promise(r => setTimeout(r, 5000))
+  for (let i = 0; i < 8 && state === 'PROCESSING'; i++) {
+    await new Promise(r => setTimeout(r, 3000))
     const s = await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`)
     state = (await s.json()).state ?? 'FAILED'
   }
@@ -498,11 +498,23 @@ serve(async (req: Request) => {
     let backend              = 'claude-coaching'
     let quality: unknown     = { trust: 'low', reasons: ['Sheet music analysis only — no video score or timestamps available.'] }
 
-    // Path A: browser-extracted video frames → Claude vision (preferred, no memory limits)
+    function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+      return Promise.race([
+        promise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+        ),
+      ])
+    }
+
+    // Path A: browser-extracted video frames → Claude vision (45s max)
     const frames = Array.isArray(videoFrames) && videoFrames.length > 0 ? videoFrames : null
     if (frames) {
       try {
-        const visionResult = await runClaudeVision({ frames, ...sharedOpts })
+        const visionResult = await withTimeout(
+          runClaudeVision({ frames, ...sharedOpts }),
+          45_000, 'Claude vision'
+        )
         score   = visionResult.score
         flags   = visionResult.flags
         backend = 'claude-vision'
@@ -513,10 +525,13 @@ serve(async (req: Request) => {
       }
     }
 
-    // Path B: Gemini full-video analysis (if vision didn't succeed and we have a signed URL)
+    // Path B: Gemini full-video analysis (60s max — upload + 24s ACTIVE wait + generation)
     if (score === null && videoSignedUrl) {
       try {
-        const geminiResult = await runGeminiVideo({ takeId, videoUrl: videoSignedUrl, videoMimeType, ...sharedOpts })
+        const geminiResult = await withTimeout(
+          runGeminiVideo({ takeId, videoUrl: videoSignedUrl, videoMimeType, ...sharedOpts }),
+          60_000, 'Gemini'
+        )
         score   = geminiResult.score
         flags   = geminiResult.flags
         backend = 'gemini-inline'
@@ -527,10 +542,13 @@ serve(async (req: Request) => {
       }
     }
 
-    // Path C: Claude coaching fallback (sheet music only, no score)
+    // Path C: Claude coaching fallback (20s max)
     if (score === null) {
       try {
-        const claudeResult = await runClaudeCoaching({ scoreUrl: scoreSignedUrl, scoreMimeType: scoreMimeType ?? null, ...sharedOpts })
+        const claudeResult = await withTimeout(
+          runClaudeCoaching({ scoreUrl: scoreSignedUrl, scoreMimeType: scoreMimeType ?? null, ...sharedOpts }),
+          20_000, 'Claude coaching'
+        )
         flags = claudeResult.flags
       } catch (err) {
         console.error('[analyze-performance] Claude coaching failed:', (err as Error).message)

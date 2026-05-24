@@ -23,12 +23,13 @@ async function runGeminiVideo(opts: {
   const apiKey = Deno.env.get('GOOGLE_AI_API_KEY')
   if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not configured')
 
-  // Download video
-  const videoResp = await fetch(opts.videoUrl)
-  if (!videoResp.ok) throw new Error(`Video download failed: ${videoResp.status}`)
-  const videoBytes = new Uint8Array(await videoResp.arrayBuffer())
+  // Fetch video — read headers only, do NOT buffer the body (avoids OOM on large files)
+  const videoRes = await fetch(opts.videoUrl)
+  if (!videoRes.ok) throw new Error(`Video fetch failed: ${videoRes.status}`)
+  const contentLength = videoRes.headers.get('content-length') ?? '0'
+  console.log(`[gemini] streaming ${contentLength}b to Files API`)
 
-  // Upload to Gemini Files API (v1beta is the only version that has the Files API)
+  // Start Gemini Files API resumable upload
   const initResp = await fetch(
     `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
     {
@@ -36,7 +37,7 @@ async function runGeminiVideo(opts: {
       headers: {
         'X-Goog-Upload-Protocol':              'resumable',
         'X-Goog-Upload-Command':               'start',
-        'X-Goog-Upload-Header-Content-Length': videoBytes.length.toString(),
+        'X-Goog-Upload-Header-Content-Length': contentLength,
         'X-Goog-Upload-Header-Content-Type':   opts.videoMimeType,
         'Content-Type':                         'application/json',
       },
@@ -45,20 +46,26 @@ async function runGeminiVideo(opts: {
   )
   if (!initResp.ok) {
     const t = await initResp.text()
-    throw new Error(`Files API init failed ${initResp.status}: ${t.slice(0, 200)}`)
+    throw new Error(`Files API init failed ${initResp.status}: ${t.slice(0, 400)}`)
   }
   const uploadUrl = initResp.headers.get('X-Goog-Upload-URL')
-  if (!uploadUrl) throw new Error('No Gemini upload URL')
+  if (!uploadUrl) throw new Error('No Gemini upload URL returned')
 
+  // Stream video body directly to Gemini — never loaded into heap
   const uploadResp = await fetch(uploadUrl, {
     method: 'POST',
     headers: {
       'X-Goog-Upload-Command': 'upload, finalize',
       'X-Goog-Upload-Offset':  '0',
+      'Content-Type':          opts.videoMimeType,
+      'Content-Length':        contentLength,
     },
-    body: videoBytes,
+    body: videoRes.body,
   })
-  if (!uploadResp.ok) throw new Error(`File upload failed: ${uploadResp.status}`)
+  if (!uploadResp.ok) {
+    const t = await uploadResp.text()
+    throw new Error(`File upload failed ${uploadResp.status}: ${t.slice(0, 200)}`)
+  }
   const fileInfo = await uploadResp.json()
   const fileUri  = fileInfo.file?.uri
   const fileName = fileInfo.file?.name
@@ -112,13 +119,21 @@ Return ONLY valid JSON (no markdown fences):
 
 List every meaningful issue you observe, minimum 3 flags for any score below 90.`
 
-  // Try models in order of preference — stop on first success
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash']
+  // Try models across both API versions — stop on first success
+  const candidates: { ver: string; model: string }[] = [
+    { ver: 'v1beta', model: 'gemini-2.5-flash' },
+    { ver: 'v1beta', model: 'gemini-2.0-flash' },
+    { ver: 'v1',     model: 'gemini-2.0-flash' },
+    { ver: 'v1',     model: 'gemini-1.5-flash' },
+    { ver: 'v1beta', model: 'gemini-1.5-flash' },
+    { ver: 'v1',     model: 'gemini-1.5-pro' },
+    { ver: 'v1beta', model: 'gemini-1.5-pro' },
+  ]
   let genData: any = null
 
-  for (const model of models) {
+  for (const { ver, model } of candidates) {
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -128,17 +143,17 @@ List every meaningful issue you observe, minimum 3 flags for any score below 90.
         }),
       }
     )
-    if (r.ok) { genData = await r.json(); break }
+    if (r.ok) { genData = await r.json(); console.log(`[gemini] success: ${model} (${ver})`); break }
     const errTxt = await r.text()
-    console.warn(`[gemini] model ${model} failed (${r.status}): ${errTxt.slice(0, 120)}`)
-    if (r.status !== 404) throw new Error(`Gemini error ${r.status}: ${errTxt.slice(0, 200)}`)
-    // 404 = model not found, try next
+    console.warn(`[gemini] ${model} (${ver}) → ${r.status}: ${errTxt.slice(0, 160)}`)
+    if (r.status !== 404) throw new Error(`Gemini ${model} error ${r.status}: ${errTxt.slice(0, 200)}`)
+    // 404 = model not found on this version, try next
   }
 
   // Cleanup file (non-fatal)
   if (fileName) fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {})
 
-  if (!genData) throw new Error('No Gemini model available for this API key')
+  if (!genData) throw new Error('No Gemini model available — all candidates returned 404. Check GOOGLE_AI_API_KEY has Gemini API access.')
 
   const rawText = genData.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
   let parsed: any = {}

@@ -125,13 +125,13 @@ Return ONLY valid JSON (no markdown fences):
   "score": <integer 0-100>,
   "flags": [
     {
-      "bar": <integer — bar of THIS recording, counting from 1>,
+      "measure": <integer — ABSOLUTE score measure number. The recording starts at measure ${opts.safeStart}${opts.safeEnd ? ` and ends at measure ${opts.safeEnd}` : ''}. Do NOT reset to 1 — always use the actual score measure number.>,
       "type": "timing"|"intonation"|"dynamics"|"technique"|"error",
       "confidence": <integer 70-100 — how certain you are about this flag>,
       "title": "<8 words max — name the specific issue precisely>",
       "detail": "<2-4 sentences: exactly what went wrong, the musical consequence, and a specific actionable fix>",
-      "timestamp_start": <seconds when issue begins>,
-      "timestamp_end": <seconds when issue resolves>
+      "timestamp_start": <seconds from the start of the video when this issue begins>,
+      "timestamp_end": <seconds from the start of the video when this issue ends>
     }
   ]
 }
@@ -190,11 +190,21 @@ Be specific and musical — name exact notes, intervals, beats, or bow strokes. 
   // Gemini sometimes returns a score with no flags — treat as parse failure
   const rawFlags = Array.isArray(parsed.flags) ? parsed.flags : []
   const spm = secsPerMeasure(opts.timeSig, opts.tempo)
+  const maxMeasure = opts.safeEnd ?? opts.safeStart + 200
   const flags = rawFlags.map((f: any) => {
     const ts = Number(f.timestamp_start) || 0
-    const measure = spm
-      ? opts.safeStart + Math.floor(ts / spm)
-      : (Math.max(1, Number(f.bar) || 1) - 1) + opts.safeStart
+    const declared = Math.round(Number(f.measure) || 0)
+    let measure: number
+    if (declared >= opts.safeStart && declared <= maxMeasure) {
+      // Model returned a valid absolute measure — trust it
+      measure = declared
+    } else if (spm && spm > 0 && ts > 0) {
+      // Declared measure out of range — fall back to timestamp
+      measure = opts.safeStart + Math.floor(ts / spm)
+    } else {
+      measure = opts.safeStart
+    }
+    measure = Math.max(opts.safeStart, Math.min(maxMeasure, measure))
     return {
       measure,
       type:            String(f.type  || 'technique'),
@@ -274,7 +284,7 @@ Return ONLY valid JSON (no markdown fences):
   "score": <integer 0-100>,
   "flags": [
     {
-      "bar": <integer — bar of this recording where issue is visible, counting from 1>,
+      "measure": <integer — ABSOLUTE score measure number. The recording starts at measure ${opts.safeStart}. Do NOT count from 1 — use the actual score measure number.>,
       "type": "technique"|"timing"|"dynamics"|"intonation"|"error",
       "confidence": <integer 70-100 — confidence based on frame clarity>,
       "title": "<8 words max — name the specific technique issue you see>",
@@ -303,11 +313,19 @@ Give 4–6 flags. Cite the frame timestamp and the specific body part. Avoid gen
 
   const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 72)))
   const spm2 = secsPerMeasure(opts.timeSig, opts.tempo)
+  const maxMeasure2 = opts.safeEnd ?? opts.safeStart + 200
   const flags = (Array.isArray(parsed.flags) ? parsed.flags : []).map((f: any) => {
     const ts = Number(f.timestamp_start) || 0
-    const measure = spm2
-      ? opts.safeStart + Math.floor(ts / spm2)
-      : (Math.max(1, Number(f.bar) || 1) - 1) + opts.safeStart
+    const declared = Math.round(Number(f.measure) || 0)
+    let measure: number
+    if (declared >= opts.safeStart && declared <= maxMeasure2) {
+      measure = declared
+    } else if (spm2 && spm2 > 0 && ts > 0) {
+      measure = opts.safeStart + Math.floor(ts / spm2)
+    } else {
+      measure = opts.safeStart
+    }
+    measure = Math.max(opts.safeStart, Math.min(maxMeasure2, measure))
     return {
       measure,
       type:            String(f.type  || 'technique'),
@@ -375,7 +393,7 @@ Return ONLY valid JSON (no markdown):
 {
   "flags": [
     {
-      "measure": <integer — the specific measure this applies to>,
+      "measure": <integer — ABSOLUTE score measure number, between ${opts.safeStart} and ${opts.safeEnd ?? opts.safeStart + 50}>,
       "type": "timing"|"intonation"|"dynamics"|"technique"|"error",
       "confidence": 72,
       "title": "<8 words max — name the precise issue in this measure>",
@@ -402,15 +420,22 @@ Examples of good specificity: "The leap from E♭5 to B4 in m.12 often goes shar
     parsed = JSON.parse(jsonStr)
   } catch { /* empty */ }
 
-  const flags = (Array.isArray(parsed.flags) ? parsed.flags : []).map((f: any) => ({
-    measure:         Number(f.measure)         || opts.safeStart,
-    type:            String(f.type             || 'technique'),
-    confidence:      Math.max(50, Math.min(100, Math.round(Number(f.confidence) || 72))),
-    title:           String(f.title            || 'Coaching note'),
-    detail:          String(f.detail           || ''),
-    timestamp_start: 0,
-    timestamp_end:   0,
-  }))
+  const maxMeasure3 = opts.safeEnd ?? opts.safeStart + 200
+  const flags = (Array.isArray(parsed.flags) ? parsed.flags : []).map((f: any) => {
+    const declared = Math.round(Number(f.measure) || 0)
+    const measure = Math.max(opts.safeStart, Math.min(maxMeasure3,
+      declared >= opts.safeStart ? declared : opts.safeStart
+    ))
+    return {
+      measure,
+      type:            String(f.type  || 'technique'),
+      confidence:      Math.max(50, Math.min(100, Math.round(Number(f.confidence) || 72))),
+      title:           String(f.title || 'Coaching note'),
+      detail:          String(f.detail || ''),
+      timestamp_start: 0,
+      timestamp_end:   0,
+    }
+  })
 
   return { flags }
 }

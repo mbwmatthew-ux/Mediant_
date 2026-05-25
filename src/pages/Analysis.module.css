@@ -7,13 +7,14 @@
 }
 
 .scoreColumn {
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
+  overflow: hidden;
   position: sticky;
-  scrollbar-width: none;
-  top: 32px;
+  top: 16px; /* JS overrides this dynamically */
 }
-.scoreColumn::-webkit-scrollbar { display: none; }
+
+.scoreInner {
+  will-change: transform;
+}
 
 .rightColumn {
   display: flex;
@@ -421,7 +422,8 @@
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .reviewLayout { grid-template-columns: 1fr; }
-  .scoreColumn  { max-height: none; position: static; }
+  .scoreColumn  { max-height: none !important; overflow: visible; position: static; top: auto !important; }
+  .scoreInner   { transform: none !important; }
 }
 
 @media (max-width: 700px) {

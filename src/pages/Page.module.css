@@ -840,8 +840,9 @@
   display: block;
   height: auto;
   margin: 0 auto;
-  max-width: min(100%, 820px);
-  width: 82%;
+  max-height: min(680px, calc(100vh - 180px));
+  max-width: min(100%, 720px);
+  width: auto;
 }
 
 .scoreArea iframe,

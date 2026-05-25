@@ -58,6 +58,11 @@ export default function Analysis() {
   const [isLooping, setIsLooping]     = useState(false)
   const [scoreReady, setScoreReady]   = useState(false)
   const [highlights, setHighlights]   = useState([])  // [{flagId, x, y, w, h}]
+  const [videoSpeed, setVideoSpeed]   = useState(1)
+  const [mobileTab, setMobileTab]     = useState('score')
+
+  // Keyboard shortcut state ref — always current without re-registering the listener
+  const kbRef = useRef({})
 
   // Chat state
   const [chatMessages, setChatMessages] = useState([])
@@ -283,6 +288,43 @@ export default function Analysis() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages, chatLoading])
 
+  // Apply playback rate whenever videoSpeed changes
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = videoSpeed
+  }, [videoSpeed])
+
+  // Keep keyboard shortcut ref current on every render
+  kbRef.current = { activeFlagIndex, activeFlagRaw, chips, hasTimestamps, isLooping }
+
+  // Global keyboard shortcuts — registered once, reads latest state via ref
+  useEffect(() => {
+    function onKey(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      const s = kbRef.current
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault()
+        const v = videoRef.current
+        if (v) { if (v.paused) v.play().catch(() => {}); else v.pause() }
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        if (s.activeFlagIndex > 0) setActiveFlag(`flag_${s.activeFlagIndex - 1}`)
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        const next = s.activeFlagIndex >= 0 ? s.activeFlagIndex + 1 : 0
+        if (next < s.chips.length) setActiveFlag(`flag_${next}`)
+      }
+      if (e.key === 'l' || e.key === 'L') {
+        if (s.isLooping) stopLoop()
+        else if (s.activeFlagRaw && s.hasTimestamps) startLoop(s.activeFlagRaw)
+      }
+      if (e.key === 'Escape') setActiveFlag(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [startLoop, stopLoop])
+
   async function sendMessage() {
     const msg = chatInput.trim()
     if (!msg || chatLoading) return
@@ -476,11 +518,34 @@ export default function Analysis() {
             playsInline
             preload="metadata"
           />
+          <div className={styles.videoControls}>
+            <span className={styles.videoControlsLabel}>Speed</span>
+            <div className={styles.speedBtns}>
+              {[0.5, 0.75, 1, 1.25, 1.5].map(s => (
+                <button
+                  key={s}
+                  className={`${styles.speedBtn} ${videoSpeed === s ? styles.speedBtnActive : ''}`}
+                  onClick={() => setVideoSpeed(s)}
+                >
+                  {s}×
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
+      {/* Mobile tab switcher — hidden on desktop via CSS */}
+      <div className={styles.mobileTabs}>
+        <button className={`${styles.mobileTab} ${mobileTab === 'score' ? styles.mobileTabActive : ''}`} onClick={() => setMobileTab('score')}>Score</button>
+        <button className={`${styles.mobileTab} ${mobileTab === 'issues' ? styles.mobileTabActive : ''}`} onClick={() => setMobileTab('issues')}>
+          Issues{chips.length > 0 ? ` (${chips.length})` : ''}
+        </button>
+        <button className={`${styles.mobileTab} ${mobileTab === 'chat' ? styles.mobileTabActive : ''}`} onClick={() => setMobileTab('chat')}>Chat</button>
+      </div>
+
       <div className={styles.reviewBody}>
-        <div className={styles.scoreArea}>
+        <div className={`${styles.scoreArea} ${mobileTab !== 'score' ? styles.mobileHide : ''}`}>
           {/* Photo or PDF uploaded by user — with bbox overlays */}
           {isVisualScore && scoreUrl && (
             (take?.score_path ?? '').toLowerCase().endsWith('.pdf') ? (
@@ -567,8 +632,8 @@ export default function Analysis() {
           )}
         </div>
 
-        <aside className={styles.feedbackSidebar}>
-          <div className={styles.feedbackPanel}>
+        <aside className={`${styles.feedbackSidebar} ${mobileTab === 'score' ? styles.mobileHide : ''}`}>
+          <div className={`${styles.feedbackPanel} ${mobileTab === 'chat' ? styles.mobileHide : ''}`}>
             {!info ? (
               <div className={styles.feedbackIdle}>
                 <span className={styles.feedbackIdleIcon}>♩</span>
@@ -622,7 +687,7 @@ export default function Analysis() {
             )}
           </div>
 
-          <div className={styles.chatSection}>
+          <div className={`${styles.chatSection} ${mobileTab === 'issues' ? styles.mobileHide : ''}`}>
             <div className={styles.chatHeader}>
               <p className={styles.chatLabel}>Ask Mediant</p>
               {activeFlagRaw && (

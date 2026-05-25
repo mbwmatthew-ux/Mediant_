@@ -49,8 +49,10 @@ function calcStreak(sessions) {
       return d.getTime()
     }).filter(Boolean)
   )
-  let streak = 0
+  // If no session today, start from yesterday — streak stays alive until midnight
   const check = new Date(today)
+  if (!dateSet.has(check.getTime())) check.setDate(check.getDate() - 1)
+  let streak = 0
   while (dateSet.has(check.getTime())) {
     streak++
     check.setDate(check.getDate() - 1)

@@ -2,12 +2,39 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
 
-const SUGGESTIONS = [
+const FALLBACK_SUGGESTIONS = [
   'How do I fix rushing in fast passages?',
   'What\'s the best way to practice hands separately?',
   'How do I bring out the melody over the accompaniment?',
   'What does it mean to play with more expression?',
 ]
+
+function buildSuggestions(take) {
+  if (!take?.flags?.length) return FALLBACK_SUGGESTIONS
+  const suggestions = []
+  const seen = new Set()
+  for (const f of take.flags) {
+    if (!f.type || seen.has(f.type)) continue
+    seen.add(f.type)
+    if (f.type === 'intonation')
+      suggestions.push(`How can I improve my intonation — like the issue in measure ${f.measure}?`)
+    else if (f.type === 'rhythm' || f.type === 'timing')
+      suggestions.push(`How do I fix rhythm/timing in passages like measure ${f.measure}?`)
+    else if (f.type === 'dynamics')
+      suggestions.push('How do I bring out more dynamic contrast in my playing?')
+    else if (f.type === 'technique' || f.type === 'articulation')
+      suggestions.push(`What exercises help with ${f.type} — like the issue in measure ${f.measure}?`)
+    if (suggestions.length >= 3) break
+  }
+  const fills = [
+    take.score != null ? `How can I raise my score from ${take.score}/100?` : 'How do I structure my practice most efficiently?',
+    'What should I focus on first in my next session?',
+    'How do I avoid ingraining bad habits when working on problem spots?',
+  ]
+  let fi = 0
+  while (suggestions.length < 4 && fi < fills.length) suggestions.push(fills[fi++])
+  return suggestions
+}
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
@@ -118,7 +145,7 @@ export default function Coach() {
                 : 'Ask anything about technique, theory, practice strategy, or musical expression.'}
             </p>
             <div className={styles.coachSuggestions}>
-              {SUGGESTIONS.map(s => (
+              {buildSuggestions(take).map(s => (
                 <button
                   key={s}
                   className={styles.coachSuggestionChip}

@@ -848,6 +848,30 @@
   width: 100%;
 }
 
+/* ── Delete buttons (Takes page) ───────────────────────────── */
+.deleteBtn {
+  background: none;
+  border: 1px solid rgba(225,134,118,0.25);
+  border-radius: 8px;
+  color: var(--coral);
+  font-size: 0.83rem;
+  padding: 9px 14px;
+  transition: background 150ms ease;
+}
+.deleteBtn:hover { background: rgba(225,134,118,0.08); }
+
+.deleteBtnConfirm {
+  background: rgba(225,134,118,0.12);
+  border: 1px solid rgba(225,134,118,0.45);
+  border-radius: 8px;
+  color: var(--coral);
+  font-size: 0.83rem;
+  font-weight: 600;
+  padding: 9px 14px;
+  transition: background 150ms ease;
+}
+.deleteBtnConfirm:hover { background: rgba(225,134,118,0.22); }
+
 /* ── Persistent video bar ──────────────────────────────────── */
 .videoBar {
   background: #000;
@@ -875,6 +899,46 @@
   object-fit: contain;
   width: 100%;
 }
+
+.videoControls {
+  align-items: center;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  gap: 12px;
+  padding: 7px 14px 10px;
+}
+
+.videoControlsLabel {
+  color: rgba(255,255,255,0.38);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.speedBtns { display: flex; gap: 4px; }
+
+.speedBtn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  color: rgba(255,255,255,0.5);
+  font-size: 0.75rem;
+  padding: 3px 9px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.speedBtn:hover { background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.9); }
+.speedBtnActive {
+  background: rgba(92,184,107,0.25);
+  border-color: rgba(92,184,107,0.5);
+  color: #8fbe9f;
+}
+
+/* ── Mobile tab switcher (Analysis page) ────────────────────── */
+.mobileTabs { display: none; }
+
+/* ── mobileHide — used with mobileTabs to show one panel at a time */
+.mobileHide { display: block; }
 
 /* ── Excerpt video player ───────────────────────────────────── */
 .excerptPlayer {
@@ -1318,6 +1382,31 @@
 
   /* Submit button on Record: full width */
   .submitBtn { width: 100%; }
+
+  /* Mobile tab switcher */
+  .mobileTabs {
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    gap: 0;
+  }
+  .mobileTab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    flex: 1;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 11px 8px;
+    transition: color 140ms ease, border-color 140ms ease;
+  }
+  .mobileTabActive {
+    border-bottom-color: var(--accent);
+    color: var(--text);
+  }
+
+  /* Hide panels not matching the active mobile tab */
+  .mobileHide { display: none !important; }
 }
 
 /* ── Coach page ─────────────────────────────────────────────── */

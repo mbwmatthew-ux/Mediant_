@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 import { useTakes } from '../hooks/useTakes'
 import styles from './Page.module.css'
 
@@ -22,7 +24,23 @@ function formatDate(iso) {
 
 export default function Takes() {
   const nav = useNavigate()
-  const takes = useTakes()
+  const rawTakes = useTakes()
+  const [takes, setTakes] = useState(undefined)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+
+  useEffect(() => {
+    if (rawTakes !== undefined) setTakes(rawTakes)
+  }, [rawTakes])
+
+  async function deleteTake(id) {
+    try {
+      await supabase.from('takes').delete().eq('id', id)
+    } catch (e) {
+      console.error('Delete failed:', e)
+    }
+    setTakes(prev => prev?.filter(t => t.id !== id) ?? [])
+    setConfirmDelete(null)
+  }
 
   if (takes === undefined) {
     return (
@@ -99,13 +117,29 @@ export default function Takes() {
                 {t.flags?.length > 0 && `${t.flags.length} flag${t.flags.length !== 1 ? 's' : ''}`}
               </p>
             )}
-            <button
-              className={i === 0 ? styles.primaryBtn : styles.ghostBtn}
-              style={{ marginTop: 16 }}
-              onClick={() => nav(t.id ? `/analysis?takeId=${t.id}` : '/analysis')}
-            >
-              View score review
-            </button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+              <button
+                className={i === 0 ? styles.primaryBtn : styles.ghostBtn}
+                onClick={() => nav(t.id ? `/analysis?takeId=${t.id}` : '/analysis')}
+              >
+                View review
+              </button>
+              {t.id && confirmDelete !== t.id && (
+                <button className={styles.deleteBtn} onClick={() => setConfirmDelete(t.id)}>
+                  Delete
+                </button>
+              )}
+              {confirmDelete === t.id && (
+                <>
+                  <button className={styles.deleteBtnConfirm} onClick={() => deleteTake(t.id)}>
+                    Confirm delete
+                  </button>
+                  <button className={styles.ghostBtn} onClick={() => setConfirmDelete(null)}>
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         ))}
       </div>

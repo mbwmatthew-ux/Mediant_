@@ -71,11 +71,14 @@ export default function AppShell() {
 
   useEffect(() => {
     function onKey(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return
       if (e.key === 'Escape') setPanel(null)
+      if (e.key === 'r' || e.key === 'R') nav('/record')
+      if (e.key === 's' || e.key === 'S') nav('/takes')
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [])
+  }, [nav])
 
   const initials = user?.name
     ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()

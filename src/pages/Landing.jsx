@@ -37,6 +37,12 @@ const STEPS = [
   { num: '03', title: 'Get targeted feedback', body: 'Click any flagged measure for specific, actionable feedback.' },
 ]
 
+const STATS = [
+  { value: 40,  suffix: '+', label: 'Instruments supported' },
+  { value: 3,   suffix:  '', label: 'Analysis models' },
+  { value: 100, suffix: '%', label: 'Measure-level precision' },
+]
+
 /* ── Logo mark ── */
 function AnimatedLogo({ size = 28 }) {
   return (
@@ -69,6 +75,43 @@ function AnimatedWord({ word, visible, color }) {
         </span>
       ))}
     </>
+  )
+}
+
+/* ── Animated stat counter ── */
+function StatCard({ value, suffix, label, delay }) {
+  const [active, setActive] = useState(false)
+  const [count, setCount]   = useState(0)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { setActive(true); obs.disconnect() }
+    }, { threshold: 0.4 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!active) return
+    const start = performance.now()
+    const dur   = 2200
+    function frame(now) {
+      const p    = Math.min((now - start) / dur, 1)
+      const ease = 1 - Math.pow(1 - p, 4)
+      setCount(Math.round(ease * value))
+      if (p < 1) requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+  }, [active, value])
+
+  return (
+    <div ref={ref} className={`${styles.statCard} ${styles.revealScale}`} style={{ '--d': delay }}>
+      <span className={styles.statValue}>{count.toLocaleString()}{suffix}</span>
+      <span className={styles.statLabel}>{label}</span>
+    </div>
   )
 }
 
@@ -213,6 +256,21 @@ export default function Landing() {
         </div>
 
         <p className={styles.heroNote}>Free to start · No credit card · Any instrument</p>
+      </section>
+
+      {/* ── Stats ── */}
+      <section className={styles.statsSection}>
+        <div className={styles.statsGrid}>
+          {STATS.map((s, i) => (
+            <StatCard
+              key={s.label}
+              value={s.value}
+              suffix={s.suffix}
+              label={s.label}
+              delay={`${i * 130}ms`}
+            />
+          ))}
+        </div>
       </section>
 
       {/* ── Features ── */}

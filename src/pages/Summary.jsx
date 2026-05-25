@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
+import { playTick, playPop } from '../utils/sounds'
 
 function scoreColor(n) {
   if (n >= 88) return '#8fbe9f'
@@ -110,7 +111,7 @@ export default function Summary() {
           <p className={styles.label}>Session Summary</p>
           <h1 className={styles.title}>Session recap</h1>
         </div>
-        <button className={styles.ghostBtn} onClick={() => nav(takeId ? `/analysis?takeId=${takeId}` : '/analysis')}>
+        <button className={styles.ghostBtn} onClick={() => { playTick(); nav(takeId ? `/analysis?takeId=${takeId}` : '/analysis') }}>
           ← Back to score
         </button>
       </div>
@@ -141,7 +142,7 @@ export default function Summary() {
       <button
         className={styles.primaryBtn}
         style={{ alignSelf: 'flex-start', marginTop: 24 }}
-        onClick={() => nav('/takes')}
+        onClick={() => { playPop(); nav('/takes') }}
       >
         View saved takes →
       </button>

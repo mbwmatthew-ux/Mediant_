@@ -45,7 +45,7 @@ export default function App() {
             <Route path="/takes"    element={<Takes />} />
             <Route path="/coach"    element={<Coach />} />
             <Route path="/progress" element={<ProgressFeedback />} />
-            <Route path="/profile"  element={<Profile />} />
+            <Route path="/profile"  element={<Navigate to="/settings" replace />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

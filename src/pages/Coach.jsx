@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
+import { playPop, playTick } from '../utils/sounds'
 
 const FALLBACK_SUGGESTIONS = [
   'How do I fix rushing in fast passages?',
@@ -76,6 +77,7 @@ export default function Coach() {
   async function send(text) {
     const msg = (text ?? input).trim()
     if (!msg || loading) return
+    playPop()
     setInput('')
     const withUser = [...messages, { role: 'user', content: msg }]
     setMessages(withUser)
@@ -110,6 +112,7 @@ export default function Coach() {
   }
 
   function handleSuggestion(s) {
+    playTick()
     send(s)
   }
 

@@ -1303,6 +1303,32 @@
 .prefSelect:focus { border-color: rgba(88,121,101,0.45); }
 .prefSelect option { background: var(--dropdown-bg); }
 
+.prefInput {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+  outline: none;
+  padding: 6px 10px;
+  width: 200px;
+}
+.prefInput:focus { border-color: rgba(88,121,101,0.45); }
+
+.prefReadonly {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  padding: 6px 0;
+}
+
+.errorMsg {
+  color: var(--coral);
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
 .bpmControl { align-items: center; display: flex; flex-shrink: 0; gap: 8px; }
 .bpmBtn {
   align-items: center;

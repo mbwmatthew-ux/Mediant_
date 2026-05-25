@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useTakes } from '../hooks/useTakes'
 import styles from './Page.module.css'
 import pStyles from './ProgressFeedback.module.css'
+import { playAnalyzeStart, playToggle, playTick } from '../utils/sounds'
 
 function scoreColor(n) {
   if (n >= 88) return '#8fbe9f'
@@ -100,13 +101,13 @@ export default function ProgressFeedback() {
         <div className={pStyles.periodToggle}>
           <button
             className={`${pStyles.toggleBtn} ${period === 'weekly' ? pStyles.toggleBtnActive : ''}`}
-            onClick={() => setPeriod('weekly')}
+            onClick={() => { playToggle(true); setPeriod('weekly') }}
           >
             This week
           </button>
           <button
             className={`${pStyles.toggleBtn} ${period === 'monthly' ? pStyles.toggleBtnActive : ''}`}
-            onClick={() => setPeriod('monthly')}
+            onClick={() => { playToggle(true); setPeriod('monthly') }}
           >
             This month
           </button>
@@ -141,7 +142,7 @@ export default function ProgressFeedback() {
           <span className={styles.sectionHeaderTitle}>
             Sessions this {periodLabel}
           </span>
-          <button className={styles.sectionHeaderAction} onClick={() => nav('/takes')}>
+          <button className={styles.sectionHeaderAction} onClick={() => { playTick(); nav('/takes') }}>
             View all →
           </button>
         </div>
@@ -187,7 +188,7 @@ export default function ProgressFeedback() {
         <div className={pStyles.generateRow}>
           <button
             className={styles.primaryBtn}
-            onClick={generateFeedback}
+            onClick={() => { playAnalyzeStart(); generateFeedback() }}
             disabled={loading}
           >
             {loading ? 'Generating…' : `Generate ${periodLabel}ly feedback`}

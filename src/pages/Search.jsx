@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import UploadPieceModal from '../components/UploadPieceModal'
 import PieceDetailPanel from '../components/PieceDetailPanel'
 import styles from './Page.module.css'
+import { playTick, playPop } from '../utils/sounds'
 
 const difficultyColor = { Beginner: 'green', Intermediate: 'gold', Advanced: 'coral' }
 
@@ -92,10 +93,10 @@ export default function Search() {
           </p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.ghostBtn} onClick={() => nav('/record')}>
+          <button className={styles.ghostBtn} onClick={() => { playTick(); nav('/record') }}>
             + New recording
           </button>
-          <button className={styles.primaryBtn} onClick={() => setShowUpload(true)}>
+          <button className={styles.primaryBtn} onClick={() => { playPop(); setShowUpload(true) }}>
             ↑ Upload sheet music
           </button>
         </div>
@@ -236,7 +237,7 @@ export default function Search() {
             </thead>
             <tbody>
               {results.map(p => (
-                <tr key={p.id} className={styles.tableRow} onClick={() => setSelectedPiece(p)}>
+                <tr key={p.id} className={styles.tableRow} onClick={() => { playTick(); setSelectedPiece(p) }}>
                   <td className={styles.td}>
                     {p.title}
                     {p.userUploaded && <span className={styles.uploadedTag}> · Uploaded</span>}

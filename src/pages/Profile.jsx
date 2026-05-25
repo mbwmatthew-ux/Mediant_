@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useTakes } from '../hooks/useTakes'
 import { supabase } from '../lib/supabase'
 import styles from './Page.module.css'
+import { playSave, playThud } from '../utils/sounds'
 
 const COACHING_STYLES = ['Constructive and direct', 'Encouraging and gentle', 'Technical and precise']
 const INSTRUMENTS = [
@@ -48,12 +49,14 @@ export default function Profile() {
     if (error) {
       setSaveErr(error.message)
     } else {
+      playSave()
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     }
   }
 
   function handleLogout() {
+    playThud()
     logout()
     nav('/')
   }
@@ -74,7 +77,7 @@ export default function Profile() {
         <div>
           <p className={styles.label}>Account</p>
           <h1 className={styles.title}>{user?.name || 'Your Profile'}</h1>
-          <p className={styles.sub}>{user?.instrument} · {user?.email}</p>
+          <p className={styles.sub}>{[user?.instrument, user?.email].filter(Boolean).join(' · ')}</p>
         </div>
         <div className={styles.avatarLg}>{initials}</div>
       </div>

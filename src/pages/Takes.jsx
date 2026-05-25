@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useTakes } from '../hooks/useTakes'
 import styles from './Page.module.css'
+import { playTick, playPop, playThud } from '../utils/sounds'
 
 function scoreColor(n) {
   if (n >= 88) return '#8fbe9f'
@@ -33,6 +34,7 @@ export default function Takes() {
   }, [rawTakes])
 
   async function deleteTake(id) {
+    playThud()
     try {
       await supabase.from('takes').delete().eq('id', id)
     } catch (e) {
@@ -78,7 +80,7 @@ export default function Takes() {
           <div className={styles.analyzeIcon}>♩</div>
           <p className={styles.analyzeTitle}>No takes yet</p>
           <p className={styles.analyzeSub}>Your recorded takes will appear here after your first upload.</p>
-          <button className={styles.primaryBtn} style={{ marginTop: 16 }} onClick={() => nav('/record')}>
+          <button className={styles.primaryBtn} style={{ marginTop: 16 }} onClick={() => { playPop(); nav('/record') }}>
             Upload a recording →
           </button>
         </div>
@@ -93,7 +95,7 @@ export default function Takes() {
           <p className={styles.label}>Saved Takes</p>
           <h1 className={styles.title}>Your recordings</h1>
         </div>
-        <button className={styles.ghostBtn} onClick={() => nav('/summary')}>View recap</button>
+        <button className={styles.ghostBtn} onClick={() => { playTick(); nav('/summary') }}>View recap</button>
       </div>
 
       <div className={styles.takesGrid}>
@@ -120,12 +122,12 @@ export default function Takes() {
             <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
               <button
                 className={i === 0 ? styles.primaryBtn : styles.ghostBtn}
-                onClick={() => nav(t.id ? `/analysis?takeId=${t.id}` : '/analysis')}
+                onClick={() => { playTick(); nav(t.id ? `/analysis?takeId=${t.id}` : '/analysis') }}
               >
                 View review
               </button>
               {t.id && confirmDelete !== t.id && (
-                <button className={styles.deleteBtn} onClick={() => setConfirmDelete(t.id)}>
+                <button className={styles.deleteBtn} onClick={() => { playTick(); setConfirmDelete(t.id) }}>
                   Delete
                 </button>
               )}
@@ -134,7 +136,7 @@ export default function Takes() {
                   <button className={styles.deleteBtnConfirm} onClick={() => deleteTake(t.id)}>
                     Confirm delete
                   </button>
-                  <button className={styles.ghostBtn} onClick={() => setConfirmDelete(null)}>
+                  <button className={styles.ghostBtn} onClick={() => { playTick(); setConfirmDelete(null) }}>
                     Cancel
                   </button>
                 </>

@@ -39,8 +39,8 @@ const STEPS = [
 
 const STATS = [
   { value: 40,  suffix: '+', label: 'Instruments supported' },
-  { value: 3,   suffix:  '', label: 'Analysis models' },
-  { value: 100, suffix: '%', label: 'Measure-level precision' },
+  { value: 6,   suffix:  '', label: 'Types of feedback' },
+  { value: 100, suffix: '%', label: 'Your recordings stay private' },
 ]
 
 /* ── Logo mark ── */

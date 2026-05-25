@@ -185,18 +185,14 @@
 
 /* ── Hero logo ───────────────────────────────────────────────── */
 .heroLogoLarge {
-  animation: heroLogoMaterialize 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: 0ms;
-  filter: drop-shadow(0 0 0px rgba(92,184,107,0));
+  animation: heroLogoPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: 100ms;
   position: relative;
   z-index: 1;
 }
-@keyframes heroLogoMaterialize {
-  0%   { opacity: 0; transform: scale(0.6); filter: drop-shadow(0 0 32px rgba(92,184,107,0.0)) blur(18px); }
-  40%  { opacity: 0.7; transform: scale(1.06); filter: drop-shadow(0 0 24px rgba(92,184,107,0.55)) blur(2px); }
-  65%  { opacity: 1; transform: scale(0.97); filter: drop-shadow(0 0 40px rgba(92,184,107,0.7)) blur(0px); }
-  80%  { transform: scale(1.02); filter: drop-shadow(0 0 20px rgba(92,184,107,0.4)); }
-  100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(92,184,107,0.18)); }
+@keyframes heroLogoPop {
+  0%   { opacity: 0; transform: scale(0); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 /* ── Hero wordmark ───────────────────────────────────────────── */

@@ -579,26 +579,8 @@ serve(async (req: Request) => {
       ])
     }
 
-    // Path A: browser-extracted video frames → Claude vision (45s max)
-    const frames = Array.isArray(videoFrames) && videoFrames.length > 0 ? videoFrames : null
-    if (frames) {
-      try {
-        const visionResult = await withTimeout(
-          runClaudeVision({ frames, ...sharedOpts }),
-          45_000, 'Claude vision'
-        )
-        score   = visionResult.score
-        flags   = visionResult.flags
-        backend = 'claude-vision'
-        quality = { trust: 'medium', reasons: ['Analyzed from your video — visual technique scored; intonation and precise timing assessed separately.'] }
-        console.log('[analyze-performance] Claude vision done:', takeId, 'score:', score, 'flags:', flags.length)
-      } catch (visionErr) {
-        console.warn('[analyze-performance] Claude vision failed:', (visionErr as Error).message)
-      }
-    }
-
-    // Path B: Gemini full-video analysis (60s max — upload + 24s ACTIVE wait + generation)
-    if (score === null && videoSignedUrl) {
+    // Path A: Gemini full-video analysis (60s max — upload + ACTIVE wait + generation)
+    if (videoSignedUrl) {
       try {
         const geminiResult = await withTimeout(
           runGeminiVideo({ takeId, videoUrl: videoSignedUrl, videoMimeType, ...sharedOpts }),
@@ -611,6 +593,24 @@ serve(async (req: Request) => {
         console.log('[analyze-performance] Gemini inline done:', takeId, 'score:', score)
       } catch (geminiErr) {
         console.warn('[analyze-performance] Gemini failed:', (geminiErr as Error).message)
+      }
+    }
+
+    // Path B: browser-extracted video frames → Claude vision (45s max)
+    const frames = Array.isArray(videoFrames) && videoFrames.length > 0 ? videoFrames : null
+    if (score === null && frames) {
+      try {
+        const visionResult = await withTimeout(
+          runClaudeVision({ frames, ...sharedOpts }),
+          45_000, 'Claude vision'
+        )
+        score   = visionResult.score
+        flags   = visionResult.flags
+        backend = 'claude-vision'
+        quality = { trust: 'medium', reasons: ['Analyzed from your video — visual technique scored; intonation and precise timing assessed separately.'] }
+        console.log('[analyze-performance] Claude vision done:', takeId, 'score:', score, 'flags:', flags.length)
+      } catch (visionErr) {
+        console.warn('[analyze-performance] Claude vision failed:', (visionErr as Error).message)
       }
     }
 

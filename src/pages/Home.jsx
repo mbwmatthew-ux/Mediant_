@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useTakes } from '../hooks/useTakes'
@@ -109,9 +109,14 @@ export default function Home() {
   const takes = useTakes({ limit: 5 })
   const recentSessions = takes ?? []
 
-  const [showOnboarding, setShowOnboarding] = useState(
-    () => !localStorage.getItem('mediant_onboarded')
-  )
+  const [showOnboarding, setShowOnboarding] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    const serverDone = user.user_metadata?.onboarded === true
+    const localDone  = !!localStorage.getItem('mediant_onboarded')
+    if (!serverDone && !localDone) setShowOnboarding(true)
+  }, [user])
 
   const lastTake  = recentSessions[0] ?? null
   const streak    = useMemo(() => calcStreak(recentSessions), [recentSessions])

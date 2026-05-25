@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 
 const STEPS = [
   {
@@ -38,6 +39,11 @@ const STEPS = [
     body: 'Chat with Mediant at any time — about technique, theory, practice strategy, or anything flagged in a recent session.',
   },
   {
+    navLabel: 'Metronome',
+    title: 'Built-in metronome',
+    body: 'Tap the metronome in the sidebar to open a click track. Set any tempo from Largo to Prestissimo, choose your time signature, and use tap tempo to match a recording.',
+  },
+  {
     icon: '✓',
     title: "You're all set",
     body: 'Start by uploading your first recording. A phone video is all you need — no fancy equipment required.',
@@ -73,9 +79,14 @@ export default function Onboarding({ onClose }) {
     return () => clearTimeout(t)
   }, [step, current.navLabel])
 
+  function markOnboarded() {
+    localStorage.setItem('mediant_onboarded', '1')
+    supabase.auth.updateUser({ data: { onboarded: true } }).catch(() => {})
+  }
+
   function handleCta() {
     if (isLast) {
-      localStorage.setItem('mediant_onboarded', '1')
+      markOnboarded()
       onClose()
       nav('/record')
     } else {
@@ -84,7 +95,7 @@ export default function Onboarding({ onClose }) {
   }
 
   function handleSkip() {
-    localStorage.setItem('mediant_onboarded', '1')
+    markOnboarded()
     onClose()
   }
 

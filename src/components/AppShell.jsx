@@ -95,7 +95,9 @@ export default function AppShell() {
       {/* Top bar */}
       <header className={styles.topBar}>
         <div className={styles.topBarLeft}>
-          <LogoMark />
+          <NavLink to="/home" onClick={playNav} style={{ display: 'flex', alignItems: 'center' }}>
+            <LogoMark />
+          </NavLink>
         </div>
 
         <div className={styles.topBarRight} ref={notifRef}>
@@ -251,12 +253,14 @@ function BackIcon() {
 function LogoMark() {
   return (
     <div style={{
-      width: 38, height: 38, flexShrink: 0,
+      width: 46, height: 46, flexShrink: 0,
       background: 'white',
       WebkitMask: `url('/logo-mark.png') center/contain no-repeat`,
       WebkitMaskMode: 'luminance',
       mask: `url('/logo-mark.png') center/contain no-repeat`,
       maskMode: 'luminance',
+      transition: 'opacity 150ms ease',
+      cursor: 'pointer',
     }} />
   )
 }

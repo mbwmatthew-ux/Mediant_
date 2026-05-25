@@ -6,6 +6,11 @@
   /* default align-items: stretch so left cell fills right column's full height */
 }
 
+.reviewLayoutImageScore {
+  gap: 24px;
+  grid-template-columns: minmax(360px, 680px) minmax(0, 1fr);
+}
+
 .scoreColumnWrap {
   align-self: stretch;
   min-height: 0;

@@ -612,7 +612,7 @@ export default function Analysis() {
       )}
 
       {/* ── Two-column: score left (sticky) + issues right ── */}
-      <div className={aStyles.reviewLayout}>
+      <div className={`${aStyles.reviewLayout} ${isImageScore ? aStyles.reviewLayoutImageScore : ''}`}>
 
         {/* Left: native sticky panel bounded by the two-column review layout */}
         <div className={aStyles.scoreColumnWrap}>

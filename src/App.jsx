@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { ThemeProvider } from './context/ThemeContext'
 import AppShell from './components/AppShell'
 import RequireSubscription from './components/RequireSubscription'
 import Landing from './pages/Landing'
@@ -22,6 +23,7 @@ import Contact from './pages/Contact'
 
 export default function App() {
   return (
+    <ThemeProvider>
     <AuthProvider>
       <HashRouter>
         <Routes>
@@ -48,5 +50,6 @@ export default function App() {
         </Routes>
       </HashRouter>
     </AuthProvider>
+    </ThemeProvider>
   )
 }

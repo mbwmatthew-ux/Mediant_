@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../lib/supabase'
 import { useState, useEffect, useRef } from 'react'
 import TunerModal from './Tuner'
@@ -39,6 +40,7 @@ const NAV_SECTIONS = [
 
 export default function AppShell() {
   const { user, subscription, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const nav = useNavigate()
   const location = useLocation()
   const [panel, setPanel]                   = useState(null)
@@ -179,6 +181,29 @@ export default function AppShell() {
                     </button>
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className={styles.acctSection}>
+              <p className={styles.acctSectionTitle}>Appearance</p>
+              <div className={styles.acctMenuList}>
+                <div className={styles.themeRow}>
+                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>
+                    {theme === 'dark' ? '🌙' : '☀️'}
+                  </span>
+                  <div className={styles.acctRowText}>
+                    <span className={styles.acctRowLabel}>{theme === 'dark' ? 'Dark mode' : 'Light mode'}</span>
+                    <span className={styles.acctRowSub}>Switch to {theme === 'dark' ? 'light' : 'dark'} theme</span>
+                  </div>
+                  <button
+                    className={styles.themeToggle}
+                    data-active={theme === 'light'}
+                    onClick={toggleTheme}
+                    aria-label="Toggle theme"
+                  >
+                    <span className={styles.themeToggleKnob} />
+                  </button>
+                </div>
               </div>
             </div>
 

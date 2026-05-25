@@ -6,16 +6,22 @@
   /* default align-items: stretch so left cell fills right column's full height */
 }
 
-/* Outer grid cell — stretches to the full height of the taller (right) column */
+/* Outer grid cell — reference frame for the absolutely-positioned panel.
+   position:sticky is broken here because .main has overflow-x:hidden which
+   makes its computed overflow-y:auto, turning it into a scroll container that
+   never scrolls. position:absolute bypasses all ancestor overflow/transform issues. */
 .scoreColumnWrap {
   min-height: 0;
+  position: relative;
 }
 
-/* Inner sticky window — JS sets height and top to define the visible region */
+/* JS-driven panel: top and height set on every scroll event */
 .scoreColumn {
+  left: 0;
   overflow: hidden;
-  position: sticky;
-  top: 16px; /* JS overrides this dynamically */
+  position: absolute;
+  top: 0;
+  width: 100%;
 }
 
 .scoreInner {
@@ -427,10 +433,10 @@
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 1024px) {
-  .reviewLayout      { grid-template-columns: 1fr; }
-  .scoreColumnWrap   { height: auto !important; }
-  .scoreColumn       { height: auto !important; overflow: visible; position: static; top: auto !important; }
-  .scoreInner        { transform: none !important; }
+  .reviewLayout    { grid-template-columns: 1fr; }
+  .scoreColumnWrap { position: static; min-height: 0; }
+  .scoreColumn     { height: auto !important; left: auto; overflow: visible; position: static !important; top: auto !important; width: auto; }
+  .scoreInner      { transform: none !important; }
 }
 
 @media (max-width: 700px) {

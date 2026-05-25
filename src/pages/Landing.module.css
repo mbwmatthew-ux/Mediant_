@@ -185,14 +185,14 @@
 
 /* ── Hero logo ───────────────────────────────────────────────── */
 .heroLogoLarge {
-  animation: heroLogoPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  animation-delay: 100ms;
+  animation: heroLogoFade 1.0s ease both;
+  animation-delay: 80ms;
   position: relative;
   z-index: 1;
 }
-@keyframes heroLogoPop {
-  0%   { opacity: 0; transform: scale(0); }
-  100% { opacity: 1; transform: scale(1); }
+@keyframes heroLogoFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* ── Hero wordmark ───────────────────────────────────────────── */
@@ -798,6 +798,209 @@
 
 .footerCopy { color: rgba(232,240,235,0.2); font-size: 0.8rem; margin: 0; }
 
+/* ── Instrument sections ──────────────────────────────────────── */
+.instrumentsSection {
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.instrumentBand {
+  align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  display: grid;
+  gap: 80px;
+  grid-template-columns: 1fr 1fr;
+  padding: 100px 80px;
+}
+
+.instrumentBandFlip { direction: rtl; }
+.instrumentBandFlip > * { direction: ltr; }
+
+.instrumentText {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.instrumentTitle {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.instrumentBody {
+  color: rgba(232,240,235,0.42);
+  font-size: 0.98rem;
+  line-height: 1.8;
+  margin: 0;
+  max-width: 440px;
+}
+
+.instrumentVisual {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  justify-content: center;
+  min-height: 340px;
+  position: relative;
+}
+
+.instrumentSvgWrap {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.instrumentGlow {
+  background: radial-gradient(ellipse at center, var(--glow-color, rgba(92,184,107,0.12)) 0%, transparent 70%);
+  border-radius: 50%;
+  height: 280px;
+  left: 50%;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 280px;
+}
+
+.instrumentSvg {
+  opacity: 0.75;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Floating notes ───────────────────────────────────────────── */
+@keyframes noteFloat {
+  0%   { opacity: 0; transform: translateY(0) scale(0.8); }
+  15%  { opacity: 0.7; }
+  85%  { opacity: 0.5; }
+  100% { opacity: 0; transform: translateY(-120px) scale(1.1) rotate(15deg); }
+}
+
+.notesContainer {
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.floatingNote {
+  animation: noteFloat var(--note-dur, 3s) ease-in-out var(--note-delay, 0s) infinite;
+  bottom: 10%;
+  left: var(--note-x, 30%);
+  opacity: 0;
+  position: absolute;
+  user-select: none;
+}
+
+/* ── Typing text box ──────────────────────────────────────────── */
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.typeBox {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.typeBoxBar {
+  align-items: center;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  gap: 7px;
+  padding: 10px 14px;
+}
+
+.typeBoxDot {
+  background: rgba(255,255,255,0.1);
+  border-radius: 50%;
+  height: 9px;
+  width: 9px;
+}
+
+.typeBoxLabel {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+
+.typeBoxBody {
+  padding: 16px 18px 18px;
+}
+
+.typeBoxText {
+  color: rgba(232,240,235,0.65);
+  font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 0.78rem;
+  line-height: 1.75;
+  margin: 0;
+  min-height: 80px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.typeCursor {
+  animation: cursorBlink 0.85s ease-in-out infinite;
+  border-radius: 1px;
+  display: inline-block;
+  height: 0.85em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  width: 2px;
+}
+
+/* ── Piano section ────────────────────────────────────────────── */
+.pianoBand {
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  overflow: hidden;
+  padding: 100px 80px;
+  text-align: center;
+}
+
+.pianoHead {
+  margin-bottom: 60px;
+}
+
+.pianoVisualWrap {
+  margin-bottom: 48px;
+  position: relative;
+}
+
+.pianoFadeLeft,
+.pianoFadeRight {
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 100px;
+  z-index: 2;
+}
+.pianoFadeLeft  { background: linear-gradient(to right, #09110c, transparent); left: 0; }
+.pianoFadeRight { background: linear-gradient(to left,  #09110c, transparent); right: 0; }
+
+.pianoBoxes {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, 1fr);
+  text-align: left;
+}
+
+/* ── Responsive additions ─────────────────────────────────────── */
 /* ── Responsive ───────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .nav          { padding: 0 20px; }
@@ -814,4 +1017,9 @@
   .stepArrow    { display: none; }
   .ctaSection   { padding: 100px 20px; }
   .footer       { gap: 16px; grid-template-columns: 1fr; padding: 24px 20px; }
+  .instrumentBand { gap: 48px; grid-template-columns: 1fr; padding: 70px 24px; }
+  .instrumentBandFlip { direction: ltr; }
+  .instrumentVisual { min-height: 220px; }
+  .pianoBoxes   { grid-template-columns: 1fr; }
+  .pianoBand    { padding: 70px 24px; }
 }

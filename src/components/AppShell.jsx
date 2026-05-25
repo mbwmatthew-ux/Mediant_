@@ -262,8 +262,8 @@ function LogoMark() {
       WebkitMaskMode: 'luminance',
       mask: `url('/logo-mark.png') center/contain no-repeat`,
       maskMode: 'luminance',
-      transition: 'opacity 150ms ease',
       cursor: 'pointer',
+      animation: 'logoFadeIn 0.7s ease both',
     }} />
   )
 }

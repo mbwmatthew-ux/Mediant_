@@ -43,6 +43,185 @@ const STATS = [
   { value: 100, suffix: '%', label: 'Your recordings stay private' },
 ]
 
+/* ── Instrument section helpers ── */
+const NOTES = ['♩', '♪', '♫', '♬']
+
+function FloatingNotes({ count = 6, color = '#5cb86b' }) {
+  return (
+    <div className={styles.notesContainer} aria-hidden>
+      {Array.from({ length: count }).map((_, i) => (
+        <span
+          key={i}
+          className={styles.floatingNote}
+          style={{
+            '--note-delay': `${i * 0.55}s`,
+            '--note-x':     `${12 + (i * 15) % 74}%`,
+            '--note-dur':   `${2.6 + (i % 3) * 0.8}s`,
+            color,
+            fontSize: `${0.9 + (i % 3) * 0.35}rem`,
+          }}
+        >
+          {NOTES[i % NOTES.length]}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function TypeBox({ lines, accentColor = '#5cb86b', active }) {
+  const [displayed, setDisplayed] = useState('')
+  const [charIdx, setCharIdx]     = useState(0)
+  const [done, setDone]           = useState(false)
+  const timerRef = useRef(null)
+  const fullText = lines.join('\n')
+
+  useEffect(() => {
+    if (!active) return
+    setDisplayed('')
+    setCharIdx(0)
+    setDone(false)
+  }, [active])
+
+  useEffect(() => {
+    if (!active || done) return
+    if (charIdx < fullText.length) {
+      timerRef.current = setTimeout(() => {
+        setDisplayed(fullText.slice(0, charIdx + 1))
+        setCharIdx(c => c + 1)
+      }, 24 + Math.random() * 20)
+    } else {
+      setDone(true)
+    }
+    return () => clearTimeout(timerRef.current)
+  }, [active, charIdx, done, fullText])
+
+  return (
+    <div className={styles.typeBox}>
+      <div className={styles.typeBoxBar}>
+        <div className={styles.typeBoxDot} />
+        <div className={styles.typeBoxDot} />
+        <div className={styles.typeBoxDot} />
+        <span className={styles.typeBoxLabel} style={{ color: accentColor }}>Mediant Analysis</span>
+      </div>
+      <div className={styles.typeBoxBody}>
+        <pre className={styles.typeBoxText}>
+          {displayed}
+          {!done && active && <span className={styles.typeCursor} style={{ background: accentColor }} />}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function useInView(threshold = 0.12) {
+  const ref = useRef(null)
+  const [inView, setInView] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setInView(true) },
+      { threshold }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [threshold])
+  return [ref, inView]
+}
+
+/* ── SVG instruments ── */
+function ClarinetSVG() {
+  return (
+    <svg viewBox="0 0 80 380" fill="none" xmlns="http://www.w3.org/2000/svg" className={styles.instrumentSvg} style={{ height: 300, width: 'auto' }}>
+      <rect x="33" y="18" width="14" height="300" rx="7" fill="rgba(232,240,235,0.04)" stroke="rgba(232,240,235,0.18)" strokeWidth="1.5"/>
+      <path d="M26 318 Q40 375 54 318" fill="rgba(232,240,235,0.04)" stroke="rgba(232,240,235,0.18)" strokeWidth="1.5"/>
+      <rect x="35" y="4" width="10" height="16" rx="3" fill="rgba(232,240,235,0.08)" stroke="rgba(232,240,235,0.25)" strokeWidth="1.5"/>
+      {[60,98,136,174,212,250,288].map((y, i) => (
+        <ellipse key={i} cx={i % 2 === 0 ? 28 : 52} cy={y} rx="5" ry="3.5" fill="rgba(92,184,107,0.25)" stroke="rgba(92,184,107,0.5)" strokeWidth="1"/>
+      ))}
+      {[80,118,156,194,232].map((y, i) => (
+        <circle key={i} cx="40" cy={y} r="3" fill="rgba(232,240,235,0.06)" stroke="rgba(232,240,235,0.15)" strokeWidth="1"/>
+      ))}
+    </svg>
+  )
+}
+
+function CelloSVG() {
+  return (
+    <svg viewBox="0 0 160 440" fill="none" xmlns="http://www.w3.org/2000/svg" className={styles.instrumentSvg} style={{ height: 300, width: 'auto' }}>
+      <path d="M50 110 Q18 90 18 66 Q18 34 55 24 Q80 18 105 24 Q142 34 142 66 Q142 90 110 110" fill="rgba(232,240,235,0.03)" stroke="rgba(232,240,235,0.18)" strokeWidth="1.5"/>
+      <path d="M50 110 Q34 144 38 176 Q42 208 50 212" stroke="rgba(232,240,235,0.18)" strokeWidth="1.5" fill="none"/>
+      <path d="M110 110 Q126 144 122 176 Q118 208 110 212" stroke="rgba(232,240,235,0.18)" strokeWidth="1.5" fill="none"/>
+      <path d="M50 212 Q14 232 14 278 Q14 334 80 348 Q146 334 146 278 Q146 232 110 212" fill="rgba(232,240,235,0.03)" stroke="rgba(232,240,235,0.18)" strokeWidth="1.5"/>
+      <rect x="70" y="0" width="20" height="28" rx="4" fill="rgba(232,240,235,0.05)" stroke="rgba(232,240,235,0.2)" strokeWidth="1.5"/>
+      <path d="M70 0 Q60 -8 65 -16 Q70 -22 80 -18 Q86 -12 80 -4" stroke="rgba(232,240,235,0.24)" strokeWidth="1.5" fill="none"/>
+      {[-5,-1,1,5].map((x, i) => (
+        <line key={i} x1={80+x} y1={-4} x2={80+x*0.3} y2={338} stroke="rgba(232,240,235,0.14)" strokeWidth="0.8"/>
+      ))}
+      <path d="M57 248 Q54 258 57 270 Q59 274 56 282" stroke="rgba(232,240,235,0.28)" strokeWidth="1.2" fill="none"/>
+      <path d="M103 248 Q106 258 103 270 Q101 274 104 282" stroke="rgba(232,240,235,0.28)" strokeWidth="1.2" fill="none"/>
+      <path d="M65 302 L75 297 L85 297 L95 302" stroke="rgba(214,177,104,0.45)" strokeWidth="1.2" fill="none"/>
+      <line x1="80" y1="348" x2="80" y2="395" stroke="rgba(232,240,235,0.16)" strokeWidth="2"/>
+    </svg>
+  )
+}
+
+function PianoSVG() {
+  return (
+    <svg viewBox="0 0 600 160" fill="none" xmlns="http://www.w3.org/2000/svg" className={styles.instrumentSvg} style={{ width: '100%', height: 'auto', maxWidth: 600 }}>
+      <path d="M30 36 L130 8 L570 8 L570 36 Q570 46 560 46 L40 46 Q30 46 30 36Z" fill="rgba(232,240,235,0.04)" stroke="rgba(232,240,235,0.14)" strokeWidth="1.5"/>
+      <rect x="30" y="46" width="540" height="84" rx="4" fill="rgba(232,240,235,0.03)" stroke="rgba(232,240,235,0.12)" strokeWidth="1.5"/>
+      {Array.from({ length: 22 }).map((_, i) => (
+        <rect key={i} x={38 + i * 23} y="50" width="21" height="72" rx="2" fill="rgba(232,240,235,0.08)" stroke="rgba(232,240,235,0.1)" strokeWidth="1"/>
+      ))}
+      {[1,2,4,5,6,8,9,11,12,13,15,16,18,19].map((pos, i) => (
+        <rect key={i} x={38 + pos * 23 + 13} y="50" width="14" height="48" rx="2" fill="rgba(9,17,12,0.9)" stroke="rgba(232,240,235,0.08)" strokeWidth="1"/>
+      ))}
+      <ellipse cx="248" cy="143" rx="13" ry="7" fill="rgba(214,177,104,0.2)" stroke="rgba(214,177,104,0.4)" strokeWidth="1"/>
+      <ellipse cx="280" cy="143" rx="13" ry="7" fill="rgba(214,177,104,0.2)" stroke="rgba(214,177,104,0.4)" strokeWidth="1"/>
+      <ellipse cx="312" cy="143" rx="13" ry="7" fill="rgba(214,177,104,0.2)" stroke="rgba(214,177,104,0.4)" strokeWidth="1"/>
+    </svg>
+  )
+}
+
+const CLARINET_LINES = [
+  'Analyzing m.12 — clarinet entrance...',
+  '',
+  'Timing: 18ms early on the pickup.',
+  'Intonation: high D sits sharp.',
+  '',
+  '→ Ease into the triplet run.',
+  '  Let the phrase land on the beat.',
+]
+
+const CELLO_LINES = [
+  'Issue · m.24 — bow pressure',
+  '',
+  'Sustained G shows uneven tone —',
+  'bow speed drops mid-note.',
+  '',
+  '→ Keep arm weight constant.',
+  '  Contact point: middle of bow.',
+]
+
+const PIANO_LINES_1 = [
+  'Dynamics · m.8',
+  'Left hand too prominent.',
+  '→ Soften bass to mp.',
+]
+
+const PIANO_LINES_2 = [
+  'Voicing · m.16',
+  'Inner voices masking soprano.',
+  '→ Weight the top line.',
+]
+
+const PIANO_LINES_3 = [
+  'Timing · m.31',
+  'Rubato slightly rushed.',
+  '→ Hold the phrase peak.',
+]
+
 /* ── Logo mark ── */
 function AnimatedLogo({ size = 28 }) {
   return (
@@ -119,6 +298,9 @@ export default function Landing() {
   const [wordIdx, setWordIdx]         = useState(0)
   const [wordVisible, setWordVisible] = useState(true)
   const canvasRef = useRef(null)
+  const [clarinetRef, clarinetInView] = useInView()
+  const [celloRef,    celloInView]    = useInView()
+  const [pianoRef,    pianoInView]    = useInView()
 
   /* ── Waveform canvas (breathing, not scrolling) ── */
   useEffect(() => {
@@ -271,6 +453,77 @@ export default function Landing() {
             />
           ))}
         </div>
+      </section>
+
+      {/* ── Instruments ── */}
+      <section className={styles.instrumentsSection}>
+
+        {/* Clarinet — instrument on right */}
+        <div className={`${styles.instrumentBand} ${styles.revealL}`} ref={clarinetRef}>
+          <div className={styles.instrumentText}>
+            <span className={styles.sectionLabel}>Woodwinds</span>
+            <h2 className={styles.instrumentTitle}>Measure-by-measure<br />clarity for wind players</h2>
+            <p className={styles.instrumentBody}>
+              Mediant catches timing drift, intonation shifts, and tonal inconsistencies that are easy to miss in the moment — flagged to the exact measure.
+            </p>
+            <TypeBox lines={CLARINET_LINES} accentColor="#5cb86b" active={clarinetInView} />
+          </div>
+          <div className={`${styles.instrumentVisual} ${styles.revealR}`} style={{ '--d': '80ms' }}>
+            <div className={styles.instrumentSvgWrap}>
+              <div className={styles.instrumentGlow} style={{ '--glow-color': 'rgba(92,184,107,0.12)' }} />
+              <ClarinetSVG />
+            </div>
+            <div className={styles.notesContainer} aria-hidden>
+              <FloatingNotes count={7} color="#5cb86b" />
+            </div>
+          </div>
+        </div>
+
+        {/* Cello — instrument on left */}
+        <div className={`${styles.instrumentBand} ${styles.instrumentBandFlip} ${styles.revealR}`} ref={celloRef}>
+          <div className={styles.instrumentText}>
+            <span className={styles.sectionLabel}>Strings</span>
+            <h2 className={styles.instrumentTitle}>Bow technique feedback<br />you can act on</h2>
+            <p className={styles.instrumentBody}>
+              From bow pressure to phrasing shape — Mediant hears what your ear misses and tells you exactly what to adjust next session.
+            </p>
+            <TypeBox lines={CELLO_LINES} accentColor="#d6b168" active={celloInView} />
+          </div>
+          <div className={`${styles.instrumentVisual} ${styles.revealL}`} style={{ '--d': '80ms' }}>
+            <div className={styles.instrumentSvgWrap}>
+              <div className={styles.instrumentGlow} style={{ '--glow-color': 'rgba(214,177,104,0.1)' }} />
+              <CelloSVG />
+            </div>
+            <div className={styles.notesContainer} aria-hidden>
+              <FloatingNotes count={6} color="#d6b168" />
+            </div>
+          </div>
+        </div>
+
+        {/* Piano — full width center */}
+        <div className={`${styles.pianoBand} ${styles.reveal}`} ref={pianoRef}>
+          <div className={styles.pianoHead}>
+            <span className={styles.sectionLabel}>Keyboard</span>
+            <h2 className={styles.instrumentTitle}>Every voice, every hand,<br />every measure</h2>
+            <p className={styles.instrumentBody} style={{ maxWidth: 520, margin: '0 auto' }}>
+              Piano analysis tracks both hands independently — voicing balance, dynamic shaping, and rhythmic precision all at once.
+            </p>
+          </div>
+          <div className={styles.pianoVisualWrap}>
+            <div className={styles.pianoFadeLeft} />
+            <div className={styles.pianoFadeRight} />
+            <div className={styles.notesContainer} aria-hidden>
+              <FloatingNotes count={10} color="#5cb86b" />
+            </div>
+            <PianoSVG />
+          </div>
+          <div className={styles.pianoBoxes}>
+            <TypeBox lines={PIANO_LINES_1} accentColor="#5cb86b"  active={pianoInView} />
+            <TypeBox lines={PIANO_LINES_2} accentColor="#d6b168" active={pianoInView} />
+            <TypeBox lines={PIANO_LINES_3} accentColor="#5cb86b"  active={pianoInView} />
+          </div>
+        </div>
+
       </section>
 
       {/* ── Features ── */}

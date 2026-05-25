@@ -1,0 +1,386 @@
+/* ── Issue section (replaces chip strip) ───────────────────── */
+.issueSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.issueSectionHeader {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.issueSortHint {
+  color: var(--text-faintest);
+  font-size: 0.74rem;
+}
+
+.issueClean {
+  align-items: center;
+  color: #8fbe9f;
+  display: flex;
+  font-size: 0.9rem;
+  font-weight: 500;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+/* ── Issue card grid ───────────────────────────────────────── */
+.issueGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.issueCard {
+  align-items: flex-start;
+  background: var(--surface-subtle);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px 16px 16px;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+  width: 100%;
+}
+.issueCard:hover { background: var(--surface-hover); transform: translateY(-1px); }
+
+.issueCardActive {
+  background: rgba(88,121,101,0.08);
+  border-color: rgba(88,121,101,0.35);
+}
+.issueCardActive:hover { background: rgba(88,121,101,0.12); }
+
+.issueCardTop {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  width: 100%;
+}
+
+.issueTypeIcon {
+  align-items: center;
+  border-radius: 7px;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 0.88rem;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.iconGreen { background: rgba(88,121,101,0.2);   color: #8fbe9f; }
+.iconGold  { background: rgba(214,177,104,0.18); color: var(--gold); }
+.iconCoral { background: rgba(225,134,118,0.18); color: var(--coral); }
+
+.issueMeasureNum {
+  color: var(--text-faint);
+  font-size: 0.79rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.issueConfDot {
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 6px;
+  margin-left: auto;
+  width: 6px;
+}
+
+.issueCardType {
+  color: var(--text-faint);
+  font-size: 0.67rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.issueCardTitle {
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+/* ── Inline detail panel (shown below grid when card is selected) ── */
+.issueDetailPanel {
+  background: var(--surface-subtle);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.issueDetailTop {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  padding: 12px 18px;
+}
+
+.issueDetailBadge {
+  align-items: center;
+  border-radius: 6px;
+  display: inline-flex;
+  font-size: 0.82rem;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+  flex-shrink: 0;
+}
+
+.issueDetailMeasure {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.issueDetailType {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.issueDetailConf {
+  font-size: 0.72rem;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.issueDetailDismiss {
+  background: none;
+  border: none;
+  color: var(--text-faintest);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  margin-left: 4px;
+  padding: 4px 6px;
+  transition: color 140ms ease;
+}
+.issueDetailDismiss:hover { color: var(--text-soft); }
+
+.issueDetailBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 20px;
+}
+
+.issueDetailTitle {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.issueDetailText {
+  color: var(--text-soft);
+  font-size: 0.87rem;
+  line-height: 1.75;
+  margin: 0;
+}
+
+.issueDetailActions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.loopBtn {
+  background: var(--hero-green);
+  border: 0;
+  border-radius: 7px;
+  color: white;
+  font-size: 0.83rem;
+  padding: 8px 16px;
+  transition: filter 140ms ease;
+}
+.loopBtn:hover { filter: brightness(1.1); }
+
+.loopStopBtn {
+  background: var(--coral);
+  border: 0;
+  border-radius: 7px;
+  color: white;
+  font-size: 0.83rem;
+  padding: 8px 16px;
+  transition: filter 140ms ease;
+}
+.loopStopBtn:hover { filter: brightness(1.1); }
+
+.excerptTime {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Score area — now full-width ───────────────────────────── */
+.scoreSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Chat section — standalone below score ─────────────────── */
+.chatSection {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 24px;
+}
+
+.chatSectionHeader {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.chatContextPill {
+  background: rgba(225,134,118,0.12);
+  border: 1px solid rgba(225,134,118,0.3);
+  border-radius: 999px;
+  color: var(--coral);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+/* ── Summary section ───────────────────────────────────────── */
+.summarySection {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 28px;
+}
+
+.summaryOverview {
+  background: var(--surface-subtle);
+  border-left: 3px solid rgba(88,121,101,0.5);
+  border-radius: 0 8px 8px 0;
+  padding: 16px 20px;
+}
+
+.summaryOverviewText {
+  color: var(--text-soft);
+  font-size: 0.92rem;
+  line-height: 1.8;
+  margin: 0;
+}
+
+.summaryGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.summaryGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.summaryGroupHeader {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.summaryGroupIcon {
+  align-items: center;
+  border-radius: 6px;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.summaryGroupType {
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.summaryGroupCount {
+  color: var(--text-faintest);
+  font-size: 0.76rem;
+  margin-left: auto;
+}
+
+.summaryItems {
+  display: flex;
+  flex-direction: column;
+}
+
+.summaryItem {
+  border-bottom: 1px solid var(--surface-hover);
+  display: grid;
+  gap: 0 16px;
+  grid-template-columns: 44px 1fr;
+  grid-template-rows: auto auto;
+  padding: 16px 0;
+}
+.summaryItem:last-child { border-bottom: 0; }
+
+.summaryItemMeasure {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  grid-column: 1;
+  grid-row: 1;
+  padding-top: 2px;
+}
+
+.summaryItemTitle {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  grid-column: 2;
+  grid-row: 1;
+  line-height: 1.4;
+}
+
+.summaryItemDetail {
+  color: var(--text-soft);
+  font-size: 0.86rem;
+  grid-column: 2;
+  grid-row: 2;
+  line-height: 1.75;
+  margin: 8px 0 0;
+}
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .issueGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .issueGrid { grid-template-columns: 1fr; }
+  .summaryItem { grid-template-columns: 36px 1fr; }
+}

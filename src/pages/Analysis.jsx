@@ -1,11 +1,29 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { supabase } from '../lib/supabase'
 import MasterclassPanel from '../components/MasterclassPanel'
 import styles from './Page.module.css'
+import aStyles from './Analysis.module.css'
+import { playTick } from '../utils/sounds'
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
+
+const TYPE_META = {
+  technique:    { icon: '⊙', cls: 'iconGreen' },
+  intonation:   { icon: '♯', cls: 'iconCoral' },
+  rhythm:       { icon: '♩', cls: 'iconGold'  },
+  timing:       { icon: '♩', cls: 'iconGold'  },
+  dynamics:     { icon: 'ƒ', cls: 'iconCoral' },
+  articulation: { icon: '▸', cls: 'iconGold'  },
+  tone:         { icon: '◎', cls: 'iconGreen' },
+  phrasing:     { icon: '∿', cls: 'iconGold'  },
+  expression:   { icon: '∿', cls: 'iconGold'  },
+  posture:      { icon: '⊕', cls: 'iconGreen' },
+}
+function flagTypeMeta(type) {
+  return TYPE_META[(type ?? '').toLowerCase()] ?? { icon: '◆', cls: 'iconCoral' }
+}
 
 function timeAgo(iso) {
   if (!iso) return null
@@ -59,7 +77,6 @@ export default function Analysis() {
   const [scoreReady, setScoreReady]   = useState(false)
   const [highlights, setHighlights]   = useState([])  // [{flagId, x, y, w, h}]
   const [videoSpeed, setVideoSpeed]   = useState(1)
-  const [mobileTab, setMobileTab]     = useState('score')
 
   // Keyboard shortcut state ref — always current without re-registering the listener
   const kbRef = useRef({})
@@ -385,9 +402,30 @@ export default function Analysis() {
   const score         = take?.score
   const hasScore      = !!scoreUrl || !!scoreFileForPiece(pieceTitle)
   const analysisQuality = take?.analysis_quality ?? null
-  const analysisBackend = take?.analysis_backend ?? null
 
   const info = activeFlag ? flagsMap[activeFlag] : null
+
+  // Chips sorted by measure for the new issue grid
+  const sortedChips = useMemo(() => {
+    return [...chips].sort((a, b) => {
+      const ia = parseInt(a.flag.replace('flag_', ''), 10)
+      const ib = parseInt(b.flag.replace('flag_', ''), 10)
+      const ma = take?.flags?.[ia]?.measure ?? 0
+      const mb = take?.flags?.[ib]?.measure ?? 0
+      return ma - mb
+    })
+  }, [chips, take?.flags])
+
+  // Flags grouped by type for the summary section
+  const groupedByType = useMemo(() => {
+    const groups = {}
+    take?.flags?.forEach(f => {
+      const t = f.type ?? 'general'
+      if (!groups[t]) groups[t] = []
+      groups[t].push(f)
+    })
+    return groups
+  }, [take?.flags])
 
   if (take === undefined) {
     return (
@@ -432,21 +470,27 @@ export default function Analysis() {
 
   return (
     <div className={styles.page}>
+
+      {/* ── Header ── */}
       <div className={styles.header}>
         <div>
           <p className={styles.label}>Score Review</p>
           <h1 className={styles.reviewTitle}>{pieceTitle}</h1>
           <p className={styles.sub}>
-            {pieceComposer}{instrument ? ` · ${instrument}` : ''} · {issueCount} issue{issueCount !== 1 ? 's' : ''} found
-            {score != null && <> · <span style={{ color: scoreColor(score) }}>{score}/100</span></>}
+            {[pieceComposer, instrument].filter(Boolean).join(' · ')}
+            {score != null && (
+              <> · <span style={{ color: scoreColor(score), fontWeight: 600 }}>{score}/100</span></>
+            )}
             {analysisQuality?.trust && (
               <> · <span style={{
                 color: analysisQuality.trust === 'high' ? 'var(--hero-green)' : analysisQuality.trust === 'medium' ? 'var(--gold)' : 'var(--coral)',
                 fontWeight: 500,
-              }}>{analysisQuality.trust === 'high' ? '● High confidence' : analysisQuality.trust === 'medium' ? '◑ Medium confidence' : '○ Low confidence'}</span></>
+              }}>
+                {analysisQuality.trust === 'high' ? '● High confidence' : analysisQuality.trust === 'medium' ? '◑ Medium confidence' : '○ Low confidence'}
+              </span></>
             )}
             {timeAgo(take?.created_at ?? take?.date) && (
-              <> · <span style={{ color: 'rgba(248,246,242,0.35)' }}>Analyzed {timeAgo(take?.created_at ?? take?.date)}</span></>
+              <> · <span style={{ color: 'rgba(248,246,242,0.32)' }}>Analyzed {timeAgo(take?.created_at ?? take?.date)}</span></>
             )}
           </p>
         </div>
@@ -455,58 +499,110 @@ export default function Analysis() {
         </div>
       </div>
 
+      {/* ── Confidence notices ── */}
       {analysisQuality?.trust === 'low' && Array.isArray(analysisQuality.reasons) && analysisQuality.reasons.length > 0 && (
         <div className={`${styles.analysisNotice} ${styles.analysisNoticeLow}`}>
           <p className={styles.analysisNoticeTitle}>Analysis confidence was too low for precise feedback</p>
           <ul className={styles.analysisNoticeList}>
-            {analysisQuality.reasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
+            {analysisQuality.reasons.map(r => <li key={r}>{r}</li>)}
           </ul>
           <p style={{ marginTop: 8, fontSize: 13, opacity: 0.75 }}>Try uploading a MusicXML file for higher accuracy, or record a cleaner excerpt with less background noise.</p>
         </div>
       )}
-
       {analysisQuality?.trust === 'medium' && Array.isArray(analysisQuality.reasons) && analysisQuality.reasons.length > 0 && (
         <div className={`${styles.analysisNotice} ${styles.analysisNoticeMedium}`}>
           <p className={styles.analysisNoticeTitle}>Medium confidence — feedback may be slightly imprecise</p>
           <ul className={styles.analysisNoticeList}>
-            {analysisQuality.reasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
+            {analysisQuality.reasons.map(r => <li key={r}>{r}</li>)}
           </ul>
           <p style={{ marginTop: 8, fontSize: 13, opacity: 0.75 }}>For higher accuracy, upload a MusicXML or MXL file instead of a photo or PDF.</p>
         </div>
       )}
 
-      <div className={styles.issueStrip}>
-        <span className={styles.issueStripLabel}>Issues:</span>
-        {chips.length === 0
-          ? (
-            <span className={styles.issueStripHint} style={{ color: 'var(--hero-green)', fontWeight: 500 }}>
-              ✓ Clean performance — no issues detected. Great work.
-            </span>
-          )
-          : <>
-              {chips.map(({ flag, label, confidence }) => {
-                const confColor = confidence >= 90 ? 'var(--hero-green)' : confidence >= 75 ? 'var(--gold)' : 'rgba(248,246,242,0.4)'
-                return (
-                  <button
-                    key={flag}
-                    className={`${styles.issueChip} ${activeFlag === flag ? styles.issueChipActive : ''}`}
-                    onClick={() => setActiveFlag(activeFlag === flag ? null : flag)}
-                  >
-                    <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: confColor, marginRight: 6, verticalAlign: 'middle', flexShrink: 0 }} />
-                    {label}
-                  </button>
-                )
-              })}
-              <span className={styles.issueStripHint}>Click an issue to read feedback. ● high confidence · ◐ medium · ○ lower</span>
-            </>
-        }
-      </div>
+      {/* ── Issue grid ── */}
+      <section className={aStyles.issueSection}>
+        <div className={aStyles.issueSectionHeader}>
+          <p className={styles.label}>
+            {issueCount > 0
+              ? `${issueCount} Issue${issueCount !== 1 ? 's' : ''} Found`
+              : 'Issues'}
+          </p>
+          {issueCount > 0 && (
+            <span className={aStyles.issueSortHint}>Sorted by measure · click to review</span>
+          )}
+        </div>
 
-      {/* ── Persistent video player ── */}
+        {issueCount === 0 ? (
+          <div className={aStyles.issueClean}>✓ Clean performance — no issues detected.</div>
+        ) : (
+          <div className={aStyles.issueGrid}>
+            {sortedChips.map(({ flag, confidence }) => {
+              const idx  = parseInt(flag.replace('flag_', ''), 10)
+              const f    = take.flags[idx]
+              const meta = flagTypeMeta(f?.type)
+              const confColor = confidence >= 90 ? 'var(--hero-green)' : confidence >= 75 ? 'var(--gold)' : 'rgba(248,246,242,0.2)'
+              return (
+                <button
+                  key={flag}
+                  className={`${aStyles.issueCard} ${activeFlag === flag ? aStyles.issueCardActive : ''}`}
+                  onClick={() => { playTick(); setActiveFlag(activeFlag === flag ? null : flag) }}
+                >
+                  <div className={aStyles.issueCardTop}>
+                    <span className={`${aStyles.issueTypeIcon} ${aStyles[meta.cls]}`}>{meta.icon}</span>
+                    <span className={aStyles.issueMeasureNum}>m.{f?.measure}</span>
+                    <span className={aStyles.issueConfDot} style={{ background: confColor }} />
+                  </div>
+                  <span className={aStyles.issueCardType}>{capitalize(f?.type)}</span>
+                  <span className={aStyles.issueCardTitle}>{f?.title}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Inline detail panel — shown below grid when a card is selected */}
+        {info && (
+          <div className={aStyles.issueDetailPanel}>
+            <div className={aStyles.issueDetailTop}>
+              <span className={`${aStyles.issueDetailBadge} ${aStyles[flagTypeMeta(activeFlagRaw?.type).cls]}`}>
+                {flagTypeMeta(activeFlagRaw?.type).icon}
+              </span>
+              <span className={aStyles.issueDetailMeasure}>m.{activeFlagRaw?.measure}</span>
+              <span className={aStyles.issueDetailType}>{capitalize(activeFlagRaw?.type)}</span>
+              {info.confidence != null && (
+                <span className={aStyles.issueDetailConf} style={{
+                  color: info.confidence >= 90 ? 'var(--hero-green)' : info.confidence >= 75 ? 'var(--gold)' : 'rgba(248,246,242,0.4)',
+                }}>
+                  {info.confidence >= 90 ? '● high' : info.confidence >= 75 ? '◑ medium' : '○ lower'} confidence
+                </span>
+              )}
+              <button className={aStyles.issueDetailDismiss} onClick={() => setActiveFlag(null)}>✕</button>
+            </div>
+            <div className={aStyles.issueDetailBody}>
+              <h3 className={aStyles.issueDetailTitle}>{info.title}</h3>
+              <p className={aStyles.issueDetailText}>{info.body}</p>
+              {videoUrl && hasTimestamps && (
+                <div className={aStyles.issueDetailActions}>
+                  {!isLooping ? (
+                    <button className={aStyles.loopBtn} onClick={() => startLoop(activeFlagRaw)}>
+                      ▶ Loop m.{activeFlagRaw.measure}
+                    </button>
+                  ) : (
+                    <button className={aStyles.loopStopBtn} onClick={stopLoop}>
+                      ■ Stop loop
+                    </button>
+                  )}
+                  <span className={aStyles.excerptTime}>
+                    {Number(activeFlagRaw.timestamp_start).toFixed(1)}s – {Number(activeFlagRaw.timestamp_end).toFixed(1)}s
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Video player ── */}
       {videoUrl && (
         <div className={styles.videoBar}>
           <span className={styles.videoBarLabel}>Recording</span>
@@ -526,70 +622,39 @@ export default function Analysis() {
                   key={s}
                   className={`${styles.speedBtn} ${videoSpeed === s ? styles.speedBtnActive : ''}`}
                   onClick={() => setVideoSpeed(s)}
-                >
-                  {s}×
-                </button>
+                >{s}×</button>
               ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* Mobile tab switcher — hidden on desktop via CSS */}
-      <div className={styles.mobileTabs}>
-        <button className={`${styles.mobileTab} ${mobileTab === 'score' ? styles.mobileTabActive : ''}`} onClick={() => setMobileTab('score')}>Score</button>
-        <button className={`${styles.mobileTab} ${mobileTab === 'issues' ? styles.mobileTabActive : ''}`} onClick={() => setMobileTab('issues')}>
-          Issues{chips.length > 0 ? ` (${chips.length})` : ''}
-        </button>
-        <button className={`${styles.mobileTab} ${mobileTab === 'chat' ? styles.mobileTabActive : ''}`} onClick={() => setMobileTab('chat')}>Chat</button>
-      </div>
-
-      <div className={styles.reviewBody}>
-        <div className={`${styles.scoreArea} ${mobileTab !== 'score' ? styles.mobileHide : ''}`}>
-          {/* Photo or PDF uploaded by user — with bbox overlays */}
+      {/* ── Sheet music score ── */}
+      {(isVisualScore || !isVisualScore) && (
+        <div className={styles.scoreArea}>
           {isVisualScore && scoreUrl && (
             (take?.score_path ?? '').toLowerCase().endsWith('.pdf') ? (
-              <iframe
-                src={scoreUrl}
-                className={styles.scorePdf}
-                title="Sheet music"
-              />
+              <iframe src={scoreUrl} className={styles.scorePdf} title="Sheet music" />
             ) : (
               <div style={{ position: 'relative', display: 'inline-block', width: '100%' }}>
-                <img
-                  src={scoreUrl}
-                  className={styles.scorePhoto}
-                  alt="Sheet music"
-                />
+                <img src={scoreUrl} className={styles.scorePhoto} alt="Sheet music" />
                 {(take?.flags ?? []).map((f, i) => {
                   if (!f.spot) return null
                   const flagId = `flag_${i}`
-                  const active = activeFlag === flagId
-                  if (!active) return null
+                  if (activeFlag !== flagId) return null
                   const [y0, x0, y1, x1] = f.spot
                   const angle = f.spot_angle ?? 0
-                  // Center the div at the midpoint, then rotate around that center
-                  const cx = (x0 + x1) / 2 / 10
-                  const cy = (y0 + y1) / 2 / 10
-                  const w  = (x1 - x0) / 10
-                  const h  = (y1 - y0) / 10
+                  const cx = (x0 + x1) / 2 / 10, cy = (y0 + y1) / 2 / 10
+                  const w = (x1 - x0) / 10,       h  = (y1 - y0) / 10
                   return (
-                    <div
-                      key={flagId}
-                      onClick={() => setActiveFlag(a => a === flagId ? null : flagId)}
+                    <div key={flagId} onClick={() => setActiveFlag(a => a === flagId ? null : flagId)}
                       style={{
-                        position:        'absolute',
-                        left:            `${cx}%`,
-                        top:             `${cy}%`,
-                        width:           `${w}%`,
-                        height:          `${h}%`,
-                        transform:       `translate(-50%, -50%) rotate(${angle}deg)`,
+                        position: 'absolute', left: `${cx}%`, top: `${cy}%`,
+                        width: `${w}%`, height: `${h}%`,
+                        transform: `translate(-50%, -50%) rotate(${angle}deg)`,
                         transformOrigin: 'center center',
-                        background:      active ? 'rgba(210,60,60,0.38)' : 'rgba(210,60,60,0.18)',
-                        borderRadius:    3,
-                        cursor:          'pointer',
-                        transition:      'background 150ms ease',
-                        pointerEvents:   'auto',
+                        background: 'rgba(88,121,101,0.28)', borderRadius: 3,
+                        cursor: 'pointer', transition: 'background 150ms ease',
                       }}
                     />
                   )
@@ -597,8 +662,6 @@ export default function Analysis() {
               </div>
             )
           )}
-
-          {/* OSMD render target + highlight overlays (MusicXML only) */}
           {!isVisualScore && (
             <>
               {!hasScore && scoreReady && (
@@ -610,20 +673,12 @@ export default function Analysis() {
               <div style={{ position: 'relative' }}>
                 <div ref={scoreEl} />
                 {scoreReady && highlights.map(({ flagId, x, y, w, h }) => (
-                  <div
-                    key={flagId}
-                    onClick={() => setActiveFlag(f => f === flagId ? null : flagId)}
+                  <div key={flagId} onClick={() => setActiveFlag(f => f === flagId ? null : flagId)}
                     style={{
-                      position:     'absolute',
-                      left:         x,
-                      top:          y,
-                      width:        w,
-                      height:       h,
-                      background:   activeFlag === flagId ? 'rgba(225,134,118,0.18)' : 'rgba(225,134,118,0.09)',
-                      border:       '1.5px solid rgba(225,134,118,0.5)',
-                      borderRadius: 6,
-                      cursor:       'pointer',
-                      transition:   'background 150ms ease',
+                      position: 'absolute', left: x, top: y, width: w, height: h,
+                      background: activeFlag === flagId ? 'rgba(88,121,101,0.2)' : 'rgba(88,121,101,0.08)',
+                      border: `1.5px solid rgba(88,121,101,${activeFlag === flagId ? '0.55' : '0.3'})`,
+                      borderRadius: 6, cursor: 'pointer', transition: 'background 150ms ease',
                     }}
                   />
                 ))}
@@ -631,120 +686,104 @@ export default function Analysis() {
             </>
           )}
         </div>
+      )}
 
-        <aside className={`${styles.feedbackSidebar} ${mobileTab === 'score' ? styles.mobileHide : ''}`}>
-          <div className={`${styles.feedbackPanel} ${mobileTab === 'chat' ? styles.mobileHide : ''}`}>
-            {!info ? (
-              <div className={styles.feedbackIdle}>
-                <span className={styles.feedbackIdleIcon}>♩</span>
-                <p>Click a highlighted measure in the score, or one of the issue chips above, to read Mediant's feedback.</p>
-              </div>
-            ) : (
-              <div className={styles.feedbackDetail}>
-                <p className={styles.detailTag}>
-                  {info.tag}
-                  {info.confidence != null && (
-                    <span style={{
-                      marginLeft: 10,
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: info.confidence >= 90 ? 'var(--hero-green)' : info.confidence >= 75 ? 'var(--gold)' : 'rgba(248,246,242,0.45)',
-                    }}>
-                      {info.confidence >= 90 ? '● high' : info.confidence >= 75 ? '◑ medium' : '○ lower'} confidence
-                    </span>
-                  )}
-                </p>
-                <h3 className={styles.detailTitle}>{info.title}</h3>
-                <p className={styles.detailBody}>{info.body}</p>
-
-                {/* Loop controls — video is in the persistent player above */}
-                {videoUrl && hasTimestamps && (
-                  <div className={styles.excerptControls}>
-                    {!isLooping ? (
-                      <button className={styles.loopBtn} onClick={() => startLoop(activeFlagRaw)}>
-                        ▶ Loop m.{activeFlagRaw.measure}
-                      </button>
-                    ) : (
-                      <button className={styles.loopBtn} style={{ background: 'var(--coral)' }} onClick={stopLoop}>
-                        ■ Stop loop
-                      </button>
-                    )}
-                    <span className={styles.excerptTime}>
-                      {Number(activeFlagRaw.timestamp_start).toFixed(1)}s – {Number(activeFlagRaw.timestamp_end).toFixed(1)}s
-                    </span>
-                  </div>
-                )}
-
-                {videoUrl && !hasTimestamps && (
-                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
-                    Video timestamps unavailable — this feedback is based on the sheet music.
-                    Re-upload your recording for measure-level video looping.
-                  </p>
-                )}
-
-                <button className={styles.dismissBtn} onClick={() => setActiveFlag(null)}>Dismiss</button>
-              </div>
-            )}
-          </div>
-
-          <div className={`${styles.chatSection} ${mobileTab === 'issues' ? styles.mobileHide : ''}`}>
-            <div className={styles.chatHeader}>
-              <p className={styles.chatLabel}>Ask Mediant</p>
-              {activeFlagRaw && (
-                <span className={styles.chatContextPill}>
-                  Re: m.{activeFlagRaw.measure} · {capitalize(activeFlagRaw.type)}
+      {/* ── Ask Mediant chat ── */}
+      <section className={aStyles.chatSection}>
+        <div className={aStyles.chatSectionHeader}>
+          <p className={styles.label}>Ask Mediant</p>
+          {activeFlagRaw && (
+            <span className={aStyles.chatContextPill}>
+              Re: m.{activeFlagRaw.measure} · {capitalize(activeFlagRaw.type)}
+            </span>
+          )}
+        </div>
+        <div className={styles.chatMessages}>
+          {chatMessages.length === 0 && (
+            <p className={styles.chatEmpty}>
+              {activeFlagRaw
+                ? `Ask about m.${activeFlagRaw.measure} · ${capitalize(activeFlagRaw.type)}, or anything else about your performance.`
+                : 'Select an issue above, then ask Mediant about it — or ask anything about your performance.'}
+            </p>
+          )}
+          {chatMessages.map((m, i) => (
+            <div key={i} className={m.role === 'user' ? styles.chatMsgUser : styles.chatMsgAI}>
+              {m.role === 'user' && m.flagContext && (
+                <span className={styles.chatMsgContext}>
+                  Re: m.{m.flagContext.measure} · {capitalize(m.flagContext.type)}
                 </span>
               )}
+              {m.content}
             </div>
-            <div className={styles.chatMessages}>
-              {chatMessages.length === 0 && (
-                <p className={styles.chatEmpty}>
-                  {activeFlagRaw
-                    ? `Ask about m.${activeFlagRaw.measure} · ${capitalize(activeFlagRaw.type)}, or anything else about your performance.`
-                    : 'Select an issue above, then ask Mediant about it — or ask anything about your performance.'}
-                </p>
-              )}
-              {chatMessages.map((m, i) => (
-                <div key={i} className={m.role === 'user' ? styles.chatMsgUser : styles.chatMsgAI}>
-                  {m.role === 'user' && m.flagContext && (
-                    <span className={styles.chatMsgContext}>
-                      Re: m.{m.flagContext.measure} · {capitalize(m.flagContext.type)}
-                    </span>
-                  )}
-                  {m.content}
-                </div>
-              ))}
-              {chatLoading && (
-                <div className={styles.chatMsgAI}>
-                  <span className={styles.chatTyping}>···</span>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-            <div className={styles.chatInputRow}>
-              <input
-                className={styles.chatInput}
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                placeholder="Ask about your performance…"
-                disabled={chatLoading}
-              />
-              <button
-                className={styles.chatSend}
-                onClick={sendMessage}
-                disabled={chatLoading || !chatInput.trim()}
-              >↑</button>
-            </div>
-          </div>
-        </aside>
-      </div>
+          ))}
+          {chatLoading && (
+            <div className={styles.chatMsgAI}><span className={styles.chatTyping}>···</span></div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+        <div className={styles.chatInputRow}>
+          <input
+            className={styles.chatInput}
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+            placeholder="Ask about your performance…"
+            disabled={chatLoading}
+          />
+          <button
+            className={styles.chatSend}
+            onClick={sendMessage}
+            disabled={chatLoading || !chatInput.trim()}
+          >↑</button>
+        </div>
+      </section>
 
-      <MasterclassPanel
-        pieceTitle={pieceTitle}
-        composer={pieceComposer}
-        instrument={instrument}
-      />
+      {/* ── Performance summary ── */}
+      {take?.flags?.length > 0 && (
+        <section className={aStyles.summarySection}>
+          <p className={styles.label}>Performance Summary</p>
+
+          <div className={aStyles.summaryOverview}>
+            <p className={aStyles.summaryOverviewText}>
+              {issueCount} issue{issueCount !== 1 ? 's' : ''} {issueCount === 1 ? 'was' : 'were'} identified
+              {pieceTitle ? ` in your performance of ${pieceTitle}` : ''}.
+              {score != null ? ` Your overall score was ${score}/100.` : ''}
+              {' '}The areas requiring attention are{' '}
+              {Object.keys(groupedByType).map(t => capitalize(t)).join(', ')}.
+            </p>
+          </div>
+
+          <div className={aStyles.summaryGroups}>
+            {Object.entries(groupedByType).map(([type, flags]) => {
+              const meta = flagTypeMeta(type)
+              return (
+                <div key={type} className={aStyles.summaryGroup}>
+                  <div className={aStyles.summaryGroupHeader}>
+                    <span className={`${aStyles.summaryGroupIcon} ${aStyles[meta.cls]}`}>{meta.icon}</span>
+                    <span className={aStyles.summaryGroupType}>{capitalize(type)}</span>
+                    <span className={aStyles.summaryGroupCount}>
+                      {flags.length} issue{flags.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className={aStyles.summaryItems}>
+                    {flags.map((f, i) => (
+                      <div key={i} className={aStyles.summaryItem}>
+                        <span className={aStyles.summaryItemMeasure}>m.{f.measure}</span>
+                        <span className={aStyles.summaryItemTitle}>{f.title}</span>
+                        {(f.detail ?? f.body) && (
+                          <p className={aStyles.summaryItemDetail}>{f.detail ?? f.body}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      <MasterclassPanel pieceTitle={pieceTitle} composer={pieceComposer} instrument={instrument} />
     </div>
   )
 }

@@ -17,6 +17,7 @@ import Takes from './pages/Takes'
 import Profile from './pages/Profile'
 import Coach from './pages/Coach'
 import ProgressFeedback from './pages/ProgressFeedback'
+import Settings from './pages/Settings'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import Contact from './pages/Contact'
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="/coach"    element={<Coach />} />
             <Route path="/progress" element={<ProgressFeedback />} />
             <Route path="/profile"  element={<Profile />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

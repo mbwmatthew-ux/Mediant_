@@ -1,13 +1,11 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useTheme } from '../context/ThemeContext'
-import { supabase } from '../lib/supabase'
 import { useState, useEffect, useRef } from 'react'
 import TunerModal from './Tuner'
 import MetronomeModal from './Metronome'
 import ErrorBoundary from './ErrorBoundary'
 import styles from './AppShell.module.css'
-import { playNav, playPop, playThud } from '../utils/sounds'
+import { playNav } from '../utils/sounds'
 
 const NOTIFICATIONS = []
 
@@ -36,43 +34,29 @@ const NAV_SECTIONS = [
     key: 'system',
     label: 'SYSTEM',
     items: [
-      { action: 'account', label: 'Settings', icon: SettingsIcon, live: true },
+      { to: '/settings', label: 'Settings', icon: SettingsIcon, live: true },
     ],
   },
 ]
 
 export default function AppShell() {
-  const { user, subscription, logout } = useAuth()
-  const { theme, toggleTheme } = useTheme()
+  const { user, subscription } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
-  const [panel, setPanel]                   = useState(null)
-  const [notifications, setNotifications]   = useState(NOTIFICATIONS)
-  const [expanded, setExpanded]             = useState(null)
-  const [editName, setEditName]             = useState(user?.name ?? '')
-  const [editInstrument, setEditInstrument] = useState(user?.instrument ?? 'Piano')
-  const [showTuner,      setShowTuner]      = useState(false)
-  const [showMetronome,  setShowMetronome]  = useState(false)
+  const [panel, setPanel]                 = useState(null)
+  const [notifications, setNotifications] = useState(NOTIFICATIONS)
+  const [showTuner,      setShowTuner]    = useState(false)
+  const [showMetronome,  setShowMetronome]= useState(false)
   const notifRef = useRef(null)
-
-  function handleLogout() {
-    logout()
-    nav('/')
-  }
 
   function markAllRead() {
     setNotifications(ns => ns.map(n => ({ ...n, unread: false })))
   }
 
-  function toggle(key) {
-    setExpanded(e => e === key ? null : key)
-  }
-
   function handleNavAction(action) {
     playNav()
-    if (action === 'tuner')      setShowTuner(true)
+    if (action === 'tuner')    setShowTuner(true)
     if (action === 'metronome') setShowMetronome(true)
-    if (action === 'account')   setPanel(p => p === 'account' ? null : 'account')
   }
 
   useEffect(() => {
@@ -101,191 +85,6 @@ export default function AppShell() {
 
   return (
     <div className={styles.shell}>
-
-      {/* Full-screen account overlay */}
-      {panel === 'account' && (
-        <div className={styles.accountOverlay}>
-          <div className={styles.accountHeader}>
-            <button className={styles.accountBackBtn} onClick={() => { playThud(); setPanel(null) }}>
-              <BackIcon /> Back
-            </button>
-          </div>
-
-          <div className={styles.accountBody}>
-            <div className={styles.acctProfile}>
-              <div className={styles.acctAvatar}>{initials}</div>
-              <div>
-                <strong className={styles.acctName}>{user?.name ?? 'Guest'}</strong>
-                <span className={styles.acctEmail}>{user?.email}</span>
-                <span className={styles.acctPlanBadge}>
-                  {subscription?.plan ? `${subscription.plan} plan` : 'Free plan'}
-                </span>
-              </div>
-            </div>
-
-            <div className={styles.acctSection}>
-              <p className={styles.acctSectionTitle}>Your account</p>
-              <div className={styles.acctMenuList}>
-                <button className={styles.acctRow} onClick={() => toggle('profile')}>
-                  <span className={`${styles.acctRowIcon} ${styles.iconGold}`}>◯</span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>Edit profile</span>
-                    <span className={styles.acctRowSub}>{user?.name} · {user?.instrument ?? 'No instrument set'}</span>
-                  </div>
-                  <span className={styles.acctRowChevron}>{expanded === 'profile' ? '∨' : '›'}</span>
-                </button>
-                {expanded === 'profile' && (
-                  <div className={styles.acctExpanded}>
-                    <div className={styles.acctExpandRow}>
-                      <label className={styles.acctExpandLabel}>Name</label>
-                      <input
-                        className={styles.acctExpandInput}
-                        value={editName}
-                        onChange={e => setEditName(e.target.value)}
-                        placeholder="Your name"
-                      />
-                    </div>
-                    <div className={styles.acctExpandRow}>
-                      <label className={styles.acctExpandLabel}>Instrument</label>
-                      <select className={styles.acctPrefSelect} value={editInstrument} onChange={e => setEditInstrument(e.target.value)}>
-                        {['Piano','Violin','Cello','Viola','Guitar','Flute','Clarinet','Trumpet','Saxophone','Oboe','Horn','Harp','Other'].map(i => <option key={i}>{i}</option>)}
-                      </select>
-                    </div>
-                    <button className={styles.acctSaveBtn} onClick={async () => {
-                      await supabase.auth.updateUser({ data: { name: editName, instrument: editInstrument } })
-                      toggle('profile')
-                    }}>Save profile</button>
-                  </div>
-                )}
-
-                <button className={styles.acctRow} onClick={() => { setPanel(null); nav('/pricing') }}>
-                  <span className={`${styles.acctRowIcon} ${styles.iconGold}`}>◈</span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>Plan & billing</span>
-                    <span className={styles.acctRowSub}>
-                      {subscription?.plan
-                        ? `${subscription.plan} plan · Active`
-                        : 'Free plan · Upgrade for unlimited analyses'}
-                    </span>
-                  </div>
-                  <span className={styles.acctRowChevron}>›</span>
-                </button>
-
-                <button className={styles.acctRow} onClick={() => toggle('privacy')}>
-                  <span className={`${styles.acctRowIcon} ${styles.iconGreen}`}>⊙</span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>Privacy & data</span>
-                    <span className={styles.acctRowSub}>Manage your practice data</span>
-                  </div>
-                  <span className={styles.acctRowChevron}>{expanded === 'privacy' ? '∨' : '›'}</span>
-                </button>
-                {expanded === 'privacy' && (
-                  <div className={styles.acctExpanded}>
-                    <p className={styles.acctExpandBody}>Your recordings and analysis results are stored locally in your browser and are never shared with third parties. Analysis is processed securely and is subject to our privacy policy.</p>
-                    <button className={styles.acctDangerBtn} onClick={() => { localStorage.clear(); setPanel(null) }}>
-                      Clear all local data
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className={styles.acctSection}>
-              <p className={styles.acctSectionTitle}>Appearance</p>
-              <div className={styles.acctMenuList}>
-                <div className={styles.themeRow}>
-                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>
-                    {theme === 'dark' ? '🌙' : '☀️'}
-                  </span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>{theme === 'dark' ? 'Dark mode' : 'Light mode'}</span>
-                    <span className={styles.acctRowSub}>Switch to {theme === 'dark' ? 'light' : 'dark'} theme</span>
-                  </div>
-                  <button
-                    className={styles.themeToggle}
-                    data-active={theme === 'light'}
-                    onClick={toggleTheme}
-                    aria-label="Toggle theme"
-                  >
-                    <span className={styles.themeToggleKnob} />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.acctSection}>
-              <p className={styles.acctSectionTitle}>Help & resources</p>
-              <div className={styles.acctMenuList}>
-                <button className={styles.acctRow} onClick={() => toggle('scoring')}>
-                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>◎</span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>How scoring works</span>
-                    <span className={styles.acctRowSub}>Learn how Mediant grades your performance</span>
-                  </div>
-                  <span className={styles.acctRowChevron}>{expanded === 'scoring' ? '∨' : '›'}</span>
-                </button>
-                {expanded === 'scoring' && (
-                  <div className={styles.acctExpanded}>
-                    <p className={styles.acctExpandBody}>Mediant scores your performance from 0–100 based on timing accuracy, dynamic control, articulation, and intonation. Each flagged measure reduces the score slightly. Scores above 88 are marked green, 74–87 gold, and below 74 coral. Practice specific flagged sections to improve your score over time.</p>
-                  </div>
-                )}
-
-                <button className={styles.acctRow} onClick={() => toggle('shortcuts')}>
-                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>⌨</span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>Keyboard shortcuts</span>
-                    <span className={styles.acctRowSub}>Speed up your workflow</span>
-                  </div>
-                  <span className={styles.acctRowChevron}>{expanded === 'shortcuts' ? '∨' : '›'}</span>
-                </button>
-                {expanded === 'shortcuts' && (
-                  <div className={styles.acctExpanded}>
-                    {[
-                      ['Space', 'Play / pause'],
-                      ['← →', 'Previous / next measure'],
-                      ['L', 'Toggle loop on current section'],
-                      ['Esc', 'Close any panel'],
-                      ['R', 'Go to upload recording'],
-                      ['S', 'Go to score review'],
-                    ].map(([key, desc]) => (
-                      <div key={key} className={styles.shortcutRow}>
-                        <kbd className={styles.shortcutKey}>{key}</kbd>
-                        <span className={styles.shortcutDesc}>{desc}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <a className={styles.acctRow} href="mailto:mediantteam@gmail.com">
-                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>✉</span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>Contact support</span>
-                    <span className={styles.acctRowSub}>mediantteam@gmail.com</span>
-                  </div>
-                  <span className={styles.acctRowChevron}>›</span>
-                </a>
-              </div>
-            </div>
-
-            <div className={styles.acctSection}>
-              <p className={styles.acctSectionTitle}>About</p>
-              <div className={styles.acctMenuList}>
-                <div className={styles.acctRow} style={{ cursor: 'default' }}>
-                  <span className={`${styles.acctRowIcon} ${styles.iconMuted}`}>ℹ</span>
-                  <div className={styles.acctRowText}>
-                    <span className={styles.acctRowLabel}>Mediant</span>
-                    <span className={styles.acctRowSub}>Version 0.1 · Music performance analysis</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <button className={styles.acctSignOutBtn} onClick={handleLogout}>
-              <span>↩</span> Sign out
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Tuner modal */}
       {showTuner && <TunerModal onClose={() => setShowTuner(false)} />}
@@ -354,7 +153,7 @@ export default function AppShell() {
           {/* User profile */}
           <button
             className={styles.sidebarUser}
-            onClick={() => { playNav(); setPanel(p => p === 'account' ? null : 'account') }}
+            onClick={() => { playNav(); nav('/settings') }}
           >
             <div className={styles.sidebarAvatar}>{initials}</div>
             <div className={styles.sidebarUserInfo}>

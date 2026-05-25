@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getFile } from '../lib/fileStore'
 import styles from './Page.module.css'
+import { playDrop, playAnalyzeStart, playAnalyzeComplete, playThud } from '../utils/sounds'
 
 const INSTRUMENTS = [
   'Piano', 'Violin', 'Viola', 'Cello', 'Double Bass',
@@ -95,6 +96,7 @@ export default function Record() {
     setScoreDrag(false)
     const f = e.dataTransfer.files[0]
     if (!f) return
+    playDrop()
     setScoreFile(f)
     runOcr(f)
   }
@@ -102,6 +104,7 @@ export default function Record() {
   function handleScoreFile(e) {
     const f = e.target.files[0]
     if (!f) return
+    playDrop()
     setScoreFile(f)
     runOcr(f)
   }
@@ -129,10 +132,12 @@ export default function Record() {
   function handleVideoDrop(e) {
     e.preventDefault()
     setVideoDrag(false)
+    playDrop()
     applyVideoFile(e.dataTransfer.files[0])
   }
 
   function handleVideoFile(e) {
+    playDrop()
     applyVideoFile(e.target.files[0])
   }
 
@@ -204,6 +209,7 @@ export default function Record() {
       return
     }
 
+    playAnalyzeStart()
     setPhase('uploading')
     setProgress(0)
     setErrorMsg('')
@@ -336,7 +342,8 @@ export default function Record() {
       } catch { /* ignore storage errors */ }
 
       setProgress(100)
-      setTimeout(() => nav(`/analysis?takeId=${encodeURIComponent(jobId)}`), 400)
+      playAnalyzeComplete()
+      setTimeout(() => nav(`/analysis?takeId=${encodeURIComponent(jobId)}`), 700)
 
     } catch (err) {
       setErrorMsg(err.message ?? 'Something went wrong. Please try again.')
@@ -398,7 +405,7 @@ export default function Record() {
               ))}
             </ul>
           )}
-          <button className={styles.errorRetry} onClick={() => setPhase('idle')}>Try again</button>
+          <button className={styles.errorRetry} onClick={() => { playThud(); setPhase('idle') }}>Try again</button>
         </div>
       )}
 

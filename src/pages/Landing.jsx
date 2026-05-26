@@ -116,6 +116,112 @@ function StatCard({ value, suffix, label, delay }) {
   )
 }
 
+function PianoShowcase() {
+  const whiteKeys = Array.from({ length: 30 })
+  const blackKeys = [1, 2, 4, 5, 6, 8, 9, 11, 12, 13, 15, 16, 18, 19, 20, 22, 23, 25, 26, 28]
+
+  return (
+    <section className={`${styles.pianoShowcase} ${styles.reveal}`}>
+      <div className={styles.pianoCopy}>
+        <p className={styles.sectionLabel}>Keyboard analysis</p>
+        <h2 className={styles.pianoTitle}>A living score map for every voice at the piano.</h2>
+        <p className={styles.pianoBody}>
+          Mediant separates melody, accompaniment, timing, and voicing into a visual layer that feels calm, precise, and teacher-led.
+        </p>
+      </div>
+
+      <div className={styles.pianoStage} aria-hidden="true">
+        <div className={styles.pianoHalo} />
+        <svg className={styles.pianoLineArt} viewBox="0 0 960 560" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="pianoLine" x1="88" y1="84" x2="875" y2="452" gradientUnits="userSpaceOnUse">
+              <stop stopColor="rgba(232,240,235,0.14)" />
+              <stop offset="0.48" stopColor="rgba(232,240,235,0.36)" />
+              <stop offset="1" stopColor="rgba(92,184,107,0.44)" />
+            </linearGradient>
+            <linearGradient id="keySweep" x1="180" y1="356" x2="745" y2="356" gradientUnits="userSpaceOnUse">
+              <stop stopColor="rgba(92,184,107,0.08)" />
+              <stop offset="0.5" stopColor="rgba(214,177,104,0.5)" />
+              <stop offset="1" stopColor="rgba(92,184,107,0.08)" />
+            </linearGradient>
+          </defs>
+
+          <g className={styles.pianoDraw} stroke="url(#pianoLine)" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M142 184 L156 123 Q162 95 194 86 L719 86 Q769 88 798 124 L872 216 Q903 255 863 295 L759 398 Q713 444 641 448 L223 448 Q172 445 151 406 L101 318 Q80 280 106 245 Z" />
+            <path d="M154 184 L720 184 Q790 188 854 238" />
+            <path d="M185 216 L712 216 Q778 219 833 260" />
+            <path d="M203 247 L736 247 Q782 250 812 278" />
+            <path d="M235 278 L744 278" />
+            <path d="M252 311 L716 311" />
+            <path d="M214 119 L710 119 Q750 121 775 151 L847 232" opacity="0.62" />
+            <path d="M288 97 L741 97" opacity="0.26" />
+            <path d="M689 126 L765 410" opacity="0.38" />
+            <path d="M181 184 Q244 142 363 132 Q515 119 704 135" opacity="0.24" />
+            <path d="M742 185 Q780 256 754 398" opacity="0.28" />
+          </g>
+
+          <g className={styles.pianoKeys}>
+            <path d="M179 328 L745 328 L707 420 L216 420 Z" />
+            {whiteKeys.map((_, i) => (
+              <rect
+                key={i}
+                className={styles.pianoWhiteKey}
+                x={204 + i * 17}
+                y="341"
+                width="14"
+                height="58"
+                rx="2"
+                style={{ '--ki': i }}
+              />
+            ))}
+            {blackKeys.map((pos, i) => (
+              <rect
+                key={i}
+                className={styles.pianoBlackKey}
+                x={212 + pos * 17}
+                y="341"
+                width="10"
+                height="35"
+                rx="2"
+                style={{ '--ki': i + 6 }}
+              />
+            ))}
+            <path className={styles.pianoKeySweep} d="M210 405 L705 405" />
+          </g>
+
+          <g className={styles.pianoPedals} stroke="rgba(214,177,104,0.42)" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M387 421 Q383 451 364 476 L572 476 Q548 451 543 421" />
+            <path d="M423 477 Q433 494 452 494 Q471 494 481 477" />
+            <path d="M504 477 Q514 494 533 494 Q552 494 562 477" />
+          </g>
+
+          <g className={styles.pianoAnalysisMarks}>
+            <circle cx="363" cy="350" r="7" />
+            <circle cx="383" cy="350" r="4" />
+            <circle cx="537" cy="350" r="7" />
+            <path d="M363 350 C413 315 490 315 537 350" />
+            <g>
+              <rect x="338" y="302" width="56" height="25" rx="12.5" />
+              <text x="366" y="319" textAnchor="middle">m.8</text>
+            </g>
+            <g>
+              <rect x="515" y="300" width="58" height="25" rx="12.5" />
+              <text x="544" y="317" textAnchor="middle">LH</text>
+            </g>
+          </g>
+
+          <rect className={styles.pianoScan} x="150" y="48" width="2" height="420" />
+        </svg>
+
+        <div className={styles.pianoFeedback}>
+          <span className={styles.pianoFeedbackKicker}>Mediant sees</span>
+          <p>m.8 - the left hand rushes the arpeggio. Let the accompaniment breathe so the melody stays supported.</p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export default function Landing() {
   const [wordIdx, setWordIdx]         = useState(0)
   const [wordVisible, setWordVisible] = useState(true)
@@ -274,6 +380,7 @@ export default function Landing() {
         </div>
       </section>
 
+      <PianoShowcase />
 
       {/* ── Features ── */}
       <section className={styles.features}>

@@ -162,7 +162,8 @@
 .body {
   display: grid;
   flex: 1;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-width: 0;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────── */
@@ -315,6 +316,7 @@
 .main {
   background: var(--bg);
   min-height: calc(100vh - 48px);
+  min-width: 0;
   overflow-x: clip;
 }
 

@@ -1,9 +1,13 @@
 /* ── Base page ─────────────────────────────────────────────── */
 .page {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 28px;
+  max-width: 100%;
   min-height: 100vh;
+  min-width: 0;
+  overflow-x: clip;
   padding: 32px 40px 60px;
 }
 
@@ -56,6 +60,7 @@
   display: flex;
   justify-content: space-between;
   gap: 24px;
+  min-width: 0;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
@@ -69,10 +74,13 @@
 }
 
 .analysisNotice {
+  box-sizing: border-box;
   border-radius: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-width: 100%;
+  min-width: 0;
   padding: 16px 18px;
 }
 
@@ -909,9 +917,12 @@
 .videoBar {
   background: #000;
   border-radius: 10px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 0;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   border: 1px solid var(--line);
 }
@@ -937,6 +948,7 @@
   align-items: center;
   background: rgba(0,0,0,0.75);
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 7px 14px 10px;
 }
@@ -949,7 +961,7 @@
   text-transform: uppercase;
 }
 
-.speedBtns { display: flex; gap: 4px; }
+.speedBtns { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 
 .speedBtn {
   background: rgba(255,255,255,0.07);

@@ -160,7 +160,7 @@ const SHUFFLE_ITEMS = [
   { color: '#e18676', text: 'Detecting timing drift in measures 12–15...' },
   { color: '#d6b168', text: 'Mapping pitch accuracy across 47 notes...' },
   { color: '#5cb86b', text: 'Comparing this take to your last session...' },
-  { color: '#a58fe8', text: 'Generating targeted practice feedback...' },
+  { color: '#5cb86b', text: 'Generating targeted practice feedback...' },
 ]
 
 function ShuffleCards({ idx }) {

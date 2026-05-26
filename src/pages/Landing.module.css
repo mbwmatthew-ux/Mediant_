@@ -350,16 +350,12 @@
 .shuffleGhostCard { pointer-events: none; }
 
 .shuffleGhostNear {
-  background: rgba(92,184,107,0.12);
-  border: 1px solid rgba(92,184,107,0.22);
   top: 11px;
   transform: scaleX(0.92);
   z-index: 2;
 }
 
 .shuffleGhostFar {
-  background: rgba(92,184,107,0.07);
-  border: 1px solid rgba(92,184,107,0.14);
   top: 21px;
   transform: scaleX(0.82);
   z-index: 1;

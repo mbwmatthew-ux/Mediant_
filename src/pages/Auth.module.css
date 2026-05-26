@@ -1,6 +1,12 @@
 /* ── Auth pages (Login + Signup) ─────────────────────────── */
+@keyframes publicPageIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .page {
   align-items: center;
+  animation: publicPageIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
   background: var(--bg);
   display: flex;
   flex-direction: column;
@@ -91,11 +97,15 @@
   font-size: 0.95rem;
   outline: none;
   padding: 13px 16px;
-  transition: border-color 180ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 .input::placeholder { color: var(--text-muted); }
 .input:focus,
-.select:focus { border-color: var(--accent); }
+.select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(92,184,107,0.15);
+  outline: none;
+}
 
 .error {
   background: rgba(225, 134, 118, 0.1);

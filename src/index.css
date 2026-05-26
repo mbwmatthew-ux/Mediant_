@@ -97,3 +97,20 @@ a { text-decoration: none; color: inherit; }
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
+
+/* ── Cursor glow ── */
+body::after {
+  background: radial-gradient(600px circle at var(--cx, -9999px) var(--cy, -9999px), rgba(92,184,107,0.045) 0%, transparent 70%);
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 9998;
+}
+[data-theme="light"] body::after { display: none; }
+
+/* ── Public page fade-in ── */
+@keyframes publicPageIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

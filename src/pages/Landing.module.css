@@ -103,7 +103,7 @@
   background: rgba(0,0,0,0.88);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.09);
   display: flex;
   height: 54px;
   justify-content: space-between;
@@ -436,8 +436,8 @@
 
 /* ── Stats ────────────────────────────────────────────────────── */
 .statsSection {
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.09);
+  border-top: 1px solid rgba(255,255,255,0.09);
   padding: 0;
 }
 
@@ -451,7 +451,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 64px 48px;
-  border-right: 1px solid rgba(255,255,255,0.05);
+  border-right: 1px solid rgba(255,255,255,0.09);
   transition: background 300ms ease;
 }
 .statCard:last-child { border-right: none; }
@@ -603,7 +603,7 @@
 .feedItem {
   animation: feedItemIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
   animation-delay: var(--di, 0ms);
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.09);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -649,7 +649,7 @@
 
 /* ── Features ─────────────────────────────────────────────────── */
 .features {
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(255,255,255,0.09);
   padding: 110px 80px;
 }
 
@@ -669,7 +669,7 @@
 
 .featureRow {
   align-items: center;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(255,255,255,0.09);
   display: flex;
   gap: 80px;
   padding: 80px 0;
@@ -743,8 +743,8 @@
 /* ── How it works ─────────────────────────────────────────────── */
 .howItWorks {
   background: rgba(0,0,0,0.22);
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.09);
+  border-top: 1px solid rgba(255,255,255,0.09);
   padding: 110px 80px;
 }
 
@@ -829,7 +829,7 @@
 /* ── Footer ───────────────────────────────────────────────────── */
 .footer {
   align-items: center;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(255,255,255,0.09);
   display: grid;
   gap: 24px;
   grid-template-columns: 1fr auto auto;
@@ -859,7 +859,7 @@
 
 /* ── Instrument sections ──────────────────────────────────────── */
 .instrumentsSection {
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(255,255,255,0.09);
 }
 
 .instrumentBand {
@@ -867,7 +867,7 @@
   background:
     radial-gradient(circle at var(--glow-x, 66%) var(--glow-y, 42%), var(--scene-glow, rgba(214,177,104,0.12)) 0%, transparent 28%),
     linear-gradient(135deg, rgba(3,9,7,0.98), rgba(7,18,13,0.96) 52%, rgba(2,7,5,0.98));
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.09);
   display: block;
   min-height: 640px;
   overflow: hidden;
@@ -1064,7 +1064,7 @@
 /* ── Analysis section ──────────────────────────────────────────── */
 .analysisSection {
   align-items: center;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(255,255,255,0.09);
   display: flex;
   flex-direction: column;
   gap: 72px;
@@ -1258,7 +1258,7 @@
   .nav          { padding: 0 20px; }
   .hero         { gap: 22px; min-height: 75vh; padding: 90px 20px 70px; }
   .statsGrid    { grid-template-columns: 1fr; }
-  .statCard     { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.05); padding: 40px 24px; }
+  .statCard     { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.09); padding: 40px 24px; }
   .proofSection { padding: 80px 20px; }
   .analysisSection  { gap: 48px; padding: 80px 24px; }
   .analysisStatusMeta { display: none; }

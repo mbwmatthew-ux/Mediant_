@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { supabase } from '../lib/supabase'
 import MasterclassPanel from '../components/MasterclassPanel'
+import { SkeletonCard } from '../components/Skeleton'
 import styles from './Page.module.css'
 import aStyles from './Analysis.module.css'
 import { playTick } from '../utils/sounds'
@@ -488,6 +489,11 @@ export default function Analysis() {
         <div className={styles.analyzeScreen}>
           <div className={styles.analyzeIcon}>♩</div>
           <p className={styles.analyzeSub}>Loading your analysis…</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24, width: '100%', maxWidth: 480 }}>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
         </div>
       </div>
     )

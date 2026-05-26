@@ -180,16 +180,13 @@ function ShuffleCards({ idx }) {
 
   return (
     <div className={styles.shuffleWrap}>
-      <div className={`${styles.shuffleGhostCard} ${styles.shuffleGhostFar}`}>
-        <span className={styles.shuffleDot} style={{ borderColor: gh2.color }} />
+      <div className={`${styles.shuffleGhostCard} ${styles.shuffleGhostFar}`} style={{ borderColor: gh2.color }}>
         <span className={styles.shuffleText}>{gh2.text}</span>
       </div>
-      <div className={`${styles.shuffleGhostCard} ${styles.shuffleGhostNear}`}>
-        <span className={styles.shuffleDot} style={{ borderColor: gh1.color }} />
+      <div className={`${styles.shuffleGhostCard} ${styles.shuffleGhostNear}`} style={{ borderColor: gh1.color }}>
         <span className={styles.shuffleText}>{gh1.text}</span>
       </div>
-      <div key={hist[0]} className={styles.shuffleCard}>
-        <span className={styles.shuffleDot} style={{ borderColor: cur.color, boxShadow: `0 0 8px 3px ${cur.color}55` }} />
+      <div key={hist[0]} className={styles.shuffleCard} style={{ borderColor: cur.color, boxShadow: `0 0 14px 2px ${cur.color}33` }}>
         <span className={styles.shuffleText}>{cur.text}</span>
       </div>
     </div>

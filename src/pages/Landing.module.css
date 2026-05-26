@@ -365,15 +365,6 @@
   z-index: 1;
 }
 
-.shuffleDot {
-  background: transparent;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-  flex-shrink: 0;
-  height: 10px;
-  width: 10px;
-}
-
 .shuffleText {
   color: rgba(232,240,235,0.82);
   font-size: 0.92rem;
@@ -382,10 +373,8 @@
   text-overflow: ellipsis;
 }
 
-.shuffleGhostNear .shuffleText { color: rgba(92,184,107,0.55); }
-.shuffleGhostFar  .shuffleText { color: rgba(92,184,107,0.35); }
-.shuffleGhostNear .shuffleDot  { opacity: 0.55; }
-.shuffleGhostFar  .shuffleDot  { opacity: 0.35; }
+.shuffleGhostNear .shuffleText { color: rgba(92,184,107,0.45); }
+.shuffleGhostFar  .shuffleText { color: rgba(92,184,107,0.28); }
 
 .heroSub {
   color: rgba(232,240,235,0.45);

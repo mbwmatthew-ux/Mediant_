@@ -2,6 +2,9 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Landing.module.css'
 
+const ANALYSIS_TEXT =
+  "The triplet figures in mm. 12–15 are rushing by about 18ms ahead of the pulse — a common response to the harmonic tension building here, but it softens the improvisatory character Chopin intended. Try isolating mm. 13–14 at 76bpm: anchor on the left hand's bass octaves and let the right hand breathe over them rather than leading. Your voicing in the opening phrase is outstanding — carry that patience into this passage and the crescendo at m. 16 will land with real weight."
+
 const ROTATING_LINES = [
   { we: 'elevate', you: 'create',  color: '#a58fe8' },
   { we: 'listen',  you: 'perform', color: '#e18676' },
@@ -43,6 +46,78 @@ const STATS = [
   { value: 100, suffix: '%', label: 'Your recordings stay private' },
 ]
 
+
+/* ── IntersectionObserver hook ── */
+function useInView(threshold = 0.12) {
+  const ref = useRef(null)
+  const [inView, setInView] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setInView(true) },
+      { threshold }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [threshold])
+  return [ref, inView]
+}
+
+/* ── Typing caret animation (loops: type → highlight → clear → repeat) ── */
+function DocTyping({ text, active, delay = 0 }) {
+  const [displayed, setDisplayed] = useState('')
+  const [phase, setPhase]         = useState('idle')
+  const timerRef = useRef(null)
+
+  useEffect(() => {
+    if (!active) { setPhase('idle'); setDisplayed(''); return }
+    const id = setTimeout(() => setPhase('typing'), delay)
+    return () => clearTimeout(id)
+  }, [active, delay])
+
+  useEffect(() => {
+    clearTimeout(timerRef.current)
+    if (phase === 'idle') return
+
+    if (phase === 'typing') {
+      if (displayed.length < text.length) {
+        timerRef.current = setTimeout(
+          () => setDisplayed(text.slice(0, displayed.length + 1)),
+          95 + Math.random() * 75,
+        )
+      } else {
+        // Done typing — pause then enter highlight phase
+        timerRef.current = setTimeout(() => setPhase('selected'), 700)
+      }
+    } else if (phase === 'selected') {
+      // Hold highlight, then clear and loop
+      timerRef.current = setTimeout(() => {
+        setDisplayed('')
+        setPhase('pausing')
+      }, 900)
+    } else if (phase === 'pausing') {
+      timerRef.current = setTimeout(() => setPhase('typing'), 500)
+    }
+
+    return () => clearTimeout(timerRef.current)
+  }, [phase, displayed, text])
+
+  return (
+    <div className={styles.docTypingCard}>
+      <p className={styles.docText}>
+        <span className={phase === 'selected' ? styles.docSelected : undefined}>
+          {displayed}
+        </span>
+        {phase === 'typing' && (
+          <span className={styles.docCaret}>
+            <span className={styles.docCaretLabel}>Mediant</span>
+          </span>
+        )}
+      </p>
+    </div>
+  )
+}
 
 /* ── Logo mark ── */
 function AnimatedLogo({ size = 28 }) {
@@ -120,6 +195,7 @@ export default function Landing() {
   const [wordIdx, setWordIdx]         = useState(0)
   const [wordVisible, setWordVisible] = useState(true)
   const canvasRef = useRef(null)
+  const [analysisRef, analysisInView] = useInView(0.15)
 
   /* ── Waveform canvas (breathing, not scrolling) ── */
   useEffect(() => {
@@ -257,6 +333,39 @@ export default function Landing() {
         </div>
 
         <p className={styles.heroNote}>Free to start · No credit card · Any instrument</p>
+      </section>
+
+      {/* ── Analysis Demo ── */}
+      <section className={styles.analysisSection}>
+        <div className={`${styles.analysisHead} ${styles.reveal}`}>
+          <p className={styles.sectionLabel}>AI Analysis</p>
+          <h2 className={styles.analysisTitle}>Your personal<br />practice analyst</h2>
+          <p className={styles.analysisSub}>
+            Mediant doesn't just flag wrong notes. It reads the phrase, the style,
+            and the habit behind every mistake — then explains exactly what to fix and why.
+          </p>
+        </div>
+
+        <div className={`${styles.analysisDemo} ${styles.reveal}`} ref={analysisRef} style={{ '--d': '120ms' }}>
+          <div className={styles.analysisStatus}>
+            <span className={styles.analysisPulse} />
+            <span className={styles.analysisStatusText}>Mediant</span>
+            <span className={styles.analysisDivider}>·</span>
+            <span className={styles.analysisStatusMeta}>Chopin — Nocturne in E♭ major, Op. 9 No. 2</span>
+          </div>
+
+          <DocTyping text={ANALYSIS_TEXT} active={analysisInView} delay={400} />
+
+          <div className={styles.analysisFooter}>
+            <span>mm. 12–15</span>
+            <span className={styles.analysisSep}>·</span>
+            <span>Timing</span>
+            <span className={styles.analysisSep}>·</span>
+            <span>Phrasing</span>
+            <span className={styles.analysisSep}>·</span>
+            <span className={styles.analysisFooterGreen}>3 flags resolved</span>
+          </div>
+        </div>
       </section>
 
       {/* ── Stats ── */}

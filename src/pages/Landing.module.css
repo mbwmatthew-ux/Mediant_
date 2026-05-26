@@ -7,28 +7,27 @@
 
 /* ── Page ─────────────────────────────────────────────────────── */
 .page {
-  background: #09110c;
+  background: #000;
   color: var(--text);
   min-height: 100vh;
   overflow-x: hidden;
   position: relative;
 }
 
-/* Animated gradient bar at very top */
+/* Animated green sweep bar at very top */
 .page::before {
-  animation: topBarSweep 5s linear infinite;
+  animation: topBarSweep 4s linear infinite;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(92,184,107,0.5) 20%,
-    rgba(165,143,232,0.6) 40%,
-    rgba(225,134,118,0.5) 60%,
-    rgba(92,184,107,0.5) 80%,
+    rgba(92,184,107,0.0) 10%,
+    rgba(92,184,107,0.7) 50%,
+    rgba(92,184,107,0.0) 90%,
     transparent 100%
   );
-  background-size: 300% 100%;
+  background-size: 200% 100%;
   content: '';
-  height: 2px;
+  height: 1px;
   left: 0;
   pointer-events: none;
   position: fixed;
@@ -38,7 +37,7 @@
 }
 
 @keyframes topBarSweep {
-  0%   { background-position: 100% 0; }
+  0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
@@ -101,7 +100,7 @@
 /* ── Nav ──────────────────────────────────────────────────────── */
 .nav {
   align-items: center;
-  background: rgba(9, 17, 12, 0.9);
+  background: rgba(0,0,0,0.88);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(255,255,255,0.05);
@@ -654,7 +653,7 @@
   --border-angle: 0deg;
   animation: rotateBorder 7s linear infinite;
   background:
-    linear-gradient(#09110c, #09110c) padding-box,
+    linear-gradient(#000, #000) padding-box,
     conic-gradient(
       from var(--border-angle),
       rgba(92,184,107,0.04) 0%,
@@ -1002,6 +1001,134 @@
   user-select: none;
 }
 
+/* ── Analysis section ──────────────────────────────────────────── */
+.analysisSection {
+  align-items: center;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 72px;
+  padding: 120px 80px;
+}
+
+.analysisHead {
+  max-width: 580px;
+  text-align: center;
+}
+
+.analysisTitle {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: clamp(2rem, 3.5vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.analysisSub {
+  color: rgba(232,240,235,0.42);
+  font-size: 1rem;
+  line-height: 1.8;
+  margin: 22px 0 0;
+}
+
+/* Demo container — soft green glow behind via pseudo */
+.analysisDemo {
+  max-width: 780px;
+  position: relative;
+  width: 100%;
+}
+
+.analysisDemo::before {
+  background: radial-gradient(ellipse at 50% 55%, rgba(92,184,107,0.06) 0%, transparent 68%);
+  content: '';
+  inset: -80px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+/* Status row */
+.analysisStatus {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-left: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+.analysisPulse {
+  animation: statusPulse 2.2s ease-in-out infinite;
+  background: rgba(92,184,107,0.85);
+  border-radius: 50%;
+  display: block;
+  flex-shrink: 0;
+  height: 7px;
+  width: 7px;
+}
+
+.analysisStatusText {
+  color: rgba(92,184,107,0.8);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.analysisDivider {
+  color: rgba(255,255,255,0.15);
+  font-size: 0.8rem;
+}
+
+.analysisStatusMeta {
+  color: rgba(232,240,235,0.35);
+  font-size: 0.8rem;
+}
+
+/* DocTyping — inline card variant */
+.docTypingCard {
+  background: rgba(255,255,255,0.018);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-left: 2px solid rgba(92,184,107,0.55);
+  border-radius: 12px;
+  padding: 28px 32px;
+  position: relative;
+  width: 100%;
+  z-index: 1;
+}
+
+/* Text selected highlight */
+.docSelected {
+  background: rgba(92,184,107,0.16);
+  border-radius: 3px;
+  color: rgba(232,240,235,0.95);
+}
+
+/* Footer context line */
+.analysisFooter {
+  align-items: center;
+  color: rgba(232,240,235,0.2);
+  display: flex;
+  font-size: 0.78rem;
+  gap: 10px;
+  letter-spacing: 0.03em;
+  margin-top: 14px;
+  padding-left: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.analysisSep { color: rgba(255,255,255,0.1); }
+
+.analysisFooterGreen { color: rgba(92,184,107,0.55); }
+
 /* ── Typing indicator — simple left-border box ── */
 .docTyping {
   backdrop-filter: blur(18px);
@@ -1032,11 +1159,11 @@
 }
 
 .docText {
-  color: rgba(232,240,235,0.74);
-  font-size: clamp(0.92rem, 1.35vw, 1.2rem);
-  line-height: 1.85;
+  color: rgba(232,240,235,0.72);
+  font-size: clamp(0.98rem, 1.4vw, 1.15rem);
+  line-height: 1.9;
   margin: 0;
-  min-height: 3.4em;
+  min-height: 11em;
 }
 
 /* Always-visible caret — no blink */
@@ -1072,6 +1199,10 @@
   .statsGrid    { grid-template-columns: 1fr; }
   .statCard     { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.05); padding: 40px 24px; }
   .proofSection { padding: 80px 20px; }
+  .analysisSection  { gap: 48px; padding: 80px 24px; }
+  .analysisStatusMeta { display: none; }
+  .docTypingCard    { padding: 22px 20px; }
+  .docText          { font-size: 0.95rem; min-height: 13em; }
   .features     { padding: 80px 24px; }
   .featureRow   { flex-direction: column; gap: 40px; padding: 60px 0; }
   .featureRowFlip { flex-direction: column; }

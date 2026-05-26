@@ -1,15 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { INSTRUMENTS } from '../lib/instruments'
 import styles from './Auth.module.css'
-
-const INSTRUMENTS = [
-  'Piano', 'Violin', 'Viola', 'Cello', 'Double Bass',
-  'Flute', 'Oboe', 'Clarinet', 'Bassoon',
-  'Trumpet', 'Horn', 'Trombone', 'Tuba',
-  'Voice (Soprano)', 'Voice (Alto)', 'Voice (Tenor)', 'Voice (Bass)',
-  'Guitar', 'Harp', 'Percussion', 'Other',
-]
 
 export default function Signup() {
   const { signup } = useAuth()

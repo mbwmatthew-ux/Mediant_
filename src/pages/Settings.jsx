@@ -4,14 +4,8 @@ import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../lib/supabase'
 import { playToggle, playSave, playThud, playTick } from '../utils/sounds'
+import { INSTRUMENTS } from '../lib/instruments'
 import styles from './Settings.module.css'
-
-const INSTRUMENTS = [
-  'Piano', 'Violin', 'Viola', 'Cello', 'Double Bass',
-  'Flute', 'Oboe', 'Clarinet', 'Bassoon',
-  'French Horn', 'Trumpet', 'Trombone', 'Tuba',
-  'Guitar', 'Harp', 'Voice', 'Other',
-]
 
 function Toggle({ checked, onChange }) {
   return (

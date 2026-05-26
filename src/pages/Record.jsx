@@ -3,15 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getFile } from '../lib/fileStore'
+import { INSTRUMENTS } from '../lib/instruments'
 import styles from './Page.module.css'
 import { playDrop, playAnalyzeStart, playAnalyzeComplete, playThud } from '../utils/sounds'
-
-const INSTRUMENTS = [
-  'Piano', 'Violin', 'Viola', 'Cello', 'Double Bass',
-  'Flute', 'Oboe', 'Clarinet', 'Bassoon',
-  'French Horn', 'Trumpet', 'Trombone', 'Tuba',
-  'Guitar', 'Harp', 'Voice', 'Other',
-]
 
 const OCR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'])
 

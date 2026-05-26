@@ -101,7 +101,8 @@ export default function Analysis() {
   const [isLooping, setIsLooping]     = useState(false)
   const [scoreReady, setScoreReady]   = useState(false)
   const [highlights, setHighlights]   = useState([])
-  const [videoSpeed, setVideoSpeed]   = useState(1)
+  const [videoSpeed, setVideoSpeed]     = useState(1)
+  const [videoDuration, setVideoDuration] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
 
   // AI summary state
@@ -165,7 +166,7 @@ export default function Analysis() {
     if (!take?.score_path) return
     supabase.storage
       .from('sheet-music')
-      .createSignedUrl(take.score_path, 3600)
+      .createSignedUrl(take.score_path, 86400)
       .then(({ data }) => { if (data?.signedUrl) setScoreUrl(data.signedUrl) })
   }, [take])
 
@@ -174,7 +175,7 @@ export default function Analysis() {
     if (!take?.video_path) return
     supabase.storage
       .from('recordings')
-      .createSignedUrl(take.video_path, 3600)
+      .createSignedUrl(take.video_path, 86400)
       .then(({ data }) => { if (data?.signedUrl) setVideoUrl(data.signedUrl) })
   }, [take])
 
@@ -764,7 +765,44 @@ export default function Analysis() {
                     controls
                     playsInline
                     preload="metadata"
+                    onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)}
                   />
+
+                  {/* Flag position timeline — clickable markers over the video duration */}
+                  {videoDuration > 0 && take?.flags?.some(f => f.timestamp_start != null) && (
+                    <div className={aStyles.flagTimeline}>
+                      <div className={aStyles.flagTimelineTrack}>
+                        {take.flags.map((f, i) => {
+                          const ts = Number(f.timestamp_start)
+                          if (!Number.isFinite(ts) || ts < 0) return null
+                          const pct = Math.min(100, (ts / videoDuration) * 100)
+                          const flagId = `flag_${i}`
+                          const isActive = activeFlag === flagId
+                          const cc = confColor(f.confidence ?? 100)
+                          return (
+                            <button
+                              key={flagId}
+                              className={aStyles.flagTimelineMarker}
+                              title={`m.${f.measure} · ${capitalize(f.type)} — ${formatTs(ts)}`}
+                              style={{
+                                left: `${pct}%`,
+                                background: cc,
+                                transform: isActive ? 'translate(-50%, -50%) scale(1.5)' : 'translate(-50%, -50%)',
+                                boxShadow: isActive ? `0 0 0 3px ${cc}40` : 'none',
+                              }}
+                              onClick={() => {
+                                const video = videoRef.current
+                                if (video) video.currentTime = ts
+                                setActiveFlag(f2 => f2 === flagId ? null : flagId)
+                                playTick()
+                              }}
+                            />
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className={styles.videoControls}>
                     <span className={styles.videoControlsLabel}>Speed</span>
                     <div className={styles.speedBtns}>

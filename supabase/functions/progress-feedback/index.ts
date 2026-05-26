@@ -41,8 +41,12 @@ serve(async (req) => {
       ],
     })
 
-    const raw = ((response.content[0] as { type: string; text: string })?.text ?? '{}').trim()
-    const json = raw.startsWith('{') ? raw : raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)
+    const rawText = ((response.content[0] as { type: string; text: string })?.text ?? '{}').trim()
+    // Strip markdown code fences (```json ... ``` or ``` ... ```)
+    const stripped = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    const json = stripped.startsWith('{')
+      ? stripped
+      : stripped.slice(stripped.indexOf('{'), stripped.lastIndexOf('}') + 1)
 
     let feedback: Record<string, unknown> = {}
     try { feedback = JSON.parse(json) } catch {

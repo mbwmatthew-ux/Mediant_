@@ -1238,6 +1238,7 @@
 }
 
 .docCaretLabel {
+  background: #5cb86b;
   border-radius: 3px 3px 3px 0;
   color: #09110c;
   font-size: 0.56rem;

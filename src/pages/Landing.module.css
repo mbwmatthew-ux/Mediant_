@@ -804,72 +804,176 @@
 }
 
 .instrumentBand {
-  align-items: center;
+  align-items: stretch;
+  background:
+    radial-gradient(circle at var(--glow-x, 66%) var(--glow-y, 42%), var(--scene-glow, rgba(214,177,104,0.12)) 0%, transparent 28%),
+    linear-gradient(135deg, rgba(3,9,7,0.98), rgba(7,18,13,0.96) 52%, rgba(2,7,5,0.98));
   border-bottom: 1px solid rgba(255,255,255,0.05);
-  display: grid;
-  gap: 80px;
-  grid-template-columns: 1fr 1fr;
-  padding: 100px 80px;
+  display: block;
+  min-height: 640px;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  isolation: isolate;
 }
 
-/* Flip: visual column comes first visually */
-.instrumentBandFlip { direction: rtl; }
-.instrumentBandFlip > * { direction: ltr; }
+.instrumentBand::before {
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 48px 48px;
+  content: '';
+  inset: 0;
+  opacity: 0.16;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.instrumentBand::after {
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0%, rgba(0,0,0,0.32) 78%),
+    linear-gradient(180deg, rgba(0,0,0,0.22), transparent 22%, transparent 70%, rgba(0,0,0,0.3));
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.sceneClarinet {
+  --glow-x: 70%;
+  --glow-y: 38%;
+  --scene-glow: rgba(214,177,104,0.22);
+}
+
+.scenePiano {
+  --glow-x: 70%;
+  --glow-y: 47%;
+  --scene-glow: rgba(92,184,107,0.13);
+}
+
+.sceneCello {
+  --glow-x: 22%;
+  --glow-y: 48%;
+  --scene-glow: rgba(214,177,104,0.1);
+}
 
 .instrumentText {
+  bottom: 58px;
+  color: var(--text);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
+  justify-content: center;
+  left: 72px;
+  max-width: 390px;
+  position: absolute;
+  z-index: 4;
+}
+
+.sceneCello .instrumentText {
+  left: auto;
+  right: 72px;
+  text-align: right;
 }
 
 .instrumentTitle {
   color: var(--text);
   font-family: "Iowan Old Style", Georgia, serif;
-  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-size: clamp(1.45rem, 2.4vw, 2.25rem);
   font-weight: 400;
   letter-spacing: -0.04em;
-  line-height: 1.1;
+  line-height: 1.06;
   margin: 0;
 }
 
 .instrumentBody {
-  color: rgba(232,240,235,0.42);
-  font-size: 0.98rem;
-  line-height: 1.8;
+  color: rgba(232,240,235,0.38);
+  font-size: 0.86rem;
+  line-height: 1.7;
   margin: 0;
-  max-width: 440px;
+  max-width: 360px;
+}
+
+.sceneCello .instrumentBody {
+  margin-left: auto;
 }
 
 .instrumentVisual {
   align-items: center;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  justify-content: flex-start;
-  padding-top: 24px;
-  position: relative;
+  justify-content: center;
+  position: absolute;
+  z-index: 2;
 }
 
 .instrumentGlow {
-  background: radial-gradient(ellipse at center, var(--glow-color, rgba(92,184,107,0.1)) 0%, transparent 65%);
+  background: radial-gradient(ellipse at center, var(--glow-color, rgba(92,184,107,0.1)) 0%, transparent 68%);
   border-radius: 50%;
-  height: 320px;
-  left: 50%;
+  filter: blur(4px);
+  height: 560px;
+  left: var(--instrument-x, 66%);
   pointer-events: none;
   position: absolute;
-  top: 30%;
+  top: var(--instrument-y, 40%);
   transform: translate(-50%, -50%);
-  width: 320px;
+  width: 680px;
+  z-index: 0;
 }
 
-/* Wrapper that applies tilt to the SVG + bell notes together */
 .instrumentTilt {
-  position: relative;
-  transform: rotate(var(--tilt, 0deg));
-  transition: transform 0.4s ease;
-  display: flex;
   align-items: center;
+  display: flex;
   justify-content: center;
+  position: absolute;
+  transform: translate(-50%, -50%) rotate(var(--tilt, 0deg)) scale(var(--scale, 1));
+  transform-origin: center;
+  transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.8s ease;
+  z-index: 2;
+}
+
+.sceneClarinet .instrumentGlow,
+.sceneClarinet .instrumentTilt {
+  --instrument-x: 70%;
+  --instrument-y: 40%;
+  left: 70%;
+  top: 40%;
+}
+
+.sceneClarinet .instrumentTilt {
+  --scale: 1.32;
+  --tilt: 15deg;
+}
+
+.scenePiano .instrumentGlow,
+.scenePiano .instrumentTilt {
+  --instrument-x: 72%;
+  --instrument-y: 42%;
+  left: 72%;
+  top: 42%;
+}
+
+.scenePiano .instrumentTilt {
+  --scale: 1.15;
+  --tilt: -2deg;
+  opacity: 0.74;
+}
+
+.sceneCello .instrumentGlow,
+.sceneCello .instrumentTilt {
+  --instrument-x: 20%;
+  --instrument-y: 46%;
+  left: 20%;
+  top: 46%;
+}
+
+.sceneCello .instrumentTilt {
+  --scale: 1.4;
+  --tilt: -14deg;
+  opacity: 0.72;
 }
 
 /* ── Bell notes (drift upward from instrument end) ── */
@@ -898,29 +1002,48 @@
   user-select: none;
 }
 
-/* ── Google Docs-style typing indicator ── */
+/* ── Typing indicator — simple left-border box ── */
 .docTyping {
-  background: rgba(255,255,255,0.025);
-  border: 1px solid rgba(255,255,255,0.07);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  background: rgba(8,14,11,0.58);
+  border: 1px solid rgba(255,255,255,0.1);
   border-left: 2px solid var(--cc, rgba(92,184,107,0.6));
-  border-radius: 6px;
-  padding: 14px 18px;
-  width: 100%;
+  border-radius: 10px;
+  bottom: 62px;
+  box-shadow: 0 26px 80px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  left: 50%;
+  max-width: min(760px, calc(100vw - 48px));
+  padding: 22px 28px;
+  position: absolute;
+  transform: translateX(-50%);
+  width: 54vw;
+  z-index: 5;
+}
+
+.scenePiano .docTyping {
+  left: 39%;
+  width: 45vw;
+}
+
+.sceneCello .docTyping {
+  left: 62%;
+  width: 48vw;
 }
 
 .docText {
-  color: rgba(232,240,235,0.6);
-  font-size: 0.84rem;
-  line-height: 1.7;
+  color: rgba(232,240,235,0.74);
+  font-size: clamp(0.92rem, 1.35vw, 1.2rem);
+  line-height: 1.85;
   margin: 0;
-  min-height: 1.4em;
+  min-height: 3.4em;
 }
 
 /* Always-visible caret — no blink */
 .docCaret {
-  border-left: 2.5px solid var(--cc, #5cb86b);
+  border-left: 2px solid var(--cc, #5cb86b);
   display: inline-block;
-  height: 0.95em;
+  height: 0.9em;
   margin-left: 1px;
   opacity: 0.9;
   position: relative;
@@ -930,54 +1053,16 @@
 .docCaretLabel {
   border-radius: 3px 3px 3px 0;
   color: #09110c;
-  font-size: 0.58rem;
+  font-size: 0.56rem;
   font-weight: 700;
   left: -2px;
   letter-spacing: 0.04em;
   padding: 2px 6px;
   position: absolute;
-  top: -20px;
+  top: -19px;
   white-space: nowrap;
 }
 
-/* ── Piano section ────────────────────────────────────────────── */
-.pianoBand {
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  overflow: hidden;
-  padding: 100px 80px;
-  text-align: center;
-}
-
-.pianoHead {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-bottom: 60px;
-}
-
-.pianoVisualWrap {
-  margin-bottom: 48px;
-  position: relative;
-}
-
-.pianoFadeLeft,
-.pianoFadeRight {
-  bottom: 0;
-  pointer-events: none;
-  position: absolute;
-  top: 0;
-  width: 80px;
-  z-index: 2;
-}
-.pianoFadeLeft  { background: linear-gradient(to right, #09110c, transparent); left: 0; }
-.pianoFadeRight { background: linear-gradient(to left,  #09110c, transparent); right: 0; }
-
-.pianoBoxes {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(3, 1fr);
-  text-align: left;
-}
 
 /* ── Responsive additions ─────────────────────────────────────── */
 /* ── Responsive ───────────────────────────────────────────────── */
@@ -996,9 +1081,44 @@
   .stepArrow    { display: none; }
   .ctaSection   { padding: 100px 20px; }
   .footer       { gap: 16px; grid-template-columns: 1fr; padding: 24px 20px; }
-  .instrumentBand { gap: 48px; grid-template-columns: 1fr; padding: 70px 24px; }
-  .instrumentBandFlip { direction: ltr; }
-  .instrumentVisual { min-height: 220px; }
-  .pianoBoxes   { grid-template-columns: 1fr; }
-  .pianoBand    { padding: 70px 24px; }
+  .instrumentBand { min-height: 620px; padding: 0; }
+  .instrumentText {
+    bottom: auto;
+    left: 24px;
+    max-width: min(460px, calc(100% - 48px));
+    right: 24px;
+    text-align: left;
+    top: 42px;
+  }
+  .sceneCello .instrumentText {
+    left: 24px;
+    right: 24px;
+    text-align: left;
+  }
+  .sceneCello .instrumentBody { margin-left: 0; }
+  .instrumentVisual { min-height: 0; }
+  .sceneClarinet .instrumentTilt {
+    --scale: 0.96;
+    left: 68%;
+    top: 48%;
+  }
+  .scenePiano .instrumentTilt {
+    --scale: 0.76;
+    left: 68%;
+    top: 47%;
+  }
+  .sceneCello .instrumentTilt {
+    --scale: 0.95;
+    left: 28%;
+    top: 51%;
+  }
+  .docTyping,
+  .scenePiano .docTyping,
+  .sceneCello .docTyping {
+    bottom: 28px;
+    left: 50%;
+    padding: 18px 20px;
+    width: calc(100% - 48px);
+  }
+  .feedbackCardFooter { flex-wrap: wrap; }
 }

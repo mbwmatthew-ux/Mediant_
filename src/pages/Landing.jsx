@@ -287,6 +287,11 @@ export default function Landing() {
   const [wordVisible, setWordVisible] = useState(true)
   const canvasRef = useRef(null)
   const [analysisRef, analysisInView] = useInView(0.15)
+  const heroRef        = useRef(null)
+  const parallaxLogoRef  = useRef(null)
+  const parallaxMeshRef  = useRef(null)
+  const parallaxHeadRef  = useRef(null)
+  const parallaxCardsRef = useRef(null)
 
   /* ── Waveform canvas (breathing, not scrolling) ── */
   useEffect(() => {
@@ -338,6 +343,44 @@ export default function Landing() {
 
     raf = requestAnimationFrame(tick)
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize) }
+  }, [])
+
+  /* ── Mouse parallax ── */
+  useEffect(() => {
+    const hero = heroRef.current
+    if (!hero) return
+    let tx = 0, ty = 0, cx = 0, cy = 0, raf
+    const lerp = (a, b, t) => a + (b - a) * t
+
+    function tick() {
+      cx = lerp(cx, tx, 0.055)
+      cy = lerp(cy, ty, 0.055)
+      const logo  = parallaxLogoRef.current
+      const mesh  = parallaxMeshRef.current
+      const head  = parallaxHeadRef.current
+      const cards = parallaxCardsRef.current
+      if (logo)  logo.style.transform  = `translate(${(cx * -20).toFixed(2)}px, ${(cy * -13).toFixed(2)}px)`
+      if (mesh)  mesh.style.transform  = `translate(${(cx * 32).toFixed(2)}px, ${(cy * 20).toFixed(2)}px)`
+      if (head)  head.style.transform  = `translate(${(cx * 8).toFixed(2)}px, ${(cy * 5).toFixed(2)}px)`
+      if (cards) cards.style.transform = `translate(${(cx * -12).toFixed(2)}px, ${(cy * -8).toFixed(2)}px)`
+      raf = requestAnimationFrame(tick)
+    }
+
+    function onMove(e) {
+      const r = hero.getBoundingClientRect()
+      tx = (e.clientX - r.left) / r.width  - 0.5
+      ty = (e.clientY - r.top)  / r.height - 0.5
+    }
+    function onLeave() { tx = 0; ty = 0 }
+
+    hero.addEventListener('mousemove', onMove)
+    hero.addEventListener('mouseleave', onLeave)
+    raf = requestAnimationFrame(tick)
+    return () => {
+      hero.removeEventListener('mousemove', onMove)
+      hero.removeEventListener('mouseleave', onLeave)
+      cancelAnimationFrame(raf)
+    }
   }, [])
 
   /* ── Word cycling with fade out / in ── */
@@ -392,8 +435,8 @@ export default function Landing() {
       </nav>
 
       {/* ── Hero ── */}
-      <section className={styles.hero}>
-        <div className={styles.meshBg} aria-hidden="true">
+      <section className={styles.hero} ref={heroRef}>
+        <div ref={parallaxMeshRef} className={styles.meshBg} aria-hidden="true">
           <div className={`${styles.meshBlob} ${styles.meshBlob1}`} />
           <div className={`${styles.meshBlob} ${styles.meshBlob2}`} />
           <div className={`${styles.meshBlob} ${styles.meshBlob3}`} />
@@ -401,20 +444,24 @@ export default function Landing() {
         </div>
         <canvas ref={canvasRef} className={styles.waveCanvas} aria-hidden="true" />
 
-        <div className={styles.heroLogoLarge}>
+        <div className={styles.heroLogoLarge} ref={parallaxLogoRef}>
           <AnimatedLogo size={140} />
         </div>
 
-        <h1 className={styles.heroHeading}>
-          <span className={styles.heroLine}>
-            <span className={styles.heroStatic}>We</span>
-            <AnimatedWord word={current.we}  color={current.color} visible={wordVisible} />
-            <span className={styles.heroComma}>,&nbsp;you</span>
-            <AnimatedWord word={current.you} color={current.color} visible={wordVisible} />
-          </span>
-        </h1>
+        <div ref={parallaxHeadRef} className={styles.parallaxNode}>
+          <h1 className={styles.heroHeading}>
+            <span className={styles.heroLine}>
+              <span className={styles.heroStatic}>We</span>
+              <AnimatedWord word={current.we}  color={current.color} visible={wordVisible} />
+              <span className={styles.heroComma}>,&nbsp;you</span>
+              <AnimatedWord word={current.you} color={current.color} visible={wordVisible} />
+            </span>
+          </h1>
+        </div>
 
-        <ShuffleCards idx={wordIdx} />
+        <div ref={parallaxCardsRef} className={styles.parallaxNode}>
+          <ShuffleCards idx={wordIdx} />
+        </div>
 
         <p className={styles.heroSub}>
           Upload a recording. Mediant maps it to your sheet music and delivers

@@ -165,17 +165,27 @@
   text-align: center;
 }
 
-/* Stagger children fade-up (skip canvas, logo, mesh) */
-.hero > *:not(.waveCanvas):not(.heroLogoLarge):not(.meshBg) {
+/* Stagger children fade-up (skip canvas, logo, mesh, parallax wrappers) */
+.hero > *:not(.waveCanvas):not(.heroLogoLarge):not(.meshBg):not(.parallaxNode) {
   animation: heroFadeUp 1.0s cubic-bezier(0.16, 1, 0.3, 1) both;
   position: relative;
   z-index: 1;
 }
-/* child order: 1=canvas 2=logo 3=heading 4=sub 5=ctas 6=note */
-.hero > *:nth-child(3) { animation-delay: 380ms; }
-.hero > *:nth-child(4) { animation-delay: 480ms; }
-.hero > *:nth-child(5) { animation-delay: 560ms; }
-.hero > *:nth-child(6) { animation-delay: 630ms; }
+/* child order (with meshBg=1, canvas=2, logo=3, pxHead=4, pxCards=5, sub=6, ctas=7, note=8) */
+.hero > *:nth-child(6) { animation-delay: 560ms; }
+.hero > *:nth-child(7) { animation-delay: 630ms; }
+
+/* parallax wrappers: own fade-up, no z-index conflict */
+.parallaxNode {
+  animation: heroFadeUp 1.0s cubic-bezier(0.16, 1, 0.3, 1) both;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+}
+.parallaxNode > * { pointer-events: auto; }
+/* nth-child(4) = heading wrapper, nth-child(5) = cards wrapper */
+.hero > .parallaxNode:nth-child(4) { animation-delay: 380ms; }
+.hero > .parallaxNode:nth-child(5) { animation-delay: 480ms; }
 
 @keyframes heroFadeUp {
   from { opacity: 0; transform: translateY(24px); }

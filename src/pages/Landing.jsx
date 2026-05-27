@@ -164,7 +164,6 @@ const SHUFFLE_ITEMS = [
 ]
 
 function ShuffleCards({ idx }) {
-  // Track [current, ghost1, ghost2] indices in sync with parent wordIdx
   const [hist, setHist] = useState(() => [
     idx,
     (idx + SHUFFLE_ITEMS.length - 1) % SHUFFLE_ITEMS.length,
@@ -174,12 +173,27 @@ function ShuffleCards({ idx }) {
     setHist(prev => [idx, prev[0], prev[1]])
   }, [idx])
 
+  const tiltRef = useRef(null)
+  function onTiltMove(e) {
+    const el = tiltRef.current; if (!el) return
+    const r = el.getBoundingClientRect()
+    const x = (e.clientX - r.left) / r.width  - 0.5
+    const y = (e.clientY - r.top)  / r.height - 0.5
+    el.style.transition = 'transform 0.08s ease'
+    el.style.transform = `perspective(800px) rotateY(${x * 16}deg) rotateX(${-y * 10}deg)`
+  }
+  function onTiltLeave() {
+    const el = tiltRef.current; if (!el) return
+    el.style.transition = 'transform 0.7s cubic-bezier(0.16, 1, 0.3, 1)'
+    el.style.transform = ''
+  }
+
   const cur = SHUFFLE_ITEMS[hist[0]]
   const gh1 = SHUFFLE_ITEMS[hist[1]]
   const gh2 = SHUFFLE_ITEMS[hist[2]]
 
   return (
-    <div className={styles.shuffleWrap}>
+    <div ref={tiltRef} className={styles.shuffleWrap} onMouseMove={onTiltMove} onMouseLeave={onTiltLeave}>
       <div className={`${styles.shuffleGhostCard} ${styles.shuffleGhostFar}`} style={{ borderColor: gh2.color, background: `${gh2.color}10` }}>
         <span className={styles.shuffleText}>{gh2.text}</span>
       </div>
@@ -222,10 +236,48 @@ function StatCard({ value, suffix, label, delay }) {
     requestAnimationFrame(frame)
   }, [active, value])
 
+  function onMove(e) {
+    const el = ref.current; if (!el) return
+    const r = el.getBoundingClientRect()
+    const x = (e.clientX - r.left) / r.width  - 0.5
+    const y = (e.clientY - r.top)  / r.height - 0.5
+    el.style.transition = 'transform 0.08s ease, background 300ms ease'
+    el.style.transform = `perspective(700px) rotateY(${x * 14}deg) rotateX(${-y * 10}deg) scale(1.03)`
+  }
+  function onLeave() {
+    const el = ref.current; if (!el) return
+    el.style.transition = 'transform 0.55s cubic-bezier(0.16, 1, 0.3, 1), background 300ms ease'
+    el.style.transform = ''
+  }
+
   return (
-    <div ref={ref} className={`${styles.statCard} ${styles.revealScale}`} style={{ '--d': delay }}>
+    <div ref={ref} className={`${styles.statCard} ${styles.revealScale}`} style={{ '--d': delay }}
+      onMouseMove={onMove} onMouseLeave={onLeave}>
       <span className={styles.statValue}>{count.toLocaleString()}{suffix}</span>
       <span className={styles.statLabel}>{label}</span>
+    </div>
+  )
+}
+
+/* ── 3D tilt wrapper ── */
+function TiltBox({ className, style, children }) {
+  const ref = useRef(null)
+  function onMove(e) {
+    const el = ref.current; if (!el) return
+    const r = el.getBoundingClientRect()
+    const x = (e.clientX - r.left) / r.width  - 0.5
+    const y = (e.clientY - r.top)  / r.height - 0.5
+    el.style.transition = 'transform 0.08s ease'
+    el.style.transform = `perspective(500px) rotateY(${x * 22}deg) rotateX(${-y * 16}deg) scale(1.06)`
+  }
+  function onLeave() {
+    const el = ref.current; if (!el) return
+    el.style.transition = 'transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)'
+    el.style.transform = ''
+  }
+  return (
+    <div ref={ref} className={className} style={style} onMouseMove={onMove} onMouseLeave={onLeave}>
+      {children}
     </div>
   )
 }
@@ -436,9 +488,9 @@ export default function Landing() {
               <h3 className={styles.featureTitle}>{f.title}</h3>
               <p className={styles.featureBody}>{f.body}</p>
             </div>
-            <div className={styles.featureVisual}>
+            <TiltBox className={styles.featureVisual}>
               <f.icon />
-            </div>
+            </TiltBox>
           </div>
         ))}
       </section>

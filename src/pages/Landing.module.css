@@ -453,6 +453,7 @@
   padding: 64px 48px;
   border-right: 1px solid rgba(255,255,255,0.09);
   transition: background 300ms ease;
+  will-change: transform;
 }
 .statCard:last-child { border-right: none; }
 .statCard:hover { background: rgba(92,184,107,0.03); }
@@ -712,6 +713,7 @@
   align-items: center;
   --border-angle: 0deg;
   animation: rotateBorder 7s linear infinite;
+  will-change: transform;
   background:
     linear-gradient(#000, #000) padding-box,
     conic-gradient(

@@ -296,15 +296,15 @@
 
 /* ── Hero logo ───────────────────────────────────────────────── */
 .heroLogoLarge {
-  animation: heroLogoReveal 1.1s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: heroLogoReveal 1.8s cubic-bezier(0.3, 0, 0.1, 1) both;
   animation-delay: 200ms;
   position: relative;
   z-index: 1;
 }
 
 @keyframes heroLogoReveal {
-  from { clip-path: inset(0 100% 0 0); }
-  to   { clip-path: inset(0 0% 0 0); }
+  from { clip-path: inset(0 0 100% 0); }
+  to   { clip-path: inset(0 0 0% 0); }
 }
 
 /* ── Hero wordmark ───────────────────────────────────────────── */

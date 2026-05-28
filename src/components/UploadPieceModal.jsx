@@ -46,7 +46,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
         composer:   data.composer   || '',
         era:        ERAS.includes(data.era) ? data.era : 'Romantic',
         difficulty: LEVELS.includes(data.difficulty) ? data.difficulty : 'Intermediate',
-        key:        data.key        || '',
+        key:        '',
         time:       data.time       || '',
         bpm:        data.bpm        || '',
       })
@@ -55,6 +55,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
       setError('Could not analyze the file — fill in the details manually.')
       const name = f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
       setForm({ title: name, composer: '', era: 'Romantic', difficulty: 'Intermediate', key: '', time: '', bpm: '' })
+
       setPhase('ready')
     }
   }
@@ -216,11 +217,11 @@ export default function UploadPieceModal({ onClose, onAdded }) {
 
             <div className={styles.formRow}>
               <label className={styles.formLabel}>Title</label>
-              <input className={styles.formInput} value={form.title} onChange={set('title')} onFocus={e => e.target.select()} />
+              <input className={styles.formInput} value={form.title} onChange={set('title')} />
             </div>
             <div className={styles.formRow}>
               <label className={styles.formLabel}>Composer</label>
-              <input className={styles.formInput} value={form.composer} onChange={set('composer')} placeholder="Unknown" onFocus={e => e.target.select()} />
+              <input className={styles.formInput} value={form.composer} onChange={set('composer')} placeholder="Unknown" />
             </div>
             <div className={styles.formRowGroup}>
               <div className={styles.formRow}>
@@ -239,15 +240,15 @@ export default function UploadPieceModal({ onClose, onAdded }) {
             <div className={styles.formRowGroup}>
               <div className={styles.formRow}>
                 <label className={styles.formLabel}>Key</label>
-                <input className={styles.formInput} value={form.key} onChange={set('key')} placeholder="e.g. D minor, B♭ major" onFocus={e => e.target.select()} />
+                <input className={styles.formInput} value={form.key} onChange={set('key')} placeholder="e.g. D minor, B♭ major" />
               </div>
               <div className={styles.formRow}>
                 <label className={styles.formLabel}>Time</label>
-                <input className={styles.formInput} value={form.time} onChange={set('time')} placeholder="e.g. 4/4" onFocus={e => e.target.select()} />
+                <input className={styles.formInput} value={form.time} onChange={set('time')} placeholder="e.g. 4/4" />
               </div>
               <div className={styles.formRow}>
                 <label className={styles.formLabel}>Tempo (BPM)</label>
-                <input className={styles.formInput} type="number" min="1" max="400" value={form.bpm} onChange={set('bpm')} placeholder="e.g. 56" onFocus={e => e.target.select()} />
+                <input className={styles.formInput} type="number" min="1" max="400" value={form.bpm} onChange={set('bpm')} placeholder="e.g. 56" />
               </div>
             </div>
           </div>

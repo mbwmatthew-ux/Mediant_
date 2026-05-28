@@ -46,7 +46,7 @@ export default function UploadPieceModal({ onClose, onAdded }) {
         composer:   data.composer   || '',
         era:        ERAS.includes(data.era) ? data.era : 'Romantic',
         difficulty: LEVELS.includes(data.difficulty) ? data.difficulty : 'Intermediate',
-        key:        '',
+        key:        data.key        || '',
         time:       data.time       || '',
         bpm:        data.bpm        || '',
       })

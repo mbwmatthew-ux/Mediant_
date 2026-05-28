@@ -88,6 +88,7 @@ export default function Record() {
       })
       if (data?.title)    setPieceTitle(data.title)
       if (data?.composer) setComposer(data.composer)
+      if (data?.key)      setKeySignature(data.key)
       if (data?.time)     setTimeSig(data.time)
       if (data?.bpm)      setTempo(String(data.bpm))
     } catch { /* silently skip — user can fill manually */ }

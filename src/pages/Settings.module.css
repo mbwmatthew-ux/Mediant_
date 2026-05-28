@@ -10,11 +10,12 @@
 }
 
 .pageTitle {
-  font-size: 1.5rem;
-  font-weight: 600;
   color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 1.65rem;
+  font-weight: 400;
+  letter-spacing: -0.03em;
   margin: 0 0 4px;
-  letter-spacing: -0.02em;
 }
 
 .pageSub {

@@ -826,7 +826,7 @@
 }
 
 .loopExcerptTime {
-  color: rgba(255,255,255,0.5);
+  color: var(--text-faint);
   font-family: ui-monospace, monospace;
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;

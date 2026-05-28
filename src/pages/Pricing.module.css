@@ -19,7 +19,7 @@
 .nav {
   align-items: center;
   background: var(--bg-deep);
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  border-bottom: 1px solid var(--surface-border);
   box-sizing: border-box;
   display: flex;
   height: 48px;
@@ -43,22 +43,22 @@
 }
 
 .navUser {
-  color: rgba(248,246,242,0.4);
+  color: var(--text-faint);
   font-size: 0.82rem;
 }
 
 .navBtn {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.09);
+  background: var(--surface-subtle);
+  border: 1px solid var(--surface-border);
   border-radius: 8px;
-  color: rgba(248,246,242,0.65);
+  color: var(--text-soft);
   cursor: pointer;
   font-size: 0.82rem;
   padding: 6px 14px;
   text-decoration: none;
   transition: background 150ms ease;
 }
-.navBtn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.navBtn:hover { background: var(--surface-hover); color: var(--text); }
 
 .navCta {
   background: var(--gold);
@@ -105,7 +105,7 @@
 }
 
 .subtitle {
-  color: rgba(248,246,242,0.5);
+  color: var(--text-muted);
   font-size: 1rem;
   line-height: 1.65;
   margin: 0;
@@ -114,8 +114,8 @@
 
 /* ── Billing toggle ───────────────────────────────────────── */
 .toggle {
-  background: rgba(0,0,0,0.25);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--surface-subtle);
+  border: 1px solid var(--surface-border);
   border-radius: 10px;
   display: flex;
   gap: 4px;
@@ -127,7 +127,7 @@
   background: transparent;
   border: none;
   border-radius: 7px;
-  color: rgba(248,246,242,0.5);
+  color: var(--text-muted);
   cursor: pointer;
   display: flex;
   font-size: 0.88rem;
@@ -137,7 +137,7 @@
 }
 .toggleActive {
   background: var(--accent-bg-hover);
-  color: rgba(248,246,242,0.9);
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -166,8 +166,8 @@
 }
 
 .card {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.09);
+  background: var(--surface-subtle);
+  border: 1px solid var(--surface-border);
   border-radius: 16px;
   box-sizing: border-box;
   display: flex;
@@ -177,7 +177,7 @@
   position: relative;
   transition: border-color 200ms ease;
 }
-.card:hover { border-color: rgba(255,255,255,0.16); }
+.card:hover { border-color: var(--surface-hover); }
 
 .cardFeatured {
   background: var(--accent-bg);
@@ -208,7 +208,7 @@
 }
 
 .planName {
-  color: rgba(248,246,242,0.5);
+  color: var(--text-faint);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -242,19 +242,19 @@
 }
 
 .perMonth {
-  color: rgba(248,246,242,0.4);
+  color: var(--text-faint);
   font-size: 0.9rem;
   padding-bottom: 6px;
 }
 
 .billedNote {
-  color: rgba(248,246,242,0.3);
+  color: var(--text-faintest);
   font-size: 0.78rem;
   margin: 0;
 }
 
 .planDesc {
-  color: rgba(248,246,242,0.45);
+  color: var(--text-muted);
   font-size: 0.85rem;
   line-height: 1.5;
   margin: 4px 0 0;
@@ -276,9 +276,9 @@
 .ctaBtn:disabled { cursor: default; opacity: 0.45; transform: none !important; filter: none !important; }
 
 .ctaBtn_ghost {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(248,246,242,0.45);
+  background: var(--surface-subtle);
+  border: 1px solid var(--surface-border);
+  color: var(--text-muted);
 }
 
 .ctaBtn_gold {
@@ -303,7 +303,7 @@
 
 .featureItem {
   align-items: center;
-  color: rgba(248,246,242,0.7);
+  color: var(--text-soft);
   display: flex;
   font-size: 0.85rem;
   gap: 10px;
@@ -311,7 +311,7 @@
 }
 
 .featureItemDim {
-  color: rgba(248,246,242,0.25);
+  color: var(--text-faintest);
 }
 
 .checkYes {
@@ -330,9 +330,9 @@
 
 .checkNo {
   align-items: center;
-  background: rgba(255,255,255,0.05);
+  background: var(--surface-subtle);
   border-radius: 999px;
-  color: rgba(248,246,242,0.2);
+  color: var(--text-faintest);
   display: inline-flex;
   flex-shrink: 0;
   font-size: 0.65rem;
@@ -343,7 +343,7 @@
 
 /* ── Footer ───────────────────────────────────────────────── */
 .finePrint {
-  color: rgba(248,246,242,0.25);
+  color: var(--text-faintest);
   font-size: 0.78rem;
   margin: 32px 0 0;
   text-align: center;
@@ -354,12 +354,12 @@
 }
 
 .backLink {
-  color: rgba(248,246,242,0.4);
+  color: var(--text-faint);
   font-size: 0.85rem;
   text-decoration: none;
   transition: color 150ms ease;
 }
-.backLink:hover { color: rgba(248,246,242,0.7); }
+.backLink:hover { color: var(--text-soft); }
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 760px) {

@@ -50,15 +50,24 @@ export default function Record() {
         const raw = sessionStorage.getItem('mediant_prefill')
         if (!raw) return
         sessionStorage.removeItem('mediant_prefill')
-        const { pieceTitle: t, composer: c, instrument: ins, key: k, timeSig: ts, bpm: b, pieceId } = JSON.parse(raw)
+        const { pieceTitle: t, composer: c, instrument: ins, key: k, timeSig: ts, bpm: b, pieceId, filePath, mediaType } = JSON.parse(raw)
         if (t)   setPieceTitle(t)
         if (c)   setComposer(c)
         if (ins && INSTRUMENTS.includes(ins)) setInstrument(ins)
         if (k)   setKeySignature(k)
         if (ts)  setTimeSig(ts)
         if (b)   setTempo(String(b))
-        if (pieceId) {
-          const f = await getFile(pieceId)
+        if (pieceId || filePath) {
+          // Try IndexedDB first (fast), fall back to Supabase storage
+          let f = pieceId ? await getFile(pieceId) : null
+          if (!f && filePath) {
+            const { data: blob } = await supabase.storage.from('sheet-music').download(filePath)
+            if (blob) {
+              const name = filePath.split('/').pop()
+              f = new File([blob], name, { type: mediaType || 'application/octet-stream' })
+              if (pieceId) saveFile(pieceId, f).catch(() => {})
+            }
+          }
           if (f) setScoreFile(f)
         }
       } catch { /* ignore */ }

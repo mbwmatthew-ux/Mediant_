@@ -185,6 +185,7 @@ export default function PieceDetailPanel({ piece, onClose, onDeleted }) {
       timeSig:    piece.time && piece.time !== '—' ? piece.time : null,
       bpm:        piece.bpm  || null,
       pieceId:    piece.userUploaded ? piece.id : null,
+      filePath:   piece.file_path ?? null,
       mediaType:  piece.mediaType ?? null,
     }))
     nav('/record')

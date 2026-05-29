@@ -498,7 +498,6 @@
   padding: 18px 24px;
   position: absolute;
   right: 0;
-  white-space: nowrap;
 }
 
 /* Front card */
@@ -543,6 +542,8 @@
   letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
 }
 
 .shuffleGhostNear .shuffleText { color: rgba(184,146,42,0.5); }
@@ -2117,5 +2118,24 @@
   .timelineTs {
     font-size: 0.68rem !important;
     width: auto !important;
+  }
+  .heroHeading {
+    font-size: 2.3rem !important; /* Satisfyingly scales large display headline for mobile phone widths */
+    letter-spacing: -0.03em !important;
+    line-height: 1.15 !important;
+  }
+  .heroLine {
+    flex-direction: column !important; /* Stacks We [elevate] and you [create] vertically on narrow mobile viewports */
+    align-items: center !important;
+    gap: 0.2rem !important;
+  }
+  .heroComma {
+    display: none !important; /* Cleanly drops the decorative comma once title is stacked vertically */
+  }
+}
+
+@media (max-width: 480px) {
+  .wordmark {
+    display: none !important; /* Hides full brand text to keep clean layout and prevent nav buttons overlap on extremely narrow mobile viewports */
   }
 }

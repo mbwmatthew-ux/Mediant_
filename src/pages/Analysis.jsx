@@ -472,8 +472,9 @@ export default function Analysis({ demo: demoProp = false }) {
       if (fnErr) throw new Error(fnErr.message ?? String(fnErr))
       if (data?.error) throw new Error(data.error)
       setSummary(data.summary)
-    } catch {
-      setSummaryError('Could not generate summary. Try again.')
+    } catch (err) {
+      console.error('[analysis-summary]', err)
+      setSummaryError(`Could not generate summary: ${err?.message ?? String(err)}`)
     } finally {
       setSummaryLoading(false)
     }

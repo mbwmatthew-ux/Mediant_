@@ -258,14 +258,12 @@ function LogoMark() {
   return (
     <div style={{
       width: 62, height: 62, flexShrink: 0,
-      background: '#b8922a',
+      background: 'var(--text)',
       WebkitMask: `url('/logo-mark.png') center/contain no-repeat`,
       WebkitMaskMode: 'luminance',
       mask: `url('/logo-mark.png') center/contain no-repeat`,
       maskMode: 'luminance',
       cursor: 'pointer',
-      filter: 'drop-shadow(0 0 1.5px #b8922a) drop-shadow(0 0 1.5px #b8922a)',
-      animation: 'logoFadeIn 0.7s ease both',
     }} />
   )
 }

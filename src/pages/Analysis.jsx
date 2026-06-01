@@ -838,6 +838,59 @@ export default function Analysis({ demo: demoProp = false }) {
     }
   }
 
+  async function handleDeleteThread(threadToDel) {
+    if (!threadToDel) return
+    const isConfirmed = window.confirm(`Are you sure you want to delete the entire session thread "${threadToDel.piece_title}"? This will delete all ${threadToDel.takes.length} recordings in this session. This action cannot be undone.`)
+    if (!isConfirmed) return
+
+    playPop()
+    const targetTakes = threadToDel.takes || []
+    
+    // 1. Delete from Supabase if real
+    if (user?.id) {
+      const realTakes = targetTakes.filter(take => {
+        const targetTakeId = take.id
+        const isDemoOrMock = !targetTakeId || String(targetTakeId).startsWith('mock') || String(targetTakeId) === 'demo' || take._demo
+        return !isDemoOrMock
+      })
+
+      if (realTakes.length > 0) {
+        try {
+          const realIds = realTakes.map(take => take.id)
+          const { error } = await supabase
+            .from('takes')
+            .delete()
+            .in('id', realIds)
+          if (error) throw new Error(error.message)
+          
+          realTakes.forEach(take => {
+            if (take.video_path) supabase.storage.from('recordings').remove([take.video_path]).catch(() => {})
+            if (take.score_path) supabase.storage.from('sheet-music').remove([take.score_path]).catch(() => {})
+          })
+        } catch (err) {
+          alert(`Could not delete session thread: ${err.message}`)
+          return
+        }
+      }
+    }
+
+    // 2. Update local state
+    const idsToDelete = targetTakes.map(t => t.id)
+    setAllTakes(prev => prev.filter(t => !idsToDelete.includes(t.id)))
+
+    // 3. Reset active thread selections if deleted thread was active
+    if (threadToDel.piece_title === activeThreadTitle) {
+      setSelectedTakeId(null)
+      const nextThread = threads.find(th => th.piece_title !== threadToDel.piece_title && th.takes?.length > 0)
+      if (nextThread) {
+        setActiveThreadTitle(nextThread.piece_title)
+      } else {
+        setActiveThreadTitle('')
+      }
+      setActiveFlag(null)
+    }
+  }
+
   // Filter threads
   const filteredThreads = useMemo(() => {
     return threads.filter(t => {
@@ -1028,20 +1081,35 @@ export default function Analysis({ demo: demoProp = false }) {
               >
                 <div className={aStyles.threadCardHeader}>
                   <h3 className={aStyles.threadPieceTitle}>{t.piece_title}</h3>
-                  <span
-                    className={aStyles.threadPinIcon}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      playTick()
-                      setAllTakes(prev => prev.map(take => 
-                        take.piece_title === t.piece_title ? { ...take, _pinned: !isPinned } : take
-                      ))
-                      t.isPinned = !isPinned
-                    }}
-                    title={isPinned ? 'Unpin thread' : 'Pin thread'}
-                  >
-                    {isPinned ? '★' : '☆'}
-                  </span>
+                  <div className={aStyles.threadActions}>
+                    <span
+                      className={aStyles.threadPinIcon}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        playTick()
+                        setAllTakes(prev => prev.map(take => 
+                          take.piece_title === t.piece_title ? { ...take, _pinned: !isPinned } : take
+                        ))
+                        t.isPinned = !isPinned
+                      }}
+                      title={isPinned ? 'Unpin thread' : 'Pin thread'}
+                    >
+                      {isPinned ? '★' : '☆'}
+                    </span>
+                    <button
+                      className={aStyles.threadDeleteBtn}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteThread(t)
+                      }}
+                      title="Delete this session thread"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <p className={aStyles.threadComposer}>{t.piece_composer}</p>
                 <div className={aStyles.threadStats}>

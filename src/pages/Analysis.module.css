@@ -1332,6 +1332,46 @@
   box-shadow: 0 2px 6px rgba(225, 134, 118, 0.15);
 }
 
+/* Premium thread hover action container */
+.threadActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.threadDeleteBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s ease, background 0.15s ease;
+}
+
+.threadCard:hover .threadDeleteBtn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.threadDeleteBtn svg {
+  stroke: var(--text-faint);
+  transition: stroke 0.15s ease;
+}
+
+.threadDeleteBtn:hover {
+  background: rgba(225, 134, 118, 0.12);
+}
+
+.threadDeleteBtn:hover svg {
+  stroke: var(--coral);
+}
+
 /* Spacious scrollable main container */
 .mainPageContent {
   flex: 1;

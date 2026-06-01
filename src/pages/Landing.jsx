@@ -252,7 +252,7 @@ function AnimatedLogo({ size = 28, thicker = false }) {
   return (
     <div style={{
       width: size, height: size, flexShrink: 0,
-      background: '#1a0f05',
+      background: 'var(--text)',
       WebkitMask: `url('/logo-mark.png') center/contain no-repeat`,
       WebkitMaskMode: 'luminance',
       mask: `url('/logo-mark.png') center/contain no-repeat`,

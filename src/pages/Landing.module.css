@@ -303,9 +303,13 @@
   margin-top: 20px;
 }
 
-@keyframes heroLogoReveal {
+:global(@keyframes heroLogoReveal) {
   from { clip-path: inset(0 0 100% 0); }
   to   { clip-path: inset(0 0 0% 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroLogoLarge { animation: none; }
 }
 
 /* ── Hero wordmark ───────────────────────────────────────────── */

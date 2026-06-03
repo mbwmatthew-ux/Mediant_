@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import MasterclassPanel from '../components/MasterclassPanel'
 import { SkeletonCard } from '../components/Skeleton'
+import WaveformTimeline, { WAVEFORM_GROUPS } from '../components/WaveformTimeline'
 import styles from './Page.module.css'
 import aStyles from './Analysis.module.css'
 import { playTick, playPop, playNav } from '../utils/sounds'
@@ -181,7 +182,7 @@ export default function Analysis({ demo: demoProp = false }) {
   const [selectedTakeId, setSelectedTakeId] = useState(null)
   const [threadsTab, setThreadsTab] = useState('all')
 
-  const [isThreadsCollapsed, setIsThreadsCollapsed] = useState(false)
+  const [showThreadMenu, setShowThreadMenu] = useState(null) // piece_title of thread with open menu
 
   // Overview / Session Summary tabs
   const [activeTab, setActiveTab] = useState('overview')
@@ -195,6 +196,7 @@ export default function Analysis({ demo: demoProp = false }) {
   const [highlights, setHighlights]   = useState([])
   const [videoSpeed, setVideoSpeed]     = useState(1)
   const [videoDuration, setVideoDuration] = useState(null)
+  const [scoreCollapsed, setScoreCollapsed] = useState(false)
 
   // AI summary state
   const [summary, setSummary]             = useState(null)
@@ -591,8 +593,10 @@ export default function Analysis({ demo: demoProp = false }) {
     }
   }
 
-  // Auto-generate summary once when the take finishes loading
+  // Clear stale summary when the take changes, then auto-generate
   useEffect(() => {
+    setSummary(null)
+    setSummaryError(null)
     if (take && take.flags?.length && !take._polling) {
       generateSummary()
     }
@@ -1024,7 +1028,7 @@ export default function Analysis({ demo: demoProp = false }) {
   )
 
   return (
-    <div className={`${aStyles.tripleLayout} ${isThreadsCollapsed ? aStyles.threadsCollapsed : ''}`}>
+    <div className={aStyles.pageShell}>
       {/* Hidden file input for uploads */}
       <input
         ref={fileInputRef}
@@ -1034,108 +1038,7 @@ export default function Analysis({ demo: demoProp = false }) {
         onChange={handleFileUpload}
       />
 
-      {/* ───── SIDEBAR COLUMN: Threads Panel ───── */}
-      <aside className={`${aStyles.threadsColumn} ${isThreadsCollapsed ? aStyles.threadsColumnCollapsed : ''}`}>
-        <div className={aStyles.threadsHeader}>
-          <h2 className={aStyles.threadsTitle}>
-            Threads
-          </h2>
-          <button className={aStyles.threadsNewBtn} onClick={() => nav('/record')} title="New session">
-            +
-          </button>
-        </div>
-
-        <div className={aStyles.threadsTabs}>
-          <button
-            className={`${aStyles.threadsTabBtn} ${threadsTab === 'all' ? aStyles.threadsTabBtnActive : ''}`}
-            onClick={() => setThreadsTab('all')}
-          >
-            All
-          </button>
-          <button
-            className={`${aStyles.threadsTabBtn} ${threadsTab === 'pinned' ? aStyles.threadsTabBtnActive : ''}`}
-            onClick={() => setThreadsTab('pinned')}
-          >
-            Pinned
-          </button>
-        </div>
-
-        <div className={aStyles.threadsList}>
-          {filteredThreads.map(t => {
-            const isActive = t.piece_title === activeThreadTitle
-            const latestTake = t.takes[0]
-            const scoreVal = latestTake?.score ?? 80
-            const relativeTime = timeAgo(latestTake?.created_at) || 'Recent'
-            const isPinned = t.isPinned
-
-            return (
-              <div
-                key={t.piece_title}
-                className={`${aStyles.threadCard} ${isActive ? aStyles.threadCardActive : ''}`}
-                onClick={() => {
-                  playTick()
-                  setActiveThreadTitle(t.piece_title)
-                  setSelectedTakeId(null) // Defaults to latest
-                  setActiveFlag(null)
-                }}
-              >
-                <div className={aStyles.threadCardHeader}>
-                  <h3 className={aStyles.threadPieceTitle}>{t.piece_title}</h3>
-                  <div className={aStyles.threadActions}>
-                    <span
-                      className={aStyles.threadPinIcon}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        playTick()
-                        setAllTakes(prev => prev.map(take => 
-                          take.piece_title === t.piece_title ? { ...take, _pinned: !isPinned } : take
-                        ))
-                        t.isPinned = !isPinned
-                      }}
-                      title={isPinned ? 'Unpin thread' : 'Pin thread'}
-                    >
-                      {isPinned ? '★' : '☆'}
-                    </span>
-                    <button
-                      className={aStyles.threadDeleteBtn}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteThread(t)
-                      }}
-                      title="Delete this session thread"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <p className={aStyles.threadComposer}>{t.piece_composer}</p>
-                <div className={aStyles.threadStats}>
-                  <span>{t.takes.length} Takes</span>
-                  {t.piece_title === 'Clair de lune' && <span>12d 🔥</span>}
-                </div>
-                <div className={aStyles.threadMeta}>
-                  <span className={aStyles.threadScoreBadge} style={{
-                    background: scoreVal >= 88 ? 'rgba(74,140,88,0.18)' : scoreVal >= 74 ? 'rgba(214,177,104,0.18)' : 'rgba(225,134,118,0.18)',
-                    color: scoreVal >= 88 ? 'var(--mint)' : scoreVal >= 74 ? 'var(--gold)' : 'var(--coral)',
-                  }}>
-                    Score: {scoreVal}
-                  </span>
-                  <span className={aStyles.threadTime}>{relativeTime}</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <button className={aStyles.threadsArchiveBtn} onClick={() => alert('Archive is empty')}>
-          View archived threads
-        </button>
-      </aside>
-
-      {/* ───── MAIN CONTENT AREA: Original Feedback Page Layout ───── */}
+      {/* ───── MAIN CONTENT AREA ───── */}
       <main className={aStyles.mainPageContent}>
         {/* Demo banner */}
         {isDemo && (
@@ -1159,66 +1062,75 @@ export default function Analysis({ demo: demoProp = false }) {
           </div>
         )}
 
-        {/* Header */}
-        <div className={styles.header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <button
-              className={aStyles.sidebarToggleBtn}
-              onClick={() => {
-                playTick()
-                setIsThreadsCollapsed(prev => {
-                  const next = !prev
-                  localStorage.setItem('mediant_threads_collapsed', String(next))
-                  return next
-                })
-              }}
-              title={isThreadsCollapsed ? "Show threads sidebar" : "Hide threads sidebar"}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-            </button>
-            <div>
-              <p className={styles.label}>Score Review</p>
-              <h1 className={styles.reviewTitle}>{pieceTitle}</h1>
-              <p className={styles.sub}>
-                {subtext}
-              </p>
-              {takesForActiveThread.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
-                  <select
-                    className={aStyles.takeSelect}
-                    value={selectedTakeId ?? take?.id ?? ''}
-                    onChange={(e) => { playTick(); setSelectedTakeId(e.target.value) }}
-                  >
-                    {takesForActiveThread.map((t, idx) => {
-                      const takeNum = takesForActiveThread.length - idx
-                      const formattedDate = timeAgo(t.created_at) || 'Recent'
-                      return (
-                        <option key={t.id} value={t.id}>
-                          Take {takeNum} (Score: {t.score ?? '—'}) — {formattedDate}
-                        </option>
-                      )
-                    })}
-                  </select>
+        {/* ── Thread tab strip ── */}
+        <div className={aStyles.threadStrip}>
+          <div className={aStyles.threadStripTabs}>
+            {filteredThreads.map(t => {
+              const isActive = t.piece_title === activeThreadTitle
+              const latestScore = t.takes[0]?.score ?? null
+              return (
+                <button
+                  key={t.piece_title}
+                  className={`${aStyles.threadStripTab} ${isActive ? aStyles.threadStripTabActive : ''}`}
+                  onClick={() => { playTick(); setActiveThreadTitle(t.piece_title); setSelectedTakeId(null); setActiveFlag(null) }}
+                  onContextMenu={e => { e.preventDefault(); setShowThreadMenu(t.piece_title) }}
+                >
+                  <span className={aStyles.threadStripTitle}>{t.piece_title}</span>
+                  {latestScore != null && (
+                    <span className={aStyles.threadStripScore} style={{ color: scoreColor(latestScore) }}>
+                      {latestScore}
+                    </span>
+                  )}
+                  {t.isPinned && <span className={aStyles.threadStripPin}>★</span>}
+                  {showThreadMenu === t.piece_title && (
+                    <div className={aStyles.threadMenu} onClick={e => e.stopPropagation()} onMouseLeave={() => setShowThreadMenu(null)}>
+                      <button className={aStyles.threadMenuItem} onClick={() => { handleDeleteThread(t); setShowThreadMenu(null) }}>
+                        Delete thread
+                      </button>
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          <button className={aStyles.threadStripNew} onClick={() => { playPop(); nav('/record') }} title="New session">
+            +
+          </button>
+        </div>
 
-                  <button
-                    className={aStyles.deleteTakeBtn}
-                    onClick={handleDeleteTake}
-                    title="Delete this recording analysis"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <line x1="10" y1="11" x2="10" y2="17" />
-                      <line x1="14" y1="11" x2="14" y2="17" />
-                    </svg>
-                    Delete recording
-                  </button>
-                </div>
-              )}
-            </div>
+        {/* ── Piece header ── */}
+        <div className={styles.header}>
+          <div>
+            <h1 className={styles.reviewTitle}>{pieceTitle}</h1>
+            <p className={styles.sub}>{subtext}</p>
+            {takesForActiveThread.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                <select
+                  className={aStyles.takeSelect}
+                  value={selectedTakeId ?? take?.id ?? ''}
+                  onChange={(e) => { playTick(); setSelectedTakeId(e.target.value) }}
+                >
+                  {takesForActiveThread.map((t, idx) => {
+                    const takeNum = takesForActiveThread.length - idx
+                    const formattedDate = timeAgo(t.created_at) || 'Recent'
+                    return (
+                      <option key={t.id} value={t.id}>
+                        Take {takeNum} · {t.score ?? '—'}/100 · {formattedDate}
+                      </option>
+                    )
+                  })}
+                </select>
+                <button className={aStyles.deleteTakeBtn} onClick={handleDeleteTake} title="Delete this recording analysis">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <line x1="10" y1="11" x2="10" y2="17" />
+                    <line x1="14" y1="11" x2="14" y2="17" />
+                  </svg>
+                  Delete
+                </button>
+              </div>
+            )}
           </div>
           <div className={aStyles.headerRight}>
             {score != null && (
@@ -1251,61 +1163,103 @@ export default function Analysis({ demo: demoProp = false }) {
 
         {activeTab === 'overview' ? (
           <>
+            {/* Full-width waveform timeline */}
+            <div className={aStyles.waveformSection}>
+              <WaveformTimeline
+                flags={take?.flags ?? []}
+                duration={videoDuration ?? 0}
+                videoRef={videoRef}
+                activeFlag={activeFlag}
+                onFlagClick={(id) => { playTick(); setActiveFlag(activeFlag === id ? null : id) }}
+              />
+            </div>
+
             {/* Two-column layout: Score on Left, AI Insights on Right */}
-            <div className={`${aStyles.reviewLayout} ${isImageScore ? aStyles.reviewLayoutImageScore : ''}`}>
-              {/* Left Column: Sheet music score */}
-              <div className={aStyles.scoreColumnWrap}>
+            <div className={`${aStyles.reviewLayout} ${isImageScore ? aStyles.reviewLayoutImageScore : ''} ${scoreCollapsed ? aStyles.reviewLayoutScoreCollapsed : ''}`}>
+              {/* Left Column: Sheet music score (collapsible) */}
+              <div className={`${aStyles.scoreColumnWrap} ${scoreCollapsed ? aStyles.scoreColumnWrapHidden : ''}`}>
                 <div className={aStyles.scoreColumn}>
+                  <div className={aStyles.scoreColumnHeader}>
+                    <span className={aStyles.scoreColumnTitle}>Sheet Music</span>
+                    <button
+                      className={aStyles.scoreCollapseBtn}
+                      onClick={() => setScoreCollapsed(v => !v)}
+                      title={scoreCollapsed ? 'Show sheet music' : 'Hide sheet music'}
+                    >
+                      {scoreCollapsed ? 'Show' : 'Hide'}
+                    </button>
+                  </div>
                   <div className={aStyles.scoreInner}>
                     {scoreAreaContent}
                   </div>
                 </div>
               </div>
 
-              {/* Right Column: AI insights, playback loops, and Mediant chat box */}
+              {/* Right Column: AI insights, video, chat */}
               <div className={aStyles.rightColumn}>
-                {/* AI Insights Timeline */}
+                {/* Score-hidden restore button */}
+                {scoreCollapsed && (
+                  <button className={aStyles.scoreRestoreBtn} onClick={() => setScoreCollapsed(false)}>
+                    Show sheet music
+                  </button>
+                )}
+
+                {/* AI Insights — grouped by type */}
                 <section className={aStyles.insightsPanel}>
                   <div className={aStyles.insightsPanelHeader}>
                     <span className={aStyles.insightsPanelTitle}>
-                      AI Insights Timeline
+                      AI Insights
                       {issueCount > 0 && <span className={aStyles.insightCount}>{issueCount}</span>}
                     </span>
                     <div className={aStyles.confLegend} title="How confident the AI is that this issue is real">
-                      <span className={aStyles.confLegendLabel}>AI confidence:</span>
+                      <span className={aStyles.confLegendLabel}>Confidence:</span>
                       <span className={aStyles.confLegendItem}><span className={aStyles.confDot} style={{ background: 'var(--accent)' }} />High</span>
                       <span className={aStyles.confLegendItem}><span className={aStyles.confDot} style={{ background: 'var(--gold)' }} />Medium</span>
                       <span className={aStyles.confLegendItem}><span className={aStyles.confDot} style={{ background: 'var(--coral)' }} />Low</span>
                     </div>
                   </div>
-                  {issueCount > 0 && (
-                    <p className={aStyles.insightsDesc}>
-                      Each row is a specific moment where the AI detected an issue. Click any row to see details — and if you have a video, jump directly to that moment.
-                    </p>
-                  )}
 
                   {issueCount === 0 ? (
                     <div className={aStyles.issueClean}>✓ No issues detected — clean performance.</div>
                   ) : (
-                    <div className={aStyles.timeline}>
-                      {sortedChips.map(({ flag, confidence }) => {
-                        const idx = parseInt(flag.replace('flag_', ''), 10)
-                        const f = take.flags[idx]
-                        const isActive = activeFlag === flag
-                        const cc = confColor(confidence)
+                    <div className={aStyles.groupedTimeline}>
+                      {WAVEFORM_GROUPS.map(group => {
+                        const groupFlags = sortedChips.filter(({ flag }) => {
+                          const idx = parseInt(flag.replace('flag_', ''), 10)
+                          const f = take?.flags?.[idx]
+                          return group.types.includes((f?.type ?? '').toLowerCase())
+                        })
+                        if (groupFlags.length === 0) return null
                         return (
-                          <button
-                            key={flag}
-                            className={`${aStyles.timelineRow} ${isActive ? aStyles.timelineRowActive : ''}`}
-                            onClick={() => { playTick(); setActiveFlag(activeFlag === flag ? null : flag) }}
-                          >
-                            <span className={aStyles.timelineConfDot} style={{ background: cc }} />
-                            <span className={aStyles.timelineTs}>{formatTs(f?.timestamp_start)}</span>
-                            <span className={aStyles.timelineMeasure}>m.{f?.measure}</span>
-                            <span className={aStyles.timelineTypePill} data-type={(f?.type ?? 'technique').toLowerCase()}>{capitalize(f?.type)}</span>
-                            <span className={aStyles.timelineTitle}>{f?.title}</span>
-                            <span className={aStyles.timelineConfBadge} style={{ color: cc }}>{confLabel(confidence)}</span>
-                          </button>
+                          <div key={group.key} className={aStyles.flagGroup}>
+                            <div className={aStyles.flagGroupHeader} style={{ '--gc': group.color }}>
+                              <span className={aStyles.flagGroupDot} />
+                              <span className={aStyles.flagGroupLabel}>{group.label}</span>
+                              <span className={aStyles.flagGroupDesc}>{group.desc}</span>
+                              <span className={aStyles.flagGroupCount}>{groupFlags.length}</span>
+                            </div>
+                            <div className={aStyles.timeline}>
+                              {groupFlags.map(({ flag, confidence }) => {
+                                const idx = parseInt(flag.replace('flag_', ''), 10)
+                                const f = take.flags[idx]
+                                const isActive = activeFlag === flag
+                                const cc = confColor(confidence)
+                                return (
+                                  <button
+                                    key={flag}
+                                    className={`${aStyles.timelineRow} ${isActive ? aStyles.timelineRowActive : ''}`}
+                                    onClick={() => { playTick(); setActiveFlag(activeFlag === flag ? null : flag) }}
+                                  >
+                                    <span className={aStyles.timelineConfDot} style={{ background: cc }} />
+                                    <span className={aStyles.timelineTs}>{formatTs(f?.timestamp_start)}</span>
+                                    <span className={aStyles.timelineMeasure}>m.{f?.measure}</span>
+                                    <span className={aStyles.timelineTitle}>{f?.title}</span>
+                                    <span className={aStyles.timelineConfBadge} style={{ color: cc }}>{confLabel(confidence)}</span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
                         )
                       })}
                     </div>
@@ -1360,43 +1314,6 @@ export default function Analysis({ demo: demoProp = false }) {
                       preload="metadata"
                       onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)}
                     />
-
-                    {/* Flag position timeline over duration */}
-                    {videoDuration > 0 && take?.flags?.some(f => f.timestamp_start != null) && (
-                      <div className={aStyles.flagTimeline}>
-                        <span className={aStyles.flagTimelineLabel}>Tap a marker to jump to that moment in your recording</span>
-                        <div className={aStyles.flagTimelineTrack}>
-                          {take.flags.map((f, i) => {
-                            const ts = Number(f.timestamp_start)
-                            if (!Number.isFinite(ts) || ts < 0) return null
-                            const pct = Math.min(100, (ts / videoDuration) * 100)
-                            const flagId = `flag_${i}`
-                            const isActive = activeFlag === flagId
-                            const cc = confColor(f.confidence ?? 100)
-                            return (
-                              <button
-                                key={flagId}
-                                className={aStyles.flagTimelineMarker}
-                                title={`m.${f.measure} · ${capitalize(f.type)} — ${formatTs(ts)}`}
-                                style={{
-                                  left: `${pct}%`,
-                                  background: cc,
-                                  transform: isActive ? 'translate(-50%, -50%) scale(1.5)' : 'translate(-50%, -50%)',
-                                  boxShadow: isActive ? `0 0 0 3px ${cc}40` : 'none',
-                                }}
-                                onClick={() => {
-                                  const video = videoRef.current
-                                  if (video) video.currentTime = ts
-                                  setActiveFlag(f2 => f2 === flagId ? null : flagId)
-                                  playTick()
-                                }}
-                              />
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
                     <div className={styles.videoControls}>
                       <span className={styles.videoControlsLabel}>Speed</span>
                       <div className={styles.speedBtns}>
@@ -1446,7 +1363,6 @@ export default function Analysis({ demo: demoProp = false }) {
                     <div ref={chatEndRef} />
                   </div>
 
-                  {/* Dynamic prompt suggestion chips */}
                   <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '4px 0', scrollbarWidth: 'none' }}>
                     <button className={aStyles.summaryRetryBtn} style={{ borderRadius: 16, padding: '6px 12px', whiteSpace: 'nowrap', margin: 0 }} onClick={() => sendMessage("How can I shape the opening?")}>
                       How can I shape the opening?
@@ -1460,14 +1376,13 @@ export default function Analysis({ demo: demoProp = false }) {
                   </div>
 
                   <div className={styles.chatInputRow}>
-                    {/* Paperclip attachment triggers follow-up upload */}
                     <button
                       className={styles.chatSend}
                       style={{ background: 'var(--surface-hover)', color: 'var(--text-soft)', marginRight: 6, padding: '0 8px' }}
                       onClick={triggerFileUpload}
                       title="Upload follow-up take"
                     >
-                      📎
+                      +
                     </button>
                     <input
                       className={styles.chatInput}

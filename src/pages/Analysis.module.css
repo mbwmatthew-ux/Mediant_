@@ -685,9 +685,9 @@
   cursor: pointer;
   display: grid;
   gap: 10px;
-  grid-template-columns: 10px 50px 40px auto 1fr auto;
+  grid-template-columns: 10px 50px 40px 1fr auto;
   min-width: 0;
-  padding: 13px 12px;
+  padding: 11px 12px;
   text-align: left;
   position: relative;
   transition: background 0.2s var(--ease-smooth), transform 0.2s var(--ease-spring), padding-left 0.2s var(--ease-spring);
@@ -975,6 +975,129 @@
   justify-content: space-between;
 }
 
+/* ── Waveform section (full-width, above two-column layout) ── */
+.waveformSection {
+  background: var(--bg-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  margin-top: 20px;
+  padding: 14px 20px 12px;
+}
+
+/* ── Collapsible score column ─────────────────────────────── */
+.reviewLayoutScoreCollapsed {
+  grid-template-columns: 1fr !important;
+}
+
+.scoreColumnWrapHidden {
+  display: none;
+}
+
+.scoreColumnHeader {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+
+.scoreColumnTitle {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scoreCollapseBtn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: 5px;
+  color: var(--text-faintest);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 2px 9px;
+  text-transform: uppercase;
+  transition: background 120ms ease, color 120ms ease;
+}
+.scoreCollapseBtn:hover { background: var(--surface-hover); color: var(--text-faint); }
+
+.scoreRestoreBtn {
+  background: var(--surface-subtle);
+  border: 1px solid var(--surface-border);
+  border-radius: 7px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 7px 14px;
+  transition: background 120ms ease, color 120ms ease;
+  width: max-content;
+}
+.scoreRestoreBtn:hover { background: var(--surface-hover); color: var(--text); }
+
+/* ── Grouped flags timeline ───────────────────────────────── */
+.groupedTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.flagGroup {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+.flagGroup:last-child { border-bottom: 0; }
+
+.flagGroupHeader {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+
+.flagGroupDot {
+  background: var(--gc, var(--accent));
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 7px;
+  width: 7px;
+}
+
+.flagGroupLabel {
+  color: color-mix(in srgb, var(--gc, var(--accent)) 90%, var(--text));
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.flagGroupDesc {
+  color: var(--text-faintest);
+  font-size: 0.68rem;
+  line-height: 1.3;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flagGroupCount {
+  background: color-mix(in srgb, var(--gc, var(--accent)) 15%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--gc, var(--accent)) 90%, var(--text));
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-left: auto;
+  padding: 1px 7px;
+}
+
 /* ── Flag position timeline ───────────────────────────────── */
 .insightsDesc {
   color: var(--text-faint);
@@ -1038,12 +1161,138 @@
 @media (max-width: 700px) {
   .issueGrid          { grid-template-columns: 1fr; }
   .summaryColumns     { grid-template-columns: 1fr; }
-  .timelineRow        { grid-template-columns: 10px 44px 36px auto 1fr; }
+  .timelineRow        { grid-template-columns: 10px 44px 36px 1fr; }
   .timelineConfBadge  { display: none; }
   .confLegend         { display: none; }
+  .flagGroupDesc      { display: none; }
 }
 
-/* ── Triple Pane Layout ────────────────────────────────────── */
+/* ── Page shell (full-width, no sidebar) ────────────────────── */
+.pageShell {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 48px);
+  overflow: hidden;
+  width: 100%;
+}
+
+/* ── Thread strip (horizontal scrollable tabs) ──────────────── */
+.threadStrip {
+  align-items: center;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--surface-border);
+  display: flex;
+  flex-shrink: 0;
+  gap: 0;
+  overflow: hidden;
+  padding: 0 6px 0 16px;
+}
+
+.threadStripTabs {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 6px 0;
+  scrollbar-width: none;
+}
+.threadStripTabs::-webkit-scrollbar { display: none; }
+
+.threadStripTab {
+  align-items: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-shrink: 0;
+  gap: 7px;
+  max-width: 220px;
+  min-width: 0;
+  padding: 6px 12px;
+  position: relative;
+  text-align: left;
+  transition: background 130ms ease, border-color 130ms ease;
+}
+.threadStripTab:hover { background: var(--surface-subtle); border-color: var(--surface-border); }
+
+.threadStripTabActive {
+  background: var(--accent-bg) !important;
+  border-color: var(--accent-border) !important;
+}
+
+.threadStripTitle {
+  color: var(--text-soft);
+  font-size: 0.81rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.threadStripTabActive .threadStripTitle { color: var(--text); font-weight: 600; }
+
+.threadStripScore {
+  flex-shrink: 0;
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 0.88rem;
+  font-weight: 400;
+}
+
+.threadStripPin {
+  color: var(--gold);
+  flex-shrink: 0;
+  font-size: 0.65rem;
+}
+
+.threadStripNew {
+  align-items: center;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 7px;
+  color: var(--accent);
+  cursor: pointer;
+  display: flex;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  height: 28px;
+  justify-content: center;
+  margin-left: 6px;
+  transition: background 130ms ease, transform 130ms ease;
+  width: 28px;
+}
+.threadStripNew:hover { background: var(--accent-bg-hover); transform: scale(1.06); }
+
+/* Thread context menu */
+.threadMenu {
+  background: var(--bg-card);
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  left: 0;
+  min-width: 140px;
+  padding: 4px;
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 50;
+}
+
+.threadMenuItem {
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--coral);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 7px 12px;
+  text-align: left;
+  transition: background 120ms ease;
+}
+.threadMenuItem:hover { background: rgba(225,134,118,0.1); }
+
+/* ── Triple Pane Layout (legacy — keep for reference) ────────── */
 .tripleLayout {
   display: flex;
   gap: 0;
@@ -1400,9 +1649,8 @@
 .mainPageContent {
   flex: 1;
   min-width: 0;
-  padding: 24px 32px 64px;
   overflow-y: auto;
-  height: 100%;
+  padding: 20px 32px 64px;
 }
 
 /* Responsive adjustment */

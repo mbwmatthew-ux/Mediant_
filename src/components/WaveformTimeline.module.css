@@ -1,0 +1,135 @@
+/* ── Root ────────────────────────────────────────────────────── */
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+}
+
+/* ── Clickable track ─────────────────────────────────────────── */
+.track {
+  align-items: flex-end;
+  cursor: pointer;
+  display: flex;
+  height: 68px;
+  position: relative;
+  width: 100%;
+}
+
+/* ── Bars container ──────────────────────────────────────────── */
+.bars {
+  align-items: flex-end;
+  display: flex;
+  gap: 2px;
+  height: 100%;
+  padding: 0 2px;
+  pointer-events: none;
+  width: 100%;
+}
+
+/* ── Individual bar ──────────────────────────────────────────── */
+.bar {
+  border-radius: 3px 3px 0 0;
+  flex: 1;
+  min-width: 3px;
+  transition: filter 0.15s ease, transform 0.15s var(--ease-spring, cubic-bezier(0.16,1,0.3,1));
+  animation: barRise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--bi, 0) * 5ms);
+}
+
+@keyframes barRise {
+  from { transform: scaleY(0); transform-origin: bottom; }
+  to   { transform: scaleY(1); transform-origin: bottom; }
+}
+
+/* ── Flag markers ────────────────────────────────────────────── */
+.marker {
+  background: var(--mc, var(--accent));
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  height: 10px;
+  padding: 0;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: transform 130ms ease, box-shadow 130ms ease;
+  width: 10px;
+  z-index: 2;
+}
+
+.marker:hover {
+  transform: translate(-50%, -50%) scale(1.5);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc, var(--accent)) 30%, transparent);
+}
+
+.markerActive {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc, var(--accent)) 35%, transparent);
+  transform: translate(-50%, -50%) scale(1.6);
+}
+
+/* ── Playhead ────────────────────────────────────────────────── */
+.playhead {
+  background: var(--text-faint);
+  border-radius: 1px;
+  height: calc(100% + 6px);
+  pointer-events: none;
+  position: absolute;
+  top: -3px;
+  transform: translateX(-50%);
+  transition: opacity 200ms ease;
+  width: 2px;
+  z-index: 3;
+}
+
+/* ── Footer row ──────────────────────────────────────────────── */
+.footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 2px 0;
+}
+
+.timestamp {
+  color: var(--text-faintest);
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+/* ── Legend ──────────────────────────────────────────────────── */
+.legend {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.legendItem {
+  align-items: center;
+  color: color-mix(in srgb, var(--lc, var(--accent)) 90%, transparent);
+  display: flex;
+  font-size: 0.68rem;
+  font-weight: 600;
+  gap: 5px;
+  letter-spacing: 0.03em;
+}
+
+.legendItem::before {
+  background: var(--lc, var(--accent));
+  border-radius: 50%;
+  content: '';
+  display: block;
+  flex-shrink: 0;
+  height: 6px;
+  width: 6px;
+}
+
+/* ── No timing data message ──────────────────────────────────── */
+.noData {
+  color: var(--text-faintest);
+  font-size: 0.69rem;
+  font-style: italic;
+  flex: 1;
+  text-align: center;
+}

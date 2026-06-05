@@ -90,49 +90,71 @@ async function runGeminiVideo(opts: {
     ? `measures ${opts.safeStart}–${opts.safeEnd}`
     : `from measure ${opts.safeStart}`
 
-  const prompt = `You are an expert music performance coach with conservatory-level training, analysing a student's video recording.
+  const instrumentFamily = (() => {
+    const i = opts.instrument.toLowerCase()
+    if (/clarinet|flute|oboe|bassoon|saxophone/.test(i)) return 'woodwind'
+    if (/trumpet|trombone|french horn|tuba|horn/.test(i)) return 'brass'
+    if (/violin|viola|cello|double bass|bass/.test(i)) return 'strings'
+    if (/piano|keyboard/.test(i)) return 'piano'
+    if (/voice|soprano|alto|tenor|bass/.test(i)) return 'voice'
+    return 'other'
+  })()
+
+  const instrumentSpecific = {
+    woodwind: `For woodwind (${opts.instrument}): you MUST listen for squeaks, cracks, and tone breaks — these are automatic flags. Also flag: over-blowing causing pitch to go sharp, weak or breathy tone from insufficient air support, tongue placement causing smeared articulation, and octave key or register issues causing the wrong harmonic.`,
+    brass: `For brass (${opts.instrument}): flag missed lip slurs, clipped or smeared valve attacks, notes that don't speak cleanly, intonation issues in the upper register (brass plays sharp when overblown), and poor breath support causing notes to fall flat or cut out.`,
+    strings: `For strings (${opts.instrument}): flag bow scratches, arm-weight bow strokes that cause tone to crack, string crossings that clip adjacent strings, shifts that arrive late or out of tune, open string intonation issues, and flying or bouncing bow that breaks the line.`,
+    piano: `For piano: flag wrong notes (name the pitch heard vs. expected), notes that don't speak (missed key), pedaling that creates muddiness by overlapping harmonically incompatible notes, and uneven voicing where the melody line disappears into the accompaniment.`,
+    voice: `For voice: flag pitchy passages (name the direction — sharp or flat), vibrato that is too wide or unstable, vowel modifications that change the pitch, and breath support failures that cause the tone to spread or go flat at phrase ends.`,
+    other: `Flag any audible error: wrong notes, tone issues, intonation drift, and rhythmic problems.`,
+  }[instrumentFamily]
+
+  const prompt = `You are a brutally honest but constructive music performance coach with conservatory-level ear training. You are analyzing a student's audio/video recording. Your job is to identify EVERY audible problem — do not be polite by omitting things you hear.
 
 Piece: "${opts.pieceTitle}" by ${opts.composer}
 Instrument: ${opts.instrument}
 ${opts.keySignature ? `Key: ${opts.keySignature}. ` : ''}Time signature: ${opts.timeSig}
 Recording covers: ${measureRange}
-${opts.tempo > 0 ? `Tempo: ${opts.tempo} BPM` : ''}
+${opts.tempo > 0 ? `Reference tempo: ${opts.tempo} BPM` : ''}
 
-Watch the ENTIRE video from start to finish. Listen carefully and observe:
-- Rhythmic accuracy: rushed or dragged beats, unsteady pulse, incorrect subdivisions
-- Intonation: out-of-tune notes, especially in exposed passages, high positions, or awkward intervals
-- Bow technique (strings): bow distribution, contact point, bow speed, excessive pressure, flying bow, frog/tip control
-- Finger technique: late arrivals, slides, missed shifts, collapsed joints
-- Articulation and phrasing: slurring errors, staccato uniformity, accent placement
-- Dynamics: failing to execute marked crescendos/diminuendos, lack of tonal contrast
-- Expression and musicality: metronomic playing, no phrase shaping, missed character
-- Memory slips, hesitations, or structural errors
+${instrumentSpecific}
 
-SCORING RULES:
-- 95–100: Genuinely professional, near-flawless. Empty flags array is allowed.
-- 85–94: Very strong with minor issues. Minimum 2 flags.
-- 70–84: Solid but with clear problems. Minimum 3–4 flags.
-- 55–69: Noticeable issues throughout. Minimum 4–5 flags.
-- Below 55: Significant technical or musical problems. Minimum 5+ flags.
-Every point deducted from 100 MUST correspond to a specific, timestamped flag.
+MANDATORY DETECTION — you MUST flag these if you detect them, no exceptions:
+1. WRONG NOTES: Any pitch that clearly does not belong to the passage. Name the note heard and what was expected.
+2. SQUEAKS / TONE BREAKS: Any unintended squeak, crack, pop, or tone failure. These are always flagged.
+3. RUSHING: If the performer plays ahead of the beat consistently over 3+ measures, flag as a timing issue covering that range.
+4. DRAGGING: If the performer falls behind the beat consistently, flag as a timing issue covering that range.
+5. INTONATION: Any passage (even 1 note) where pitch is audibly sharp or flat. Name whether it is sharp or flat and approximately by how much.
+6. MISSED DYNAMICS: If a forte sounds like a mezzo-forte, or a piano sounds too loud, flag it.
 
-Return ONLY valid JSON (no markdown fences):
+WHAT "ISSUE SPANS MULTIPLE MEASURES" MEANS: If the same problem continues across several measures (e.g., rushing from m.5 to m.12, or consistently flat intonation in a phrase), report it as ONE flag with a measure range. Do not repeat the same issue as separate flags.
+
+SCORING (be strict — most student recordings score 50–80):
+- 90–100: Near-professional. Genuinely rare. No wrong notes, no squeaks, near-perfect intonation and rhythm.
+- 75–89: Strong but with clear, audible issues. Minimum 3 flags.
+- 60–74: Noticeable problems throughout. Minimum 4–5 flags.
+- 45–59: Multiple significant errors. Minimum 6 flags.
+- Below 45: Serious technical or accuracy problems. Minimum 7+ flags.
+Each point deducted from 100 MUST correspond to a flag you are reporting.
+
+Return ONLY valid JSON (no markdown fences, no explanation text):
 {
   "score": <integer 0-100>,
   "flags": [
     {
-      "measure": <integer — ABSOLUTE score measure number. The recording starts at measure ${opts.safeStart}${opts.safeEnd ? ` and ends at measure ${opts.safeEnd}` : ''}. Do NOT reset to 1 — always use the actual score measure number.>,
-      "type": "timing"|"intonation"|"dynamics"|"technique"|"error",
-      "confidence": <integer 70-100 — how certain you are about this flag>,
-      "title": "<8 words max — name the specific issue precisely>",
-      "detail": "<2-4 sentences: exactly what went wrong, the musical consequence, and a specific actionable fix>",
-      "timestamp_start": <seconds from the start of the video when this issue begins>,
-      "timestamp_end": <seconds from the start of the video when this issue ends>
+      "measure_start": <integer — ABSOLUTE score measure where the issue BEGINS. Recording starts at measure ${opts.safeStart}${opts.safeEnd ? ` and ends at measure ${opts.safeEnd}` : ''}. Never reset to 1.>,
+      "measure_end": <integer | null — ABSOLUTE score measure where the issue ENDS. Use null if the issue is confined to a single measure. Use a number if the issue spans multiple measures (e.g. rushing from m.5 to m.12 → measure_end: 12).>,
+      "type": "timing"|"intonation"|"dynamics"|"technique"|"tone"|"error",
+      "confidence": <integer 70-100>,
+      "title": "<8 words max — be specific: name the note, direction, or technique failure>",
+      "detail": "<3-5 sentences: (1) exactly what you heard and when, (2) name the specific note/beat/measure if relevant, (3) why it matters musically, (4) a concrete practice fix>",
+      "timestamp_start": <seconds from start of video when this issue first occurs>,
+      "timestamp_end": <seconds from start of video when this issue ends>
     }
   ]
 }
 
-Be specific and musical — name exact notes, intervals, beats, or bow strokes. Avoid vague feedback like "work on this passage." Tell the student what to listen for and how to practise it.`
+Name exact pitches (e.g. "B♭4 arrived sharp by roughly a quarter tone"), exact beats ("rushed the dotted eighth–sixteenth on beat 3"), and exact technique ("bow left the string at the frog on the down-bow in m.7"). Never write vague feedback.`
 
   // Use confirmed-available models (v1beta only — v1 doesn't have these models)
   const candidates = [
@@ -189,20 +211,25 @@ Be specific and musical — name exact notes, intervals, beats, or bow strokes. 
   const maxMeasure = opts.safeEnd ?? opts.safeStart + 200
   const flags = rawFlags.map((f: any) => {
     const ts = Number(f.timestamp_start) || 0
-    const declared = Math.round(Number(f.measure) || 0)
+    // Support both old (measure) and new (measure_start) field names
+    const declaredRaw = Math.round(Number(f.measure_start ?? f.measure) || 0)
     let measure: number
-    if (declared >= opts.safeStart && declared <= maxMeasure) {
-      // Model returned a valid absolute measure — trust it
-      measure = declared
+    if (declaredRaw >= opts.safeStart && declaredRaw <= maxMeasure) {
+      measure = declaredRaw
     } else if (spm && spm > 0 && ts > 0) {
-      // Declared measure out of range — fall back to timestamp
       measure = opts.safeStart + Math.floor(ts / spm)
     } else {
       measure = opts.safeStart
     }
     measure = Math.max(opts.safeStart, Math.min(maxMeasure, measure))
+
+    const declaredEnd = f.measure_end != null ? Math.round(Number(f.measure_end)) : null
+    const measureEnd = declaredEnd != null && declaredEnd > measure && declaredEnd <= maxMeasure
+      ? declaredEnd : null
+
     return {
       measure,
+      measure_end:     measureEnd,
       type:            String(f.type  || 'technique'),
       confidence:      Math.max(50, Math.min(100, Math.round(Number(f.confidence) || 85))),
       title:           String(f.title || 'Issue detected'),
@@ -253,45 +280,42 @@ async function runClaudeVision(opts: {
 
   content.push({
     type: 'text',
-    text: `You are an expert music performance coach with conservatory-level training. You are seeing ${opts.frames.length} frames extracted from a student's video recording at evenly spaced timestamps.
+    text: `You are a conservatory-level music performance coach analyzing ${opts.frames.length} video frames from a student's recording. These frames are your only audio-visual evidence — analyze them with a critical eye.
 
 Piece: "${opts.pieceTitle}" by ${opts.composer}
 Instrument: ${opts.instrument}
 ${keyNote}Time signature: ${opts.timeSig}
 Passage: ${measureRange}
-${opts.tempo > 0 ? `Tempo: ${opts.tempo} BPM` : ''}
+${opts.tempo > 0 ? `Reference tempo: ${opts.tempo} BPM` : ''}
 
-Study each frame carefully. Assess visible technique:
-- Bow arm (strings): bow placement relative to the bridge, bow speed, contact point, arm weight, elbow height, wrist flexibility
-- Left hand: finger curvature, collapsed joints, thumb position, hand frame, shift preparation
-- Instrument hold: chin rest contact, shoulder rest use, scroll height, body angle
-- Body and posture: shoulder elevation, back hunching, head tilt, jaw tension
-- Facial expression and overall tension
-- Any visible preparation problems that could affect upcoming passages
+For each frame, assess ALL of the following — not just one or two:
+- Embouchure / bow hold / hand position: visible tension, collapse, or misalignment
+- Body posture: hunching, raised shoulders, jaw tension, tilted head
+- Instrument angle or hold: deviations from ideal position
+- Visible preparation: is the student bracing for difficult passages, or caught off guard?
+- Facial expression: signs of uncertainty, tension, or loss of focus that predict upcoming errors
+- For winds: lip and jaw position at the mouthpiece; for strings: bow angle, contact point, arm weight
 
-Score the visible technique 0–100. Be honest and calibrated:
-- 90+: consistently excellent visible technique throughout all frames
-- 75–89: good technique with one or two minor visible issues
-- 60–74: clear technique problems visible in multiple frames
-- Below 60: significant, recurring technical problems
+Be strict. Most students have visible technique issues even in good performances.
 
 Return ONLY valid JSON (no markdown fences):
 {
-  "score": <integer 0-100>,
+  "score": <integer 0-100 — score the visible technique only, not intonation or rhythm you cannot hear>,
   "flags": [
     {
-      "measure": <integer — ABSOLUTE score measure number. The recording starts at measure ${opts.safeStart}. Do NOT count from 1 — use the actual score measure number.>,
-      "type": "technique"|"timing"|"dynamics"|"intonation"|"error",
-      "confidence": <integer 70-100 — confidence based on frame clarity>,
-      "title": "<8 words max — name the specific technique issue you see>",
-      "detail": "<2-3 sentences: what exactly is visible at that timestamp, why it causes problems, and a specific exercise or fix>",
-      "timestamp_start": <seconds of the frame where issue is most visible>,
+      "measure_start": <integer — ABSOLUTE score measure where the issue begins. Recording starts at measure ${opts.safeStart}. Never reset to 1.>,
+      "measure_end": <integer | null — last measure if the issue spans multiple measures, null if single measure>,
+      "type": "technique"|"timing"|"dynamics"|"intonation"|"tone"|"error",
+      "confidence": <integer 70-100 — how clearly visible is this issue in the frames?>,
+      "title": "<8 words max — name the body part and the specific failure>",
+      "detail": "<3 sentences: (1) what is visible in which frame, (2) why this causes problems for sound or accuracy, (3) a specific physical exercise to fix it>",
+      "timestamp_start": <seconds of the frame where the issue is most clearly visible>,
       "timestamp_end": <timestamp_start + 2.5>
     }
   ]
 }
 
-Give 4–6 flags. Cite the frame timestamp and the specific body part. Avoid generic advice — be as specific as the frames allow.`,
+Give 4–6 flags. Always cite the frame timestamp and the specific body part or action. Never give advice that could apply to any student — be specific to what you see.`,
   })
 
   const message = await anthropic.messages.create({
@@ -312,18 +336,22 @@ Give 4–6 flags. Cite the frame timestamp and the specific body part. Avoid gen
   const maxMeasure2 = opts.safeEnd ?? opts.safeStart + 200
   const flags = (Array.isArray(parsed.flags) ? parsed.flags : []).map((f: any) => {
     const ts = Number(f.timestamp_start) || 0
-    const declared = Math.round(Number(f.measure) || 0)
+    const declaredRaw = Math.round(Number(f.measure_start ?? f.measure) || 0)
     let measure: number
-    if (declared >= opts.safeStart && declared <= maxMeasure2) {
-      measure = declared
+    if (declaredRaw >= opts.safeStart && declaredRaw <= maxMeasure2) {
+      measure = declaredRaw
     } else if (spm2 && spm2 > 0 && ts > 0) {
       measure = opts.safeStart + Math.floor(ts / spm2)
     } else {
       measure = opts.safeStart
     }
     measure = Math.max(opts.safeStart, Math.min(maxMeasure2, measure))
+    const declaredEnd2 = f.measure_end != null ? Math.round(Number(f.measure_end)) : null
+    const measureEnd2 = declaredEnd2 != null && declaredEnd2 > measure && declaredEnd2 <= maxMeasure2
+      ? declaredEnd2 : null
     return {
       measure,
+      measure_end:     measureEnd2,
       type:            String(f.type  || 'technique'),
       confidence:      Math.max(50, Math.min(100, Math.round(Number(f.confidence) || 78))),
       title:           String(f.title || 'Technique issue'),
@@ -375,32 +403,39 @@ async function runClaudeCoaching(opts: {
   const hasImage = userContent.length > 0
   userContent.push({
     type: 'text',
-    text: `You are an expert music performance coach with conservatory-level knowledge. A student just recorded themselves playing the following passage.
+    text: `You are a conservatory-level music performance coach. A student recorded themselves playing the passage below. You do not have the audio, but you have deep knowledge of this repertoire and instrument.
 
 Piece: "${opts.pieceTitle}" by ${opts.composer}
 Instrument: ${opts.instrument}
 ${keyNote}Time signature: ${opts.timeSig}
 Passage: ${measureRange}
-${hasImage ? '\nThe sheet music for this passage is shown above. Study it carefully before giving feedback.' : ''}
+${hasImage ? '\nThe sheet music is shown above — study it carefully.' : ''}
 
-Identify the 4–6 most important technical and musical challenges a student would commonly encounter in THIS specific passage on THIS instrument. Base your flags on the actual notes, rhythms, and technical demands visible in the score${hasImage ? ' above' : ' (which you know from your training)'}. Do not give generic advice that could apply to any piece.
+Based on this specific passage and instrument, identify the 5–7 issues that students most commonly make here. Your flags must be grounded in the actual notes and rhythms of this passage — not generic advice.
+
+Cover ALL of these dimensions — do not skip any:
+- INTONATION: which specific intervals or notes are hardest to play in tune on this instrument in this key? Name the note and the tendency (sharp or flat).
+- TIMING: where are the rhythmic traps? Dotted figures, syncopations, ornaments that students rush or mangle?
+- DYNAMICS: which dynamic markings are hardest to execute? Where do students over-play or under-play?
+- TECHNIQUE: what are the physical demands? Shifts, string crossings, valve combinations, register breaks, awkward fingerings?
+- WRONG NOTES / ERRORS: are there passages where students commonly play the wrong pitch due to difficult fingering patterns or accidentals?
+- If the passage has a consistent challenge spanning multiple measures (e.g. sustained pp intonation over mm.8–15), report it as a range.
 
 Return ONLY valid JSON (no markdown):
 {
   "flags": [
     {
-      "measure": <integer — ABSOLUTE score measure number, between ${opts.safeStart} and ${opts.safeEnd ?? opts.safeStart + 50}>,
-      "type": "timing"|"intonation"|"dynamics"|"technique"|"error",
+      "measure_start": <integer — ABSOLUTE score measure where the issue begins, between ${opts.safeStart} and ${opts.safeEnd ?? opts.safeStart + 50}>,
+      "measure_end": <integer | null — last measure of the issue if it spans multiple measures, null if single measure>,
+      "type": "timing"|"intonation"|"dynamics"|"technique"|"tone"|"error",
       "confidence": 72,
-      "title": "<8 words max — name the precise issue in this measure>",
-      "detail": "<3 sentences: describe the specific technical demand in this measure, why students struggle with it on this instrument, and a precise practice strategy — e.g. specific fingering, bowing pattern, rhythmic subdivision, or listening target>",
+      "title": "<8 words max — name the exact pitch, rhythm, or technique failure>",
+      "detail": "<4 sentences: (1) the specific technical demand in this measure, (2) why students struggle with it on ${opts.instrument}, (3) what goes wrong (name the pitch, the beat, or the body movement), (4) a precise practice fix>",
       "timestamp_start": 0,
       "timestamp_end": 0
     }
   ]
-}
-
-Examples of good specificity: "The leap from E♭5 to B4 in m.12 often goes sharp — listen for the half-step relationship and drop the elbow slightly on arrival." Not: "Work on intonation in the higher register."`,
+}`,
   })
 
   const message = await anthropic.messages.create({
@@ -418,12 +453,16 @@ Examples of good specificity: "The leap from E♭5 to B4 in m.12 often goes shar
 
   const maxMeasure3 = opts.safeEnd ?? opts.safeStart + 200
   const flags = (Array.isArray(parsed.flags) ? parsed.flags : []).map((f: any) => {
-    const declared = Math.round(Number(f.measure) || 0)
+    const declaredRaw3 = Math.round(Number(f.measure_start ?? f.measure) || 0)
     const measure = Math.max(opts.safeStart, Math.min(maxMeasure3,
-      declared >= opts.safeStart ? declared : opts.safeStart
+      declaredRaw3 >= opts.safeStart ? declaredRaw3 : opts.safeStart
     ))
+    const declaredEnd3 = f.measure_end != null ? Math.round(Number(f.measure_end)) : null
+    const measureEnd3 = declaredEnd3 != null && declaredEnd3 > measure && declaredEnd3 <= maxMeasure3
+      ? declaredEnd3 : null
     return {
       measure,
+      measure_end:     measureEnd3,
       type:            String(f.type  || 'technique'),
       confidence:      Math.max(50, Math.min(100, Math.round(Number(f.confidence) || 72))),
       title:           String(f.title || 'Coaching note'),

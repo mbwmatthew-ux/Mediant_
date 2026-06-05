@@ -446,7 +446,7 @@ export default function Analysis({ demo: demoProp = false }) {
     ? Object.fromEntries(
         take.flags.map((f, i) => [
           `flag_${i}`,
-          { tag: `Measure ${f.measure} · ${capitalize(f.type)}`, title: f.title, body: f.detail ?? f.body ?? '', confidence: f.confidence ?? 100 },
+          { tag: `${f.measure_end ? `Measures ${f.measure}–${f.measure_end}` : `Measure ${f.measure}`} · ${capitalize(f.type)}`, title: f.title, body: f.detail ?? f.body ?? '', confidence: f.confidence ?? 100 },
         ])
       )
     : {}
@@ -454,7 +454,7 @@ export default function Analysis({ demo: demoProp = false }) {
   const chips = take?.flags?.length
     ? take.flags.map((f, i) => ({
         flag:       `flag_${i}`,
-        label:      `m.${f.measure} · ${capitalize(f.type)}`,
+        label:      `m.${f.measure}${f.measure_end ? `–${f.measure_end}` : ''} · ${capitalize(f.type)}`,
         confidence: f.confidence ?? 100,
       }))
     : []
@@ -486,9 +486,12 @@ export default function Analysis({ demo: demoProp = false }) {
     const flagMeasures = new Map()
     if (take?.flags?.length) {
       take.flags.forEach((f, i) => {
-        const arr = flagMeasures.get(f.measure) ?? []
-        arr.push(`flag_${i}`)
-        flagMeasures.set(f.measure, arr)
+        const endMeasure = f.measure_end ?? f.measure
+        for (let m = f.measure; m <= endMeasure; m++) {
+          const arr = flagMeasures.get(m) ?? []
+          arr.push(`flag_${i}`)
+          flagMeasures.set(m, arr)
+        }
       })
     }
 
@@ -723,7 +726,7 @@ export default function Analysis({ demo: demoProp = false }) {
           setSelectedTakeId(completedTake.id)
 
           const scoreDiff = completedTake.score - (take?.score ?? 0)
-          const reply = `Analysis complete for Take ${nextTakeNum}! \n\n**New Score: ${completedTake.score}/100** (${scoreDiff >= 0 ? '+' : ''}${scoreDiff} difference).\n\nHere is a quick summary of what changed:\n${completedTake.flags?.map(f => `- **m.${f.measure}**: ${f.title}`).join('\n') || '- No critical issues flagged!'}\n\nI've loaded your new take on screen. What should we work on next?`
+          const reply = `Analysis complete for Take ${nextTakeNum}! \n\n**New Score: ${completedTake.score}/100** (${scoreDiff >= 0 ? '+' : ''}${scoreDiff} difference).\n\nHere is a quick summary of what changed:\n${completedTake.flags?.map(f => `- **m.${f.measure}${f.measure_end ? `–${f.measure_end}` : ''}**: ${f.title}`).join('\n') || '- No critical issues flagged!'}\n\nI've loaded your new take on screen. What should we work on next?`
           
           setChatMessages(prev => {
             const clean = prev.slice(0, prev.length - 1)

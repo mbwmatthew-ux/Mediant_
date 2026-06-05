@@ -224,7 +224,7 @@ export default function Analysis({ demo: demoProp = false }) {
     }
     supabase
       .from('takes')
-      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, video_path, score_path, created_at')
+      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
@@ -1136,6 +1136,11 @@ export default function Analysis({ demo: demoProp = false }) {
             )}
           </div>
           <div className={aStyles.headerRight}>
+            {take?.analysis_backend && (
+              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Analysis: {take.analysis_backend}
+              </p>
+            )}
             {score != null && (
               <div className={aStyles.scoreBadge}>
                 <p className={aStyles.scoreBadgeLabel}>Technique Score</p>

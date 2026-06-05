@@ -77,9 +77,9 @@ async function runGeminiVideo(opts: {
   const fileName = fileInfo.file?.name
   if (!fileUri) throw new Error('No fileUri from Gemini upload')
 
-  // Wait until ACTIVE — max 24s (8 × 3s)
+  // Wait until ACTIVE — max 45s (15 × 3s)
   let state = fileInfo.file?.state ?? 'PROCESSING'
-  for (let i = 0; i < 8 && state === 'PROCESSING'; i++) {
+  for (let i = 0; i < 15 && state === 'PROCESSING'; i++) {
     await new Promise(r => setTimeout(r, 3000))
     const s = await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`)
     state = (await s.json()).state ?? 'FAILED'
@@ -109,7 +109,9 @@ async function runGeminiVideo(opts: {
     other: `Flag any audible error: wrong notes, tone issues, intonation drift, and rhythmic problems.`,
   }[instrumentFamily]
 
-  const prompt = `You are a brutally honest but constructive music performance coach with conservatory-level ear training. You are analyzing a student's audio/video recording. Your job is to identify EVERY audible problem — do not be polite by omitting things you hear.
+  const prompt = `AUDIO ANALYSIS TASK. You are analyzing the AUDIO TRACK of a student's performance video. Your primary job is to LISTEN and report what you HEAR — not what you see. Treat this as an ear-training exercise. Ignore the visual content unless it explains an audible problem.
+
+You are a brutally honest but constructive music performance coach with conservatory-level ear training. Your job is to identify EVERY audible problem — do not be polite by omitting things you hear.
 
 Piece: "${opts.pieceTitle}" by ${opts.composer}
 Instrument: ${opts.instrument}
@@ -635,7 +637,7 @@ serve(async (req: Request) => {
       try {
         const geminiResult = await withTimeout(
           runGeminiVideo({ takeId, videoUrl: videoSignedUrl, videoMimeType, ...sharedOpts }),
-          60_000, 'Gemini'
+          120_000, 'Gemini'
         )
         score   = geminiResult.score
         flags   = geminiResult.flags

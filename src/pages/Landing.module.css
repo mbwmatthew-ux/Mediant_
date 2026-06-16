@@ -258,24 +258,27 @@
   align-items: center;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 24px;
   isolation: isolate;
+  justify-content: center;
   min-height: 100vh;
   overflow: hidden;
-  padding: 110px 24px 90px;
+  padding: 84px 24px 76px;
   position: relative;
   text-align: center;
 }
 
-/* Stagger children fade-up (skip canvas, logo, mesh, parallax wrappers) */
-.hero > *:not(.waveCanvas):not(.heroLogoLarge):not(.meshBg):not(.parallaxNode) {
+/* Stagger children fade-up (skip canvas, mesh, parallax wrappers) */
+.hero > *:not(.waveCanvas):not(.meshBg):not(.parallaxNode) {
   animation: heroFadeUp 1.0s cubic-bezier(0.16, 1, 0.3, 1) both;
   position: relative;
   z-index: 1;
 }
-/* child order (with meshBg=1, canvas=2, logo=3, pxHead=4, pxCards=5, sub=6, ctas=7, note=8) */
-.hero > *:nth-child(6) { animation-delay: 560ms; }
-.hero > *:nth-child(7) { animation-delay: 630ms; }
+/* child order (meshBg=1, canvas=2, heading=3, cards=4, sub=5, ctas=6, note=7, demo=8) */
+.hero > *:nth-child(5) { animation-delay: 520ms; }
+.hero > *:nth-child(6) { animation-delay: 590ms; }
+.hero > *:nth-child(7) { animation-delay: 650ms; }
+.hero > *:nth-child(8) { animation-delay: 700ms; }
 
 /* parallax wrappers: own fade-up, no z-index conflict */
 .parallaxNode {
@@ -288,36 +291,13 @@
   z-index: 1;
 }
 .parallaxNode > * { pointer-events: auto; }
-/* nth-child(4) = heading wrapper, nth-child(5) = cards wrapper */
-.hero > .parallaxNode:nth-child(4) { animation-delay: 380ms; }
-.hero > .parallaxNode:nth-child(5) { animation-delay: 480ms; }
+/* nth-child(3) = heading wrapper, nth-child(4) = cards wrapper */
+.hero > .parallaxNode:nth-child(3) { animation-delay: 300ms; }
+.hero > .parallaxNode:nth-child(4) { animation-delay: 420ms; }
 
 @keyframes heroFadeUp {
   from { opacity: 0; transform: translateY(24px); }
   to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ── Hero logo ───────────────────────────────────────────────── */
-.heroLogoLarge {
-  align-self: stretch;
-  animation: heroLogoReveal 1.8s cubic-bezier(0.3, 0, 0.1, 1) both;
-  animation-delay: 200ms;
-  box-sizing: border-box;
-  display: flex;
-  justify-content: center;
-  margin-top: 20px;
-  position: relative;
-  width: 100%;
-  z-index: 1;
-}
-
-:global(@keyframes heroLogoReveal) {
-  from { clip-path: inset(0 0 100% 0); }
-  to   { clip-path: inset(0 0 0% 0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .heroLogoLarge { animation: none; }
 }
 
 /* ── Hero wordmark ───────────────────────────────────────────── */
@@ -1920,7 +1900,7 @@
 /* ── Responsive ───────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .nav          { padding: 0 20px; }
-  .hero         { gap: 22px; min-height: 75vh; padding: 90px 20px 70px; }
+  .hero         { gap: 20px; min-height: 75vh; padding: 82px 20px 64px; }
   .statsGrid    { grid-template-columns: 1fr; }
   .statCard     { border-right: none; border-bottom: 1px solid rgba(184,146,42,0.18); padding: 40px 24px; }
   .proofSection { padding: 80px 20px; }

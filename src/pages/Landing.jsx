@@ -438,7 +438,6 @@ export default function Landing() {
   const [analysisRef, analysisInView] = useInView(0.15)
   const analysisSectionRef = useRef(null)
   const heroRef        = useRef(null)
-  const parallaxLogoRef  = useRef(null)
   const parallaxMeshRef  = useRef(null)
   const parallaxHeadRef  = useRef(null)
   const parallaxCardsRef = useRef(null)
@@ -600,10 +599,6 @@ export default function Landing() {
           <div className={`${styles.meshBlob} ${styles.meshBlob4}`} />
         </div>
         <canvas ref={canvasRef} className={styles.waveCanvas} aria-hidden="true" />
-
-        <div className={styles.heroLogoLarge} ref={parallaxLogoRef}>
-          <AnimatedLogo size={240} thicker />
-        </div>
 
         <div ref={parallaxHeadRef} className={styles.parallaxNode}>
           <h1 className={styles.heroHeading}>

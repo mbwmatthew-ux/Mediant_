@@ -352,7 +352,6 @@ export default function Analysis({ demo: demoProp = false }) {
   const [allTakes, setAllTakes] = useState([])
   const [activeThreadTitle, setActiveThreadTitle] = useState('Procession of the Nobles')
   const [selectedTakeId, setSelectedTakeId] = useState(null)
-  const [threadsTab, setThreadsTab] = useState('all')
 
   const [showThreadMenu, setShowThreadMenu] = useState(null) // piece_title of thread with open menu
 
@@ -1097,67 +1096,6 @@ export default function Analysis({ demo: demoProp = false }) {
     }
   }
 
-  async function handleDeleteThread(threadToDel) {
-    if (!threadToDel) return
-    const isConfirmed = window.confirm(`Are you sure you want to delete the entire session thread "${threadToDel.piece_title}"? This will delete all ${threadToDel.takes.length} recordings in this session. This action cannot be undone.`)
-    if (!isConfirmed) return
-
-    playPop()
-    const targetTakes = threadToDel.takes || []
-    
-    // 1. Delete from Supabase if real
-    if (user?.id) {
-      const realTakes = targetTakes.filter(take => {
-        const targetTakeId = take.id
-        const isDemoOrMock = !targetTakeId || String(targetTakeId).startsWith('mock') || String(targetTakeId) === 'demo' || take._demo
-        return !isDemoOrMock
-      })
-
-      if (realTakes.length > 0) {
-        try {
-          const realIds = realTakes.map(take => take.id)
-          const { error } = await supabase
-            .from('takes')
-            .delete()
-            .in('id', realIds)
-          if (error) throw new Error(error.message)
-          
-          realTakes.forEach(take => {
-            if (take.video_path) supabase.storage.from('recordings').remove([take.video_path]).catch(() => {})
-            if (take.score_path) supabase.storage.from('sheet-music').remove([take.score_path]).catch(() => {})
-          })
-        } catch (err) {
-          alert(`Could not delete session thread: ${err.message}`)
-          return
-        }
-      }
-    }
-
-    // 2. Update local state
-    const idsToDelete = targetTakes.map(t => t.id)
-    setAllTakes(prev => prev.filter(t => !idsToDelete.includes(t.id)))
-
-    // 3. Reset active thread selections if deleted thread was active
-    if (threadToDel.piece_title === activeThreadTitle) {
-      setSelectedTakeId(null)
-      const nextThread = threads.find(th => th.piece_title !== threadToDel.piece_title && th.takes?.length > 0)
-      if (nextThread) {
-        setActiveThreadTitle(nextThread.piece_title)
-      } else {
-        setActiveThreadTitle('')
-      }
-      setActiveFlag(null)
-    }
-  }
-
-  // Filter threads
-  const filteredThreads = useMemo(() => {
-    return threads.filter(t => {
-      if (threadsTab === 'pinned') return t.isPinned
-      return true
-    })
-  }, [threads, threadsTab])
-
   // Sheet music/PDF fallbacks
   const isVisualScore = scoreUrl && (() => {
     const p = (take?.score_path ?? '').toLowerCase()
@@ -1269,13 +1207,13 @@ export default function Analysis({ demo: demoProp = false }) {
   const aspectScores = useMemo(() => computeAspectScores(take), [take])
 
   const scoreAreaContent = (
-    <div className={`${styles.scoreArea} ${isImageScore ? styles.scoreAreaImage : ''}`}>
+    <div className={`${styles.scoreArea} ${aStyles.scoreAreaPolish} ${isImageScore ? `${styles.scoreAreaImage} ${aStyles.scoreAreaImagePolish}` : ''}`}>
       {isVisualScore && scoreUrl && (
         isPdfScore ? (
-          <iframe src={scoreUrl} className={styles.scorePdf} title="Sheet music" />
+          <iframe src={scoreUrl} className={`${styles.scorePdf} ${aStyles.scorePdfPolish}`} title="Sheet music" />
         ) : (
-          <div className={styles.scorePhotoWrap}>
-            <img src={scoreUrl} className={styles.scorePhoto} alt="Sheet music" loading="lazy" />
+          <div className={`${styles.scorePhotoWrap} ${aStyles.scorePhotoWrapPolish}`}>
+            <img src={scoreUrl} className={`${styles.scorePhoto} ${aStyles.scorePhotoPolish}`} alt="Sheet music" loading="lazy" />
             {(take?.flags ?? []).map((f, i) => {
               if (!f.spot) return null
               const flagId = `flag_${i}`
@@ -1367,45 +1305,6 @@ export default function Analysis({ demo: demoProp = false }) {
         accept="audio/*,video/*"
         onChange={handleFileUpload}
       />
-
-      {/* ── Thread tab strip ── */}
-      <div className={aStyles.threadStrip}>
-        <div className={aStyles.threadStripTabs}>
-          {filteredThreads.map(t => {
-            const isActive = t.piece_title === activeThreadTitle
-            const latestScore = t.takes[0]?.score ?? null
-            return (
-              <button
-                key={t.piece_title}
-                className={`${aStyles.threadStripTab} ${isActive ? aStyles.threadStripTabActive : ''}`}
-                onClick={() => { playTick(); setActiveThreadTitle(t.piece_title); setSelectedTakeId(null); setActiveFlag(null) }}
-                onContextMenu={e => { e.preventDefault(); setShowThreadMenu(t.piece_title) }}
-              >
-                <span className={aStyles.threadStripTitle}>{t.piece_title}</span>
-                {latestScore != null && (
-                  <span
-                    className={`${aStyles.threadStripScoreBadge} ${isActive ? aStyles.threadStripScoreBadgeActive : ''}`}
-                    style={isActive ? { color: scoreColor(latestScore), background: scoreBgColor(latestScore) } : {}}
-                  >
-                    {latestScore}
-                  </span>
-                )}
-                {t.isPinned && <span className={aStyles.threadStripPin}>★</span>}
-                {showThreadMenu === t.piece_title && (
-                  <div className={aStyles.threadMenu} onClick={e => e.stopPropagation()} onMouseLeave={() => setShowThreadMenu(null)}>
-                    <button className={aStyles.threadMenuItem} onClick={() => { handleDeleteThread(t); setShowThreadMenu(null) }}>
-                      Delete thread
-                    </button>
-                  </div>
-                )}
-              </button>
-            )
-          })}
-        </div>
-        <button className={aStyles.threadStripNew} onClick={() => { playPop(); nav('/record') }} title="New session">
-          +
-        </button>
-      </div>
 
       {/* ───── MAIN CONTENT AREA ───── */}
       <main className={aStyles.mainPageContent}>
@@ -1726,14 +1625,14 @@ export default function Analysis({ demo: demoProp = false }) {
                   <div className={aStyles.laneCardHeader}>
                     <span className={aStyles.laneCardTitle}>Ask Mediant Discussion</span>
                   </div>
-                  <div className={styles.chatMessages} style={{ maxHeight: 280, overflowY: 'auto' }}>
+                  <div className={aStyles.analysisChatMessages}>
                     {chatMessages.map((m, i) => (
-                      <div key={i} className={m.role === 'user' ? styles.chatMsgUser : styles.chatMsgAI}>
+                      <div key={i} className={m.role === 'user' ? aStyles.analysisChatMsgUser : aStyles.analysisChatMsgAI}>
                         {m.content}
                       </div>
                     ))}
                     {chatLoading && (
-                      <div className={styles.chatMsgAI}><span className={styles.chatTyping}>···</span></div>
+                      <div className={aStyles.analysisChatMsgAI}><span className={aStyles.analysisChatTyping}>···</span></div>
                     )}
                     <div ref={chatEndRef} />
                   </div>

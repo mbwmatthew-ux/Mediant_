@@ -3009,3 +3009,346 @@
     bottom: 0;
   }
 }
+
+/* ── Analysis layout polish overrides ─────────────────────────
+   Keeps the feedback page inside the viewport while preserving
+   the existing score, video, loop, and chat functionality. */
+.pageShell,
+.mainPageContent,
+.threadStrip,
+.analysisHeaderCard,
+.reviewLayoutColumns,
+.leftLane,
+.rightLane,
+.laneCard,
+.laneCardHeader,
+.laneCardBody,
+.insightsList,
+.insightRow,
+.videoCardBody,
+.stickyBottomBar,
+.stickyBarInner {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.pageShell {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.threadStrip {
+  height: 44px;
+  padding-inline: clamp(14px, 2vw, 28px);
+}
+
+.threadStripTab {
+  max-width: 190px;
+  padding-inline: 12px;
+}
+
+.mainPageContent {
+  padding: 18px clamp(14px, 2.2vw, 28px) 0;
+  overflow-x: clip;
+  width: 100%;
+}
+
+.analysisHeaderCard {
+  align-items: center;
+  gap: clamp(10px, 1.2vw, 18px);
+  margin: 0 auto 16px;
+  max-width: 1480px;
+  padding: 18px 20px;
+  width: 100%;
+}
+
+.headerTitle {
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  max-width: 100%;
+}
+
+.headerDivider {
+  height: 56px;
+}
+
+.headerMetricCol {
+  flex: 0 1 150px;
+  min-width: 108px;
+}
+
+.headerReanalyzeBtn {
+  padding-inline: 12px;
+}
+
+.reviewLayoutColumns {
+  gap: clamp(14px, 1.6vw, 22px);
+  grid-template-columns: minmax(300px, 0.92fr) minmax(420px, 1.08fr);
+  margin: 0 auto 72px;
+  max-width: 1480px;
+  overflow: clip;
+  width: 100%;
+}
+
+.leftLane,
+.rightLane {
+  overflow-x: hidden;
+  padding-right: 0;
+  scrollbar-gutter: stable;
+}
+
+.rightLane {
+  gap: 14px;
+}
+
+.laneCard {
+  gap: 14px;
+  overflow: hidden;
+  padding: clamp(14px, 1.45vw, 20px);
+  width: 100%;
+}
+
+.laneCardHeader {
+  gap: 12px;
+  padding-bottom: 10px;
+}
+
+.insightsLegend {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  justify-content: flex-end;
+}
+
+.insightRow {
+  gap: 10px;
+  padding: 12px 8px;
+}
+
+.insightTime {
+  min-width: 38px;
+}
+
+.insightMeasure {
+  min-width: 34px;
+}
+
+.insightTypeBadge {
+  padding-inline: 6px;
+}
+
+.insightLoopBtn {
+  padding-inline: 10px;
+}
+
+.videoCardBody {
+  gap: 10px;
+}
+
+.videoPlayer {
+  aspect-ratio: 16 / 9;
+  max-height: min(420px, 42vh);
+  object-fit: contain;
+  width: 100%;
+}
+
+.scoreAreaPolish {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.scoreAreaImagePolish {
+  align-items: flex-start;
+  display: flex;
+  justify-content: center;
+}
+
+.scorePhotoWrapPolish {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.scorePhotoPolish {
+  box-shadow: 0 12px 30px rgba(26, 20, 16, 0.14);
+  max-height: min(720px, calc(100vh - 230px));
+  max-width: min(100%, 620px);
+  object-fit: contain;
+}
+
+.scorePdfPolish {
+  height: min(720px, calc(100vh - 230px));
+  max-width: 100%;
+}
+
+.videoControls {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stickyBottomBar {
+  height: 72px;
+  padding: 0 clamp(14px, 2.2vw, 28px) 12px;
+}
+
+.stickyBarInner {
+  height: 44px;
+  max-width: 1040px;
+}
+
+.stickyBarLabel {
+  font-size: 0.84rem;
+}
+
+.stickyBarInput {
+  font-size: 0.84rem;
+}
+
+.stickyBarSendBtn {
+  height: 32px;
+  width: 32px;
+}
+
+.analysisChatMessages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 260px;
+  min-height: 120px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.analysisChatMsgAI,
+.analysisChatMsgUser {
+  border-radius: 10px;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  max-width: 86%;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+}
+
+.analysisChatMsgAI {
+  align-self: flex-start;
+  background: #FBFAF7;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: #5f554b;
+}
+
+.analysisChatMsgUser {
+  align-self: flex-end;
+  background: rgba(192, 144, 64, 0.12);
+  border: 1px solid rgba(192, 144, 64, 0.18);
+  color: #1A1410;
+}
+
+.analysisChatTyping {
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  opacity: 0.55;
+}
+
+@media (max-width: 1320px) {
+  .analysisHeaderCard {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .analysisHeaderCard .headerDivider {
+    display: none;
+  }
+
+  .headerMetaCol {
+    flex: 1 1 100%;
+  }
+
+  .headerMetricCol {
+    flex: 1 1 150px;
+  }
+
+  .reviewLayoutColumns {
+    grid-template-columns: minmax(280px, 0.88fr) minmax(390px, 1.12fr);
+  }
+
+  .insightsLegend {
+    display: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .reviewLayoutColumns {
+    grid-template-columns: 1fr;
+    margin-bottom: 84px;
+    overflow: visible;
+  }
+
+  .leftLane,
+  .rightLane {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .pageShell,
+  .mainPageContent {
+    height: auto;
+    overflow: visible;
+  }
+
+  .stickyBottomBar {
+    position: sticky;
+  }
+
+  .scorePhotoPolish {
+    max-height: none;
+    max-width: min(100%, 760px);
+  }
+
+  .scorePdfPolish {
+    height: 64vh;
+  }
+}
+
+@media (max-width: 760px) {
+  .mainPageContent {
+    padding-inline: 12px;
+  }
+
+  .analysisHeaderCard {
+    padding: 14px;
+  }
+
+  .takeSelectRow,
+  .videoControls,
+  .stickyBarInner {
+    align-items: stretch;
+    flex-direction: column;
+    height: auto;
+  }
+
+  .stickyBottomBar {
+    height: auto;
+    padding-block: 10px;
+  }
+
+  .stickyBarInner {
+    border-radius: 16px;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .stickyBarDivider,
+  .stickyBarLeft {
+    display: none;
+  }
+
+  .insightRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .insightRowTitle {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+}

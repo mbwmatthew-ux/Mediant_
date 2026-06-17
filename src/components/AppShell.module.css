@@ -239,13 +239,14 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Mobile bottom nav ──────────────────────────────────────── */
+/* ── Mobile chrome (header + bottom nav) ────────────────────── */
 .mobileNav { display: none; }
+.mobileHeader { display: none; }
 
 @media (max-width: 700px) {
   .body { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .main { min-height: calc(100vh - 60px); padding-bottom: 64px; }
+  .main { min-height: calc(100vh - 60px); padding-top: 52px; padding-bottom: 64px; }
 
   .mobileNav {
     background: var(--bg-card);
@@ -262,11 +263,15 @@
 
   .mobileNavItem {
     align-items: center;
+    background: none;
+    border: none;
     color: var(--text-faint);
+    cursor: pointer;
     display: flex;
     flex-direction: column;
     flex: 1;
     gap: 3px;
+    min-width: 0;
     padding: 6px 0;
     text-decoration: none;
     transition: color 150ms ease;
@@ -274,4 +279,178 @@
   .mobileNavItem:hover  { color: var(--text-soft); }
   .mobileNavItemActive  { color: var(--accent); }
   .mobileNavLabel { font-size: 0.6rem; font-weight: 500; letter-spacing: 0.04em; }
+
+  /* Prominent Record button (raised, always one tap) */
+  .mobileRecord {
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 4px;
+    min-width: 0;
+    padding: 0;
+    text-decoration: none;
+  }
+  .mobileRecordBtn {
+    align-items: center;
+    background: var(--accent);
+    border: 3px solid var(--bg-card);
+    border-radius: 50%;
+    box-shadow: 0 6px 16px rgba(184, 146, 42, 0.4);
+    color: #fff;
+    display: flex;
+    height: 52px;
+    justify-content: center;
+    margin-top: -20px;
+    transition: transform 140ms ease, filter 140ms ease;
+    width: 52px;
+  }
+  .mobileRecord:hover .mobileRecordBtn { filter: brightness(1.06); transform: translateY(-1px); }
+  .mobileRecordActive .mobileRecordBtn { box-shadow: 0 6px 22px rgba(184, 146, 42, 0.6); }
+  .mobileRecordLabel { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.04em; }
+
+  /* ── Mobile top header ────────────────────────────────────── */
+  .mobileHeader {
+    align-items: center;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--surface-border);
+    display: flex;
+    height: 52px;
+    justify-content: space-between;
+    left: 0;
+    padding: 0 16px;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 200;
+  }
+  .mobileHeaderBrand {
+    align-items: center;
+    display: flex;
+    gap: 9px;
+    text-decoration: none;
+  }
+  .mobileHeaderLogo {
+    align-items: center;
+    background: #211d19;
+    border-radius: 7px;
+    display: flex;
+    height: 30px;
+    justify-content: center;
+    width: 30px;
+  }
+  .mobileHeaderWordmark {
+    color: var(--text);
+    font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    font-size: 1.2rem;
+    letter-spacing: -0.01em;
+  }
+  .mobileHeaderAvatar {
+    align-items: center;
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-border);
+    border-radius: 50%;
+    color: var(--accent);
+    cursor: pointer;
+    display: flex;
+    font-size: 0.78rem;
+    font-weight: 700;
+    height: 36px;
+    justify-content: center;
+    width: 36px;
+  }
+
+  /* ── Pop-up menu bottom sheet (Library / Tools) ───────────── */
+  .menuOverlay {
+    align-items: flex-end;
+    bottom: 0;
+    display: flex;
+    left: 0;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 400;
+  }
+  .menuBackdrop {
+    animation: menuFade 0.2s ease both;
+    background: rgba(10, 6, 2, 0.46);
+    border: none;
+    cursor: pointer;
+    height: 100%;
+    left: 0;
+    padding: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+  .menuSheet {
+    animation: menuUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+    background: var(--bg-card);
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+    box-shadow: 0 -10px 40px rgba(10, 6, 2, 0.25);
+    padding: 10px 14px calc(18px + env(safe-area-inset-bottom));
+    position: relative;
+    width: 100%;
+    z-index: 1;
+  }
+  .menuHandle {
+    background: var(--surface-border);
+    border-radius: 99px;
+    height: 4px;
+    margin: 2px auto 12px;
+    width: 40px;
+  }
+  .menuTitle {
+    color: var(--text-faint);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    margin: 0 0 8px;
+    padding: 0 6px;
+    text-transform: uppercase;
+  }
+  .menuList { display: flex; flex-direction: column; gap: 2px; }
+  .menuItem {
+    align-items: center;
+    background: none;
+    border: none;
+    border-radius: 12px;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    gap: 14px;
+    min-height: 54px;
+    padding: 0 12px;
+    text-align: left;
+    text-decoration: none;
+    transition: background 130ms ease;
+    width: 100%;
+  }
+  .menuItem:hover { background: var(--surface-hover); }
+  .menuItemActive { background: var(--accent-bg); color: var(--accent); }
+  .menuItemIcon {
+    align-items: center;
+    color: var(--accent);
+    display: flex;
+    flex-shrink: 0;
+    height: 22px;
+    justify-content: center;
+    width: 22px;
+  }
+  .menuItemLabel { flex: 1; font-size: 0.95rem; font-weight: 500; }
+  .menuItem > svg { color: var(--text-faintest); flex-shrink: 0; }
+}
+
+@keyframes menuUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes menuFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

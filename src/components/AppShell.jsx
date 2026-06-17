@@ -23,12 +23,32 @@ const TOOL_ITEMS = [
   { action: 'metronome', label: 'Metronome', icon: MetronomeIcon },
 ]
 
+/* Mobile pop-up menus — small menus opened from the bottom bar (Library) and
+   the top bar (Tools). Nothing is removed; these just group secondary destinations. */
+const LIBRARY_MENU = {
+  title: 'Library',
+  items: [
+    { to: '/takes',    label: 'My Songs', icon: LibraryIcon  },
+    { to: '/analysis', label: 'Analysis', icon: AnalysisIcon },
+    { to: '/progress', label: 'Progress', icon: ProgressIcon },
+  ],
+}
+const TOOLS_MENU = {
+  title: 'Tools',
+  items: [
+    { action: 'tuner',     label: 'Tuner',     icon: TunerIcon     },
+    { action: 'metronome', label: 'Metronome', icon: MetronomeIcon },
+  ],
+}
+const MENUS = { library: LIBRARY_MENU, tools: TOOLS_MENU }
+
 export default function AppShell() {
   const { user } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
   const [showTuner,     setShowTuner]    = useState(false)
   const [showMetronome, setShowMetronome]= useState(false)
+  const [menu,          setMenu]         = useState(null) // null | 'library' | 'tools'
 
   useEffect(() => {
     function onKey(e) {
@@ -39,15 +59,28 @@ export default function AppShell() {
     return () => document.removeEventListener('keydown', onKey)
   }, [nav])
 
+  // Close the mobile pop-up menu on Escape
+  useEffect(() => {
+    if (!menu) return
+    function onKey(e) { if (e.key === 'Escape') setMenu(null) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [menu])
+
   const initials = user?.name
     ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : '?'
 
   function handleToolAction(action) {
     playNav()
+    setMenu(null)
     if (action === 'tuner')     setShowTuner(true)
     if (action === 'metronome') setShowMetronome(true)
   }
+
+  // The "Library" tab stands in for My Songs, Analysis and Progress
+  const libraryActive = menu === 'library' ||
+    ['/takes', '/analysis', '/progress'].includes(location.pathname)
 
   return (
     <div className={styles.shell}>
@@ -55,6 +88,21 @@ export default function AppShell() {
       {showMetronome && <MetronomeModal onClose={() => setShowMetronome(false)} />}
 
       <a className={styles.skipLink} href="#main-content">Skip to content</a>
+
+      {/* Mobile top header (logo + account) — hidden on desktop */}
+      <header className={styles.mobileHeader}>
+        <NavLink to="/home" className={styles.mobileHeaderBrand} onClick={playNav} aria-label="Mediant home">
+          <span className={styles.mobileHeaderLogo}><LogoMark size={20} color="rgba(255,255,255,0.92)" /></span>
+          <span className={styles.mobileHeaderWordmark}>Mediant</span>
+        </NavLink>
+        <button
+          className={styles.mobileHeaderAvatar}
+          onClick={() => { playNav(); nav('/settings') }}
+          aria-label="Account and settings"
+        >
+          {initials}
+        </button>
+      </header>
 
       <div className={styles.body}>
         {/* Sidebar */}
@@ -131,28 +179,91 @@ export default function AppShell() {
         </main>
       </div>
 
-      {/* Mobile bottom nav */}
-      <nav className={styles.mobileNav}>
-        {[
-          { to: '/home',     label: 'Home',     icon: HomeIcon     },
-          { to: '/takes',    label: 'Library',  icon: LibraryIcon  },
-          { to: '/record',   label: 'Record',   icon: RecordIcon   },
-          { to: '/progress', label: 'Progress', icon: ProgressIcon },
-          { to: '/coach',    label: 'Coach',    icon: CoachIcon    },
-        ].map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            onClick={playNav}
-            className={({ isActive }) =>
-              `${styles.mobileNavItem} ${isActive ? styles.mobileNavItemActive : ''}`
-            }
-          >
-            <Icon />
-            <span className={styles.mobileNavLabel}>{label}</span>
-          </NavLink>
-        ))}
+      {/* Mobile bottom nav — 4 primary destinations, Record prominent */}
+      <nav className={styles.mobileNav} aria-label="Primary">
+        <NavLink
+          to="/home"
+          onClick={playNav}
+          className={({ isActive }) => `${styles.mobileNavItem} ${isActive ? styles.mobileNavItemActive : ''}`}
+        >
+          <HomeIcon />
+          <span className={styles.mobileNavLabel}>Home</span>
+        </NavLink>
+
+        <button
+          className={`${styles.mobileNavItem} ${libraryActive ? styles.mobileNavItemActive : ''}`}
+          onClick={() => { playNav(); setMenu(m => m === 'library' ? null : 'library') }}
+          aria-haspopup="dialog"
+          aria-expanded={menu === 'library'}
+        >
+          <LibraryIcon />
+          <span className={styles.mobileNavLabel}>Library</span>
+        </button>
+
+        <NavLink
+          to="/record"
+          onClick={playNav}
+          className={({ isActive }) => `${styles.mobileRecord} ${isActive ? styles.mobileRecordActive : ''}`}
+          aria-label="Record a new take"
+        >
+          <span className={styles.mobileRecordBtn}><RecordIcon /></span>
+          <span className={styles.mobileRecordLabel}>Record</span>
+        </NavLink>
+
+        <button
+          className={`${styles.mobileNavItem} ${menu === 'tools' ? styles.mobileNavItemActive : ''}`}
+          onClick={() => { playNav(); setMenu(m => m === 'tools' ? null : 'tools') }}
+          aria-haspopup="dialog"
+          aria-expanded={menu === 'tools'}
+        >
+          <ToolsIcon />
+          <span className={styles.mobileNavLabel}>Tools</span>
+        </button>
+
+        <NavLink
+          to="/coach"
+          onClick={playNav}
+          className={({ isActive }) => `${styles.mobileNavItem} ${isActive ? styles.mobileNavItemActive : ''}`}
+        >
+          <CoachIcon />
+          <span className={styles.mobileNavLabel}>Coach</span>
+        </NavLink>
       </nav>
+
+      {/* Mobile pop-up menu (Library / Tools) */}
+      {menu && (
+        <div className={styles.menuOverlay} role="dialog" aria-modal="true" aria-label={`${MENUS[menu].title} menu`}>
+          <button className={styles.menuBackdrop} onClick={() => setMenu(null)} aria-label="Close menu" />
+          <div className={styles.menuSheet}>
+            <div className={styles.menuHandle} />
+            <p className={styles.menuTitle}>{MENUS[menu].title}</p>
+            <div className={styles.menuList}>
+              {MENUS[menu].items.map(item => item.to ? (
+                <NavLink
+                  key={item.label}
+                  to={item.to}
+                  onClick={() => { playNav(); setMenu(null) }}
+                  className={({ isActive }) => `${styles.menuItem} ${isActive ? styles.menuItemActive : ''}`}
+                >
+                  <span className={styles.menuItemIcon}><item.icon /></span>
+                  <span className={styles.menuItemLabel}>{item.label}</span>
+                  <ChevronIcon />
+                </NavLink>
+              ) : (
+                <button
+                  key={item.label}
+                  className={styles.menuItem}
+                  onClick={() => handleToolAction(item.action)}
+                >
+                  <span className={styles.menuItemIcon}><item.icon /></span>
+                  <span className={styles.menuItemLabel}>{item.label}</span>
+                  <ChevronIcon />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -229,6 +340,25 @@ function MetronomeIcon() {
       <polygon points="12 2 20 22 4 22"/>
       <line x1="12" y1="2" x2="12" y2="22"/>
       <line x1="8" y1="13" x2="16" y2="13"/>
+    </svg>
+  )
+}
+
+function ToolsIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+      <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+      <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+      <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>
+    </svg>
+  )
+}
+
+function ChevronIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 18 15 12 9 6"/>
     </svg>
   )
 }

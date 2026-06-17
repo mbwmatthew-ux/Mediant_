@@ -500,12 +500,21 @@
 }
 
 @media (max-width: 700px) {
-  .page { padding: 28px 18px 48px; }
-  .statRow { grid-template-columns: 1fr 1fr; }
-  .continueCard { flex-direction: column; align-items: flex-start; }
-  .continueActions { align-self: flex-end; }
+  .page { padding: 22px 16px 40px; }
+  .greeting { margin-bottom: 22px; }
+  .statRow { grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 26px; }
+  .statCard { min-height: 96px; padding: 18px 18px; }
+  .section { gap: 16px; padding: 20px 18px 22px; }
+  .sideCol { gap: 16px; }
+  .sideCard { padding: 20px 18px; }
+  .continueCard { flex-direction: column; align-items: flex-start; gap: 14px; padding: 16px 0 4px 18px; }
+  .continueActions { align-self: stretch; }
+  .continueActions button { flex: 1; }
+  /* Comfortable touch targets (min 44px) */
+  .ctaBtn, .goldBtn, .ghostBtn { min-height: 44px; padding-top: 0; padding-bottom: 0; }
 }
 
 @media (max-width: 480px) {
   .statRow { grid-template-columns: 1fr; }
+  .statCard { min-height: 88px; }
 }

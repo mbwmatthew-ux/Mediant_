@@ -462,6 +462,10 @@
 
 
 /* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .metricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 768px) {
   .page { padding: 28px 18px 48px; }
   .metricGrid { grid-template-columns: 1fr 1fr; }

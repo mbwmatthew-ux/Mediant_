@@ -346,21 +346,47 @@
 }
 .confirmDelete:hover { filter: brightness(1.1); transform: translateY(-1px); }
 
-/* ── Responsive: tablet + mobile (≤768px) ───────────────────── */
-@media (max-width: 768px) {
+/* ── Responsive: tablet (≤1024px) ────────────────────────────── */
+@media (max-width: 1024px) {
   .panel { width: 100%; }
+  /* Narrow the fixed sessions sidebar so the score keeps room */
+  .body { grid-template-columns: 1fr 260px; }
+  .scoreSection { padding: 24px 24px; }
+  .sessionsSection { padding: 22px 18px; }
+}
+
+/* ── Responsive: phone (≤700px) ──────────────────────────────── */
+@media (max-width: 700px) {
+  .panel { width: 100%; max-width: 100%; }
 
   .header { flex-wrap: wrap; gap: 10px; padding: 14px 16px; }
-  .headerMeta { min-width: 0; width: 100%; }
-  .pieceTitle { font-size: 1.2rem; }
-  .recordBtn { width: 100%; text-align: center; }
+  .backBtn { min-height: 44px; }
+  .headerMeta { min-width: 0; width: 100%; order: -1; }
+  .pieceTitle { font-size: 1.25rem; white-space: normal; }
+  .pieceSub { font-size: 0.82rem; }
+  .headerActions { width: 100%; gap: 10px; }
+  .deletePieceBtn,
+  .recordBtn {
+    flex: 1;
+    min-height: 44px;
+    text-align: center;
+  }
 
-  /* Stack score + sessions vertically */
-  .body { grid-template-columns: 1fr; }
+  /* Stack score + sessions vertically; whole panel scrolls internally */
+  .body { display: flex; flex-direction: column; overflow-y: auto; }
   .scoreSection {
     border-right: none;
     border-bottom: 1px solid var(--accent-bg);
+    overflow-y: visible;
     padding: 20px 16px;
   }
-  .sessionsSection { padding: 20px 16px; }
+  /* Embedded PDF must not blow past the viewport */
+  .scoreSection embed { height: 60vh !important; }
+  .sessionsSection { overflow-y: visible; padding: 20px 16px; }
+  .sessionsTitle { font-size: 0.78rem; }
+  .sessionDate { font-size: 0.84rem; }
+  .noSessions { font-size: 0.9rem; }
+  .flagTitle { font-size: 0.86rem; }
+  /* Larger tap target for the per-session delete button */
+  .deleteBtn { font-size: 0.85rem; padding: 8px 8px; }
 }

@@ -362,7 +362,59 @@
 .backLink:hover { color: var(--text-soft); }
 
 /* ── Responsive ───────────────────────────────────────────── */
-@media (max-width: 760px) {
-  .cardsRow { grid-template-columns: 1fr; max-width: 480px; }
-  .hero { padding: 56px 24px 40px; }
+/* Tablet: drop the tight 3-col grid to a tidy 2-col, fluid width */
+@media (max-width: 1024px) {
+  .cardsRow {
+    grid-template-columns: repeat(2, 1fr);
+    max-width: 640px;
+  }
+}
+
+/* Phone: single column, full-width cards, comfortable spacing */
+@media (max-width: 700px) {
+  .nav { padding: 0 16px; }
+  .navUser {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hero {
+    gap: 18px;
+    padding: 48px 16px 36px;
+  }
+  .subtitle { font-size: 0.95rem; }
+
+  .toggleBtn {
+    font-size: 0.9rem;
+    min-height: 44px;
+    padding: 0 18px;
+  }
+
+  .cardsRow {
+    gap: 20px;
+    grid-template-columns: 1fr;
+    max-width: 440px;
+    padding: 0 16px;
+  }
+
+  .card {
+    gap: 18px;
+    padding: 24px 18px;
+  }
+  /* Ensure the "Most popular" badge (negative top offset) never clips */
+  .cardFeatured { margin-top: 13px; }
+  .cardBadge { left: 18px; }
+
+  /* Comfortable touch target for the plan CTA */
+  .ctaBtn {
+    font-size: 0.95rem;
+    min-height: 46px;
+    padding: 0;
+  }
+
+  .featureItem { font-size: 0.9rem; }
+
+  .finePrint { padding: 0 16px; }
 }

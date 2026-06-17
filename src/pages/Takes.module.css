@@ -573,18 +573,58 @@
 }
 
 /* ── Responsive ───────────────────────────────────────────────── */
-@media (max-width: 900px) {
+/* Tablet — drop the 3-col grid to 2-col, keep progress 3-up */
+@media (max-width: 1024px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
   .progressCards { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 700px) {
-  .page { padding: 28px 18px 48px; }
-  .grid { grid-template-columns: 1fr; }
-  .metaStrip { flex-wrap: wrap; }
-  .metaItem { min-width: 45%; }
-  .progressCards { grid-template-columns: 1fr 1fr 1fr; }
-  .threadHeader { flex-direction: column; gap: 16px; }
-  .libraryHeader { flex-direction: column; gap: 12px; }
-  .filters { flex-direction: column; }
+  .page { padding: 24px 16px 44px; }
+
+  /* Library header / filters stack */
+  .libraryHeader { flex-direction: column; gap: 14px; }
+  .libraryHeader .ctaBtn { align-self: stretch; justify-content: center; }
+  .filters { flex-direction: column; gap: 12px; }
+
+  /* Single-column piece grid */
+  .grid { grid-template-columns: 1fr; gap: 16px; }
+
+  /* Comfortable card padding */
+  .pieceCardBody { padding: 18px 18px 14px; }
+  .pieceFoot { padding: 14px 18px; }
+
+  /* Piece footer: date above, actions full width */
+  .pieceFoot { flex-direction: column; align-items: stretch; gap: 12px; }
+  .pieceActions { width: 100%; }
+
+  /* Meta strip stacks to a single column (avoid broken right-borders) */
+  .metaStrip { flex-direction: column; }
+  .metaItem { border-right: none; border-bottom: 1px solid var(--surface-border); }
+  .metaItem:last-child { border-bottom: none; }
+
+  /* Progress cards stack */
+  .progressCards { grid-template-columns: 1fr; }
+
+  /* Thread header stacks; cap title size so it never overflows */
+  .threadHeader { flex-direction: column; align-items: stretch; gap: 16px; }
+  .threadHeader .ctaBtn { align-self: stretch; justify-content: center; }
+  .threadTitle { font-size: 1.7rem; overflow-wrap: anywhere; }
+
+  /* Timeline card padding + actions wrap */
+  .timelineCard { padding: 16px 18px; }
+  .takeActions { flex-wrap: wrap; }
+  .takeActions .ghostBtn { flex: 1 1 calc(50% - 4px); }
+
+  /* Touch targets ≥44px */
+  .searchWrap { padding: 0 14px; }
+  .searchInput { height: 44px; font-size: 0.95rem; }
+  .filterSelect { height: 44px; font-size: 0.92rem; }
+  .ctaBtn, .goldBtn, .ghostBtn, .deleteBtn, .dangerBtn {
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+  }
+  .ghostBtn, .deleteBtn { display: flex; }
+  .backLink { min-height: 44px; }
 }

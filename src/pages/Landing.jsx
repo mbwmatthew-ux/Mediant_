@@ -2,6 +2,22 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Landing.module.css'
 
+/* ── Reduced-motion preference (reactive to OS/user setting) ── */
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onChange = () => setReduced(mq.matches)
+    mq.addEventListener?.('change', onChange)
+    return () => mq.removeEventListener?.('change', onChange)
+  }, [])
+  return reduced
+}
+
 function SheetMusicPage({ seed = 0, showTitle = false }) {
   return (
     <div style={{
@@ -433,6 +449,7 @@ export default function Landing() {
   const [wordVisible, setWordVisible] = useState(true)
   const [activeFlag, setActiveFlag] = useState('flag_2')
 
+  const reducedMotion = usePrefersReducedMotion()
 
   const canvasRef = useRef(null)
   const [analysisRef, analysisInView] = useInView(0.15)
@@ -448,6 +465,15 @@ export default function Landing() {
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     let raf
+
+    // Honor reduced-motion: draw nothing and skip the animation loop entirely.
+    if (reducedMotion) {
+      const w = canvas.offsetWidth, h = canvas.offsetHeight
+      canvas.width = w * (window.devicePixelRatio || 1)
+      canvas.height = h * (window.devicePixelRatio || 1)
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      return
+    }
 
     const WAVES = [
       { freq: 0.010, baseAmp: 36, breatheFreq: 0.40, breathePhase: 0.0, alpha: 0.07, yRatio: 0.35 },
@@ -490,14 +516,31 @@ export default function Landing() {
       raf = requestAnimationFrame(tick)
     }
 
+    // Pause the loop while the tab is hidden to save battery; resume on return.
+    function onVisibility() {
+      if (document.hidden) {
+        cancelAnimationFrame(raf)
+      } else {
+        cancelAnimationFrame(raf)
+        raf = requestAnimationFrame(tick)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     raf = requestAnimationFrame(tick)
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize) }
-  }, [])
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', resize)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [reducedMotion])
 
   /* ── Mouse parallax ── */
   useEffect(() => {
     const hero = heroRef.current
     if (!hero) return
+    // Honor reduced-motion: no parallax loop, no listeners, leave layers untransformed.
+    if (reducedMotion) return
     let tx = 0, ty = 0, cx = 0, cy = 0, raf
     const lerp = (a, b, t) => a + (b - a) * t
 
@@ -520,25 +563,40 @@ export default function Landing() {
     }
     function onLeave() { tx = 0; ty = 0 }
 
+    // Pause the loop while the tab is hidden to save battery; resume on return.
+    function onVisibility() {
+      if (document.hidden) {
+        cancelAnimationFrame(raf)
+      } else {
+        cancelAnimationFrame(raf)
+        raf = requestAnimationFrame(tick)
+      }
+    }
+
     hero.addEventListener('mousemove', onMove)
     hero.addEventListener('mouseleave', onLeave)
+    document.addEventListener('visibilitychange', onVisibility)
     raf = requestAnimationFrame(tick)
     return () => {
       hero.removeEventListener('mousemove', onMove)
       hero.removeEventListener('mouseleave', onLeave)
+      document.removeEventListener('visibilitychange', onVisibility)
       cancelAnimationFrame(raf)
     }
-  }, [])
+  }, [reducedMotion])
 
   /* ── Word cycling with fade out / in ── */
   useEffect(() => {
+    // Honor reduced-motion: hold a single static word, no looping fade cycle.
+    // (wordVisible already defaults to true, so nothing to reset here.)
+    if (reducedMotion) return
     const id = setInterval(() => {
       setWordVisible(false)
       setTimeout(() => setWordIdx(i => (i + 1) % ROTATING_LINES.length), 320)
       setTimeout(() => setWordVisible(true), 360)
     }, 3400)
     return () => clearInterval(id)
-  }, [])
+  }, [reducedMotion])
 
   /* ── Scroll reveals (bidirectional) ── */
   useEffect(() => {

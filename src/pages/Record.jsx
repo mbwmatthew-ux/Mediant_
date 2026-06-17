@@ -34,6 +34,7 @@ export default function Record() {
   const [file,      setFile]      = useState(null)
   const [videoDrag, setVideoDrag] = useState(false)
   const videoInputRef = useRef()
+  const captureInputRef = useRef()
 
   // Submission state
   const [phase,    setPhase]    = useState('idle')  // idle | uploading | analyzing | error
@@ -534,6 +535,27 @@ export default function Record() {
               {videoError && (
                 <span className={styles.dropzoneSub} style={{ color: '#e05b5b', marginTop: 6 }}>{videoError}</span>
               )}
+            </div>
+
+            {/* Native camera capture — most useful on phones/tablets */}
+            <div className={styles.captureRow}>
+              <span className={styles.captureRowOr}>or record straight from your device</span>
+              <input
+                ref={captureInputRef}
+                type="file"
+                accept="video/*"
+                capture="environment"
+                style={{ display: 'none' }}
+                onChange={handleVideoFile}
+              />
+              <button
+                type="button"
+                className={styles.recordNowBtn}
+                onClick={() => captureInputRef.current?.click()}
+              >
+                <span className={styles.recordNowDot} aria-hidden="true" />
+                Record now
+              </button>
             </div>
           </div>
 

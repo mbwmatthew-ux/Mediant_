@@ -3473,3 +3473,25 @@
   min-height: 0;
   overflow: visible;
 }
+
+/* ── Phone: vertical stack order + mobile-chrome clearance ──── */
+@media (max-width: 700px) {
+  /* Stack order: score (leftLane) → video → flagged insights → coach */
+  .rightLane > :nth-child(1) { order: 2; }
+  .rightLane > :nth-child(2) { order: 1; }
+  .rightLane > :nth-child(3) { order: 3; }
+  /* Keep the sticky query bar above the 64px mobile bottom nav */
+  .stickyBottomBar { bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* Clearance so the last card isn't hidden behind the sticky bar + nav */
+  .reviewLayoutColumns { margin-bottom: 136px; }
+  /* Comfortable Loop touch target + roomier cards */
+  .insightLoopBtn { min-height: 44px; order: 2; }
+  .laneCard { padding: 18px; }
+  /* Wrap insight rows so the flag title + Loop are readable, not clipped */
+  .insightRow { flex-wrap: wrap; column-gap: 10px; row-gap: 8px; }
+  .insightRowTitle { order: 1; flex-basis: 100%; white-space: normal; overflow: visible; text-overflow: clip; font-size: 0.9rem; }
+  /* Stack the take-header card so the date/confidence don't collide with the title */
+  .analysisHeaderCard { flex-direction: column; align-items: stretch; gap: 16px; padding: 18px; }
+  .headerDivider { display: none; }
+  .headerMetricCol { min-width: 0; }
+}

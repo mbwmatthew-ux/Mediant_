@@ -1897,6 +1897,26 @@
 
 
 /* ── Responsive additions ─────────────────────────────────────── */
+
+/* ── Tablet: intermediate columns & fluid widths (max-width: 1024px) ── */
+@media (max-width: 1024px) {
+  .nav            { padding: 0 28px; }
+  .features       { padding: 96px 40px; }
+  .featureRow     { gap: 56px; }
+  .howItWorks     { padding: 96px 40px; }
+  .analysisSection { padding: 96px 40px; }
+  .ctaSection     { padding: 120px 40px; }
+  /* Drop the 3-up steps grid to 2 columns at tablet width */
+  .steps {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 48px 40px;
+    max-width: 640px;
+  }
+  .stepArrow { display: none; }
+  /* Keep stats as 3-up but let them breathe with fluid padding */
+  .statCard { padding: 52px 32px; }
+}
+
 /* ── Responsive ───────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .nav          { padding: 0 20px; }
@@ -1957,6 +1977,62 @@
     width: calc(100% - 48px);
   }
   .feedbackCardFooter { flex-wrap: wrap; }
+}
+
+/* ── Phone: single column, comfortable spacing, ≥44px touch targets (max-width: 700px) ── */
+@media (max-width: 700px) {
+  .nav            { padding: 0 16px; }
+  .hero           { padding: 80px 16px 56px; }
+  .heroSub        { font-size: 1rem; line-height: 1.7; }
+  .statCard       { padding: 36px 18px; }
+  .analysisSection { padding: 64px 16px; }
+  .analysisHead   { margin-bottom: 8px; }
+  .features       { padding: 64px 16px; }
+  .featureRow     { gap: 32px; padding: 48px 0; }
+  .featureBody    { font-size: 0.95rem; }
+  .howItWorks     { padding: 64px 16px; }
+  .stepBody       { max-width: none; }
+  .ctaSection     { padding: 88px 16px; }
+  .footer         { padding: 24px 16px; }
+
+  /* Single-column step list, comfortable gap */
+  .steps          { grid-template-columns: 1fr; gap: 40px; }
+
+  /* CTA buttons full-width and tall enough to tap comfortably */
+  .heroCtas       { flex-direction: column; width: 100%; }
+  .ctaPrimary,
+  .ctaGhost {
+    width: 100%;
+    text-align: center;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Nav controls — keep ≥44px tap height */
+  .navLogin,
+  .navCta {
+    align-items: center;
+    display: inline-flex;
+    min-height: 40px;
+  }
+
+  /* Timeline rows are interactive — guarantee a tappable height */
+  .timelineRow { min-height: 44px; }
+
+  /* Loop / send buttons stay tappable */
+  .loopBtn { min-height: 40px; }
+  .chatSend { height: 28px; width: 28px; }
+
+  /* Keep the demo dashboard text readable on phones */
+  .insightBody,
+  .chatMsgUser,
+  .chatMsgAI { font-size: 0.84rem; }
+
+  /* Footer links spaced for tapping */
+  .footerLinks { flex-wrap: wrap; gap: 16px 20px; }
+  .footerLink { padding: 4px 0; }
 }
 
 /* ── Visual Callouts & Annotation Pointers ── */
@@ -2042,8 +2118,57 @@
   }
 }
 
+/* ── Reduced motion: disable looping/parallax/decorative animations ── */
 @media (prefers-reduced-motion: reduce) {
+  /* Floating gradient mesh + top sweep bar + bottom glow drift */
   .meshBlob1, .meshBlob2, .meshBlob3, .meshBlob4 { animation: none; }
+  .page::before { animation: none; }
+
+  /* Hero entrance / parallax stagger — show immediately, no transform */
+  .hero > *:not(.waveCanvas):not(.meshBg):not(.parallaxNode),
+  .parallaxNode {
+    animation: none;
+  }
+
+  /* Rotating hero word: render statically, no per-char in/out */
+  .heroCharVisible,
+  .heroCharHidden {
+    animation: none;
+    opacity: 1;
+  }
+
+  /* Intro sheet-music fan — settle into final fanned state without motion */
+  .introSheet { transition: none; }
+  .introFanning { transition: none; }
+
+  /* Shuffle status cards — no slide-in */
+  .shuffleCard { animation: none; }
+
+  /* Scroll reveals — present content in its final, visible state */
+  .reveal,
+  .revealL,
+  .revealR,
+  .revealScale {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  /* Feature card animated conic border */
+  .featureVisual { animation: none; }
+
+  /* Looping demo-dashboard accents */
+  .analysisPulse,
+  .playerLiveBadge,
+  .videoScanLine,
+  .videoHighlightBox,
+  .feedProgressFill,
+  .feedItem,
+  .typingBubbleUser,
+  .typingBubbleAI,
+  .dot {
+    animation: none;
+  }
 }
 
 /* ── Chatbot Typing Bubbles & Indicators ── */

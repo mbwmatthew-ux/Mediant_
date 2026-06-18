@@ -145,3 +145,40 @@
   text-decoration: none;
 }
 .footerLink:hover { text-decoration: underline; }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .page {
+    justify-content: flex-start;
+    padding: 32px 16px;
+  }
+
+  .card {
+    max-width: 100%;
+    padding: 22px 18px;
+  }
+
+  .heading { font-size: 1.7rem; }
+
+  .sub {
+    font-size: 0.95rem;
+    margin-bottom: 26px;
+  }
+
+  /* 16px font prevents iOS focus zoom; min-height for comfortable touch targets */
+  .input,
+  .select {
+    font-size: 16px;
+    min-height: 44px;
+    padding: 12px 14px;
+  }
+
+  .submitBtn {
+    font-size: 1rem;
+    min-height: 44px;
+    padding: 12px;
+  }
+
+  .footer,
+  .footerLink { font-size: 0.95rem; }
+}

@@ -63,9 +63,19 @@ export default function Onboarding({ onClose }) {
   const nav = useNavigate()
   const [step, setStep] = useState(0)
   const [rect, setRect] = useState(null)
+  const [isPhone, setIsPhone] = useState(
+    typeof window !== 'undefined' && window.innerWidth <= 700,
+  )
   const current = STEPS[step]
   const isLast = step === STEPS.length - 1
   const hasNav = !!current.navLabel
+
+  // Track viewport so the card can re-flow on small screens / rotation
+  useEffect(() => {
+    function onResize() { setIsPhone(window.innerWidth <= 700) }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     if (!current.navLabel) { setRect(null); return }
@@ -100,24 +110,42 @@ export default function Onboarding({ onClose }) {
   const CARD_W    = 300
   const CARD_H    = 240
   const TOP_BAR_H = 52
+  const BOTTOM_NAV_H = 64   // fixed mobile bottom nav
 
-  const cardStyle = rect ? {
-    position: 'fixed',
-    left: Math.min(rect.right + 18, window.innerWidth - CARD_W - 12),
-    top: Math.min(
-      Math.max(TOP_BAR_H + 8, rect.top + rect.height / 2 - CARD_H / 2),
-      window.innerHeight - CARD_H - 12,
-    ),
-    width: CARD_W,
-    zIndex: 1002,
-  } : {
-    position: 'fixed',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
-    width: 420,
-    zIndex: 1002,
-  }
+  const cardStyle = isPhone
+    // ── Phone: fluid, centred, kept clear of the fixed top header + bottom nav.
+    //    The spotlight ring still highlights the (bottom-nav) target separately.
+    ? {
+        position: 'fixed',
+        left: '50%',
+        top: hasNav && rect
+          ? `${TOP_BAR_H + 12}px`
+          : '50%',
+        transform: hasNav && rect
+          ? 'translateX(-50%)'
+          : 'translate(-50%, -50%)',
+        maxHeight: `calc(100dvh - ${TOP_BAR_H + BOTTOM_NAV_H + 32}px)`,
+        overflowY: 'auto',
+        width: 'min(420px, calc(100vw - 32px))',
+        zIndex: 1002,
+      }
+    : rect ? {
+        position: 'fixed',
+        left: Math.min(rect.right + 18, window.innerWidth - CARD_W - 12),
+        top: Math.min(
+          Math.max(TOP_BAR_H + 8, rect.top + rect.height / 2 - CARD_H / 2),
+          window.innerHeight - CARD_H - 12,
+        ),
+        width: CARD_W,
+        zIndex: 1002,
+      } : {
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 420,
+        zIndex: 1002,
+      }
 
   return createPortal(
     <>
@@ -150,8 +178,9 @@ export default function Onboarding({ onClose }) {
         />
       )}
 
-      {/* Arrow pointing left to the nav item */}
-      {hasNav && rect && (
+      {/* Arrow pointing to the side nav item (desktop only — the bottom
+          nav on phones sits below, so the side arrow would point at nothing) */}
+      {hasNav && rect && !isPhone && (
         <div style={{
           position: 'fixed',
           left: rect.right + 6,
@@ -203,11 +232,11 @@ export default function Onboarding({ onClose }) {
             </div>
           )}
 
-          <h2 style={{ color: 'var(--text)', fontSize: hasNav ? '1rem' : '1.25rem', fontWeight: 600, marginBottom: 8, margin: '0 0 8px' }}>
+          <h2 style={{ color: 'var(--text)', fontSize: hasNav ? (isPhone ? '1.1rem' : '1rem') : '1.25rem', fontWeight: 600, marginBottom: 8, margin: '0 0 8px' }}>
             {current.title}
           </h2>
 
-          <p style={{ color: 'var(--text-soft)', fontSize: '0.88rem', lineHeight: 1.65, margin: '0 0 18px' }}>
+          <p style={{ color: 'var(--text-soft)', fontSize: isPhone ? '0.95rem' : '0.88rem', lineHeight: 1.65, margin: '0 0 18px' }}>
             {current.body}
           </p>
 
@@ -236,12 +265,13 @@ export default function Onboarding({ onClose }) {
               style={{
                 flex: hasNav ? 1 : undefined,
                 width: hasNav ? undefined : '100%',
+                minHeight: isPhone ? 44 : undefined,
                 background: 'var(--accent)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 8,
                 padding: '9px 16px',
-                fontSize: '0.88rem',
+                fontSize: isPhone ? '0.95rem' : '0.88rem',
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
@@ -254,9 +284,10 @@ export default function Onboarding({ onClose }) {
                 background: 'none',
                 border: 'none',
                 color: 'var(--text-muted)',
-                fontSize: '0.82rem',
+                fontSize: isPhone ? '0.9rem' : '0.82rem',
                 cursor: 'pointer',
-                padding: '4px',
+                minHeight: isPhone ? 44 : undefined,
+                padding: isPhone ? '4px 12px' : '4px',
                 whiteSpace: 'nowrap',
               }}
             >

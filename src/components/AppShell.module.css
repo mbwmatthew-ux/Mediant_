@@ -76,8 +76,7 @@
   scrollbar-width: none;
 }
 .sidebar::-webkit-scrollbar { display: none; }
-.sidebar:hover,
-.sidebar:focus-within {
+.sidebar:hover {
   border-right-color: rgba(188, 148, 99, 0.24);
   box-shadow: 18px 0 42px rgba(48, 39, 29, 0.08);
   width: 176px;
@@ -149,8 +148,7 @@
   white-space: nowrap;
 }
 
-.sidebar:hover .sidebarLogoText,
-.sidebar:focus-within .sidebarLogoText {
+.sidebar:hover .sidebarLogoText {
   max-width: 92px;
   opacity: 1;
   transform: translateX(0);
@@ -208,10 +206,15 @@
   transform: translateX(1px);
 }
 
-.sidebar:hover .navItem,
-.sidebar:focus-within .navItem {
+.sidebar:hover .navItem {
   justify-content: flex-start;
   padding: 0 12px;
+}
+
+.sidebarLogo:focus-visible,
+.navItem:focus-visible {
+  outline: 2px solid rgba(188, 148, 99, 0.48);
+  outline-offset: -2px;
 }
 
 .navItemActive {
@@ -253,8 +256,7 @@
   white-space: nowrap;
 }
 
-.sidebar:hover .navLabel,
-.sidebar:focus-within .navLabel {
+.sidebar:hover .navLabel {
   max-width: 112px;
   opacity: 1;
   pointer-events: auto;

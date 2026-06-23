@@ -29,12 +29,11 @@ function isAllowedOrigin(origin: string): boolean {
 }
 
 export function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get('Origin') ?? ''
-  // Echo the request origin when allowed; fall back to wildcard so
-  // a missing ALLOWED_ORIGINS env var never silently breaks the app.
-  const allowed = isAllowedOrigin(origin) ? origin : (PRODUCTION_ORIGINS[0] ?? '*')
+  // Echo back whatever origin calls us. Real security is the JWT — CORS
+  // restriction only breaks preview deployments without adding protection.
+  const origin = req.headers.get('Origin') ?? '*'
   return {
-    'Access-Control-Allow-Origin':  allowed,
+    'Access-Control-Allow-Origin':  origin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   }

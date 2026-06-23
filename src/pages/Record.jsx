@@ -29,6 +29,7 @@ export default function Record() {
   const [startMeasure,  setStartMeasure]  = useState('')
   const [endMeasure,    setEndMeasure]    = useState('')
   const [tempo,         setTempo]         = useState('')
+  const [difficulty,    setDifficulty]    = useState('')
 
   // Video recording (required)
   const [file,      setFile]      = useState(null)
@@ -53,7 +54,7 @@ export default function Record() {
         sessionStorage.removeItem('mediant_prefill')
         const parsed = JSON.parse(raw)
         if (typeof parsed !== 'object' || parsed === null) return
-        const { pieceTitle: t, composer: c, instrument: ins, key: k, timeSig: ts, bpm: b, pieceId, filePath, mediaType } = parsed
+        const { pieceTitle: t, composer: c, instrument: ins, key: k, timeSig: ts, bpm: b, difficulty: d, pieceId, filePath, mediaType } = parsed
 
         // Validate string fields are actually strings before using
         if (typeof t === 'string')  setPieceTitle(t.slice(0, 200))
@@ -62,6 +63,7 @@ export default function Record() {
         if (typeof k === 'string')  setKeySignature(k.slice(0, 50))
         if (typeof ts === 'string') setTimeSig(ts.slice(0, 10))
         if (typeof b === 'number' && Number.isFinite(b)) setTempo(String(Math.round(b)))
+        if (['Beginner', 'Intermediate', 'Advanced'].includes(d)) setDifficulty(d)
 
         // filePath must match userId/filename — no path traversal
         const safeFilePath = typeof filePath === 'string' && /^[0-9a-f-]{36}\/.+$/i.test(filePath)
@@ -308,6 +310,7 @@ export default function Record() {
           endMeasure:     endMeasure || undefined,
           tempo:          (() => { const n = parseInt(tempo, 10); return Number.isFinite(n) ? n : undefined })(),
           videoFrames:    videoFrames.length > 0 ? videoFrames : undefined,
+          difficulty:     difficulty || undefined,
         },
       })
 

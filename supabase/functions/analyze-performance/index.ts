@@ -287,6 +287,7 @@ async function runGeminiVideo(opts: {
   safeStart:    number
   safeEnd:      number | null
   tempo:        number
+  difficulty:   string
 }): Promise<{ score: number; flags: NormalizedFlag[]; scoreContext: string }> {
   const apiKey = Deno.env.get('GOOGLE_AI_API_KEY')
   if (!apiKey) throw new Error('GOOGLE_AI_API_KEY not configured')
@@ -372,10 +373,16 @@ async function runGeminiVideo(opts: {
     other: `Listen for clearly supported wrong notes, tone issues, intonation drift, rhythmic instability, and technique problems.`,
   }[instrumentFamily]
 
+  const difficultyTone = {
+    Beginner: `STUDENT LEVEL: Beginner. Write all feedback in plain, friendly language — no jargon. Focus on the most important basics: correct notes, steady beat, basic posture. Give short, concrete fixes like "try playing this passage slowly, one note at a time." Avoid terms like intonation, articulation, or dynamics unless you explain them simply.`,
+    Intermediate: `STUDENT LEVEL: Intermediate. Use moderate musical language. The student understands basic terms like dynamics, rhythm, and intonation. Focus on consistency, phrasing, and cleaner technique. Reference specific passages and markings when relevant.`,
+    Advanced: `STUDENT LEVEL: Advanced. Use full conservatory-level language. The student expects precise technical feedback: intonation tendencies by note name, specific articulation markings, bow or breath technique, tonal projection, and musical interpretation. Be direct and detailed.`,
+  }[opts.difficulty] ?? ''
+
   const prompt = `AUDIO-FIRST PERFORMANCE ANALYSIS TASK. You are analyzing a student's performance video. Your primary job is to LISTEN and report issues that are clearly supported by the recording. Use visual information only when it explains an audible or technical problem.
 
-You are a constructive conservatory-level music performance coach. Be specific and honest, but do not force issues. If evidence is uncertain, lower confidence or omit the flag.
-
+You are a constructive music performance coach. Be specific and honest, but do not force issues. If evidence is uncertain, lower confidence or omit the flag.
+${difficultyTone ? `\n${difficultyTone}\n` : ''}
 Piece: "${opts.pieceTitle}" by ${opts.composer}
 Instrument: ${opts.instrument}
 ${opts.keySignature ? `Key: ${opts.keySignature}. ` : ''}Time signature: ${opts.timeSig}
@@ -616,6 +623,7 @@ async function runClaudeCoaching(opts: {
   keySignature:  string
   safeStart:     number
   safeEnd:       number | null
+  difficulty:    string
 }): Promise<{ flags: NormalizedFlag[] }> {
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured')
@@ -645,10 +653,17 @@ async function runClaudeCoaching(opts: {
   }
 
   const hasImage = userContent.length > 0
+
+  const coachingTone = {
+    Beginner: `Write everything in simple, encouraging language. Avoid musical jargon. Instead of "intonation", say "playing in tune". Instead of "articulation", say "how you start each note". Keep practice tips short and concrete — one thing to try at a time.`,
+    Intermediate: `Use standard musical terminology. The student knows terms like dynamics, intonation, and rhythm. Give clear, specific tips that connect what to fix with how to fix it.`,
+    Advanced: `Use precise conservatory language. Name specific notes, intervals, fingerings, and technique demands. Assume the student can act on detailed technical guidance without simplified explanation.`,
+  }[opts.difficulty] ?? ''
+
   userContent.push({
     type: 'text',
-    text: `You are a conservatory-level music teacher preparing practice priorities from the score. You do not have reliable audio/video evidence here, so these are NOT performance errors. They are likely risk areas to check in practice.
-
+    text: `You are a music teacher preparing practice priorities from the score. You do not have reliable audio/video evidence here, so these are NOT performance errors. They are likely risk areas to check in practice.
+${coachingTone ? `\n${coachingTone}\n` : ''}
 Piece: "${opts.pieceTitle}" by ${opts.composer}
 Instrument: ${opts.instrument}
 ${keyNote}Time signature: ${opts.timeSig}
@@ -763,6 +778,7 @@ serve(async (req: Request) => {
       videoFrames,
       tempo,
       songId,
+      difficulty,
     } = body
 
     if (!videoPath || !videoMimeType) {
@@ -847,6 +863,7 @@ serve(async (req: Request) => {
     }
 
     // ── 2. Inline analysis: vision → Gemini → coaching ───────────
+    const safeLevel = ['Beginner', 'Intermediate', 'Advanced'].includes(difficulty) ? difficulty : 'Intermediate'
     const sharedOpts = {
       pieceTitle:   pieceTitle   ?? 'Unknown Piece',
       composer:     composer     ?? 'Unknown',
@@ -856,6 +873,7 @@ serve(async (req: Request) => {
       safeStart,
       safeEnd,
       tempo:        Math.max(0, parseInt(String(tempo ?? 0), 10) || 0),
+      difficulty:   safeLevel,
     }
 
     let score: number | null = null

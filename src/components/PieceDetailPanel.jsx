@@ -178,15 +178,16 @@ export default function PieceDetailPanel({ piece, onClose, onDeleted }) {
 
   function startRecording() {
     sessionStorage.setItem('mediant_prefill', JSON.stringify({
-      pieceTitle: piece.title,
-      composer:   piece.composer,
-      instrument: piece.instrument,
-      key:        piece.key  && piece.key  !== '—' ? piece.key  : null,
-      timeSig:    piece.time && piece.time !== '—' ? piece.time : null,
-      bpm:        piece.bpm  || null,
-      pieceId:    piece.userUploaded ? piece.id : null,
-      filePath:   piece.file_path ?? null,
-      mediaType:  piece.mediaType ?? null,
+      pieceTitle:  piece.title,
+      composer:    piece.composer,
+      instrument:  piece.instrument,
+      key:         piece.key  && piece.key  !== '—' ? piece.key  : null,
+      timeSig:     piece.time && piece.time !== '—' ? piece.time : null,
+      bpm:         piece.bpm  || null,
+      difficulty:  piece.difficulty ?? null,
+      pieceId:     piece.userUploaded ? piece.id : null,
+      filePath:    piece.file_path ?? null,
+      mediaType:   piece.mediaType ?? null,
     }))
     nav('/record')
   }

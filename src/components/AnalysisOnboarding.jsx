@@ -21,6 +21,32 @@ const STEPS = [
 
 const PAD = 8
 const CARD_W = 308
+const CARD_W_CENTER = 400
+
+function getCardStyle(rect) {
+  if (!rect) {
+    // Explicitly center using window dimensions — avoids transform issues
+    const w = Math.min(CARD_W_CENTER, window.innerWidth - 32)
+    const left = Math.round((window.innerWidth - w) / 2)
+    const top = Math.round(window.innerHeight * 0.35)
+    return { position: 'fixed', top, left, width: w, zIndex: 1002 }
+  }
+
+  const CARD_H_EST = 220
+  const spaceBelow = window.innerHeight - rect.bottom
+  const showBelow = spaceBelow >= CARD_H_EST || spaceBelow >= rect.top
+
+  const top = showBelow
+    ? rect.bottom + 12
+    : Math.max(8, rect.top - CARD_H_EST - 12)
+
+  const left = Math.max(8, Math.min(
+    Math.round(rect.left + rect.width / 2 - CARD_W / 2),
+    window.innerWidth - CARD_W - 8,
+  ))
+
+  return { position: 'fixed', top, left, width: CARD_W, zIndex: 1002 }
+}
 
 export default function AnalysisOnboarding({ onClose }) {
   const [step, setStep] = useState(0)
@@ -47,33 +73,8 @@ export default function AnalysisOnboarding({ onClose }) {
     onClose()
   }
 
-  // Card positioning: centre when no target, below/above target element otherwise
-  let cardStyle
-  if (!rect) {
-    cardStyle = {
-      position: 'fixed',
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%)',
-      width: Math.min(420, window.innerWidth - 32),
-      zIndex: 1002,
-    }
-  } else {
-    const CARD_H_EST = 210
-    const spaceBelow = window.innerHeight - rect.bottom
-    const showBelow = spaceBelow >= CARD_H_EST || spaceBelow >= rect.top
-
-    const top = showBelow
-      ? rect.bottom + 12
-      : Math.max(8, rect.top - CARD_H_EST - 12)
-
-    const left = Math.max(8, Math.min(
-      rect.left + rect.width / 2 - CARD_W / 2,
-      window.innerWidth - CARD_W - 8,
-    ))
-
-    cardStyle = { position: 'fixed', top, left, width: CARD_W, zIndex: 1002 }
-  }
+  const cardStyle = getCardStyle(rect)
+  const hasTarget = !!rect
 
   return createPortal(
     <>
@@ -81,12 +82,12 @@ export default function AnalysisOnboarding({ onClose }) {
 
       {/* Backdrop */}
       <div
-        style={{ position: 'fixed', inset: 0, zIndex: 1000, background: rect ? 'transparent' : 'rgba(10,12,14,.82)' }}
+        style={{ position: 'fixed', inset: 0, zIndex: 1000, background: hasTarget ? 'transparent' : 'rgba(10,12,14,.82)' }}
         onClick={e => { if (e.target === e.currentTarget) done() }}
       />
 
       {/* Spotlight ring */}
-      {rect && (
+      {hasTarget && (
         <div style={{
           position: 'fixed',
           left: rect.left - PAD,
@@ -106,24 +107,24 @@ export default function AnalysisOnboarding({ onClose }) {
           background: 'var(--bg-card)',
           border: '1px solid var(--border)',
           borderRadius: 16,
-          padding: rect ? '22px 24px' : '40px 36px',
-          textAlign: rect ? 'left' : 'center',
-          boxShadow: '0 8px 32px rgba(0,0,0,.4)',
+          padding: hasTarget ? '22px 24px' : '36px 32px',
+          textAlign: hasTarget ? 'left' : 'center',
+          boxShadow: '0 8px 32px rgba(0,0,0,.5)',
         }}>
-          {!rect && current.icon && (
-            <div style={{ color: 'var(--accent)', fontSize: '2rem', marginBottom: 16 }}>
+          {!hasTarget && current.icon && (
+            <div style={{ color: 'var(--accent)', fontSize: '2rem', marginBottom: 14 }}>
               {current.icon}
             </div>
           )}
 
-          <h2 style={{ color: 'var(--text)', fontSize: rect ? '1rem' : '1.2rem', fontWeight: 600, margin: '0 0 8px' }}>
+          <h2 style={{ color: 'var(--text)', fontSize: hasTarget ? '1rem' : '1.2rem', fontWeight: 600, margin: '0 0 8px' }}>
             {current.title}
           </h2>
           <p style={{ color: 'var(--text-soft)', fontSize: '0.88rem', lineHeight: 1.65, margin: '0 0 18px' }}>
             {current.body}
           </p>
 
-          <div style={{ display: 'flex', gap: 5, marginBottom: 16, justifyContent: rect ? 'flex-start' : 'center' }}>
+          <div style={{ display: 'flex', gap: 5, marginBottom: 16, justifyContent: hasTarget ? 'flex-start' : 'center' }}>
             {STEPS.map((_, i) => (
               <div key={i} onClick={() => setStep(i)} style={{
                 width: i === step ? 18 : 6,
@@ -137,12 +138,12 @@ export default function AnalysisOnboarding({ onClose }) {
             ))}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexDirection: rect ? 'row' : 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexDirection: hasTarget ? 'row' : 'column' }}>
             <button
               onClick={next}
               style={{
-                flex: rect ? 1 : undefined,
-                width: rect ? undefined : '100%',
+                flex: hasTarget ? 1 : undefined,
+                width: hasTarget ? undefined : '100%',
                 background: 'var(--accent)',
                 color: '#fff',
                 border: 'none',

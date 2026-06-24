@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { SkeletonCard } from '../components/Skeleton'
 import WaveformTimeline, { WAVEFORM_GROUPS } from '../components/WaveformTimeline'
+import MasterclassPanel from '../components/MasterclassPanel'
 import styles from './Page.module.css'
 import aStyles from './Analysis.module.css'
 import { playTick, playPop, playNav } from '../utils/sounds'
@@ -1946,6 +1947,12 @@ export default function Analysis({ demo: demoProp = false }) {
                 </div>
               </div>
             </div>
+
+            <MasterclassPanel
+              pieceTitle={activeThread?.piece_title ?? activeThreadTitle}
+              composer={activeThread?.piece_composer}
+              instrument={activeThread?.instrument}
+            />
           </div>
         )}
       </main>

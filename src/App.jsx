@@ -38,6 +38,7 @@ import Terms from './pages/Terms'
 import Contact from './pages/Contact'
 import ResetPassword from './pages/ResetPassword'
 import CookieBanner from './components/CookieBanner'
+import { Analytics } from '@vercel/analytics/react'
 
 export default function App() {
   return (
@@ -75,5 +76,6 @@ export default function App() {
     </AuthProvider>
     </ThemeProvider>
     </ErrorBoundary>
+    <Analytics />
   )
 }

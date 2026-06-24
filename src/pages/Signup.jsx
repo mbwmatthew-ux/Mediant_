@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 import { INSTRUMENTS } from '../lib/instruments'
 import styles from './Auth.module.css'
 import LogoMark from '../components/LogoMark'
@@ -23,6 +24,10 @@ export default function Signup() {
     }
     const result = await signup(name, email, password, instrument)
     if (result.ok) {
+      // Fire-and-forget welcome email — don't block navigation on this
+      supabase.functions.invoke('send-welcome-email', {
+        body: { email, name },
+      }).catch(() => {})
       nav(result.user ? '/home' : '/confirm-email')
     } else {
       const msg = result.error ?? ''

@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.30.0'
 import { corsHeaders } from '../_shared/cors.ts'
+import { sendEmail, emailWrapper, ctaButton } from '../_shared/email.ts'
 
 // ── Gemini video analysis via Files API ───────────────────────────────────────
 // ── Tempo → seconds per measure ──────────────────────────────────────────────
@@ -1020,6 +1021,30 @@ serve(async (req: Request) => {
       analysis_backend: backend,
       job_error:        null,
     }).eq('id', takeId)
+
+    // Fire-and-forget: notify user by email
+    if (user.email) {
+      const firstName = (user.user_metadata?.name ?? '').split(' ')[0] || 'there'
+      const analysisUrl = `https://www.mediant-music.com/#/analysis?takeId=${takeId}`
+      const scoreLabel = score != null ? `Your score: ${score}/100.` : ''
+      const html = emailWrapper(`
+        <h1 style="font-size:1.3rem;font-weight:700;color:#1a1710;margin:0 0 8px;">Your analysis is ready, ${firstName}.</h1>
+        <p style="color:#5a5040;font-size:0.95rem;line-height:1.7;margin:0 0 6px;">
+          <strong style="color:#1a1710;">${pieceTitle}</strong>
+        </p>
+        <p style="color:#5a5040;font-size:0.95rem;line-height:1.7;margin:0 0 20px;">
+          ${scoreLabel} Mediant found ${flags.length} area${flags.length === 1 ? '' : 's'} to work on.
+          Open your session to see the full measure-level breakdown and loop through specific moments.
+        </p>
+        ${ctaButton(analysisUrl, 'View your analysis →')}
+        <hr style="border:none;border-top:1px solid #e8e4dc;margin:28px 0 20px;" />
+        <p style="color:#8a8070;font-size:0.82rem;line-height:1.6;margin:0;">
+          Questions? Reply to this email or reach us at
+          <a href="mailto:mediantteam@gmail.com" style="color:#587965;">mediantteam@gmail.com</a>.
+        </p>
+      `)
+      sendEmail({ to: user.email, subject: `Analysis ready: ${pieceTitle}`, html }).catch(() => {})
+    }
 
     // Return jobId — polling loop will see status=done on first check
     return new Response(JSON.stringify({ jobId: takeId, status: 'done' }), {

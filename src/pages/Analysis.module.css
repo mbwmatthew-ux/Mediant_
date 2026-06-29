@@ -1854,6 +1854,251 @@
   cursor: help;
 }
 
+/* ── Waveform score header ────────────────────────────────────── */
+.waveHeader {
+  align-items: center;
+  background: #0a3530;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding: 20px 24px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.waveHeader::before {
+  background: radial-gradient(ellipse at 60% 50%, rgba(21, 154, 134, 0.22) 0%, transparent 70%);
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.waveHeaderMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  max-width: 220px;
+  position: relative;
+  z-index: 1;
+}
+
+.waveHeaderTitleRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.waveHeaderTitle {
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waveHeaderBadge {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 99px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.waveHeaderComposer {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.waveHeaderTakeRow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.waveHeaderTakeSelect {
+  appearance: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  transition: background 140ms ease;
+}
+.waveHeaderTakeSelect:hover { background: rgba(255, 255, 255, 0.13); }
+.waveHeaderTakeSelect option { background: #0C5C52; color: #fff; }
+
+.waveHeaderDeleteBtn {
+  align-items: center;
+  background: rgba(238, 123, 83, 0.12);
+  border: 1px solid rgba(238, 123, 83, 0.2);
+  border-radius: 6px;
+  color: rgba(238, 123, 83, 0.8);
+  cursor: pointer;
+  display: flex;
+  height: 26px;
+  justify-content: center;
+  padding: 0 7px;
+  transition: background 140ms ease;
+}
+.waveHeaderDeleteBtn:hover { background: rgba(238, 123, 83, 0.22); }
+
+.waveHeaderAnalyzedAt {
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+/* Animated waveform bars */
+.waveHeaderBarsWrap {
+  align-items: flex-end;
+  display: flex;
+  flex: 1;
+  gap: 3px;
+  height: 72px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.waveHeaderBar {
+  animation: waveHeaderAnim 1.8s ease-in-out infinite var(--d, 0ms);
+  animation-fill-mode: backwards;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 2px 2px 0 0;
+  flex: 1;
+  height: var(--barH, 32px);
+  max-height: 72px;
+  min-height: 4px;
+}
+
+.waveHeaderBarFlagged {
+  background: #EE7B53;
+  box-shadow: 0 0 8px rgba(238, 123, 83, 0.4);
+}
+
+@keyframes waveHeaderAnim {
+  0%, 100% { transform: scaleY(1); }
+  50%       { transform: scaleY(0.55); }
+}
+
+/* Metric bars */
+.waveHeaderMetrics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 200px;
+  position: relative;
+  z-index: 1;
+}
+
+.waveHeaderMetricRow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.waveHeaderMetricRowOverall .waveHeaderMetricLabel {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.waveHeaderMetricLabel {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  min-width: 64px;
+  text-transform: uppercase;
+}
+
+.waveHeaderMetricTrack {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+  flex: 1;
+  height: 5px;
+  overflow: hidden;
+}
+
+.waveHeaderMetricFill {
+  border-radius: 99px;
+  height: 100%;
+}
+
+.waveHeaderFill1 { background: #EE7B53; }
+.waveHeaderFill2 { background: #C09230; }
+.waveHeaderFill3 { background: #8fbe9f; }
+
+.waveHeaderMetricVal {
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 22px;
+  text-align: right;
+}
+
+/* Big score */
+.waveHeaderScoreCol {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.waveHeaderBigScore {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.waveHeaderBigScoreDenom {
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 0.8rem;
+  margin-bottom: 10px;
+}
+
+.waveHeaderReanalyze {
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  transition: background 140ms ease, color 140ms ease;
+  white-space: nowrap;
+}
+.waveHeaderReanalyze:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
 /* ── Split scrollable grid layout ───────────────────────────── */
 .reviewLayoutColumns {
   flex: 1;
@@ -3494,6 +3739,11 @@
   .analysisHeaderCard { flex-direction: column; align-items: stretch; gap: 16px; padding: 18px; }
   .headerDivider { display: none; }
   .headerMetricCol { min-width: 0; }
+  /* Waveform header on mobile: hide bars, stack vertically */
+  .waveHeader { flex-wrap: wrap; gap: 14px; padding: 16px; }
+  .waveHeaderBarsWrap { display: none; }
+  .waveHeaderMeta { max-width: 100%; width: 100%; }
+  .waveHeaderMetrics { min-width: 0; flex: 1; }
 }
 
 /* ── Quick prompt chips ─────────────────────────────────────── */

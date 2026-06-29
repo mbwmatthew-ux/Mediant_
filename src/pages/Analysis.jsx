@@ -13,6 +13,12 @@ import { playTick, playPop, playNav } from '../utils/sounds'
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
+const HEADER_WAVE_BARS = [
+  22, 40, 58, 30, 75, 48, 90, 62, 38, 55,
+  70, 42, 65, 32, 52, 80, 58, 36, 68, 44,
+  76, 50, 34, 82, 60, 40, 72, 46, 28, 56,
+]
+
 const QUICK_PROMPTS = [
   'What should I practice first?',
   'Give me a drill for the hardest flag',
@@ -353,6 +359,14 @@ export default function Analysis({ demo: demoProp = false }) {
   const chatEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const summaryRef = useRef(null)
+
+  // Waveform header animated metric bar refs
+  const hFill1Ref = useRef(null)
+  const hFill2Ref = useRef(null)
+  const hFill3Ref = useRef(null)
+  const hNum1Ref  = useRef(null)
+  const hNum2Ref  = useRef(null)
+  const hNum3Ref  = useRef(null)
 
   const isDemo = demoProp || searchParams.get('demo') === 'true'
   const takeId = searchParams.get('takeId')
@@ -1228,6 +1242,39 @@ export default function Analysis({ demo: demoProp = false }) {
 
   const aspectScores = useMemo(() => computeAspectScores(take), [take])
 
+  // Animate waveform header metric bars via rAF (float-precision, no React re-renders)
+  useEffect(() => {
+    const base1 = aspectScores?.intonation ?? 77
+    const base2 = aspectScores?.dynamics    ?? 83
+    const base3 = take?.score              ?? 82
+    let frame
+    const start = performance.now()
+    const PI2 = 2 * Math.PI
+    function tick(now) {
+      const t = (now - start) / 1000
+      const v1 = base1 - 3 * Math.cos(t * PI2 / 3.8)
+      const v2 = base2 + 3 * Math.cos(t * PI2 / 4.4)
+      const v3 = base3 - 2 * Math.cos(t * PI2 / 5.2)
+      if (hFill1Ref.current) hFill1Ref.current.style.width = `${v1}%`
+      if (hFill2Ref.current) hFill2Ref.current.style.width = `${v2}%`
+      if (hFill3Ref.current) hFill3Ref.current.style.width = `${v3}%`
+      if (hNum1Ref.current)  hNum1Ref.current.textContent  = Math.round(v1)
+      if (hNum2Ref.current)  hNum2Ref.current.textContent  = Math.round(v2)
+      if (hNum3Ref.current)  hNum3Ref.current.textContent  = Math.round(v3)
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [take?.id, aspectScores?.intonation, aspectScores?.dynamics, take?.score])
+
+  // Compute flagged bar indices from actual flag measures (scaled to bar count)
+  const flaggedBarIndices = useMemo(() => {
+    const flags = take?.flags ?? []
+    if (!flags.length) return [6, 7, 14, 15, 22, 23]
+    const maxMeasure = Math.max(...flags.map(f => f.measure ?? 0), 30)
+    return flags.map(f => Math.round(((f.measure ?? 1) / maxMeasure) * (HEADER_WAVE_BARS.length - 1)))
+  }, [take?.flags])
+
   const scoreAreaContent = (
     <div className={`${styles.scoreArea} ${aStyles.scoreAreaPolish} ${isImageScore ? `${styles.scoreAreaImage} ${aStyles.scoreAreaImagePolish}` : ''}`}>
       {isVisualScore && scoreUrl && (
@@ -1354,29 +1401,24 @@ export default function Analysis({ demo: demoProp = false }) {
           </div>
         )}
 
-        {/* ── Piece header ── */}
-        {/* ── Premium Reworked Header Card ── */}
-        <div className={aStyles.analysisHeaderCard}>
-          <div className={aStyles.headerMetaCol}>
-            <div className={aStyles.headerTitleRow}>
-              <h1 className={aStyles.headerTitle}>{pieceTitle}</h1>
-              {instrument && (
-                <span className={aStyles.headerInstrumentBadge}>
-                  {instrument}
-                </span>
-              )}
+        {/* ── Waveform score header ── */}
+        <div className={aStyles.waveHeader}>
+          {/* Left: piece info */}
+          <div className={aStyles.waveHeaderMeta}>
+            <div className={aStyles.waveHeaderTitleRow}>
+              <h1 className={aStyles.waveHeaderTitle}>{pieceTitle}</h1>
+              {instrument && <span className={aStyles.waveHeaderBadge}>{instrument}</span>}
             </div>
-            <p className={aStyles.headerSubtitle}>{pieceComposer}</p>
+            <p className={aStyles.waveHeaderComposer}>{pieceComposer}</p>
             {takesForActiveThread.length > 0 && (
-              <div className={aStyles.takeSelectRow}>
+              <div className={aStyles.waveHeaderTakeRow}>
                 <select
-                  className={aStyles.takeSelect}
+                  className={aStyles.waveHeaderTakeSelect}
                   value={selectedTakeId ?? take?.id ?? ''}
                   onChange={(e) => { playTick(); setSelectedTakeId(e.target.value) }}
                 >
                   {takesForActiveThread.map((t, idx) => {
                     const takeNum = takesForActiveThread.length - idx
-                    const formattedDate = timeAgo(t.created_at) || 'Recent'
                     return (
                       <option key={t.id} value={t.id}>
                         Take {takeNum} of {takesForActiveThread.length}
@@ -1384,69 +1426,63 @@ export default function Analysis({ demo: demoProp = false }) {
                     )
                   })}
                 </select>
-                <button className={aStyles.deleteTakeBtn} onClick={handleDeleteTake} title="Delete this recording analysis">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <button className={aStyles.waveHeaderDeleteBtn} onClick={handleDeleteTake} title="Delete this take">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6" />
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    <line x1="10" y1="11" x2="10" y2="17" />
-                    <line x1="14" y1="11" x2="14" y2="17" />
                   </svg>
-                  Delete
                 </button>
+                <span className={aStyles.waveHeaderAnalyzedAt}>{timeAgo(take?.created_at) || '4d ago'}</span>
               </div>
             )}
           </div>
 
-          <div className={aStyles.headerDivider} />
+          {/* Center: animated waveform bars */}
+          <div className={aStyles.waveHeaderBarsWrap}>
+            {HEADER_WAVE_BARS.map((h, i) => (
+              <div
+                key={i}
+                className={`${aStyles.waveHeaderBar} ${flaggedBarIndices.includes(i) ? aStyles.waveHeaderBarFlagged : ''}`}
+                style={{ '--barH': `${h}px`, '--d': `${(i * 53) % 720}ms` }}
+              />
+            ))}
+          </div>
 
-          <div className={aStyles.headerMetricCol}>
-            <span className={aStyles.headerMetricLabel}>Analyzed</span>
-            <div className={aStyles.headerMetricValWrap}>
-              <span className={aStyles.headerMetricValue}>
-                {timeAgo(take?.created_at) || '4d ago'}
-              </span>
-              <svg className={aStyles.headerMetricIcon} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
+          {/* Right: animated metric bars */}
+          <div className={aStyles.waveHeaderMetrics}>
+            <div className={aStyles.waveHeaderMetricRow}>
+              <span className={aStyles.waveHeaderMetricLabel}>Intonation</span>
+              <div className={aStyles.waveHeaderMetricTrack}>
+                <div ref={hFill1Ref} className={`${aStyles.waveHeaderMetricFill} ${aStyles.waveHeaderFill1}`} style={{ width: `${aspectScores?.intonation ?? 77}%` }} />
+              </div>
+              <span ref={hNum1Ref} className={aStyles.waveHeaderMetricVal} style={{ color: '#EE7B53' }}>{Math.round(aspectScores?.intonation ?? 77)}</span>
+            </div>
+            <div className={aStyles.waveHeaderMetricRow}>
+              <span className={aStyles.waveHeaderMetricLabel}>Dynamics</span>
+              <div className={aStyles.waveHeaderMetricTrack}>
+                <div ref={hFill2Ref} className={`${aStyles.waveHeaderMetricFill} ${aStyles.waveHeaderFill2}`} style={{ width: `${aspectScores?.dynamics ?? 83}%` }} />
+              </div>
+              <span ref={hNum2Ref} className={aStyles.waveHeaderMetricVal} style={{ color: '#C09230' }}>{Math.round(aspectScores?.dynamics ?? 83)}</span>
+            </div>
+            <div className={`${aStyles.waveHeaderMetricRow} ${aStyles.waveHeaderMetricRowOverall}`}>
+              <span className={aStyles.waveHeaderMetricLabel}>Overall</span>
+              <div className={aStyles.waveHeaderMetricTrack}>
+                <div ref={hFill3Ref} className={`${aStyles.waveHeaderMetricFill} ${aStyles.waveHeaderFill3}`} style={{ width: `${score ?? 82}%` }} />
+              </div>
+              <span ref={hNum3Ref} className={aStyles.waveHeaderMetricVal} style={{ color: '#8fbe9f' }}>{score ?? 82}</span>
             </div>
           </div>
 
-          <div className={aStyles.headerDivider} />
-
-          <div className={aStyles.headerMetricCol}>
-            <span className={aStyles.headerMetricLabel}>Confidence</span>
-            <ConfidenceGauge confidence={overallConfidence} />
-          </div>
-
-          <div className={aStyles.headerDivider} />
-
-          <div className={aStyles.headerMetricCol}>
-            <span className={aStyles.headerMetricLabel} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              Technique Score
-              <svg className={aStyles.infoIcon} viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" title="AI analyzed technique precision score">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="16" x2="12" y2="12" />
-                <line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-            </span>
-            <div className={aStyles.headerScoreRow}>
-              <span className={aStyles.headerScoreValue} style={{ color: scoreColor(score) }}>{score}</span>
-              <span className={aStyles.headerScoreDenom}>/100</span>
+          {/* Far right: big score + re-analyze */}
+          <div className={aStyles.waveHeaderScoreCol}>
+            <div className={aStyles.waveHeaderBigScore} style={{ color: scoreColor(score ?? 82) }}>
+              {score ?? '—'}
             </div>
-            <div className={aStyles.headerScoreBarTrack}>
-              <div className={aStyles.headerScoreBarFill} style={{ width: `${score}%`, background: scoreColor(score) }} />
-            </div>
+            <div className={aStyles.waveHeaderBigScoreDenom}>/100</div>
+            <button className={aStyles.waveHeaderReanalyze} onClick={() => nav('/record')}>
+              New Take
+            </button>
           </div>
-
-          <button className={aStyles.headerReanalyzeBtn} onClick={() => nav('/record')}>
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-            </svg>
-            Re-analyze
-          </button>
         </div>
 
         {/* Tab strip */}

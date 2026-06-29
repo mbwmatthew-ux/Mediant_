@@ -56,8 +56,8 @@
 
 /* ── Sidebar ────────────────────────────────────────────────── */
 .sidebar {
-  background: var(--bg-card);
-  border-right: 1px solid var(--surface-border);
+  background: #0a3530;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow: 0 0 0 rgba(48, 39, 29, 0);
   display: flex;
   flex-direction: column;
@@ -77,15 +77,15 @@
 }
 .sidebar::-webkit-scrollbar { display: none; }
 .sidebar:hover {
-  border-right-color: rgba(21, 154, 134, 0.22);
-  box-shadow: 18px 0 42px rgba(12, 92, 82, 0.07);
+  border-right-color: rgba(255, 255, 255, 0.09);
+  box-shadow: 18px 0 48px rgba(0, 0, 0, 0.28);
   width: 176px;
 }
 
 /* ── Logo ───────────────────────────────────────────────────── */
 .sidebarLogo {
   align-items: center;
-  border-bottom: 1px solid var(--surface-border);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-shrink: 0;
   gap: 11px;
@@ -98,18 +98,15 @@
   transition: background 150ms ease, padding 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   width: 100%;
 }
-.sidebarLogo:hover { background: var(--surface-subtle); }
+.sidebarLogo:hover { background: rgba(255, 255, 255, 0.05); }
 
 .sidebarLogoMark {
   align-items: center;
-  background:
-    linear-gradient(135deg, rgba(21, 154, 134, 0.12), rgba(12, 92, 82, 0.08));
-  border: 1px solid rgba(21, 154, 134, 0.2);
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 9px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 4px 12px rgba(12, 92, 82, 0.08);
-  color: #0C5C52;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.92);
   display: inline-flex;
   flex: 0 0 34px;
   height: 34px;
@@ -118,21 +115,18 @@
   transition:
     background 180ms ease,
     border-color 180ms ease,
-    box-shadow 180ms ease,
     transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
   width: 34px;
 }
 
 .sidebarLogo:hover .sidebarLogoMark {
-  border-color: rgba(21, 154, 134, 0.38);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 8px 18px rgba(21, 154, 134, 0.14);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
   transform: translateY(-1px);
 }
 
 .sidebarLogoText {
-  color: var(--text);
+  color: rgba(255, 255, 255, 0.92);
   font-family: Arial, Helvetica, sans-serif;
   font-size: 0.96rem;
   font-weight: 700;
@@ -167,20 +161,13 @@
 }
 .nav::-webkit-scrollbar { display: none; }
 
-.navDivider {
-  background: var(--surface-border);
-  flex-shrink: 0;
-  height: 1px;
-  margin: 12px 5px;
-}
-
 /* Nav item — shared by NavLink and button */
 .navItem {
   align-items: center;
   background: none;
   border: none;
   border-radius: 8px;
-  color: var(--text-soft);
+  color: rgba(255, 255, 255, 0.52);
   cursor: pointer;
   display: flex;
   flex-shrink: 0;
@@ -201,8 +188,8 @@
   width: 100%;
 }
 .navItem:hover {
-  background: var(--surface-subtle);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.92);
   transform: translateX(1px);
 }
 
@@ -213,13 +200,13 @@
 
 .sidebarLogo:focus-visible,
 .navItem:focus-visible {
-  outline: 2px solid rgba(21, 154, 134, 0.5);
+  outline: 2px solid rgba(255, 255, 255, 0.3);
   outline-offset: -2px;
 }
 
 .navItemActive {
-  background: var(--surface-hover) !important;
-  color: var(--text) !important;
+  background: rgba(255, 255, 255, 0.10) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
 }
 .navItemActive .navIcon svg { stroke: currentColor; }
 
@@ -235,7 +222,7 @@
 .navItem:hover .navIcon svg { transform: scale(1.1); }
 
 .navLabel {
-  color: var(--text-soft);
+  color: inherit;
   flex: 1;
   font-size: 0.82rem;
   font-weight: 560;
@@ -263,14 +250,17 @@
   transform: translateX(0);
 }
 
-.navItem:hover .navLabel,
-.navItemActive .navLabel {
-  color: var(--text);
+/* ── Nav divider ────────────────────────────────────────────── */
+.navDivider {
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  height: 1px;
+  margin: 12px 5px;
 }
 
 /* ── Sidebar bottom ─────────────────────────────────────────── */
 .sidebarBottom {
-  border-top: 1px solid var(--surface-border);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -279,13 +269,13 @@
 }
 
 /* Avatar chip inside the bottom nav item */
-.avatarItem { color: var(--text-soft); }
+.avatarItem { color: rgba(255, 255, 255, 0.52); }
 
 .avatarChip {
   align-items: center;
-  background: var(--accent-bg);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 6px;
-  color: var(--accent);
+  color: rgba(255, 255, 255, 0.85);
   display: flex;
   flex-shrink: 0;
   font-size: 0.72rem;

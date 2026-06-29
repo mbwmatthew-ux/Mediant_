@@ -25,8 +25,10 @@
   animation: dashIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-bottom: 28px;
+  gap: 6px;
+  margin-bottom: 32px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--line);
 }
 
 @keyframes dashIn {
@@ -37,16 +39,16 @@
 .greetTitle {
   color: var(--text);
   font-family: Arial, Helvetica, sans-serif;
-  font-size: clamp(1.9rem, 3vw, 2.4rem);
+  font-size: clamp(2rem, 3vw, 2.6rem);
   font-weight: 700;
-  letter-spacing: -0.035em;
-  line-height: 1.12;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
   margin: 0;
 }
 
 .greetSub {
   color: var(--text-faint);
-  font-size: 1rem;
+  font-size: 0.95rem;
   margin: 0;
 }
 
@@ -62,13 +64,19 @@
 .statCard {
   background: var(--bg-card);
   border: 1px solid var(--surface-border);
-  border-radius: 10px;
+  border-radius: 12px;
+  border-top: 3px solid var(--accent);
   align-items: center;
   display: flex;
   justify-content: space-between;
   min-height: 112px;
   padding: 22px 28px;
   position: relative;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+.statCard:hover {
+  box-shadow: 0 6px 20px rgba(12, 92, 82, 0.08);
+  transform: translateY(-2px);
 }
 
 .statCardLeft {
@@ -79,9 +87,9 @@
 
 .statBig {
   color: var(--text);
-  font-size: 2rem;
-  font-weight: 500;
-  letter-spacing: -0.03em;
+  font-size: 2.2rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
   line-height: 1;
 }
 
@@ -108,7 +116,7 @@
   animation: dashIn 0.58s cubic-bezier(0.16, 1, 0.3, 1) both 100ms;
   background: var(--bg-card);
   border: 1px solid var(--surface-border);
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -310,19 +318,17 @@
   align-items: center;
   background: none;
   border: none;
-  border: 1px solid var(--surface-border);
-  border-radius: 7px;
+  border-bottom: 1px solid var(--surface-border);
   cursor: pointer;
   display: flex;
   gap: 14px;
-  margin-bottom: 8px;
-  padding: 14px 16px;
+  padding: 13px 4px;
   text-align: left;
-  transition: background 120ms ease;
+  transition: background 120ms ease, padding 120ms ease;
   width: 100%;
 }
-.threadRow:last-child { margin-bottom: 0; }
-.threadRow:hover { background: var(--surface-subtle); }
+.threadRow:first-child { border-top: 1px solid var(--surface-border); }
+.threadRow:hover { background: var(--surface-subtle); padding-left: 10px; }
 
 .threadThumb {
   align-items: center;
@@ -397,7 +403,7 @@
   animation: dashIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both 80ms;
   background: var(--bg-card);
   border: 1px solid var(--surface-border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 24px 28px;
 }
 

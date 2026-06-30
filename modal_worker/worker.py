@@ -344,10 +344,12 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None)
             dominant_hz = float(np.average(window_hz[valid], weights=window_conf[valid] + 1e-6))
 
             # Convert Hz → MIDI float → nearest semitone + cents offset
-            midi_float  = 12.0 * math.log2(dominant_hz / 440.0) + 69.0
-            midi        = int(round(midi_float))
-            midi        = max(36, min(96, midi))        # C2–C7
-            cents_offset = round((midi_float - midi) * 100)  # -50..+50 ¢
+            midi_float   = 12.0 * math.log2(dominant_hz / 440.0) + 69.0
+            midi_raw     = int(round(midi_float))
+            # Compute cents from the UN-clamped value so out-of-range notes
+            # don't produce bogus offsets like -500¢.
+            cents_offset = round((midi_float - midi_raw) * 100)  # -50..+50 ¢
+            midi         = max(36, min(96, midi_raw))  # C2–C7 clamp (for display only)
 
             # RMS-based loudness
             s   = int(event_t * SR)
@@ -1531,12 +1533,16 @@ def find_wrong_note_candidates(
         if not expected:
             continue
 
-        raw_dists   = [abs(ev_midi - e) for e in expected]
-        octave_adj  = [max(0, d - 12) + 3 for d in raw_dists]  # octave confusion costs +3
-        min_dist    = min(raw_dists)
-        min_adj     = min(min(raw_dists), min(octave_adj))
+        raw_dists = [abs(ev_midi - e) for e in expected]
+        min_dist  = min(raw_dists)
 
-        if min_dist >= 2 and min_adj >= 2:
+        # Pitch-class distance (mod 12, circular) — octave transpositions have
+        # pc_dist == 0 and must not be flagged as wrong notes.
+        ev_pc       = ev_midi % 12
+        pc_dists    = [min(abs(ev_pc - (e % 12)), 12 - abs(ev_pc - (e % 12))) for e in expected]
+        min_pc_dist = min(pc_dists)
+
+        if min_dist >= 2 and min_pc_dist >= 2:
             nearest = min(expected, key=lambda e: abs(ev_midi - e))
             desc = (
                 f"wrong_note | measure {m_num} | "

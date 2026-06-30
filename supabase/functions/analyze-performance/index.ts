@@ -1110,6 +1110,10 @@ serve(async (req: Request) => {
   const CORS = corsHeaders(req)
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
 
+  // Hoisted so the outer catch can mark the take as failed if we crash mid-flight.
+  let admin: ReturnType<typeof createClient> | undefined
+  let takeId: string | undefined
+
   try {
     const authHeader = req.headers.get('Authorization')!
     const supabase = createClient(
@@ -1125,7 +1129,7 @@ serve(async (req: Request) => {
     }
 
     // ── Admin client (used for gate check + take insert + signed URLs) ────────
-    const admin = createClient(
+    admin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
@@ -1206,7 +1210,7 @@ serve(async (req: Request) => {
       .single()
 
     if (insertError || !take) throw new Error(`DB insert failed: ${insertError?.message}`)
-    const takeId = take.id
+    takeId = take.id
 
     // Signed URLs
     const { data: vSigned } = await admin.storage.from('recordings').createSignedUrl(videoPath, 7200)
@@ -1330,7 +1334,7 @@ serve(async (req: Request) => {
             scoreMimeType: scoreMimeType ?? null,
             ...sharedOpts,
           }),
-          120_000, 'Gemini'
+          75_000, 'Gemini'
         )
         score   = geminiResult.score
         flags   = geminiResult.flags
@@ -1447,8 +1451,16 @@ serve(async (req: Request) => {
     })
 
   } catch (err) {
-    console.error('[analyze-performance] unhandled error:', (err as Error).message)
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
+    const msg = (err as Error).message ?? 'Unknown error'
+    console.error('[analyze-performance] unhandled error:', msg)
+    // If a take row was already created, mark it failed so it doesn't stay stuck in 'processing'.
+    if (takeId && admin) {
+      await admin.from('takes').update({
+        job_status: 'failed',
+        job_error:  msg,
+      }).eq('id', takeId).catch((e: Error) => console.error('[analyze-performance] failed to mark take as failed:', e.message))
+    }
+    return new Response(JSON.stringify({ error: msg }), {
       status: 500, headers: { 'Content-Type': 'application/json', ...CORS },
     })
   }

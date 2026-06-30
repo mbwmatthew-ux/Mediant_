@@ -31,7 +31,7 @@ serve(async (req: Request) => {
 
     const { data: take, error: dbError } = await supabase
       .from('takes')
-      .select('id, job_status, job_error, score, flags, analysis_quality, analysis_backend')
+      .select('id, job_status, job_error, score, flags, analysis_quality, analysis_backend, job_started_at')
       .eq('id', takeId)
       .eq('user_id', user.id)
       .single()
@@ -42,10 +42,31 @@ serve(async (req: Request) => {
       })
     }
 
+    // Self-heal: if a take has been stuck in 'processing' for over 5 minutes the
+    // edge function that created it crashed without updating the DB. Mark it failed
+    // now so the frontend stops polling instead of waiting the full 4-minute timeout.
+    let effectiveStatus = take.job_status ?? 'done'
+    let effectiveError  = take.job_error  ?? null
+    if (effectiveStatus === 'processing' && take.job_started_at) {
+      const ageMs = Date.now() - new Date(take.job_started_at).getTime()
+      if (ageMs > 5 * 60 * 1000) {
+        effectiveStatus = 'failed'
+        effectiveError  = 'Analysis timed out — the server did not respond in time. Please try again.'
+        const admin = createClient(
+          Deno.env.get('SUPABASE_URL')!,
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        )
+        await admin.from('takes').update({
+          job_status: 'failed',
+          job_error:  effectiveError,
+        }).eq('id', take.id).catch(() => {})
+      }
+    }
+
     return new Response(JSON.stringify({
       takeId:          take.id,
-      status:          take.job_status ?? 'done',
-      error:           take.job_error  ?? null,
+      status:          effectiveStatus,
+      error:           effectiveError,
       score:           take.score      ?? null,
       flags:           take.flags      ?? [],
       analysisQuality: take.analysis_quality ?? null,

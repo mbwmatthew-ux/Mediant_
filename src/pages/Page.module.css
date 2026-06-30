@@ -756,7 +756,7 @@
 .dropzone {
   align-items: center;
   background: var(--surface-subtle);
-  border: 1.5px dashed var(--input-border);
+  border: 1.5px dashed var(--dashed-border);
   border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;

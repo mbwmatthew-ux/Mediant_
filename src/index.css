@@ -42,6 +42,10 @@
   /* Subtle teal wash for panels/cards so the palette reads without heavy blocks */
   --panel-tint: rgba(38,104,103,0.05);
   --panel-tint-strong: rgba(38,104,103,0.10);
+  /* Dashed upload/empty borders. This default is dark-appropriate (inherited by
+     [data-theme="dark"], so dark is unchanged); the [data-theme="light"] block
+     overrides it to a stronger teal so dashed dropzones read on the cream bg. */
+  --dashed-border: rgba(38,104,103,0.42);
   --line: rgba(26,70,69,0.14);
 
   /* Layered Premium Shadows */
@@ -155,6 +159,7 @@
   --btn2-text: #ffffff;
   --btn2-text-hover: #ffffff;
   --btn2-border: #159a86;
+  --dashed-border: rgba(26,70,69,0.50);   /* clearly visible dashed lines on cream */
 }
 
 *, *::before, *::after { box-sizing: border-box; }

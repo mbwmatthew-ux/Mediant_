@@ -102,7 +102,7 @@
 /* ── Dropzones ────────────────────────────────────────────────── */
 .dropzone {
   align-items: center;
-  border: 1.5px dashed var(--surface-border);
+  border: 1.5px dashed var(--dashed-border);
   border-radius: 8px;
   cursor: pointer;
   display: flex;

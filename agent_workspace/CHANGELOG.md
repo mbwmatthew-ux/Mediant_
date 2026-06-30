@@ -1,5 +1,39 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-06-30 — Teacher Features: Dashboard, Signup Role, Annotation Controls, MIDI Upload
+
+### Teacher Dashboard (`/teacher`)
+- New page with student list (active / pending), invite-by-email form, per-student take list
+- Expand a take to see all AI flags with ✓ Approve / ✗ Reject / ✎ Edit / + Add controls
+- Reject opens inline rejection-reason picker (6 options); Edit opens inline text fields
+- All actions call `annotate-flags` edge function; annotations reload on each take open
+- Non-teacher accounts see a "Teacher accounts only" guard screen
+
+### Signup Role Selection
+- "I am a…" Student/Teacher segmented toggle on the signup form
+- Teacher accounts are written to `profiles.role` after signup
+- Teachers redirect to `/teacher` automatically after account creation
+
+### Teacher Nav Item
+- "Students" link added to AppShell sidebar, visible only to `profile.role === 'teacher'`
+- `AuthContext` now fetches and exposes the full `profile` row (role, display_name) — available via `const { profile } = useAuth()`
+
+### Annotation Controls on Analysis Page
+- When viewer is a teacher, each flag row shows a compact ✓ / ✗ / ✎ bar
+- Reject opens inline reason picker; Edit opens inline correction form
+- Annotations load on take switch, display badge on flagged row ("✓ approve", "✗ reject · wrong measure")
+- Implemented as inline styles to avoid touching Analysis.module.css
+
+### Reference MIDI Upload on Record Page
+- Optional "Reference MIDI" drop zone added to Performance Details section
+- After analysis polling completes, MIDI uploads to `reference-midi` bucket and writes to `reference_performances` table linked to the song's `song_id`
+- Non-fatal — upload failure never blocks navigation to results
+
+### Infrastructure prerequisite
+User must run `supabase/migrations/20260630_*.sql` (5 files) and create the `reference-midi` storage bucket before any teacher features will work in production.
+
+---
+
 ## 2026-06-29 — Real UI Redesign: Landing Structural Overhaul + Analysis Chat UX
 
 ### Landing Page — Structural Redesign (no more app mockups)

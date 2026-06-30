@@ -35,6 +35,7 @@ import ProgressFeedback from './pages/ProgressFeedback'
 import Calendar from './pages/Calendar'
 import Plan from './pages/Plan'
 import Settings from './pages/Settings'
+import TeacherDashboard from './pages/TeacherDashboard'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import Contact from './pages/Contact'
@@ -73,6 +74,7 @@ export default function App() {
             <Route path="/plan"     element={<Plan />} />
             <Route path="/profile"  element={<Navigate to="/settings" replace />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/teacher"  element={<TeacherDashboard />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

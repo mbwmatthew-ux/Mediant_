@@ -790,6 +790,229 @@ def dtw_align_to_score(
     return result
 
 
+# ── Reference MIDI alignment ───────────────────────────────────────────────
+
+def parse_reference_midi(midi_bytes: bytes, start_measure: int) -> list[dict]:
+    """
+    Parse a reference MIDI into a flat list of note events with real timing.
+
+    Unlike score DTW (which only uses pitch sequences), reference alignment
+    also carries time_sec from the reference performance, letting us invert
+    the time-warp function and get accurate measure timestamps in student time.
+
+    Returns: [{"midi": int, "time_sec": float, "measure": int, "beat": float}]
+    """
+    import tempfile, os
+    import music21 as m21
+
+    with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as f:
+        f.write(midi_bytes)
+        midi_path = f.name
+
+    try:
+        score = m21.converter.parse(midi_path, format="midi")
+
+        # Build a tempo map: list of (offset_quarter_beats, bpm)
+        tempo_entries: list[tuple[float, float]] = []
+        for el in score.flatten().getElementsByClass(m21.tempo.MetronomeMark):
+            if el.number and el.number > 0:
+                tempo_entries.append((float(el.offset), float(el.number)))
+        if not tempo_entries:
+            tempo_entries = [(0.0, 120.0)]
+        tempo_entries.sort(key=lambda x: x[0])
+
+        def qb_to_sec(offset_qb: float) -> float:
+            """Convert quarter-beat offset to elapsed seconds using the tempo map."""
+            elapsed = 0.0
+            prev_qb, prev_bpm = 0.0, tempo_entries[0][1]
+            for mark_qb, bpm in tempo_entries:
+                if mark_qb >= offset_qb:
+                    break
+                elapsed  += (mark_qb - prev_qb) * (60.0 / prev_bpm)
+                prev_qb   = mark_qb
+                prev_bpm  = bpm
+            elapsed += (offset_qb - prev_qb) * (60.0 / prev_bpm)
+            return elapsed
+
+        parts = score.parts
+        if not parts:
+            return []
+
+        # Use the most note-rich part (likely the solo instrument line)
+        source_part = max(parts, key=lambda p: len(p.flatten().notes))
+
+        notes_out: list[dict] = []
+        for el in source_part.flatten().notesAndRests:
+            if isinstance(el, m21.note.Rest):
+                continue
+            offset_qb   = float(el.offset)
+            time_sec    = qb_to_sec(offset_qb)
+            measure_num = getattr(el, "measureNumber", None) or 1
+
+            if isinstance(el, m21.note.Note):
+                notes_out.append({
+                    "midi":     el.pitch.midi,
+                    "time_sec": round(time_sec, 3),
+                    "measure":  start_measure + measure_num - 1,
+                    "beat":     float(getattr(el, "beat", 1.0)),
+                })
+            elif isinstance(el, m21.chord.Chord):
+                for n in el.notes:
+                    notes_out.append({
+                        "midi":     n.pitch.midi,
+                        "time_sec": round(time_sec, 3),
+                        "measure":  start_measure + measure_num - 1,
+                        "beat":     float(getattr(el, "beat", 1.0)),
+                    })
+
+        notes_out.sort(key=lambda n: n["time_sec"])
+        print(f"[parse_reference_midi] {len(notes_out)} notes, "
+              f"tempo_entries={tempo_entries[:3]}, "
+              f"duration={notes_out[-1]['time_sec']:.1f}s" if notes_out else "empty")
+        return notes_out
+
+    except Exception as e:
+        print(f"[parse_reference_midi] error: {e}")
+        return []
+    finally:
+        os.unlink(midi_path)
+
+
+def dtw_align_to_reference(
+    events: list[dict],
+    ref_notes: list[dict],
+    start_measure: int,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Align student CREPE events to a reference MIDI using Dynamic Time Warping.
+
+    This is more accurate than score DTW because:
+      - The reference MIDI carries real timing (time_sec per note).
+      - DTW finds the optimal pitch alignment.
+      - The time-warp path lets us invert reference timestamps into student
+        timestamps, giving calibrated measure boundaries in student time.
+
+    Returns:
+        (aligned_events, alignment_ranges)
+        aligned_events: events with 'measure' assigned from reference
+        alignment_ranges: [{"measure": int, "start": float, "end": float}]
+    """
+    import numpy as np
+
+    if not ref_notes or not events:
+        return events, []
+
+    if len(ref_notes) < 4:
+        print("[dtw_align_to_reference] reference has <4 notes — skipping")
+        return events, []
+
+    # ── Build sequences ────────────────────────────────────────────────────
+    audio_midis: list[int | None] = []
+    for ev in events:
+        pitches = ev.get("pitches", [])
+        midi    = midi_from_name(pitches[0]) if pitches else None
+        audio_midis.append(midi)
+
+    n      = len(audio_midis)
+    m_len  = len(ref_notes)
+    ref_midis = [r["midi"] for r in ref_notes]
+
+    # ── Cost matrix ────────────────────────────────────────────────────────
+    SILENCE_COST = 6.0
+    cost = np.full((n, m_len), SILENCE_COST, dtype=np.float32)
+    for i, a_midi in enumerate(audio_midis):
+        if a_midi is not None:
+            cost[i] = np.abs(np.array(ref_midis, dtype=np.float32) - a_midi)
+            cost[i] = np.minimum(cost[i], np.abs(cost[i] - 12) + 3.0)
+
+    # ── DTW with Sakoe-Chiba band ──────────────────────────────────────────
+    band = max(4, int(max(n, m_len) * 0.25))
+    acc  = np.full((n, m_len), np.inf, dtype=np.float32)
+    acc[0, 0] = cost[0, 0]
+    for i in range(1, n):
+        j_lo = max(0, i - band)
+        j_hi = min(m_len - 1, i + band)
+        for j in range(j_lo, j_hi + 1):
+            candidates = [acc[i - 1, j]]
+            if j > 0:
+                candidates.extend([acc[i - 1, j - 1], acc[i, j - 1]])
+            acc[i, j] = cost[i, j] + min(candidates)
+
+    # ── Traceback ─────────────────────────────────────────────────────────
+    path: list[int] = [0] * n
+    i, j = n - 1, m_len - 1
+    while i > 0 or j > 0:
+        path[i] = j
+        if i == 0:
+            j -= 1
+        elif j == 0:
+            i -= 1
+        else:
+            prev = min(
+                (acc[i - 1, j - 1], 0),
+                (acc[i - 1, j],     1),
+                (acc[i,     j - 1], 2),
+            )
+            if prev[1] == 0:   i -= 1; j -= 1
+            elif prev[1] == 1: i -= 1
+            else:              j -= 1
+    path[0] = j
+
+    # ── Assign measures from reference ────────────────────────────────────
+    aligned: list[dict] = []
+    for idx, ev in enumerate(events):
+        ref_idx     = path[idx]
+        measure_num = ref_notes[ref_idx]["measure"]
+        aligned.append({**ev, "measure": measure_num})
+
+    # ── Build alignment_ranges using the time-warp path ───────────────────
+    # For each measure, find the student-time window by inverting the warp:
+    # student event[i] aligns with ref_notes[path[i]].
+    # Group student event times by their assigned measure.
+    ranges_acc: dict[int, dict] = {}
+    for idx, ev in enumerate(aligned):
+        m = ev["measure"]
+        t = ev["time_sec"]
+        if m not in ranges_acc:
+            ranges_acc[m] = {"start": t, "end": t}
+        else:
+            ranges_acc[m]["start"] = min(ranges_acc[m]["start"], t)
+            ranges_acc[m]["end"]   = max(ranges_acc[m]["end"],   t)
+
+    # Use reference timing to pad measure ends to at least one reference measure length
+    ref_measure_dur: dict[int, float] = {}
+    for ref_note in ref_notes:
+        m = ref_note["measure"]
+        if m not in ref_measure_dur:
+            ref_measure_dur[m] = 0.0
+    # Compute reference measure durations from consecutive measure start times
+    sorted_measures = sorted(ref_measure_dur.keys())
+    ref_measure_starts: dict[int, float] = {}
+    for m in sorted_measures:
+        notes_in_m = [r["time_sec"] for r in ref_notes if r["measure"] == m]
+        if notes_in_m:
+            ref_measure_starts[m] = min(notes_in_m)
+
+    alignment_ranges: list[dict] = []
+    for m, r in sorted(ranges_acc.items()):
+        # Estimate how long this measure lasted based on the reference duration
+        ref_start     = ref_measure_starts.get(m, 0.0)
+        next_m        = next((x for x in sorted_measures if x > m), None)
+        ref_next_start= ref_measure_starts.get(next_m, ref_start + 2.0) if next_m else ref_start + 2.0
+        ref_dur       = max(0.5, ref_next_start - ref_start)
+
+        alignment_ranges.append({
+            "measure": m,
+            "start":   r["start"],
+            "end":     max(r["end"], r["start"] + ref_dur * 0.9),
+        })
+
+    measures_hit = len({ev["measure"] for ev in aligned})
+    print(f"[dtw_align_to_reference] {n} events → {measures_hit} measures, "
+          f"ranges={len(alignment_ranges)}")
+    return aligned, alignment_ranges
+
+
 # ── Modal endpoint ─────────────────────────────────────────────────────────
 
 @app.function(
@@ -1472,23 +1695,24 @@ def run_full_analysis(payload: dict) -> None:
     import httpx
     from collections import defaultdict
 
-    take_id        = payload["take_id"]
-    webhook_url    = payload["webhook_url"]
-    webhook_secret = payload.get("webhook_secret")
-    video_url      = payload.get("video_url")
-    video_mime     = payload.get("video_mime_type", "video/mp4")
-    score_url      = payload.get("score_url")
-    score_mime     = payload.get("score_mime_type", "")
-    instrument     = payload.get("instrument", "instrument")
-    piece_title    = payload.get("piece_title", "this piece")
-    composer       = payload.get("composer", "the composer")
-    time_sig       = payload.get("time_sig", "4/4")
-    start_measure  = int(payload.get("start_measure", 1))
-    end_measure    = payload.get("end_measure")
-    gemini_key     = payload.get("gemini_api_key")
-    anthropic_key  = payload.get("anthropic_api_key")
-    # Optional student-supplied context for this recording (sanitized client/edge-side).
-    user_note      = (payload.get("user_note") or "").strip()[:800]
+    take_id            = payload["take_id"]
+    webhook_url        = payload["webhook_url"]
+    webhook_secret     = payload.get("webhook_secret")
+    video_url          = payload.get("video_url")
+    video_mime         = payload.get("video_mime_type", "video/mp4")
+    score_url          = payload.get("score_url")
+    score_mime         = payload.get("score_mime_type", "")
+    reference_midi_url = payload.get("reference_midi_url")  # optional signed URL
+    instrument         = payload.get("instrument", "instrument")
+    piece_title        = payload.get("piece_title", "this piece")
+    composer           = payload.get("composer", "the composer")
+    time_sig           = payload.get("time_sig", "4/4")
+    start_measure      = int(payload.get("start_measure", 1))
+    end_measure        = payload.get("end_measure")
+    gemini_key         = payload.get("gemini_api_key")
+    anthropic_key      = payload.get("anthropic_api_key")
+    user_note          = (payload.get("user_note") or "").strip()[:800]
+    debug_steps: list[str] = []  # pipeline step log for diagnostics
 
     try:
         num, denom = map(int, time_sig.split("/"))
@@ -1507,8 +1731,14 @@ def run_full_analysis(payload: dict) -> None:
         print(f"[run_full_analysis] video: {len(video_bytes):,} bytes")
 
         wav_bytes, video_duration = extract_audio_from_video(video_bytes)
+        debug_steps.append(f"audio_extracted: {len(wav_bytes):,}B duration={video_duration:.1f}s")
+
         beats      = run_beat_tracking(wav_bytes)
+        debug_steps.append(f"beat_tracking: tempo={beats['tempo_bpm']:.1f}bpm beats={len(beats['beat_times'])}")
+
         raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"])
+        debug_steps.append(f"pitch_tracking: {len(raw_events)} events (CREPE)")
+
         events_with_measures = assign_events_to_measures(raw_events, beats["beat_times"], bpm_int, start_measure)
 
         # ── Step 2: Parse score ────────────────────────────────────────────
@@ -1526,53 +1756,107 @@ def run_full_analysis(payload: dict) -> None:
                 res = parse_score_document(score_bytes_dl, start_measure)
                 if not res.get("error") and res.get("measures"):
                     score = res
+                    debug_steps.append(f"score_parse: musicxml {len(score['measures'])} measures")
+                else:
+                    debug_steps.append(f"score_parse: musicxml error={res.get('error','unknown')}")
             elif score_kind == "visual" and anthropic_key:
                 res = read_score_notes_claude(score_bytes_dl, score_mime, start_measure, instrument, time_sig, anthropic_key)
                 if res.get("measures"):
                     score = res
+                    debug_steps.append(f"score_parse: claude_vision {len(score['measures'])} measures")
+                else:
+                    debug_steps.append("score_parse: claude_vision returned no measures")
             elif score_kind == "visual":
-                print("[run_full_analysis] visual score but no Anthropic key")
+                debug_steps.append("score_parse: visual score skipped (no anthropic key)")
+            else:
+                debug_steps.append(f"score_parse: unsupported kind={score_kind}")
+
+        # ── Step 2b: Parse reference MIDI (when provided) ─────────────────
+        # A reference MIDI gives ground-truth note timing for this piece.
+        # Reference alignment is more accurate than score DTW because it uses
+        # real timing from a canonical performance, not just pitch sequences.
+        ref_notes: list[dict] = []
+        if reference_midi_url:
+            try:
+                print("[run_full_analysis] downloading reference MIDI")
+                with httpx.Client(timeout=60) as client:
+                    rresp = client.get(reference_midi_url, follow_redirects=True)
+                    rresp.raise_for_status()
+                    ref_midi_bytes = rresp.content
+                ref_notes = parse_reference_midi(ref_midi_bytes, start_measure)
+                debug_steps.append(f"reference_midi: {len(ref_notes)} notes")
+            except Exception as ref_err:
+                print(f"[run_full_analysis] reference MIDI error (non-fatal): {ref_err}")
+                debug_steps.append(f"reference_midi: error={ref_err}")
 
         # ── Step 3: Gemini audio evaluation (required — raises if unavailable) ──
         if not gemini_key:
             raise RuntimeError("GOOGLE_AI_API_KEY not provided — Gemini audio analysis is required")
         print("[run_full_analysis] uploading video to Gemini Files API")
-        gemini_uri = upload_video_to_gemini(video_bytes, video_mime, gemini_key)
-        gemini_assessment = evaluate_with_gemini(
-            gemini_uri, video_mime, instrument,
-            piece_title, composer, start_measure, end_measure, gemini_key,
-            user_note=user_note,
-        )
-        print(f"[run_full_analysis] Gemini assessment complete: {len(gemini_assessment.get('intonation_issues', []))} intonation, {len(gemini_assessment.get('rhythm_issues', []))} rhythm, {len(gemini_assessment.get('wrong_notes_cracks', []))} wrong notes")
+        try:
+            gemini_uri = upload_video_to_gemini(video_bytes, video_mime, gemini_key)
+            gemini_assessment = evaluate_with_gemini(
+                gemini_uri, video_mime, instrument,
+                piece_title, composer, start_measure, end_measure, gemini_key,
+                user_note=user_note,
+            )
+            debug_steps.append(
+                f"gemini: intonation={len(gemini_assessment.get('intonation_issues',[]))} "
+                f"rhythm={len(gemini_assessment.get('rhythm_issues',[]))} "
+                f"wrong_notes={len(gemini_assessment.get('wrong_notes_cracks',[]))}"
+            )
+            print(f"[run_full_analysis] Gemini assessment complete: "
+                  f"{len(gemini_assessment.get('intonation_issues', []))} intonation, "
+                  f"{len(gemini_assessment.get('rhythm_issues', []))} rhythm, "
+                  f"{len(gemini_assessment.get('wrong_notes_cracks', []))} wrong notes")
+        except Exception as gemini_err:
+            debug_steps.append(f"gemini: FAILED {gemini_err}")
+            raise
 
         # ── Step 4: Assign events to measures ─────────────────────────────
-        # Use DTW when the score has real note data (MusicXML/MXL parsed by
-        # music21). DTW handles tempo fluctuations and hesitations; the beat-grid
-        # fallback is used for image/PDF scores where note positions are approximate.
-        total_score_notes = sum(len(m.get("notes", [])) for m in score.get("measures", []))
-        score_source      = (score.get("source") or "")
+        # Priority order for alignment (most → least accurate):
+        #   1. Reference MIDI DTW  — pitch + real timing from a canonical recording
+        #   2. Score DTW           — pitch sequences from MusicXML (no timing reference)
+        #   3. Beat-grid           — tempo-based linear mapping
+        #   4. Tempo anchor        — last-resort estimation
 
-        if total_score_notes >= 4 and "music21" in score_source:
-            print(f"[run_full_analysis] using DTW alignment ({total_score_notes} score notes)")
-            aligned = dtw_align_to_score(raw_events, score, start_measure, bpm_int)
+        aligned: list[dict] = []
+        alignment_ranges: list[dict] = []
+
+        if ref_notes and len(ref_notes) >= 4:
+            print(f"[run_full_analysis] using reference MIDI alignment ({len(ref_notes)} reference notes)")
+            aligned, alignment_ranges = dtw_align_to_reference(raw_events, ref_notes, start_measure)
+            debug_steps.append(f"alignment: reference_midi_dtw aligned={len(aligned)} ranges={len(alignment_ranges)}")
         else:
-            print(f"[run_full_analysis] using beat-grid alignment (score notes={total_score_notes}, source={score_source})")
-            aligned = [ev for ev in events_with_measures if "measure" in ev]
-        ranges_acc: dict = defaultdict(lambda: {"start": float("inf"), "end": float("-inf")})
-        for ev in aligned:
-            m = ev["measure"]
-            ranges_acc[m]["start"] = min(ranges_acc[m]["start"], ev["time_sec"])
-            ranges_acc[m]["end"]   = max(ranges_acc[m]["end"],   ev["time_sec"])
-        avg_beat = (
-            (beats["beat_times"][-1] - beats["beat_times"][0]) / (len(beats["beat_times"]) - 1)
-            if len(beats["beat_times"]) >= 2 else 1.0
-        )
-        sec_per_measure = max(1.0, min(30.0, avg_beat * bpm_int))
-        alignment_ranges = [
-            {"measure": m, "start": r["start"], "end": max(r["end"], r["start"] + sec_per_measure * 0.9)}
-            for m, r in sorted(ranges_acc.items())
-            if r["start"] != float("inf")
-        ]
+            total_score_notes = sum(len(m.get("notes", [])) for m in score.get("measures", []))
+            score_source      = (score.get("source") or "")
+
+            if total_score_notes >= 4 and "music21" in score_source:
+                print(f"[run_full_analysis] using score DTW ({total_score_notes} score notes)")
+                aligned = dtw_align_to_score(raw_events, score, start_measure, bpm_int)
+                debug_steps.append(f"alignment: score_dtw notes={total_score_notes} aligned={len(aligned)}")
+            else:
+                print(f"[run_full_analysis] using beat-grid alignment (score_notes={total_score_notes}, source={score_source})")
+                aligned = [ev for ev in events_with_measures if "measure" in ev]
+                debug_steps.append(f"alignment: beat_grid aligned={len(aligned)}")
+
+            # Build alignment_ranges from aligned events when not using reference
+            ranges_acc: dict = defaultdict(lambda: {"start": float("inf"), "end": float("-inf")})
+            for ev in aligned:
+                m = ev["measure"]
+                ranges_acc[m]["start"] = min(ranges_acc[m]["start"], ev["time_sec"])
+                ranges_acc[m]["end"]   = max(ranges_acc[m]["end"],   ev["time_sec"])
+            avg_beat = (
+                (beats["beat_times"][-1] - beats["beat_times"][0]) / (len(beats["beat_times"]) - 1)
+                if len(beats["beat_times"]) >= 2 else 1.0
+            )
+            sec_per_measure = max(1.0, min(30.0, avg_beat * bpm_int))
+            alignment_ranges = [
+                {"measure": m, "start": r["start"], "end": max(r["end"], r["start"] + sec_per_measure * 0.9)}
+                for m, r in sorted(ranges_acc.items())
+                if r["start"] != float("inf")
+            ]
+
         if end_measure:
             aligned          = [ev for ev in aligned if ev["measure"] <= end_measure]
             alignment_ranges = [r for r in alignment_ranges if r["measure"] <= end_measure]
@@ -1583,6 +1867,7 @@ def run_full_analysis(payload: dict) -> None:
             aligned, sec_per_measure, alignment_ranges = anchor_and_align_py(
                 score, raw_events, beats["tempo_bpm"], beats["duration_sec"] or video_duration, start_measure,
             )
+            debug_steps.append(f"alignment: tempo_anchor (fallback) aligned={len(aligned)}")
             if end_measure:
                 aligned          = [ev for ev in aligned if ev["measure"] <= end_measure]
                 alignment_ranges = [r for r in alignment_ranges if r["measure"] <= end_measure]
@@ -1600,7 +1885,10 @@ def run_full_analysis(payload: dict) -> None:
 
         # ── Step 6: Quality assessment ─────────────────────────────────────
         quality = assess_quality(score, raw_events, aligned, alignment_ranges)
+        if ref_notes:
+            quality["alignment_source"] = "reference_midi"
         print(f"[run_full_analysis] quality trust={quality['trust']}, canProceed={quality['canProceed']}")
+        debug_steps.append(f"quality: trust={quality['trust']}")
 
         # ── Step 7: Claude coaching (Gemini audio data is always present) ──
         flags: list[dict] = []
@@ -1612,11 +1900,17 @@ def run_full_analysis(payload: dict) -> None:
                 gemini_assessment=gemini_assessment, anthropic_api_key=anthropic_key,
                 user_note=user_note,
             )
+            debug_steps.append(f"claude_coaching: {len(flags)} flags")
         else:
             raise RuntimeError("ANTHROPIC_API_KEY not provided")
 
+        alignment_method = (
+            "reference_midi_dtw" if ref_notes
+            else "score_dtw" if (sum(len(m.get("notes", [])) for m in score.get("measures", [])) >= 4)
+            else "beat_grid"
+        )
         base_score = max(50, min(98, 95 - len(flags) * 6))
-        backend    = "modal+gemini+claude"
+        backend    = f"modal+gemini+claude ({alignment_method})"
         print(f"[run_full_analysis] done | score={base_score} | flags={len(flags)} | backend={backend}")
 
         post_webhook(webhook_url, webhook_secret, {
@@ -1627,12 +1921,19 @@ def run_full_analysis(payload: dict) -> None:
             "audioAlignment":  alignment_ranges if alignment_ranges else None,
             "analysisQuality": quality,
             "analysisBackend": backend,
+            "pipelineDebug":   debug_steps,
         })
 
     except Exception as e:
         import traceback
-        print(f"[run_full_analysis] FATAL ERROR for take {take_id}: {e}\n{traceback.format_exc()}")
-        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": str(e)})
+        tb = traceback.format_exc()
+        print(f"[run_full_analysis] FATAL ERROR for take {take_id}: {e}\n{tb}")
+        debug_steps.append(f"FATAL: {e}")
+        post_webhook(webhook_url, webhook_secret, {
+            "takeId":        take_id,
+            "error":         str(e),
+            "pipelineDebug": debug_steps,
+        })
 
 
 # ── Fire-and-forget dispatcher endpoint ───────────────────────────────────

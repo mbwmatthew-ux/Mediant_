@@ -13,6 +13,7 @@ export default function Signup() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [instrument, setInstrument] = useState('')
+  const [role, setRole] = useState('student')
   const [error, setError] = useState('')
 
   async function handleSubmit(e) {
@@ -24,11 +25,15 @@ export default function Signup() {
     }
     const result = await signup(name, email, password, instrument)
     if (result.ok) {
+      // Write the chosen role to profiles (trigger creates the row; we update it)
+      if (result.user?.id && role !== 'student') {
+        supabase.from('profiles').upsert({ id: result.user.id, role }, { onConflict: 'id' }).catch(() => {})
+      }
       // Fire-and-forget welcome email — don't block navigation on this
       supabase.functions.invoke('send-welcome-email', {
         body: { email, name },
       }).catch(() => {})
-      nav(result.user ? '/home' : '/confirm-email')
+      nav(result.user ? (role === 'teacher' ? '/teacher' : '/home') : '/confirm-email')
     } else {
       const msg = result.error ?? ''
       if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {
@@ -113,6 +118,26 @@ export default function Signup() {
               <option value="">Select an instrument…</option>
               {INSTRUMENTS.map(i => <option key={i} value={i}>{i}</option>)}
             </select>
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.label}>I am a…</label>
+            <div className={styles.roleToggle}>
+              <button
+                type="button"
+                className={`${styles.roleOption} ${role === 'student' ? styles.roleOptionActive : ''}`}
+                onClick={() => setRole('student')}
+              >
+                Student
+              </button>
+              <button
+                type="button"
+                className={`${styles.roleOption} ${role === 'teacher' ? styles.roleOptionActive : ''}`}
+                onClick={() => setRole('teacher')}
+              >
+                Teacher
+              </button>
+            </div>
           </div>
 
           <button className={styles.submitBtn} type="submit">Create account</button>

@@ -350,7 +350,7 @@ function ConfidenceGauge({ confidence }) {
 export default function Analysis({ demo: demoProp = false }) {
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   
   const scoreEl  = useRef(null)
   const osmdRef  = useRef(null)
@@ -413,6 +413,15 @@ export default function Analysis({ demo: demoProp = false }) {
   const [noteSaved, setNoteSaved]   = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
 
+  // Teacher annotation state (only active when profile.role === 'teacher')
+  const [annotations,    setAnnotations]    = useState({}) // flagIndex → annotation row
+  const [activeAnnot,    setActiveAnnot]    = useState(null) // { flagIndex, action }
+  const [annotLoading,   setAnnotLoading]   = useState({}) // flagIndex → bool
+  const [rejectReason,   setRejectReason]   = useState('wrong_measure')
+  const [editedTitle,    setEditedTitle]    = useState('')
+  const [editedDetail,   setEditedDetail]   = useState('')
+  const [analysisAuthToken, setAnalysisAuthToken] = useState(null)
+
   // Keyboard shortcut state ref
   const kbRef = useRef({})
 
@@ -438,6 +447,35 @@ export default function Analysis({ demo: demoProp = false }) {
         }
       })
   }, [user?.id])
+
+  // Grab auth token for teacher annotation calls
+  useEffect(() => {
+    if (!user?.id || profile?.role !== 'teacher') return
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAnalysisAuthToken(session?.access_token ?? null)
+    })
+  }, [user?.id, profile?.role])
+
+  // Load annotations when teacher views a take
+  useEffect(() => {
+    if (profile?.role !== 'teacher' || !take?.id || isDemo) {
+      setAnnotations({})
+      return
+    }
+    const takeId = take.id
+    if (String(takeId).startsWith('mock') || String(takeId) === 'demo') { setAnnotations({}); return }
+    if (!analysisAuthToken) return
+
+    fetch(
+      `${supabase.supabaseUrl}/functions/v1/annotate-flags?takeId=${encodeURIComponent(takeId)}`,
+      { headers: { Authorization: `Bearer ${analysisAuthToken}` } },
+    ).then(r => r.json()).then(data => {
+      const map = {}
+      for (const a of (data.annotations ?? [])) map[a.flag_index] = a
+      setAnnotations(map)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.role, take?.id, analysisAuthToken, isDemo])
 
   // Find or create a songs record for the active thread, and load its chat history
   useEffect(() => {
@@ -788,6 +826,19 @@ export default function Analysis({ demo: demoProp = false }) {
 
   useEffect(() => { stopLoop() }, [activeFlag, stopLoop])
 
+  const annotBtnStyle = {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 4,
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    font: 'inherit',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    padding: '3px 8px',
+    transition: 'background 140ms ease, color 140ms ease, border-color 140ms ease',
+  }
+
   const activeFlagIndex = activeFlag ? parseInt(activeFlag.replace('flag_', ''), 10) : -1
   const activeFlagRaw   = take?.flags?.[activeFlagIndex] ?? null
   const hasTimestamps   = activeFlagRaw?.timestamp_start != null && activeFlagRaw?.timestamp_end != null
@@ -922,6 +973,34 @@ export default function Analysis({ demo: demoProp = false }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [])
+
+  // Teacher annotation helpers
+  async function submitAnnotation(flagIndex, action, extras = {}) {
+    if (!analysisAuthToken || !take?.id) return
+    setAnnotLoading(prev => ({ ...prev, [flagIndex]: true }))
+    try {
+      const originalFlag = take.flags?.[flagIndex] ?? null
+      const body = { takeId: take.id, flagIndex: action === 'add' ? null : flagIndex, action, originalFlag, ...extras }
+      const res = await fetch(
+        `${supabase.supabaseUrl}/functions/v1/annotate-flags`,
+        { method: 'POST', headers: { Authorization: `Bearer ${analysisAuthToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      )
+      const data = await res.json()
+      if (data.error) return
+      setAnnotations(prev => ({ ...prev, [flagIndex ?? 'added']: data.annotation }))
+      setActiveAnnot(null)
+    } catch { /* ignore */ }
+    finally { setAnnotLoading(prev => ({ ...prev, [flagIndex]: false })) }
+  }
+
+  async function deleteAnnotation(flagIndex) {
+    if (!analysisAuthToken || !take?.id) return
+    await fetch(
+      `${supabase.supabaseUrl}/functions/v1/annotate-flags?takeId=${encodeURIComponent(take.id)}&flagIndex=${flagIndex}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${analysisAuthToken}` } },
+    ).catch(() => {})
+    setAnnotations(prev => { const n = { ...prev }; delete n[flagIndex]; return n })
+  }
 
   // Generate Session Summary
   async function generateSummary() {
@@ -1783,6 +1862,70 @@ export default function Analysis({ demo: demoProp = false }) {
                                 }} />
                               </div>
                             )}
+
+                            {/* Teacher annotation bar */}
+                            {profile?.role === 'teacher' && !isDemo && !take?._demo && (() => {
+                              const ann        = annotations[i]
+                              const isAnnoting = activeAnnot?.flagIndex === i
+                              const isAnnLoading = annotLoading[i]
+                              return (
+                                <div style={{ padding: '6px 12px 8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-faint)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginRight: 4 }}>
+                                      {ann ? `✓ ${ann.action}${ann.rejection_reason ? ` · ${ann.rejection_reason.replace(/_/g,' ')}` : ''}` : 'Annotate:'}
+                                    </span>
+                                    <button
+                                      onClick={e => { e.stopPropagation(); ann?.action === 'approve' ? deleteAnnotation(i) : submitAnnotation(i, 'approve') }}
+                                      disabled={isAnnLoading}
+                                      style={{ ...annotBtnStyle, ...(ann?.action === 'approve' ? { background: 'rgba(143,190,159,0.18)', color: '#8fbe9f', borderColor: '#8fbe9f' } : {}) }}
+                                    >✓</button>
+                                    <button
+                                      onClick={e => { e.stopPropagation(); setActiveAnnot(isAnnoting && activeAnnot.action === 'reject' ? null : { flagIndex: i, action: 'reject' }); setRejectReason('wrong_measure') }}
+                                      disabled={isAnnLoading}
+                                      style={{ ...annotBtnStyle, ...(ann?.action === 'reject' || (isAnnoting && activeAnnot.action === 'reject') ? { background: 'rgba(192,83,74,0.15)', color: 'var(--coral)', borderColor: 'var(--coral)' } : {}) }}
+                                    >✗</button>
+                                    <button
+                                      onClick={e => { e.stopPropagation(); setActiveAnnot(isAnnoting && activeAnnot.action === 'edit' ? null : { flagIndex: i, action: 'edit' }); setEditedTitle(f.title ?? ''); setEditedDetail(f.detail ?? f.body ?? '') }}
+                                      disabled={isAnnLoading}
+                                      style={{ ...annotBtnStyle, ...(ann?.action === 'edit' || (isAnnoting && activeAnnot.action === 'edit') ? { background: 'rgba(184,146,42,0.15)', color: 'var(--gold)', borderColor: 'var(--gold)' } : {}) }}
+                                    >✎</button>
+                                    {ann && (
+                                      <button onClick={e => { e.stopPropagation(); deleteAnnotation(i) }} disabled={isAnnLoading}
+                                        style={{ ...annotBtnStyle, color: 'var(--text-faint)', fontSize: '0.7rem' }}>Clear</button>
+                                    )}
+                                  </div>
+
+                                  {/* Reject inline */}
+                                  {isAnnoting && activeAnnot.action === 'reject' && (
+                                    <div style={{ marginTop: 8, padding: '10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5 }} onClick={e => e.stopPropagation()}>
+                                      <p style={{ margin: '0 0 7px', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Why is this flag wrong?</p>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                                        {[['wrong_measure','Wrong measure'],['not_audible','Not audible'],['too_harsh','Too harsh'],['not_actionable','Not actionable'],['duplicate','Duplicate'],['other','Other']].map(([v,l]) => (
+                                          <button key={v} onClick={() => setRejectReason(v)} style={{ ...annotBtnStyle, ...(rejectReason === v ? { background: 'rgba(192,83,74,0.15)', color: 'var(--coral)', borderColor: 'var(--coral)' } : {}) }}>{l}</button>
+                                        ))}
+                                      </div>
+                                      <div style={{ display: 'flex', gap: 7, marginTop: 9 }}>
+                                        <button onClick={() => submitAnnotation(i, 'reject', { rejectionReason: rejectReason })} style={{ background: 'var(--accent)', border: 0, borderRadius: 4, color: '#fff', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', fontWeight: 600, padding: '6px 12px' }}>Submit</button>
+                                        <button onClick={() => setActiveAnnot(null)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', padding: '6px 10px' }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Edit inline */}
+                                  {isAnnoting && activeAnnot.action === 'edit' && (
+                                    <div style={{ marginTop: 8, padding: '10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5 }} onClick={e => e.stopPropagation()}>
+                                      <p style={{ margin: '0 0 7px', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Corrected flag</p>
+                                      <input value={editedTitle} onChange={e => setEditedTitle(e.target.value)} placeholder="Corrected title" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text)', display: 'block', font: 'inherit', fontSize: '0.85rem', marginBottom: 6, outline: 'none', padding: '7px 10px', width: '100%' }} />
+                                      <textarea value={editedDetail} onChange={e => setEditedDetail(e.target.value)} placeholder="Corrected detail…" rows={2} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text)', display: 'block', font: 'inherit', fontSize: '0.85rem', marginBottom: 6, outline: 'none', padding: '7px 10px', resize: 'vertical', width: '100%' }} />
+                                      <div style={{ display: 'flex', gap: 7 }}>
+                                        <button onClick={() => submitAnnotation(i, 'edit', { editedFlag: { ...f, title: editedTitle, detail: editedDetail } })} disabled={!editedTitle.trim()} style={{ background: 'var(--accent)', border: 0, borderRadius: 4, color: '#fff', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', fontWeight: 600, padding: '6px 12px' }}>Save</button>
+                                        <button onClick={() => setActiveAnnot(null)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', padding: '6px 10px' }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </div>
                         )
                       })}

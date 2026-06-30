@@ -146,6 +146,33 @@
 }
 .footerLink:hover { text-decoration: underline; }
 
+/* ── Role toggle (Student / Teacher) ─────────────────────────── */
+.roleToggle {
+  display: flex;
+  border: 1px solid #e5e0d8;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.roleOption {
+  background: #f3f1ed;
+  border: 0;
+  color: #777068;
+  flex: 1;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 10px 0;
+  transition: background 150ms ease, color 150ms ease;
+}
+.roleOption:not(:last-child) {
+  border-right: 1px solid #e5e0d8;
+}
+.roleOptionActive {
+  background: #bc9463;
+  color: #fff;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 700px) {
   .page {

@@ -65,6 +65,11 @@ export default function Record() {
     })
   }
 
+  // Optional reference MIDI
+  const [midiFile,   setMidiFile]   = useState(null)
+  const [midiDrag,   setMidiDrag]   = useState(false)
+  const midiInputRef = useRef()
+
   // Submission state
   const [phase,    setPhase]    = useState('idle')  // idle | uploading | analyzing | error
   const [progress, setProgress] = useState(0)
@@ -406,6 +411,28 @@ export default function Record() {
 
       if (!finalResult) throw new Error('Analysis timed out after 4 minutes. Please try a shorter recording.')
 
+      // Upload reference MIDI if provided — best-effort, non-fatal
+      if (midiFile && jobId) {
+        try {
+          const { data: takeRow } = await supabase.from('takes').select('song_id').eq('id', jobId).single()
+          if (takeRow?.song_id) {
+            const safeMidi = midiFile.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+            const midiPath = `${user.id}/${Date.now()}-${safeMidi}`
+            const { error: midiErr } = await supabase.storage
+              .from('reference-midi')
+              .upload(midiPath, midiFile, { contentType: 'audio/midi', upsert: false })
+            if (!midiErr) {
+              await supabase.from('reference_performances').insert({
+                song_id:      takeRow.song_id,
+                storage_path: midiPath,
+                source_label: 'user_uploaded',
+                uploaded_by:  user.id,
+              }).catch(() => {})
+            }
+          }
+        } catch { /* non-fatal — MIDI upload failing should not block analysis */ }
+      }
+
       const takeRecord = {
         id:               jobId,
         piece_title:      pieceTitle.trim() || 'Untitled',
@@ -730,12 +757,12 @@ export default function Record() {
                 onChange={e => setNotes(e.target.value)}
                 maxLength={800}
                 rows={3}
-                placeholder="Context that helps the AI understand this recording — e.g. “sight-reading”, “my piano runs a bit flat”, “recorded on my phone in a small room.”"
+                placeholder=”Context that helps the AI understand this recording — e.g. “sight-reading”, “my piano runs a bit flat”, “recorded on my phone in a small room.””
               />
               <div className={styles.noteChips}>
                 {NOTE_CHIPS.map(c => (
                   <button
-                    type="button"
+                    type=”button”
                     key={c.label}
                     className={`${styles.noteChip} ${notes.includes(c.text) ? styles.noteChipActive : ''}`}
                     onClick={() => toggleNoteChip(c.text)}
@@ -743,6 +770,43 @@ export default function Record() {
                     {c.label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Reference MIDI — optional */}
+            <div className={styles.section} style={{ marginTop: 24 }}>
+              <div className={styles.sectionHead}>
+                <p className={styles.sectionTitle}>Reference MIDI</p>
+                <span className={styles.formOptional}>optional · improves timing accuracy</span>
+              </div>
+              <div
+                className={`${styles.dropzone} ${midiDrag ? styles.dropzoneActive : ''} ${midiFile ? styles.dropzoneDone : ''}`}
+                style={{ minHeight: 80 }}
+                onDragOver={e => { e.preventDefault(); setMidiDrag(true) }}
+                onDragLeave={() => setMidiDrag(false)}
+                onDrop={e => { e.preventDefault(); setMidiDrag(false); const f = e.dataTransfer.files[0]; if (f) { playDrop(); setMidiFile(f) } }}
+                onClick={() => midiInputRef.current?.click()}
+              >
+                <input
+                  ref={midiInputRef}
+                  type=”file”
+                  accept=”.mid,.midi”
+                  style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files[0]; if (f) { playDrop(); setMidiFile(f) } }}
+                />
+                {midiFile ? (
+                  <>
+                    <span className={styles.dropzoneCheck}>✓</span>
+                    <strong>{midiFile.name}</strong>
+                    <span className={styles.dropzoneSub}>Click to replace</span>
+                  </>
+                ) : (
+                  <>
+                    <span className={styles.dropzoneIcon}>♫</span>
+                    <strong>MIDI file (.mid) — optional</strong>
+                    <span className={styles.dropzoneSub}>A reference MIDI lets Mediant align measure timing more precisely.</span>
+                  </>
+                )}
               </div>
             </div>
           </div>

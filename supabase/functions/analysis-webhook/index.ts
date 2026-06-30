@@ -61,6 +61,7 @@ serve(async (req: Request) => {
     audioAlignment,
     analysisQuality,
     analysisBackend,
+    pipelineDebug,
   } = body as {
     score:           number
     flags:           unknown[]
@@ -68,11 +69,13 @@ serve(async (req: Request) => {
     audioAlignment:  unknown
     analysisQuality: unknown
     analysisBackend: string
+    pipelineDebug:   unknown
   }
 
   console.log('[analysis-webhook] writing result for take', takeId,
     '| score:', score, '| flags:', (flags ?? []).length,
-    '| backend:', analysisBackend)
+    '| backend:', analysisBackend,
+    '| debug steps:', Array.isArray(pipelineDebug) ? pipelineDebug.length : 0)
 
   const { error: dbErr } = await admin
     .from('takes')
@@ -85,6 +88,7 @@ serve(async (req: Request) => {
       audio_alignment:  audioAlignment ?? null,
       analysis_quality: analysisQuality ?? null,
       analysis_backend: analysisBackend ?? null,
+      pipeline_debug:   pipelineDebug  ?? null,
     })
     .eq('id', takeId)
 

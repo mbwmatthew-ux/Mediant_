@@ -46,28 +46,21 @@ function Reveal({ as: Tag = 'div', className = '', children, delay = '0ms' }) {
   )
 }
 
-const STATS = [
-  { value: '3,800+', label: 'Analyses run' },
-  { value: '620+', label: 'Musicians active' },
-  { value: '17', label: 'Instruments supported' },
-  { value: '< 90 sec', label: 'Avg. turnaround time' },
-]
-
 const STEPS = [
   {
     n: '01',
     title: 'Upload your score',
-    body: 'Add the sheet music for the piece you are practicing. MusicXML or image — both work. Mediant reads your score to understand the structure.',
+    body: 'Add the sheet music for the piece you are practicing. MusicXML gives the clearest structure, while images and PDFs can still help Mediant understand the piece.',
   },
   {
     n: '02',
     title: 'Record a take',
-    body: 'Upload audio or video from any practice session. Any device, any quality. Mediant handles the rest.',
+    body: 'Upload audio or video from a practice session. Mediant connects the performance back to the score so feedback has a place to land.',
   },
   {
     n: '03',
     title: 'Get measure-level feedback',
-    body: 'See exactly which measure, which beat, and what went wrong — tied directly to your score. Then ask Mediant for advice.',
+    body: 'Review the measures that need attention, replay the matching moment, and turn the feedback into a focused next practice session.',
   },
 ]
 
@@ -80,12 +73,12 @@ const FEATURES = [
   {
     icon: '⊙',
     title: 'Timing analysis',
-    body: 'Beat-level timing measured in milliseconds. Mediant tells you whether you rushed, dragged, or nailed it.',
+    body: 'See where the performance rushes, drags, or loses the pulse so your next repetition has a clear target.',
   },
   {
     icon: '≋',
     title: 'Dynamics tracking',
-    body: 'Are you hitting the marked crescendos and diminuendos? Mediant checks your dynamics against the score.',
+    body: 'Compare the shape of your playing against the markings in the score, from softer entrances to bigger phrase peaks.',
   },
   {
     icon: '↺',
@@ -104,40 +97,7 @@ const FEATURES = [
   },
 ]
 
-const TESTIMONIALS = [
-  {
-    quote: "I've been playing violin for 22 years and this is the first tool that actually points me to the measure. Not 'your timing is off' — it says beat 3 in measure 12, 18 milliseconds early. That's actionable.",
-    name: 'Anika Sørensen',
-    role: 'Violin, conservatory student',
-  },
-  {
-    quote: "The Loop feature changed how I practice. I can hear exactly what I did wrong on one beat without rewinding a 10-minute recording. It saves me probably 45 minutes per session.",
-    name: 'James Thornton',
-    role: 'Trumpet, semi-professional',
-  },
-  {
-    quote: "Mediant remembered everything about my last take when I came back a week later. The AI coach actually knows my piece — it never asked me what notes I was playing.",
-    name: 'Mei-Lin Park',
-    role: 'Piano, independent teacher',
-  },
-]
-
 const PRICING = [
-  {
-    name: 'Free',
-    price: '$0',
-    period: 'forever',
-    desc: 'Start for free. No credit card required.',
-    features: [
-      '3 recordings per month',
-      'Pitch, timing, and dynamics analysis',
-      'Loop playback on all flags',
-      'AI coach chat (limited)',
-      'Progress tracking',
-    ],
-    cta: 'Get started free',
-    highlight: false,
-  },
   {
     name: 'Pro',
     price: '$14',
@@ -159,19 +119,19 @@ const PRICING = [
 const FAQS = [
   {
     q: 'What instruments does Mediant support?',
-    a: 'Mediant works with any instrument that can be recorded: strings, woodwinds, brass, piano, guitar, voice, and more. The analysis adapts to the instrument and range detected in your recording.',
+    a: 'Mediant is being designed for common solo practice recordings across strings, woodwinds, brass, piano, guitar, and voice. Accuracy depends on score quality, recording clarity, and the instrument being analyzed.',
   },
   {
     q: 'Do I need to upload sheet music?',
-    a: 'Sheet music is recommended — it allows Mediant to align feedback directly to specific measures. You can upload a recording without a score and still receive timing and dynamics feedback, but pitch analysis is more accurate with a score.',
+    a: 'Sheet music is recommended because it lets Mediant connect feedback to specific measures. MusicXML or MXL gives the highest-trust structure; images and PDFs can work but may be less precise.',
   },
   {
     q: 'How long does analysis take?',
-    a: 'Most analyses complete in 60–90 seconds. Longer recordings (over 10 minutes) can take up to 3 minutes. You will see a progress indicator while Mediant processes your recording.',
+    a: 'Analysis time depends on recording length, file size, and the level of review being run. You will see progress while Mediant processes your recording.',
   },
   {
     q: 'Can I use Mediant for orchestral or ensemble recordings?',
-    a: 'Mediant is optimized for solo recordings at this stage. It works best when a single instrument is the primary voice. Multi-instrument analysis is on our roadmap.',
+    a: 'Mediant is focused on solo practice takes first. It works best when one instrument is clearly audible and visible.',
   },
   {
     q: 'Is my music data private?',
@@ -241,7 +201,7 @@ export default function Landing() {
 
       {/* ── NAV ────────────────────────────────────────── */}
       <nav className={styles.nav} aria-label="Main navigation">
-        <Link to="/" className={styles.navBrand} aria-label="Mediant home">
+          <Link to="/" className={styles.navBrand} aria-label="Mediant home">
           <span className={styles.navLogoMark} aria-hidden="true" />
           <span className={styles.navWordmark}>Mediant</span>
         </Link>
@@ -255,7 +215,7 @@ export default function Landing() {
 
         <div className={styles.navActions}>
           <Link to="/login" className={styles.navLogin}>Log in</Link>
-          <Link to="/signup" className={styles.navCta}>Get started free →</Link>
+          <Link to="/signup" className={styles.navCta}>Get started →</Link>
         </div>
       </nav>
 
@@ -270,13 +230,13 @@ export default function Landing() {
                 Finally, feedback that points to the measure.
               </h1>
               <p className={styles.heroLead}>
-                Upload a recording. Mediant analyzes pitch, timing, and dynamics against your score — then shows you exactly where to focus before your next session.
+                Upload a recording. Mediant analyzes pitch, timing, and dynamics against your score — then shows you where to focus before your next session.
               </p>
               <div className={styles.heroActions}>
-                <Link to="/signup" className={styles.btnPrimary}>Start for free →</Link>
+                <Link to="/signup" className={styles.btnPrimary}>Get started →</Link>
                 <a href="#how-it-works" className={styles.btnGhost}>See how it works</a>
               </div>
-              <p className={styles.heroNote}>No credit card required · Works with any instrument</p>
+              <p className={styles.heroNote}>Built for focused solo practice · Works best with clear scores and recordings</p>
             </div>
 
             <div className={styles.heroVisual}>
@@ -332,25 +292,13 @@ export default function Landing() {
           </div>
         </div>
 
-        {/* ── STATS BAR ──────────────────────────────────── */}
-        <div className={styles.statsBar}>
-          <div className={styles.statsInner}>
-            {STATS.map((s, i) => (
-              <div key={i} className={styles.statItem}>
-                <span className={styles.statValue}>{s.value}</span>
-                <span className={styles.statLabel}>{s.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* ── HOW IT WORKS ───────────────────────────────── */}
         <section className={styles.howSection} id="how-it-works">
           <div className={styles.sectionInner}>
             <Reveal className={styles.sectionHead}>
               <p className={styles.eyebrow}>How it works</p>
               <h2>Three steps to sharper practice.</h2>
-              <p>Use Mediant after any session. Walk away with a specific, prioritized list of what to fix — not a vague impression.</p>
+              <p>Use Mediant after a practice session. Walk away with a specific, prioritized list of what to fix — not a vague impression.</p>
             </Reveal>
 
             <div className={styles.stepsStack}>
@@ -379,7 +327,7 @@ export default function Landing() {
               </p>
               <div className={styles.comingSoonActions}>
                 <Link to="/signup" className={styles.btnPrimary}>Get early access →</Link>
-                <span className={styles.comingSoonNote}>Launching soon · No credit card required</span>
+                <span className={styles.comingSoonNote}>Launching soon</span>
               </div>
             </Reveal>
           </div>
@@ -407,40 +355,13 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ── TESTIMONIALS ───────────────────────────────── */}
-        <section className={styles.testimonialsSection}>
-          <div className={styles.sectionInner}>
-            <Reveal className={styles.sectionHead} style={{ '--delay': '0ms' }}>
-              <p className={styles.eyebrowLight}>From musicians</p>
-              <h2 className={styles.h2Light}>What players say.</h2>
-            </Reveal>
-
-            <div className={styles.testimonialGrid}>
-              {TESTIMONIALS.map((t, i) => (
-                <Reveal key={i} className={styles.testimonialCard} delay={`${i * 90}ms`}>
-                  <p className={styles.testimonialQuote}>"{t.quote}"</p>
-                  <div className={styles.testimonialAuthor}>
-                    <div className={styles.testimonialAvatar}>
-                      {t.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
-                    </div>
-                    <div>
-                      <p className={styles.testimonialName}>{t.name}</p>
-                      <p className={styles.testimonialRole}>{t.role}</p>
-                    </div>
-                  </div>
-                </Reveal>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* ── PRICING ────────────────────────────────────── */}
         <section className={styles.pricingSection} id="pricing">
           <div className={styles.sectionInner}>
             <Reveal className={styles.sectionHead}>
               <p className={styles.eyebrow}>Pricing</p>
               <h2>Simple, honest pricing.</h2>
-              <p>Start free. Upgrade when you're ready.</p>
+              <p>Choose the plan that fits how seriously you practice.</p>
             </Reveal>
 
             <div className={styles.pricingGrid}>
@@ -482,7 +403,7 @@ export default function Landing() {
               <Reveal className={styles.faqLeft}>
                 <p className={styles.eyebrow}>FAQ</p>
                 <h2>Questions, answered.</h2>
-                <p>Anything else? <a href="mailto:hello@practapal.com">Email us →</a></p>
+                <p>Anything else? <Link to="/contact">Contact us →</Link></p>
               </Reveal>
               <div className={styles.faqRight}>
                 {FAQS.map((item, i) => (
@@ -500,9 +421,9 @@ export default function Landing() {
           <div className={styles.ctaInner}>
             <Reveal>
               <h2>Ready for your next take?</h2>
-              <p>Join 1,100+ musicians using Mediant to practice with purpose.</p>
+              <p>Use Mediant to turn your next recording into a clearer practice plan.</p>
               <div className={styles.ctaActions}>
-                <Link to="/signup" className={styles.btnWhite}>Create free account →</Link>
+                <Link to="/signup" className={styles.btnWhite}>Create account →</Link>
                 <Link to="/login" className={styles.btnGhostLight}>Log in</Link>
               </div>
             </Reveal>

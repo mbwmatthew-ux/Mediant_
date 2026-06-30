@@ -1,0 +1,680 @@
+/* ── Teacher Dashboard ───────────────────────────────────────── */
+
+.page {
+  padding: 28px 32px 60px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  gap: 16px;
+}
+
+.title {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 1.8rem;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.statRow {
+  display: flex;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.statNum {
+  color: var(--accent);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.statLabel {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+/* ── Left sidebar ───────────────────────────────────────────── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inviteCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.inviteTitle {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+
+.inviteForm {
+  display: flex;
+  gap: 8px;
+}
+
+.inviteInput {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  flex: 1;
+  font: inherit;
+  font-size: 0.85rem;
+  min-width: 0;
+  outline: none;
+  padding: 8px 10px;
+  transition: border-color 150ms ease;
+}
+.inviteInput:focus { border-color: var(--accent); }
+
+.inviteBtn {
+  background: var(--accent);
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  transition: filter 140ms ease;
+  white-space: nowrap;
+}
+.inviteBtn:hover:not(:disabled) { filter: brightness(1.1); }
+.inviteBtn:disabled { opacity: 0.6; }
+
+.inviteError {
+  color: var(--coral);
+  font-size: 0.82rem;
+  margin: 8px 0 0;
+}
+
+.inviteOk {
+  color: #8fbe9f;
+  font-size: 0.82rem;
+  margin: 8px 0 0;
+}
+
+.listLabel {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.studentList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.studentBtn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
+  width: 100%;
+}
+.studentBtn:hover { background: var(--surface); border-color: var(--border); }
+.studentBtnActive { background: rgba(188, 148, 99, 0.12) !important; border-color: var(--accent) !important; }
+
+.studentAvatar {
+  align-items: center;
+  background: var(--accent);
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.studentName {
+  color: var(--text);
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeBadge {
+  background: rgba(143, 190, 159, 0.15);
+  border-radius: 10px;
+  color: #8fbe9f;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  text-transform: uppercase;
+}
+
+.pendingBadge {
+  background: rgba(184, 146, 42, 0.12);
+  border-radius: 10px;
+  color: var(--gold);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  text-transform: uppercase;
+}
+
+/* ── Main content ───────────────────────────────────────────── */
+.main {
+  min-width: 0;
+}
+
+.emptyMain {
+  align-items: center;
+  color: var(--text-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.emptyMainIcon {
+  font-size: 2.2rem;
+  opacity: 0.35;
+}
+
+.emptyState {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  padding: 20px 0;
+}
+
+.takesHeader {
+  margin-bottom: 16px;
+}
+
+.takesTitle {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+/* ── Take cards ─────────────────────────────────────────────── */
+.takeList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.takeCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 140ms ease;
+}
+.takeCardOpen { border-color: var(--accent); }
+
+.takeCardHeader {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+  text-align: left;
+  width: 100%;
+  transition: background 140ms ease;
+}
+.takeCardHeader:hover { background: rgba(255,255,255,0.03); }
+
+.takeCardLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.takePiece {
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.takeMeta {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.takeCardRight {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.takeScore {
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.takeChevron {
+  color: var(--text-faint);
+  font-size: 0.7rem;
+}
+
+/* ── Flags panel ─────────────────────────────────────────────── */
+.flagsPanel {
+  border-top: 1px solid var(--border);
+  padding: 16px;
+}
+
+.flagsLabel {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+}
+
+.noFlags {
+  color: #8fbe9f;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.flagRow {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  transition: border-color 140ms ease;
+}
+.flagRowAnnotated {
+  border-color: rgba(188, 148, 99, 0.35);
+}
+
+.flagRowMain {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.flagMeasure {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.flagType {
+  border-radius: 3px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+.flagType[data-type="intonation"]   { background: rgba(192,83,74,0.14); color: var(--coral); }
+.flagType[data-type="rhythm"]       { background: rgba(184,146,42,0.14); color: var(--gold); }
+.flagType[data-type="timing"]       { background: rgba(184,146,42,0.14); color: var(--gold); }
+.flagType[data-type="dynamics"]     { background: rgba(192,83,74,0.14); color: var(--coral); }
+.flagType[data-type="articulation"] { background: rgba(184,146,42,0.14); color: var(--gold); }
+.flagType[data-type="technique"]    { background: rgba(88,121,101,0.14); color: #8fbe9f; }
+.flagType[data-type="tone"]         { background: rgba(88,121,101,0.14); color: #8fbe9f; }
+.flagType[data-type="phrasing"]     { background: rgba(184,146,42,0.14); color: var(--gold); }
+
+.flagTitle {
+  color: var(--text);
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.flagDetail {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0 0 10px;
+}
+
+/* Annotation status badge */
+.annBadge {
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.annBadge_approve { background: rgba(143,190,159,0.15); color: #8fbe9f; }
+.annBadge_edit    { background: rgba(184,146,42,0.15);  color: var(--gold); }
+.annBadge_reject  { background: rgba(192,83,74,0.15);   color: var(--coral); }
+.annBadge_add     { background: rgba(188,148,99,0.15);  color: var(--accent); }
+
+/* ── Annotation buttons ─────────────────────────────────────── */
+.annotBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.annotBtn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 11px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.annotBtn:hover:not(:disabled) { background: rgba(255,255,255,0.06); color: var(--text); }
+.annotBtn:disabled { opacity: 0.5; }
+
+.annotApprove:hover:not(:disabled), .annotApprove.annotBtnActive {
+  background: rgba(143,190,159,0.18);
+  border-color: #8fbe9f;
+  color: #8fbe9f;
+}
+.annotEdit:hover:not(:disabled), .annotEdit.annotBtnActive {
+  background: rgba(184,146,42,0.15);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.annotReject:hover:not(:disabled), .annotReject.annotBtnActive {
+  background: rgba(192,83,74,0.15);
+  border-color: var(--coral);
+  color: var(--coral);
+}
+.annotClear {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+.annotClear:hover:not(:disabled) {
+  color: var(--coral);
+  border-color: var(--coral);
+}
+
+/* ── Inline forms ───────────────────────────────────────────── */
+.inlineForm {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.inlineLabel {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.reasonGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.reasonBtn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.reasonBtnActive {
+  background: rgba(192,83,74,0.15);
+  border-color: var(--coral);
+  color: var(--coral);
+}
+
+.inlineInput {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  display: block;
+  font: inherit;
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+  outline: none;
+  padding: 8px 10px;
+  transition: border-color 150ms ease;
+  width: 100%;
+}
+.inlineInput:focus { border-color: var(--accent); }
+
+.inlineTextarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  display: block;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  outline: none;
+  padding: 8px 10px;
+  resize: vertical;
+  transition: border-color 150ms ease;
+  width: 100%;
+}
+.inlineTextarea:focus { border-color: var(--accent); }
+
+.inlineSelect {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  outline: none;
+  padding: 8px 10px;
+  transition: border-color 150ms ease;
+}
+.inlineSelect:focus { border-color: var(--accent); }
+
+.inlineActions {
+  display: flex;
+  gap: 8px;
+}
+
+.inlineSubmit {
+  background: var(--accent);
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  transition: filter 140ms ease;
+}
+.inlineSubmit:hover:not(:disabled) { filter: brightness(1.1); }
+.inlineSubmit:disabled { opacity: 0.5; }
+
+.inlineCancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  transition: background 140ms ease;
+}
+.inlineCancel:hover { background: rgba(255,255,255,0.05); }
+
+/* Add flag section */
+.addFlagForm {
+  background: rgba(188, 148, 99, 0.06);
+  border: 1px dashed var(--accent-border);
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.addFlagRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.addFlagBtn {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  font-size: 0.82rem;
+  margin-top: 10px;
+  padding: 8px 14px;
+  text-align: left;
+  transition: border-color 140ms ease, color 140ms ease;
+  width: 100%;
+}
+.addFlagBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Not-teacher state ──────────────────────────────────────── */
+.notTeacher {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  padding: 80px 32px;
+  text-align: center;
+}
+
+.notTeacherIcon {
+  font-size: 3rem;
+  margin: 0;
+}
+
+.notTeacher h2 {
+  color: var(--text);
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 1.4rem;
+  font-weight: 400;
+  margin: 0;
+}
+
+.notTeacher p {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  margin: 0;
+  max-width: 400px;
+}
+
+.backBtn {
+  background: var(--accent);
+  border: 0;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-top: 8px;
+  padding: 10px 22px;
+  transition: filter 140ms ease;
+}
+.backBtn:hover { filter: brightness(1.1); }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .page {
+    padding: 20px 16px 48px;
+  }
+
+  .header {
+    flex-direction: column;
+    gap: 12px;
+  }
+}

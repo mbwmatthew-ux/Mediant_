@@ -44,7 +44,8 @@ const TOOLS_MENU = {
 const MENUS = { library: LIBRARY_MENU, tools: TOOLS_MENU }
 
 export default function AppShell() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
+  const isTeacher = profile?.role === 'teacher'
   const nav = useNavigate()
   const location = useLocation()
   const [showTuner,     setShowTuner]    = useState(false)
@@ -134,6 +135,20 @@ export default function AppShell() {
             ))}
 
             <div className={styles.navDivider} />
+
+            {isTeacher && (
+              <NavLink
+                to="/teacher"
+                onClick={playNav}
+                className={({ isActive }) =>
+                  `${styles.navItem} ${isActive ? styles.navItemActive : ''}`
+                }
+                title="Teacher Studio"
+              >
+                <span className={styles.navIcon}><TeacherIcon /></span>
+                <span className={styles.navLabel}>Students</span>
+              </NavLink>
+            )}
 
             {TOOL_ITEMS.map(item => item.to ? (
               <NavLink
@@ -386,6 +401,17 @@ function CalendarIcon() {
       <line x1="16" y1="2" x2="16" y2="6"/>
       <line x1="8" y1="2" x2="8" y2="6"/>
       <line x1="3" y1="10" x2="21" y2="10"/>
+    </svg>
+  )
+}
+
+function TeacherIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
     </svg>
   )
 }

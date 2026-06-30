@@ -1240,6 +1240,27 @@ serve(async (req: Request) => {
       scoreSignedUrl = sSigned?.signedUrl ?? null
     }
 
+    // ── Look up reference MIDI for this song (if any) ─────────────
+    let referenceMidiUrl: string | null = null
+    if (songId) {
+      const { data: refRow } = await admin
+        .from('reference_performances')
+        .select('file_path, file_type')
+        .eq('song_id', songId)
+        .eq('file_type', 'midi')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (refRow?.file_path) {
+        const { data: refSigned } = await admin.storage
+          .from('reference-midi')
+          .createSignedUrl(refRow.file_path, 7200)
+        referenceMidiUrl = refSigned?.signedUrl ?? null
+        console.log('[analyze-performance] reference MIDI found:', refRow.file_path)
+      }
+    }
+
     // ── 1. Try Modal (full async video analysis) ──────────────────
     const modalUrl = Deno.env.get('MODAL_WORKER_URL')
     if (modalUrl) {
@@ -1247,27 +1268,28 @@ serve(async (req: Request) => {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          take_id:           takeId,
-          webhook_url:       `${Deno.env.get('SUPABASE_URL')}/functions/v1/analysis-webhook`,
-          webhook_secret:    Deno.env.get('MODAL_WEBHOOK_SECRET'),
-          video_url:         videoSignedUrl,
-          video_mime_type:   videoMimeType,
-          score_url:         scoreSignedUrl,
-          score_mime_type:   scoreMimeType   ?? null,
-          user_note:         cleanNote,
-          instrument:        instrument      ?? 'instrument',
-          part:              part            ?? '',
-          piece_title:       pieceTitle      ?? 'this piece',
-          composer:          composer        ?? 'the composer',
-          time_sig:          timeSig         ?? '4/4',
-          key_signature:     keySignature    ?? '',
-          start_measure:     safeStart,
-          end_measure:       safeEnd,
-          score_facts:        safeScoreFacts,
-          audio_features:     safeAudioFeatures,
-          measure_timeline:   measureTimeline,
-          gemini_api_key:    Deno.env.get('GOOGLE_AI_API_KEY'),
-          anthropic_api_key: Deno.env.get('ANTHROPIC_API_KEY'),
+          take_id:              takeId,
+          webhook_url:          `${Deno.env.get('SUPABASE_URL')}/functions/v1/analysis-webhook`,
+          webhook_secret:       Deno.env.get('MODAL_WEBHOOK_SECRET'),
+          video_url:            videoSignedUrl,
+          video_mime_type:      videoMimeType,
+          score_url:            scoreSignedUrl,
+          score_mime_type:      scoreMimeType      ?? null,
+          reference_midi_url:   referenceMidiUrl   ?? null,
+          user_note:            cleanNote,
+          instrument:           instrument         ?? 'instrument',
+          part:                 part               ?? '',
+          piece_title:          pieceTitle         ?? 'this piece',
+          composer:             composer           ?? 'the composer',
+          time_sig:             timeSig            ?? '4/4',
+          key_signature:        keySignature       ?? '',
+          start_measure:        safeStart,
+          end_measure:          safeEnd,
+          score_facts:          safeScoreFacts,
+          audio_features:       safeAudioFeatures,
+          measure_timeline:     measureTimeline,
+          gemini_api_key:       Deno.env.get('GOOGLE_AI_API_KEY'),
+          anthropic_api_key:    Deno.env.get('ANTHROPIC_API_KEY'),
         }),
         signal: AbortSignal.timeout(25000),
       }).catch((e) => { console.warn('[analyze-performance] Modal dispatch error:', e?.message); return null })
@@ -1278,8 +1300,13 @@ serve(async (req: Request) => {
           headers: { 'Content-Type': 'application/json', ...CORS },
         })
       }
-      const modalStatus = dispatchRes?.status ?? 'timeout'
-      console.warn(`[analyze-performance] Modal unavailable (${modalStatus}), running inline`)
+      const modalErr = dispatchRes ? await dispatchRes.text().catch(() => '') : 'timeout/network'
+      console.warn(`[analyze-performance] Modal unavailable (${dispatchRes?.status ?? 'timeout'}): ${modalErr.slice(0, 200)}`)
+
+      // Record why Modal failed so the take's debug field shows it
+      await admin.from('takes').update({
+        pipeline_debug: { modal_dispatch_failed: dispatchRes?.status ?? 'timeout', error: modalErr.slice(0, 500) },
+      }).eq('id', takeId).catch(() => {})
     }
 
     // ── 2. Look up most recent prior completed take for this piece ──

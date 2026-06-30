@@ -33,6 +33,7 @@ async function fetchSubscription(userId) {
 
 export function AuthProvider({ children }) {
   const [user,         setUser]         = useState(null)
+  const [profile,      setProfile]      = useState(null)
   const [subscription, setSubscription] = useState({ status: 'inactive', plan: null })
   const [loading,      setLoading]      = useState(true)
 
@@ -41,19 +42,36 @@ export function AuthProvider({ children }) {
     if (id) fetchSubscription(id).then(setSubscription)
   }
 
+  function refreshProfile(userId) {
+    const id = userId ?? user?.id
+    if (!id) { setProfile(null); return }
+    supabase.from('profiles').select('role, display_name').eq('id', id).single()
+      .then(({ data }) => setProfile(data ?? null))
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       const u = userFromSession(session)
       setUser(u)
-      if (u?.id) fetchSubscription(u.id).then(setSubscription)
+      if (u?.id) {
+        fetchSubscription(u.id).then(setSubscription)
+        supabase.from('profiles').select('role, display_name').eq('id', u.id).single()
+          .then(({ data }) => setProfile(data ?? null))
+      }
       setLoading(false)
     })
 
     const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       const u = userFromSession(session)
       setUser(u)
-      if (u?.id) fetchSubscription(u.id).then(setSubscription)
-      else setSubscription({ status: 'inactive', plan: null })
+      if (u?.id) {
+        fetchSubscription(u.id).then(setSubscription)
+        supabase.from('profiles').select('role, display_name').eq('id', u.id).single()
+          .then(({ data }) => setProfile(data ?? null))
+      } else {
+        setSubscription({ status: 'inactive', plan: null })
+        setProfile(null)
+      }
     })
 
     return () => authSub.unsubscribe()
@@ -113,7 +131,7 @@ export function AuthProvider({ children }) {
   )
 
   return (
-    <AuthContext.Provider value={{ user, subscription, login, signup, logout, refreshSubscription }}>
+    <AuthContext.Provider value={{ user, profile, subscription, login, signup, logout, refreshSubscription, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

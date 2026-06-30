@@ -2,7 +2,7 @@
 
 AFTER EVERY CHANGE, WHEN APPROPRIATE, MAKE SURE TO UPDATE THIS FILE
 
-Last updated: 2026-06-16
+Last updated: 2026-06-30 (evening)
 
 ---
 
@@ -16,9 +16,7 @@ Each song should have one persistent thread. The user uploads a recording, sees 
 
 ## Approved Tasks
 
-Tasks here are ready to be implemented. Coding agent picks these up in order.
-
-_No approved tasks at this time._
+_Nothing pending — all approved tasks have been completed._
 
 ---
 
@@ -36,6 +34,14 @@ _Nothing active._
 
 ## Completed
 
+- [x] **Teacher dashboard UI** — `/teacher` route with student list, invite-by-email, per-student take list, and full ✓/✎/✗/+ annotation controls on flags. Calls `teacher-students` and `annotate-flags` edge functions. (2026-06-30)
+- [x] **Signup role selection** — "I am a…" Student/Teacher toggle on signup form. Teachers are written to `profiles.role` and redirected to `/teacher` after signup. (2026-06-30)
+- [x] **Annotation UI on Analysis page** — When logged-in user is a teacher, each flag card shows inline ✓/✗/✎ buttons with reject-reason picker and edit form. Loads/saves via `annotate-flags`. (2026-06-30)
+- [x] **Reference MIDI upload UI** — Optional MIDI section on Record page. After analysis completes, uploads `.mid` to `reference-midi` bucket and writes to `reference_performances` linked to the song. (2026-06-30)
+- [x] **Teacher nav item** — "Students" link in AppShell sidebar, shown only when `profile.role === 'teacher'`. AuthContext now fetches and exposes the full `profile` row. (2026-06-30)
+- [x] **Reference MIDI alignment** — `dtw_align_to_reference()` in `worker.py`. When a reference MIDI exists for a song, the pipeline uses it as the primary alignment source (more accurate than score DTW because it carries real timing). Falls back to score DTW → beat-grid → tempo anchor as before. (2026-06-30)
+- [x] **Teacher-student backend** — DB migrations for `profiles`, `teacher_students`, `flag_annotations`, `reference_performances`; edge functions `annotate-flags` and `teacher-students` fully implemented. (2026-06-30)
+- [x] **Pipeline debug logging** — Every take now writes `pipeline_debug` (list of step summaries) to the DB. If Modal fails, the Modal dispatch error is also written immediately. This makes diagnosing audio analysis failures possible without reading server logs. (2026-06-30)
 - [x] Settings rebuilt as tabbed layout (Account / Security / Privacy / Billing). Security: change password, change email (both functional), 2FA frame. Privacy: accurate data-handling copy, real cache-clear, export + delete-account frames. Billing: plan card, Stripe-managed payment display, sample invoice history. Warm theme preserved in light + dark. (2026-06-16)
 - [x] Full webapp UI redesign: AppShell, Home, Library, Record, Analysis, Progress, Settings, Auth pages + Landing page (2026-06-14)
 - [x] Song-thread data model: `songs` table, `song_id` FK on takes, persistent `chat_history` per song (2026-06-14)

@@ -1859,9 +1859,9 @@
 /* ── Waveform score header ────────────────────────────────────── */
 .waveHeader {
   align-items: center;
-  background: #0a3530;
-  border-radius: 14px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   display: flex;
   gap: 24px;
   margin: 20px 32px 0;
@@ -1872,7 +1872,7 @@
 }
 
 .waveHeader::before {
-  background: radial-gradient(ellipse at 60% 50%, rgba(21, 154, 134, 0.22) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 65% 50%, rgba(30, 184, 157, 0.06) 0%, transparent 65%);
   content: '';
   inset: 0;
   pointer-events: none;
@@ -1897,7 +1897,7 @@
 }
 
 .waveHeaderTitle {
-  color: #fff;
+  color: var(--text);
   font-family: Arial, Helvetica, sans-serif;
   font-size: 1.15rem;
   font-weight: 700;
@@ -1909,10 +1909,10 @@
 }
 
 .waveHeaderBadge {
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(30, 184, 157, 0.1);
+  border: 1px solid rgba(30, 184, 157, 0.22);
   border-radius: 99px;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--accent);
   font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -1922,7 +1922,7 @@
 }
 
 .waveHeaderComposer {
-  color: rgba(255, 255, 255, 0.52);
+  color: var(--text-faint);
   font-size: 0.8rem;
   margin: 0;
 }
@@ -1936,18 +1936,18 @@
 
 .waveHeaderTakeSelect {
   appearance: none;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-soft);
   cursor: pointer;
   font-size: 0.76rem;
   font-weight: 500;
   padding: 4px 10px;
   transition: background 140ms ease;
 }
-.waveHeaderTakeSelect:hover { background: rgba(255, 255, 255, 0.13); }
-.waveHeaderTakeSelect option { background: #0C5C52; color: #fff; }
+.waveHeaderTakeSelect:hover { background: var(--border); }
+.waveHeaderTakeSelect option { background: var(--bg-card); color: var(--text); }
 
 .waveHeaderDeleteBtn {
   align-items: center;
@@ -1965,7 +1965,7 @@
 .waveHeaderDeleteBtn:hover { background: rgba(238, 123, 83, 0.22); }
 
 .waveHeaderAnalyzedAt {
-  color: rgba(255, 255, 255, 0.38);
+  color: var(--text-faintest);
   font-size: 0.72rem;
   white-space: nowrap;
 }
@@ -1983,9 +1983,7 @@
 }
 
 .waveHeaderBar {
-  animation: waveHeaderAnim 1.8s ease-in-out infinite var(--d, 0ms);
-  animation-fill-mode: backwards;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(30, 184, 157, 0.18);
   border-radius: 2px 2px 0 0;
   flex: 1;
   height: var(--barH, 32px);
@@ -1995,12 +1993,7 @@
 
 .waveHeaderBarFlagged {
   background: #EE7B53;
-  box-shadow: 0 0 8px rgba(238, 123, 83, 0.4);
-}
-
-@keyframes waveHeaderAnim {
-  0%, 100% { transform: scaleY(1); }
-  50%       { transform: scaleY(0.55); }
+  opacity: 0.85;
 }
 
 /* Metric bars */
@@ -2021,12 +2014,12 @@
 }
 
 .waveHeaderMetricRowOverall .waveHeaderMetricLabel {
+  color: var(--text);
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.8);
 }
 
 .waveHeaderMetricLabel {
-  color: rgba(255, 255, 255, 0.52);
+  color: var(--text-faint);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -2035,7 +2028,7 @@
 }
 
 .waveHeaderMetricTrack {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--border);
   border-radius: 99px;
   flex: 1;
   height: 5px;
@@ -2052,6 +2045,7 @@
 .waveHeaderFill3 { background: #8fbe9f; }
 
 .waveHeaderMetricVal {
+  color: var(--text);
   font-size: 0.76rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -2079,26 +2073,26 @@
 }
 
 .waveHeaderBigScoreDenom {
-  color: rgba(255, 255, 255, 0.38);
+  color: var(--text-faintest);
   font-size: 0.8rem;
   margin-bottom: 10px;
 }
 
 .waveHeaderReanalyze {
-  background: rgba(255, 255, 255, 0.10);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #EE7B53;
+  border: none;
   border-radius: 7px;
-  color: rgba(255, 255, 255, 0.75);
+  color: #fff;
   cursor: pointer;
   font-size: 0.76rem;
   font-weight: 600;
-  padding: 6px 14px;
-  transition: background 140ms ease, color 140ms ease;
+  padding: 7px 14px;
+  transition: background 140ms ease, transform 140ms ease;
   white-space: nowrap;
 }
 .waveHeaderReanalyze:hover {
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  background: #d4622e;
+  transform: translateY(-1px);
 }
 
 /* ── Split scrollable grid layout ───────────────────────────── */

@@ -1242,30 +1242,6 @@ export default function Analysis({ demo: demoProp = false }) {
 
   const aspectScores = useMemo(() => computeAspectScores(take), [take])
 
-  // Animate waveform header metric bars via rAF (float-precision, no React re-renders)
-  useEffect(() => {
-    const base1 = aspectScores?.intonation ?? 77
-    const base2 = aspectScores?.dynamics    ?? 83
-    const base3 = take?.score              ?? 82
-    let frame
-    const start = performance.now()
-    const PI2 = 2 * Math.PI
-    function tick(now) {
-      const t = (now - start) / 1000
-      const v1 = base1 - 3 * Math.cos(t * PI2 / 3.8)
-      const v2 = base2 + 3 * Math.cos(t * PI2 / 4.4)
-      const v3 = base3 - 2 * Math.cos(t * PI2 / 5.2)
-      if (hFill1Ref.current) hFill1Ref.current.style.width = `${v1}%`
-      if (hFill2Ref.current) hFill2Ref.current.style.width = `${v2}%`
-      if (hFill3Ref.current) hFill3Ref.current.style.width = `${v3}%`
-      if (hNum1Ref.current)  hNum1Ref.current.textContent  = Math.round(v1)
-      if (hNum2Ref.current)  hNum2Ref.current.textContent  = Math.round(v2)
-      if (hNum3Ref.current)  hNum3Ref.current.textContent  = Math.round(v3)
-      frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [take?.id, aspectScores?.intonation, aspectScores?.dynamics, take?.score])
 
   // Compute flagged bar indices from actual flag measures (scaled to bar count)
   const flaggedBarIndices = useMemo(() => {

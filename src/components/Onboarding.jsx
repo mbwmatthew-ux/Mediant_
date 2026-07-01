@@ -20,12 +20,12 @@ const STEPS = [
     body: 'Upload and organise your sheet music collection. Mediant reads each piece and fills in the key, time signature, composer, and difficulty level automatically.',
   },
   {
-    navLabel: 'New Take',
+    navLabel: 'New Session',
     title: 'Upload a recording',
     body: 'Drop in your sheet music and a video of yourself playing. Mediant reads the score, listens to your performance, and flags specific measures to work on.',
   },
   {
-    navLabel: 'Progress',
+    navLabel: 'Reports',
     title: 'Track your improvement',
     body: 'See your scores and flags over time. Generate a weekly or monthly Mediant practice report that identifies recurring patterns and sets concrete goals.',
   },

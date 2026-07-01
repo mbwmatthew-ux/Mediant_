@@ -1705,7 +1705,7 @@ export default function Analysis({ demo: demoProp = false }) {
             </div>
             <div className={aStyles.waveHeaderBigScoreDenom}>/100</div>
             <button className={aStyles.waveHeaderReanalyze} onClick={() => nav('/record')}>
-              New Take
+              New Session
             </button>
           </div>
         </div>

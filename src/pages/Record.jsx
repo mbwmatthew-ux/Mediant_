@@ -502,7 +502,7 @@ export default function Record() {
   return (
     <div className={styles.page}>
       <div className={styles.pageHead}>
-        <h1 className={styles.pageTitle}>Record New Take</h1>
+        <h1 className={styles.pageTitle}>New Session</h1>
         <p className={styles.pageSubtitle}>Upload your sheet music and performance recording for AI analysis</p>
       </div>
 

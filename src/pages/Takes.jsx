@@ -179,7 +179,7 @@ export default function Takes() {
             </p>
           </div>
           <button className={styles.ctaBtn} onClick={() => startRecording(threadPiece)}>
-            <PlusIcon /> Record New Take
+            <PlusIcon /> New Session
           </button>
         </div>
 
@@ -325,7 +325,7 @@ export default function Takes() {
       {/* Header */}
       <div className={styles.libraryHeader}>
         <div>
-          <h1 className={styles.pageTitle}>Music Library</h1>
+          <h1 className={styles.pageTitle}>All Sessions</h1>
           <p className={styles.pageSubtitle}>
             {loading ? 'Loading…' : `${pieces.length} piece${pieces.length !== 1 ? 's' : ''} in your collection`}
           </p>
@@ -472,7 +472,7 @@ function PieceCard({ piece, onViewThread, onRecord }) {
         )}
         <div className={styles.pieceActions}>
           <button className={styles.ghostBtn} onClick={onViewThread}>View Thread</button>
-          <button className={styles.goldBtn}  onClick={onRecord}>New Take</button>
+          <button className={styles.goldBtn}  onClick={onRecord}>New Session</button>
         </div>
       </div>
     </div>

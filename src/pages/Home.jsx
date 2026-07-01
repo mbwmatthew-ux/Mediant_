@@ -203,7 +203,7 @@ export default function Home() {
           <p className={styles.pageSubtitle}>{formatDate()}</p>
         </div>
         <button className={styles.primaryBtn} onClick={() => { playPop(); nav('/record') }}>
-          <PlusIcon /> New Take
+          <PlusIcon /> New Session
         </button>
       </div>
 

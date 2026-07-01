@@ -18,7 +18,7 @@ const NAV_ITEMS = [
 
 const TOOL_ITEMS = [
   { to: '/coach',        label: 'AI Coach',   icon: CoachIcon     },
-  { to: '/record',       label: 'New Take',   icon: RecordIcon    },
+  { to: '/record',       label: 'New Session', icon: RecordIcon    },
   { action: 'tuner',     label: 'Tuner',      icon: TunerIcon     },
   { action: 'metronome', label: 'Metronome',  icon: MetronomeIcon },
 ]
@@ -28,7 +28,7 @@ const TOOL_ITEMS = [
 const LIBRARY_MENU = {
   title: 'More',
   items: [
-    { to: '/takes',    label: 'All Takes',  icon: SessionsIcon },
+    { to: '/takes',    label: 'All Sessions',  icon: SessionsIcon },
     { to: '/search',   label: 'Music',      icon: LibraryIcon  },
     { to: '/progress', label: 'Reports',    icon: ProgressIcon },
     { to: '/calendar', label: 'Calendar',   icon: CalendarIcon },

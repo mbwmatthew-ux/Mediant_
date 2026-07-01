@@ -462,27 +462,6 @@ export default function Analysis({ demo: demoProp = false }) {
     })
   }, [user?.id, profile?.role])
 
-  // Load annotations when teacher views a take
-  useEffect(() => {
-    if (profile?.role !== 'teacher' || !take?.id || isDemo) {
-      setAnnotations({})
-      return
-    }
-    const takeId = take.id
-    if (String(takeId).startsWith('mock') || String(takeId) === 'demo') { setAnnotations({}); return }
-    if (!analysisAuthToken) return
-
-    fetch(
-      `${supabase.supabaseUrl}/functions/v1/annotate-flags?takeId=${encodeURIComponent(takeId)}`,
-      { headers: { Authorization: `Bearer ${analysisAuthToken}` } },
-    ).then(r => r.json()).then(data => {
-      const map = {}
-      for (const a of (data.annotations ?? [])) map[a.flag_index] = a
-      setAnnotations(map)
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.role, take?.id, analysisAuthToken, isDemo])
-
   // Find or create a songs record for the active thread, and load its chat history
   useEffect(() => {
     if (!user?.id || !activeThreadTitle || isDemo) {
@@ -650,6 +629,27 @@ export default function Analysis({ demo: demoProp = false }) {
       setActiveThreadTitle(threads[0].piece_title)
     }
   }, [threads, activeThreadTitle])
+
+  // Load annotations when teacher views a take (must be after `take` is declared above)
+  useEffect(() => {
+    if (profile?.role !== 'teacher' || !take?.id || isDemo) {
+      setAnnotations({})
+      return
+    }
+    const takeId = take.id
+    if (String(takeId).startsWith('mock') || String(takeId) === 'demo') { setAnnotations({}); return }
+    if (!analysisAuthToken) return
+
+    fetch(
+      `${supabase.supabaseUrl}/functions/v1/annotate-flags?takeId=${encodeURIComponent(takeId)}`,
+      { headers: { Authorization: `Bearer ${analysisAuthToken}` } },
+    ).then(r => r.json()).then(data => {
+      const map = {}
+      for (const a of (data.annotations ?? [])) map[a.flag_index] = a
+      setAnnotations(map)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.role, take?.id, analysisAuthToken, isDemo])
 
   // Load the active take's saved AI-context note into the editor
   useEffect(() => {

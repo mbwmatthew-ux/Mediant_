@@ -1383,7 +1383,7 @@ Return JSON only (no markdown):
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=4000,
             messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
         )

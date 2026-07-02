@@ -1383,7 +1383,7 @@ Return JSON only (no markdown):
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=4000,
             messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
         )
@@ -1565,7 +1565,7 @@ def compare_and_coach_claude(
     user_note: str = "",
 ) -> list[dict]:
     import anthropic as ac, re
-    CLAUDE_MODEL = "claude-sonnet-4-6"
+    CLAUDE_MODEL = "claude-haiku-4-5-20251001"
     allowed_types = {
         "intonation", "timing", "rhythm", "articulation", "dynamics",
         "voicing", "phrasing", "tone", "error", "posture", "technique",
@@ -1844,24 +1844,27 @@ def run_full_analysis(payload: dict) -> None:
     import httpx
     from collections import defaultdict
 
-    take_id            = payload["take_id"]
-    webhook_url        = payload["webhook_url"]
-    webhook_secret     = payload.get("webhook_secret")
-    video_url          = payload.get("video_url")
-    video_mime         = payload.get("video_mime_type", "video/mp4")
-    score_url          = payload.get("score_url")
-    score_mime         = payload.get("score_mime_type", "")
-    reference_midi_url = payload.get("reference_midi_url")  # optional signed URL
-    instrument         = payload.get("instrument", "instrument")
-    piece_title        = payload.get("piece_title", "this piece")
-    composer           = payload.get("composer", "the composer")
-    time_sig           = payload.get("time_sig", "4/4")
-    start_measure      = int(payload.get("start_measure", 1))
-    end_measure        = payload.get("end_measure")
-    gemini_key         = payload.get("gemini_api_key")
-    anthropic_key      = payload.get("anthropic_api_key")
-    user_note          = (payload.get("user_note") or "").strip()[:800]
+    take_id             = payload["take_id"]
+    webhook_url         = payload["webhook_url"]
+    webhook_secret      = payload.get("webhook_secret")
+    video_url           = payload.get("video_url")
+    video_mime          = payload.get("video_mime_type", "video/mp4")
+    score_url           = payload.get("score_url")
+    score_mime          = payload.get("score_mime_type", "")
+    score_path          = payload.get("score_path")          # stable storage path for cache key
+    cached_score_notes  = payload.get("cached_score_notes")  # pre-parsed notes from Supabase cache
+    reference_midi_url  = payload.get("reference_midi_url")  # optional signed URL
+    instrument          = payload.get("instrument", "instrument")
+    piece_title         = payload.get("piece_title", "this piece")
+    composer            = payload.get("composer", "the composer")
+    time_sig            = payload.get("time_sig", "4/4")
+    start_measure       = int(payload.get("start_measure", 1))
+    end_measure         = payload.get("end_measure")
+    gemini_key          = payload.get("gemini_api_key")
+    anthropic_key       = payload.get("anthropic_api_key")
+    user_note           = (payload.get("user_note") or "").strip()[:800]
     debug_steps: list[str] = []  # pipeline step log for diagnostics
+    parsed_score_notes: dict | None = None  # freshly parsed notes to cache via webhook
 
     try:
         num, denom = map(int, time_sig.split("/"))
@@ -1909,12 +1912,18 @@ def run_full_analysis(payload: dict) -> None:
                 else:
                     debug_steps.append(f"score_parse: musicxml error={res.get('error','unknown')}")
             elif score_kind == "visual" and anthropic_key:
-                res = read_score_notes_claude(score_bytes_dl, score_mime, start_measure, instrument, time_sig, anthropic_key)
-                if res.get("measures"):
-                    score = res
-                    debug_steps.append(f"score_parse: claude_vision {len(score['measures'])} measures")
+                if cached_score_notes and cached_score_notes.get("measures"):
+                    score = cached_score_notes
+                    debug_steps.append(f"score_parse: cache_hit {len(score['measures'])} measures (skipped Claude call)")
+                    print(f"[run_full_analysis] using cached score notes ({len(score['measures'])} measures)")
                 else:
-                    debug_steps.append("score_parse: claude_vision returned no measures")
+                    res = read_score_notes_claude(score_bytes_dl, score_mime, start_measure, instrument, time_sig, anthropic_key)
+                    if res.get("measures"):
+                        score = res
+                        parsed_score_notes = res  # will be sent back via webhook to cache
+                        debug_steps.append(f"score_parse: claude_vision {len(score['measures'])} measures")
+                    else:
+                        debug_steps.append("score_parse: claude_vision returned no measures")
             elif score_kind == "visual":
                 debug_steps.append("score_parse: visual score skipped (no anthropic key)")
             else:
@@ -2063,14 +2072,16 @@ def run_full_analysis(payload: dict) -> None:
         print(f"[run_full_analysis] done | score={base_score} | flags={len(flags)} | backend={backend}")
 
         post_webhook(webhook_url, webhook_secret, {
-            "takeId":          take_id,
-            "score":           base_score,
-            "flags":           flags,
-            "measureLayout":   score if score.get("measures") else None,
-            "audioAlignment":  alignment_ranges if alignment_ranges else None,
-            "analysisQuality": quality,
-            "analysisBackend": backend,
-            "pipelineDebug":   debug_steps,
+            "takeId":            take_id,
+            "score":             base_score,
+            "flags":             flags,
+            "measureLayout":     score if score.get("measures") else None,
+            "audioAlignment":    alignment_ranges if alignment_ranges else None,
+            "analysisQuality":   quality,
+            "analysisBackend":   backend,
+            "pipelineDebug":     debug_steps,
+            "parsedScoreNotes":  parsed_score_notes,  # None if cached or not visual score
+            "scorePath":         score_path,
         })
 
     except Exception as e:

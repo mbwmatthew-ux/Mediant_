@@ -14,6 +14,10 @@ function getFirstDayOfWeek(year, month) {
   return new Date(year, month, 1).getDay()
 }
 
+function dateKey(d) {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
 export default function Calendar() {
   const nav = useNavigate()
   const takes = useTakes({ limit: 200 })
@@ -29,12 +33,37 @@ export default function Calendar() {
     sessions.forEach(s => {
       const d = new Date(s.created_at || '')
       if (isNaN(d)) return
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+      const key = dateKey(d)
       if (!map[key]) map[key] = []
       map[key].push(s)
     })
     return map
   }, [sessions])
+
+  /* Find the most recent completed take that has a practice plan */
+  const latestPlan = useMemo(() => {
+    const withPlan = sessions.find(s => s.practice_plan?.days?.length && s.created_at)
+    if (!withPlan) return null
+    const analysisDate = new Date(withPlan.created_at)
+    analysisDate.setHours(0, 0, 0, 0)
+    return {
+      plan: withPlan.practice_plan,
+      pieceTitle: withPlan.piece_title,
+      analysisDate,
+    }
+  }, [sessions])
+
+  /* Build map: dateKey → plan day object */
+  const planByDay = useMemo(() => {
+    if (!latestPlan) return {}
+    const map = {}
+    latestPlan.plan.days.forEach(d => {
+      const dayDate = new Date(latestPlan.analysisDate)
+      dayDate.setDate(dayDate.getDate() + d.day) // Day 1 = day after analysis
+      map[dateKey(dayDate)] = d
+    })
+    return map
+  }, [latestPlan])
 
   function prevMonth() {
     if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11) }
@@ -45,7 +74,7 @@ export default function Calendar() {
     else setViewMonth(m => m + 1)
   }
 
-  const daysInMonth   = getDaysInMonth(viewYear, viewMonth)
+  const daysInMonth    = getDaysInMonth(viewYear, viewMonth)
   const firstDayOfWeek = getFirstDayOfWeek(viewYear, viewMonth)
 
   const cells = []
@@ -56,7 +85,6 @@ export default function Calendar() {
     month: 'long', year: 'numeric'
   })
 
-  /* Count practice days this month */
   const practiceDaysThisMonth = Object.keys(sessionsByDay).filter(key => {
     const parts = key.split('-')
     return parseInt(parts[0]) === viewYear && parseInt(parts[1]) === viewMonth
@@ -103,16 +131,25 @@ export default function Calendar() {
         </div>
       </div>
 
+      {/* ── Practice plan banner ── */}
+      {latestPlan && (
+        <div className={styles.planBanner}>
+          <span className={styles.planBannerIcon}>📋</span>
+          <div>
+            <span className={styles.planBannerTitle}>AI Practice Plan — {latestPlan.pieceTitle}</span>
+            <span className={styles.planBannerSub}>{latestPlan.plan.summary}</span>
+          </div>
+        </div>
+      )}
+
       {/* ── Calendar grid ── */}
       <div className={styles.calendarBody}>
-        {/* Day-of-week headers */}
         <div className={styles.dayLabels}>
           {DAY_LABELS.map(l => (
             <div key={l} className={styles.dayLabel}>{l}</div>
           ))}
         </div>
 
-        {/* Grid rows */}
         <div className={styles.grid}>
           {cells.map((d, i) => {
             if (d === null) return <div key={`e-${i}`} className={styles.emptyCell} />
@@ -120,12 +157,13 @@ export default function Calendar() {
             const isToday = d === today.getDate()
               && viewMonth === today.getMonth()
               && viewYear  === today.getFullYear()
-            const key      = `${viewYear}-${viewMonth}-${d}`
+            const key         = `${viewYear}-${viewMonth}-${d}`
             const daySessions = sessionsByDay[key] ?? []
             const hasPractice = daySessions.length > 0
+            const planDay     = planByDay[key]
 
             return (
-              <div key={d} className={`${styles.dayCell} ${isToday ? styles.dayCellToday : ''}`}>
+              <div key={d} className={`${styles.dayCell} ${isToday ? styles.dayCellToday : ''} ${planDay ? styles.dayCellPlan : ''}`}>
                 <span className={`${styles.dayNum} ${isToday ? styles.dayNumToday : ''}`}>{d}</span>
 
                 {hasPractice && (
@@ -140,7 +178,6 @@ export default function Calendar() {
                   </button>
                 )}
 
-                {/* Show best score for the day if available */}
                 {hasPractice && (() => {
                   const best = daySessions.reduce((b, s) =>
                     s.score != null && (b == null || s.score > b) ? s.score : b, null)
@@ -148,11 +185,54 @@ export default function Calendar() {
                     <span className={styles.dayScore}>{best}</span>
                   ) : null
                 })()}
+
+                {/* AI practice plan task for this day */}
+                {planDay && !hasPractice && (
+                  <div className={styles.planDayTag} title={planDay.tasks?.map(t => t.title).join(' · ')}>
+                    <span className={styles.planDayLabel}>{planDay.label}</span>
+                    <span className={styles.planDayMins}>{planDay.total_minutes}m</span>
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
       </div>
+
+      {/* ── Practice plan detail panel ── */}
+      {latestPlan && (
+        <div className={styles.planPanel}>
+          <h3 className={styles.planPanelTitle}>This week's plan — {latestPlan.pieceTitle}</h3>
+          <div className={styles.planDays}>
+            {latestPlan.plan.days.map(d => {
+              const dayDate = new Date(latestPlan.analysisDate)
+              dayDate.setDate(dayDate.getDate() + d.day)
+              const isPast = dayDate < today
+              const isCurrentDay = dateKey(dayDate) === dateKey(today)
+              return (
+                <div key={d.day} className={`${styles.planDayCard} ${isPast ? styles.planDayCardPast : ''} ${isCurrentDay ? styles.planDayCardToday : ''}`}>
+                  <div className={styles.planDayCardHead}>
+                    <span className={styles.planDayCardLabel}>
+                      {isCurrentDay ? 'Today' : dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </span>
+                    <span className={styles.planDayCardFocus}>{d.label}</span>
+                    <span className={styles.planDayCardMins}>{d.total_minutes}m</span>
+                  </div>
+                  <ul className={styles.planTaskList}>
+                    {(d.tasks ?? []).map((t, ti) => (
+                      <li key={ti} className={styles.planTask}>
+                        <span className={styles.planTaskTitle}>{t.title}</span>
+                        {t.measure && <span className={styles.planTaskMeasure}>m.{t.measure}</span>}
+                        <span className={styles.planTaskDesc}>{t.description}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Recent sessions list ── */}
       {sessions.length > 0 && (

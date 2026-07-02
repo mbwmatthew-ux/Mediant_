@@ -947,7 +947,7 @@ Give 2–5 flags. Always cite the frame timestamp and the specific body part or 
   })
 
   const message = await anthropic.messages.create({
-    model:      'claude-sonnet-4-6',
+    model:      'claude-haiku-4-5-20251001',
     max_tokens: 1500,
     messages:   [{ role: 'user', content }],
   })
@@ -1081,7 +1081,7 @@ Return ONLY valid JSON (no markdown):
   })
 
   const message = await anthropic.messages.create({
-    model:      'claude-sonnet-4-6',
+    model:      'claude-haiku-4-5-20251001',
     max_tokens: 1200,
     messages:   [{ role: 'user', content: userContent }],
   })
@@ -1240,6 +1240,20 @@ serve(async (req: Request) => {
       scoreSignedUrl = sSigned?.signedUrl ?? null
     }
 
+    // ── Score cache lookup (avoid re-parsing the same PDF with Claude) ────────
+    let cachedScoreNotes: unknown = null
+    if (scorePath && scoreMimeType && /pdf|image/i.test(scoreMimeType)) {
+      const { data: cacheRow } = await admin
+        .from('score_cache')
+        .select('parsed_notes')
+        .eq('score_path', scorePath)
+        .maybeSingle()
+      if (cacheRow?.parsed_notes) {
+        cachedScoreNotes = cacheRow.parsed_notes
+        console.log('[analyze-performance] score cache hit for', scorePath)
+      }
+    }
+
     // ── Look up reference MIDI for this song (if any) ─────────────
     let referenceMidiUrl: string | null = null
     if (songId) {
@@ -1288,6 +1302,8 @@ serve(async (req: Request) => {
           score_facts:          safeScoreFacts,
           audio_features:       safeAudioFeatures,
           measure_timeline:     measureTimeline,
+          score_path:           scorePath           ?? null,
+          cached_score_notes:   cachedScoreNotes    ?? null,
           gemini_api_key:       Deno.env.get('GOOGLE_AI_API_KEY'),
           anthropic_api_key:    Deno.env.get('ANTHROPIC_API_KEY'),
         }),
@@ -1467,6 +1483,30 @@ serve(async (req: Request) => {
       analysis_backend: backend,
       job_error:        null,
     }).eq('id', takeId)
+
+    // Generate practice plan with Haiku (non-blocking)
+    const anthropicKeyForPlan = Deno.env.get('ANTHROPIC_API_KEY')
+    if (anthropicKeyForPlan && Array.isArray(flags) && flags.length > 0) {
+      ;(async () => {
+        try {
+          const client = new Anthropic({ apiKey: anthropicKeyForPlan })
+          const flagSummary = (flags as any[]).slice(0, 8).map((f: any) =>
+            `- ${f.type ?? 'issue'} in m.${f.measure ?? '?'}: ${f.title ?? ''} — ${(f.detail ?? '').slice(0, 120)}`
+          ).join('\n')
+          const msg = await client.messages.create({
+            model:    'claude-haiku-4-5-20251001',
+            max_tokens: 1200,
+            messages: [{ role: 'user', content: `You are a music practice coach. A student just completed an AI analysis of "${pieceTitle ?? 'this piece'}" on ${instrument ?? 'their instrument'}. Issues found:\n\n${flagSummary}\n\nGenerate a focused 5-day practice plan. Return ONLY valid JSON (no markdown):\n{"summary":"<one sentence>","days":[{"day":1,"label":"<short label>","tasks":[{"title":"<8 words max>","description":"<2 sentences>","minutes":15,"measure":null}],"total_minutes":30}]}` }],
+          })
+          const raw = (msg.content[0] as { type: string; text: string }).text ?? '{}'
+          const start = raw.indexOf('{'), end = raw.lastIndexOf('}')
+          if (start !== -1 && end !== -1) {
+            const plan = JSON.parse(raw.slice(start, end + 1))
+            await admin.from('takes').update({ practice_plan: plan }).eq('id', takeId)
+          }
+        } catch { /* non-fatal */ }
+      })()
+    }
 
     // Fire-and-forget: notify user by email
     if (user.email) {

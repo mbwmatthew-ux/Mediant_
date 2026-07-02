@@ -207,6 +207,147 @@
   padding: 0 2px;
 }
 
+/* ── Practice plan banner ───────────────────────────────── */
+.planBanner {
+  align-items: flex-start;
+  background: rgba(180, 145, 60, 0.08);
+  border-bottom: 1px solid rgba(180, 145, 60, 0.18);
+  display: flex;
+  gap: 12px;
+  padding: 12px 32px;
+}
+.planBannerIcon { font-size: 1.2rem; line-height: 1.4; }
+.planBanner > div { display: flex; flex-direction: column; gap: 2px; }
+.planBannerTitle {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.planBannerSub {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+/* Plan-day calendar cell highlight */
+.dayCellPlan {
+  background: rgba(180, 145, 60, 0.04);
+}
+
+/* Compact plan tag in calendar cell */
+.planDayTag {
+  align-items: center;
+  background: rgba(180, 145, 60, 0.12);
+  border-radius: 4px;
+  display: flex;
+  gap: 4px;
+  justify-content: space-between;
+  padding: 3px 6px;
+}
+.planDayLabel {
+  color: var(--accent);
+  font-size: 0.67rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.planDayMins {
+  color: var(--text-faint);
+  flex-shrink: 0;
+  font-size: 0.64rem;
+}
+
+/* ── Practice plan detail panel ─────────────────────────── */
+.planPanel {
+  border-top: 1px solid var(--border);
+  padding: 24px 32px;
+}
+.planPanelTitle {
+  color: var(--text-faintest);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  margin: 0 0 16px;
+  text-transform: uppercase;
+}
+.planDays {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.planDayCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.planDayCardToday {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.planDayCardPast {
+  opacity: 0.48;
+}
+.planDayCardHead {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.planDayCardLabel {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+  min-width: 100px;
+}
+.planDayCardFocus {
+  color: var(--text);
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.planDayCardMins {
+  color: var(--text-faint);
+  flex-shrink: 0;
+  font-size: 0.78rem;
+}
+.planTaskList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.planTask {
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+}
+.planTaskTitle {
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.planTaskMeasure {
+  background: rgba(38, 104, 103, 0.1);
+  border-radius: 3px;
+  color: var(--accent);
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+  padding: 1px 5px;
+  width: fit-content;
+}
+.planTaskDesc {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 /* ── Recent sessions list ────────────────────────────────── */
 .recentSection {
   border-top: 1px solid var(--border);

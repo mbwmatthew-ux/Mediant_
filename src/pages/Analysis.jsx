@@ -754,17 +754,20 @@ export default function Analysis({ demo: demoProp = false }) {
       return
     }
 
+    // Short-lived signed URLs (2h). These are regenerated every time the page
+    // loads a take, so a shorter window limits how long a copied/leaked media
+    // link keeps working without affecting normal viewing.
     if (take.score_path) {
       supabase.storage
         .from('sheet-music')
-        .createSignedUrl(take.score_path, 86400)
+        .createSignedUrl(take.score_path, 7200)
         .then(({ data }) => { if (data?.signedUrl) setScoreUrl(data.signedUrl) })
     }
 
     if (take.video_path) {
       supabase.storage
         .from('recordings')
-        .createSignedUrl(take.video_path, 86400)
+        .createSignedUrl(take.video_path, 7200)
         .then(({ data }) => { if (data?.signedUrl) setVideoUrl(data.signedUrl) })
     }
   }, [take])

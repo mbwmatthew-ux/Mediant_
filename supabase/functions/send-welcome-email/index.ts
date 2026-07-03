@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
 import { sendEmail, emailWrapper, ctaButton } from '../_shared/email.ts'
 
@@ -10,9 +11,27 @@ serve(async (req: Request) => {
   const CORS = corsHeaders(req)
 
   try {
-    const { email, name } = await req.json()
+    // Require an authenticated caller and only ever email THAT user's own
+    // address. Without this, anyone could POST arbitrary addresses here and use
+    // it as a free "Welcome to Mediant" spam cannon against our sending domain.
+    const userClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } },
+    )
+    const { data: { user }, error: authError } = await userClient.auth.getUser()
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { 'Content-Type': 'application/json', ...CORS },
+      })
+    }
+
+    const { name } = await req.json().catch(() => ({}))
+    // Always send to the authenticated user's own verified email, never a
+    // caller-supplied address.
+    const email = user.email
     if (!email) {
-      return new Response(JSON.stringify({ error: 'email required' }), {
+      return new Response(JSON.stringify({ error: 'No email on account' }), {
         status: 400, headers: { 'Content-Type': 'application/json', ...CORS },
       })
     }

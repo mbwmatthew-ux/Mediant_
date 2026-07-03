@@ -1186,6 +1186,37 @@ serve(async (req: Request) => {
       })
     }
 
+    // ── Ownership guard (IDOR protection) ─────────────────────────────────────
+    // Uploaded storage objects always live under `${user.id}/…` (see Record.jsx),
+    // and we mint signed URLs below with the SERVICE ROLE, which bypasses storage
+    // RLS. So we must confirm the caller owns every path / id they pass — otherwise
+    // a user who learns another user's storage path could have us read that private
+    // recording or sheet music into their own analysis.
+    const ownsPath = (p: unknown): boolean =>
+      typeof p === 'string' && p.startsWith(`${user.id}/`)
+
+    if (!ownsPath(videoPath)) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403, headers: { 'Content-Type': 'application/json', ...CORS },
+      })
+    }
+    if (scorePath && !ownsPath(scorePath)) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403, headers: { 'Content-Type': 'application/json', ...CORS },
+      })
+    }
+    // songId drives a reference-MIDI lookup (also signed with the service role);
+    // only allow songs the caller owns so it can't pull another user's reference.
+    if (songId) {
+      const { data: ownSong } = await admin
+        .from('songs').select('id').eq('id', songId).eq('user_id', user.id).maybeSingle()
+      if (!ownSong) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), {
+          status: 403, headers: { 'Content-Type': 'application/json', ...CORS },
+        })
+      }
+    }
+
     const safeStart = Math.max(1, parseInt(String(startMeasure ?? 1), 10) || 1)
     const safeEnd: number | null = endMeasure
       ? Math.max(safeStart, parseInt(String(endMeasure), 10))
@@ -1510,13 +1541,18 @@ serve(async (req: Request) => {
 
     // Fire-and-forget: notify user by email
     if (user.email) {
-      const firstName = (user.user_metadata?.name ?? '').split(' ')[0] || 'there'
+      // Escape user-controlled text before interpolating into email HTML.
+      const escapeHtml = (s: unknown) =>
+        String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+      const firstName = escapeHtml((user.user_metadata?.name ?? '').split(' ')[0]) || 'there'
+      const safeTitle = escapeHtml(pieceTitle ?? 'your piece')
       const analysisUrl = `https://www.mediant-music.com/#/analysis?takeId=${takeId}`
       const scoreLabel = score != null ? `Your score: ${score}/100.` : ''
       const html = emailWrapper(`
         <h1 style="font-size:1.3rem;font-weight:700;color:#1a1710;margin:0 0 8px;">Your analysis is ready, ${firstName}.</h1>
         <p style="color:#5a5040;font-size:0.95rem;line-height:1.7;margin:0 0 6px;">
-          <strong style="color:#1a1710;">${pieceTitle}</strong>
+          <strong style="color:#1a1710;">${safeTitle}</strong>
         </p>
         <p style="color:#5a5040;font-size:0.95rem;line-height:1.7;margin:0 0 20px;">
           ${scoreLabel} Mediant found ${flags.length} area${flags.length === 1 ? '' : 's'} to work on.

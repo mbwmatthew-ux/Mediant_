@@ -33,7 +33,12 @@ function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
 export default function TeacherDashboard() {
   const nav = useNavigate()
-  const { user, profile } = useAuth()
+  const { user, profile, refreshProfile } = useAuth()
+
+  // Teacher-code redemption (shown to non-teachers)
+  const [upgradeCode,    setUpgradeCode]    = useState('')
+  const [upgradeState,   setUpgradeState]   = useState('idle') // idle | sending | error
+  const [upgradeError,   setUpgradeError]   = useState('')
 
   const [relationships,   setRelationships]   = useState([])
   const [selectedStudent, setSelectedStudent] = useState(null)
@@ -229,14 +234,50 @@ export default function TeacherDashboard() {
     setActiveAnnot(null)
   }
 
-  // Redirect non-teachers
+  async function handleUpgrade(e) {
+    e.preventDefault()
+    if (upgradeState === 'sending') return
+    if (!upgradeCode.trim()) { setUpgradeError('Enter your teacher access code.'); return }
+    setUpgradeState('sending'); setUpgradeError('')
+    const { data, error } = await supabase.functions
+      .invoke('redeem-teacher-code', { body: { code: upgradeCode.trim() } })
+      .catch(err => ({ data: null, error: err }))
+    if (!error && data?.ok) {
+      // Role changed in the DB — refresh the cached profile so this page unlocks.
+      refreshProfile()
+    } else {
+      setUpgradeState('error')
+      setUpgradeError(data?.error || error?.message || 'That teacher code is not valid.')
+    }
+  }
+
+  // Non-teachers: offer the invite-code upgrade instead of just a dead end.
   if (profile && profile.role !== 'teacher') {
     return (
       <div className={styles.notTeacher}>
         <p className={styles.notTeacherIcon}>🎓</p>
         <h2>Teacher accounts only</h2>
-        <p>This page is for teacher accounts. Your account is registered as a student.</p>
-        <button className={styles.backBtn} onClick={() => nav('/home')}>Go to Home</button>
+        <p>This page is for teacher accounts. If you have a teacher access code, enter it below to upgrade.</p>
+        <form onSubmit={handleUpgrade} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 320, margin: '20px auto 0' }}>
+          <input
+            type="text"
+            placeholder="Teacher access code"
+            value={upgradeCode}
+            onChange={e => setUpgradeCode(e.target.value)}
+            autoComplete="off"
+            style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--line, #e8e4dc)', background: 'var(--input-bg, #fff)', color: 'var(--text, #1a1710)', fontSize: '0.95rem' }}
+          />
+          {upgradeError && <p style={{ color: 'var(--score-bad, #b03030)', fontSize: '0.85rem', margin: 0 }}>{upgradeError}</p>}
+          <button className={styles.backBtn} type="submit" disabled={upgradeState === 'sending'}>
+            {upgradeState === 'sending' ? 'Checking…' : 'Upgrade to teacher'}
+          </button>
+        </form>
+        <button
+          onClick={() => nav('/home')}
+          style={{ marginTop: 14, background: 'none', border: 'none', color: 'var(--text-muted, #8a8070)', cursor: 'pointer', fontSize: '0.9rem' }}
+        >
+          Go to Home
+        </button>
       </div>
     )
   }

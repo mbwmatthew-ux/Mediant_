@@ -1,5 +1,32 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-01 — $7 Unlimited Plan, Score Caching, AI Practice Calendar
+
+### Pricing
+- Single **Mediant plan: $7/mo ($5/mo billed yearly)** replaces the two-tier model
+- Unlimited recordings, full AI coaching, all features — no caps
+
+### Cost optimizations (makes unlimited profitable)
+- Switched Claude Sonnet → **Haiku 4.5** for score reading and coaching — 3-5× cheaper
+- **Score caching**: parse PDF/image once, store in `score_cache` table, skip Claude call on repeat submissions → repeat analysis cost ~$0.018
+- Gemini 2.5 Flash retained for audio (non-negotiable quality tier)
+
+### AI Practice Plan
+- After every completed analysis, Haiku generates a **5-day structured practice plan** from the flags
+- Stored in `takes.practice_plan` JSONB
+- Wired in `analysis-webhook` (Modal path) and `analyze-performance` (fallback path)
+
+### Calendar page rebuilt
+- Upcoming days show AI practice plan tasks (amber highlight + label + minute count in cell)
+- Plan banner above calendar with one-sentence weekly summary
+- Detailed day-by-day plan panel below grid with task cards (today highlighted, past days dimmed)
+
+### DB migrations (apply in Supabase dashboard)
+- `supabase/migrations/20260701_create_score_cache.sql`
+- `supabase/migrations/20260701_add_practice_plan_to_takes.sql`
+
+---
+
 ## 2026-06-30 — Teacher Features: Dashboard, Signup Role, Annotation Controls, MIDI Upload
 
 ### Teacher Dashboard (`/teacher`)

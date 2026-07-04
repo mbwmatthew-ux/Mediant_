@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" fill="none">
+  <rect width="1600" height="980" fill="#FAF8F3"/>
+  <path d="M0 178C205 116 374 130 548 194C718 257 888 368 1084 299C1263 236 1396 106 1600 150" stroke="#E4E1D8" stroke-width="3"/>
+  <path d="M0 744C197 692 369 705 527 762C719 832 885 856 1074 794C1267 731 1395 634 1600 686" stroke="#E4E1D8" stroke-width="3"/>
+  <circle cx="1186" cy="214" r="228" fill="#159A86" opacity="0.055"/>
+  <circle cx="414" cy="746" r="272" fill="#EE7B53" opacity="0.055"/>
+
+  <g transform="translate(460 176)">
+    <rect width="680" height="482" rx="42" fill="#FFFFFF" stroke="#E4E1D8" stroke-width="2"/>
+    <g transform="translate(246 74)">
+      <rect width="188" height="188" rx="42" fill="#FAF8F3" stroke="#E4E1D8" stroke-width="3"/>
+      <path d="M52 126V62L94 107L136 62V126" stroke="#0C5C52" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M52 62H76" stroke="#0C5C52" stroke-width="10" stroke-linecap="round"/>
+      <path d="M112 62H136" stroke="#0C5C52" stroke-width="10" stroke-linecap="round"/>
+      <path d="M69 126H119" stroke="#0C5C52" stroke-width="10" stroke-linecap="round"/>
+      <path d="M63 83C76 77 88 77 94 83C100 89 112 89 125 83" stroke="#EE7B53" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="94" cy="107" r="5" fill="#159A86"/>
+    </g>
+    <text x="340" y="346" fill="#2C2C2A" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="700" text-anchor="middle" letter-spacing="-2">Mediant</text>
+    <text x="340" y="392" fill="#6B6A64" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="500" text-anchor="middle">Measure-level feedback for musicians</text>
+  </g>
+
+  <g transform="translate(245 742)">
+    <text x="0" y="-30" fill="#6B6A64" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" letter-spacing="3">NAVBAR</text>
+    <rect width="360" height="86" rx="20" fill="#FFFFFF" stroke="#E4E1D8" stroke-width="2"/>
+    <g transform="translate(28 23)">
+      <path d="M10 40V0L40 32L70 0V40" stroke="#0C5C52" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M10 0H27" stroke="#0C5C52" stroke-width="6" stroke-linecap="round"/>
+      <path d="M53 0H70" stroke="#0C5C52" stroke-width="6" stroke-linecap="round"/>
+      <path d="M29 18C36 15 43 15 40 18C46 21 53 21 60 18" stroke="#EE7B53" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <text x="126" y="54" fill="#2C2C2A" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700">Mediant</text>
+  </g>
+
+  <g transform="translate(710 742)">
+    <text x="0" y="-30" fill="#6B6A64" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" letter-spacing="3">APP ICON</text>
+    <rect width="86" height="86" rx="22" fill="#0C5C52"/>
+    <path d="M24 61V25L43 47L62 25V61" stroke="#FAF8F3" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M24 25H35" stroke="#FAF8F3" stroke-width="6" stroke-linecap="round"/>
+    <path d="M51 25H62" stroke="#FAF8F3" stroke-width="6" stroke-linecap="round"/>
+    <path d="M31 37C37 34 42 34 43 37C44 40 49 40 55 37" stroke="#EE7B53" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(954 742)">
+    <text x="0" y="-30" fill="#6B6A64" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" letter-spacing="3">ONE COLOR</text>
+    <rect width="86" height="86" rx="22" fill="#FFFFFF" stroke="#E4E1D8" stroke-width="2"/>
+    <path d="M24 61V25L43 47L62 25V61" stroke="#2C2C2A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M24 25H35" stroke="#2C2C2A" stroke-width="6" stroke-linecap="round"/>
+    <path d="M51 25H62" stroke="#2C2C2A" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <text x="78" y="82" fill="#0C5C52" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="4">MEDIANT LOGO CONCEPT</text>
+  <text x="78" y="112" fill="#6B6A64" font-family="Arial, Helvetica, sans-serif" font-size="18">Warm editorial, practical, musical, built for the current website palette.</text>
+</svg>

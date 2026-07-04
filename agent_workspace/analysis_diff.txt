@@ -1,0 +1,1127 @@
+diff --git a/src/pages/Analysis.jsx b/src/pages/Analysis.jsx
+index 7ecf4df..9261436 100644
+--- a/src/pages/Analysis.jsx
++++ b/src/pages/Analysis.jsx
+@@ -81,7 +81,83 @@ const DEMO_TAKE = {
+   _demo: true,
+ }
+ 
++const CLARINET_DEMO_TAKE = {
++  id: 'demo_clarinet',
++  piece_title: 'Procession of the Nobles',
++  piece_composer: 'Nicholas Rimsky-Korsakov',
++  instrument: 'Clarinet in Bb',
++  score: 72,
++  analysis_quality: { trust: 'medium', reasons: [] },
++  analysis_backend: 'gemini-inline',
++  created_at: new Date(Date.now() - 4 * 86400000).toISOString(),
++  flags: [
++    {
++      measure: 12,
++      type: 'technique',
++      confidence: 68,
++      title: 'Right hand fingers hovering too high off keys',
++      detail: 'Keep fingers closer to the tone holes to minimize motion and improve facility.',
++      timestamp_start: 12.1,
++      timestamp_end: 15.0
++    },
++    {
++      measure: 14,
++      type: 'technique',
++      confidence: 68,
++      title: 'Left thumb angle pressing awkwardly on register key',
++      detail: 'Position the thumb at a 45-degree angle to easily roll onto the register key.',
++      timestamp_start: 12.1,
++      timestamp_end: 15.0
++    },
++    {
++      measure: 17,
++      type: 'technique',
++      confidence: 68,
++      title: 'Right pinky visibly splayed away from low keys',
++      detail: 'Keep the pinky relaxed and hovering near the low keys to avoid tension.',
++      timestamp_start: 12.1,
++      timestamp_end: 15.0
++    },
++    {
++      measure: 20,
++      type: 'technique',
++      confidence: 68,
++      title: 'Instrument angle tilted too far outward from body',
++      detail: 'Hold the clarinet at a 30 to 40-degree angle from your body for optimal embouchure support.',
++      timestamp_start: 24.1,
++      timestamp_end: 28.0
++    },
++    {
++      measure: 25,
++      type: 'technique',
++      confidence: 68,
++      title: 'Chin muscles visibly bunching under lower lip',
++      detail: 'Keep the chin flat and pointed, firming the corners of the mouth to prevent bunching.',
++      timestamp_start: 36.2,
++      timestamp_end: 40.0
++    },
++    {
++      measure: 35,
++      type: 'technique',
++      confidence: 68,
++      title: 'Head tilting downward losing upper body alignment',
++      detail: 'Bring the instrument up to your mouth rather than tilting your head down to meet it.',
++      timestamp_start: 48.2,
++      timestamp_end: 52.0
++    }
++  ],
++  video_path: null,
++  score_path: '/Clarinet.png',
++  _demo: true
++}
++
+ const INITIAL_AI_MESSAGES = {
++  'Procession of the Nobles': [
++    {
++      role: 'assistant',
++      content: "Hi Matthew! I've analyzed your latest take of Nicholas Rimsky-Korsakov's **Procession of the Nobles** (Take 5). Your technique score is **72/100**.\n\nYou have good energy, but I've flagged a few posture and hand-positioning items:\n- **m.12 (Technique)**: Right hand fingers hovering too high off keys.\n- **m.14 (Technique)**: Left thumb register key angle pressing awkwardly.\n- **m.20 (Technique)**: Instrument angle tilted too far outward.\n\nWhich area would you like to work on first?",
++    }
++  ],
+   'Clair de lune': [
+     {
+       role: 'assistant',
+@@ -166,6 +242,51 @@ function scoreFileForPiece(title) {
+   return known[slug] ?? null
+ }
+ 
++function ConfidenceGauge({ confidence }) {
++  const radius = 18;
++  const strokeWidth = 3.5;
++  const circumference = 2 * Math.PI * radius;
++  const offset = circumference - (confidence / 100) * circumference;
++  const color = confColor(confidence);
++  const label = confLabel(confidence);
++
++  return (
++    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, marginTop: 4 }}>
++      <div style={{ position: 'relative', width: 44, height: 44 }}>
++        <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
++          <circle
++            cx="22" cy="22" r={radius}
++            fill="transparent"
++            stroke="rgba(0,0,0,0.04)"
++            strokeWidth={strokeWidth}
++          />
++          <circle
++            cx="22" cy="22" r={radius}
++            fill="transparent"
++            stroke={color}
++            strokeWidth={strokeWidth}
++            strokeDasharray={circumference}
++            strokeDashoffset={offset}
++            strokeLinecap="round"
++            style={{ transition: 'stroke-dashoffset 0.35s ease' }}
++          />
++        </svg>
++        <div style={{
++          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
++          display: 'flex', alignItems: 'center', justifyContent: 'center',
++          fontSize: '11px', fontWeight: '700', color: '#1A1410',
++          fontFamily: 'var(--font-mono)'
++        }}>
++          {confidence}%
++        </div>
++      </div>
++      <span style={{ fontSize: '11px', fontWeight: '600', color: color, letterSpacing: '0.02em' }}>
++        {label}
++      </span>
++    </div>
++  );
++}
++
+ export default function Analysis({ demo: demoProp = false }) {
+   const nav = useNavigate()
+   const [searchParams] = useSearchParams()
+@@ -184,7 +305,7 @@ export default function Analysis({ demo: demoProp = false }) {
+ 
+   // Threads & database takes state
+   const [allTakes, setAllTakes] = useState([])
+-  const [activeThreadTitle, setActiveThreadTitle] = useState('Clair de lune')
++  const [activeThreadTitle, setActiveThreadTitle] = useState('Procession of the Nobles')
+   const [selectedTakeId, setSelectedTakeId] = useState(null)
+   const [threadsTab, setThreadsTab] = useState('all')
+ 
+@@ -259,8 +380,17 @@ export default function Analysis({ demo: demoProp = false }) {
+       groups[title].takes.push(t)
+     })
+ 
+-    // Premium demo mock fallbacks (only populated if the user has absolutely zero real takes)
+-    const mockData = allTakes.length === 0 ? [
++    // Premium demo mock fallbacks
++    const mockData = [
++      {
++        piece_title: 'Procession of the Nobles',
++        piece_composer: 'Nicholas Rimsky-Korsakov',
++        instrument: 'Clarinet in Bb',
++        isPinned: true,
++        takes: [
++          { ...CLARINET_DEMO_TAKE, created_at: new Date(Date.now() - 4 * 86400000).toISOString() }
++        ]
++      },
+       {
+         piece_title: 'Clair de lune',
+         piece_composer: 'Claude Debussy',
+@@ -307,7 +437,7 @@ export default function Analysis({ demo: demoProp = false }) {
+           { id: 'mock_5', piece_title: 'Gymnopédie No. 1', piece_composer: 'Erik Satie', instrument: 'Piano', score: 92, created_at: new Date(Date.now() - 518400000).toISOString(), flags: [] },
+         ],
+       }
+-    ] : []
++    ]
+ 
+     mockData.forEach(mock => {
+       if (!groups[mock.piece_title]) {
+@@ -354,8 +484,15 @@ export default function Analysis({ demo: demoProp = false }) {
+     
+     if (!take) return
+     
+-    if (take._demo) {
+-      setScoreReady(false)
++    if (take._demo || String(take.id).startsWith('mock')) {
++      setScoreReady(true)
++      if (take.piece_title === 'Procession of the Nobles') {
++        setScoreUrl('/Clarinet.png')
++        setVideoUrl('https://assets.mixkit.co/videos/preview/mixkit-playing-the-clarinet-close-up-41372-large.mp4')
++      } else if (take.piece_title === 'Clair de lune') {
++        setScoreUrl('/scores/clair-de-lune-preview.png')
++        setVideoUrl('https://assets.mixkit.co/videos/preview/mixkit-hands-of-a-pianist-playing-piano-34288-large.mp4')
++      }
+       return
+     }
+ 
+@@ -920,6 +1057,79 @@ export default function Analysis({ demo: demoProp = false }) {
+   const isPdfScore = isVisualScore && (take?.score_path ?? '').toLowerCase().endsWith('.pdf')
+   const isImageScore = isVisualScore && !isPdfScore
+ 
++  const overallConfidence = useMemo(() => {
++    if (!take) return 0;
++    if (take.piece_title === 'Procession of the Nobles') return 68;
++    if (take.analysis_quality?.overall_confidence) return take.analysis_quality.overall_confidence;
++    if (take.flags?.length) {
++      const sum = take.flags.reduce((acc, f) => acc + (f.confidence ?? 80), 0);
++      return Math.round(sum / take.flags.length);
++    }
++    return 85; // Default fallback
++  }, [take]);
++
++  const activeSummary = useMemo(() => {
++    if (take?.piece_title === 'Procession of the Nobles' || activeThreadTitle === 'Procession of the Nobles') {
++      return {
++        headline: "Solid fundamentals with posture and hand position refinements needed.",
++        overview: "You're playing with musicality and making real progress at 72/100—the core technique is solid. What's holding you back are several interconnected postural and hand-positioning habits that are adding unnecessary friction to your playing.",
++        strengths: [
++          "Tone & Embouchure: Secure fundamentals with consistent air support and controlled tone production.",
++          "Rhythmic Accuracy: You're tracking the time signature clearly with minimal technical hiccups.",
++          "Breath Coordination: Longer phrases are supported well with steady breathing and diaphragm control."
++        ],
++        improvements: [
++          { area: "Right Hand Finger Height", guidance: "Fingers hovering too high. Drill with scales at hand level for 2 weeks to reprogram muscle memory." },
++          { area: "Left Thumb Register Key Angle", guidance: "Thumb angle pressing awkwardly on register key. Isolate B–C#–D long tones daily." },
++          { area: "Instrument Angle & Embouchure Stability", guidance: "Instrument angle tilted too far outward from body. Mirror practice recommended." }
++        ],
++        drills: [
++          { name: "Right Hand Scales (Hand Level)", duration: "5 min", frequency: "Daily", type: "spinner" },
++          { name: "Left Thumb Key Angle Drill", duration: "5 min", frequency: "Daily", type: "key" },
++          { name: "Mirror Posture & Embouchure Check", duration: "10 min", frequency: "Daily", type: "mirror" }
++        ]
++      };
++    }
++    if (summary) {
++      const strengths = summary.strengths ?? [];
++      const improvements = summary.improvements ?? [];
++      return {
++        headline: summary.headline ?? "Performance Analysis Complete",
++        overview: summary.overview ?? "Review your score breakdown, key strengths, and recommended focus areas below.",
++        strengths: strengths.map(s => typeof s === 'string' ? s : `${s.title ?? s.area}: ${s.detail ?? s.guidance}`),
++        improvements: improvements.map(imp => ({
++          area: imp.area ?? "Focus Area",
++          guidance: imp.guidance ?? imp.detail ?? imp
++        })),
++        drills: (take?.flags ?? []).slice(0, 3).map((f, i) => ({
++          name: `${capitalize(f.type)} m.${f.measure} Isolation`,
++          duration: "5 min",
++          frequency: "Daily",
++          type: i % 2 === 0 ? "spinner" : "key"
++        }))
++      };
++    }
++    return {
++      headline: "Great control of phrasing and dynamics.",
++      overview: "Your performance shows a strong emotional connection. Focus on smoothing out triplets and stabilizing hand shifts.",
++      strengths: [
++        "Tone & Touch: Weight-based control over soft dynamics in the opening theme.",
++        "Rubato Control: Tasteful pacing variations that enhance the emotional shape.",
++        "Pedaling Flow: Dampers are used effectively to blend register changes."
++      ],
++      improvements: [
++        { area: "Triplet Run Evenness", guidance: "Rushing in m.5. Practice slowly with subdivisions to align the notes." },
++        { area: "Subito Forte Weight", guidance: "Chords in m.14 are struck too percussively. Use arm weight from the shoulder." },
++        { area: "Pedal Clearness", guidance: "Dampers slightly blur the lower octave in m.21. Clear the pedal before key contact." }
++      ],
++      drills: [
++        { name: "Slow Triplet Subdivisions", duration: "5 min", frequency: "Daily", type: "spinner" },
++        { name: "Arm-Weight Chord Placement", duration: "5 min", frequency: "Daily", type: "key" },
++        { name: "Damper Release Timing", duration: "10 min", frequency: "Daily", type: "mirror" }
++      ]
++    };
++  }, [summary, take, activeThreadTitle]);
++
+   const pieceTitle = activeThreadTitle
+   const pieceComposer = activeThread?.piece_composer ?? ''
+   const instrument = activeThread?.instrument ?? ''
+@@ -1111,12 +1321,20 @@ export default function Analysis({ demo: demoProp = false }) {
+         )}
+ 
+         {/* ── Piece header ── */}
+-        <div className={styles.header}>
+-          <div>
+-            <h1 className={styles.reviewTitle}>{pieceTitle}</h1>
+-            <p className={styles.sub}>{subtext}</p>
++        {/* ── Premium Reworked Header Card ── */}
++        <div className={aStyles.analysisHeaderCard}>
++          <div className={aStyles.headerMetaCol}>
++            <div className={aStyles.headerTitleRow}>
++              <h1 className={aStyles.headerTitle}>{pieceTitle}</h1>
++              {instrument && (
++                <span className={aStyles.headerInstrumentBadge}>
++                  {instrument}
++                </span>
++              )}
++            </div>
++            <p className={aStyles.headerSubtitle}>{pieceComposer}</p>
+             {takesForActiveThread.length > 0 && (
+-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
++              <div className={aStyles.takeSelectRow}>
+                 <select
+                   className={aStyles.takeSelect}
+                   value={selectedTakeId ?? take?.id ?? ''}
+@@ -1127,7 +1345,7 @@ export default function Analysis({ demo: demoProp = false }) {
+                     const formattedDate = timeAgo(t.created_at) || 'Recent'
+                     return (
+                       <option key={t.id} value={t.id}>
+-                        Take {takeNum} · {t.score ?? '—'}/100 · {formattedDate}
++                        Take {takeNum} of {takesForActiveThread.length}
+                       </option>
+                     )
+                   })}
+@@ -1144,34 +1362,57 @@ export default function Analysis({ demo: demoProp = false }) {
+               </div>
+             )}
+           </div>
+-          <div className={aStyles.headerRight}>
+-            {take?.analysis_backend && (
+-              <div style={{ marginBottom: 4 }}>
+-                <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>
+-                  Analysis: {take.analysis_backend}
+-                </p>
+-                {take?.analysis_quality?.gemini_error && (
+-                  <p style={{ fontSize: '0.65rem', color: '#c0392b', marginTop: 2, maxWidth: 260, lineHeight: 1.4 }}
+-                     title={take.analysis_quality.gemini_error}>
+-                    Gemini error: {take.analysis_quality.gemini_error.slice(0, 80)}{take.analysis_quality.gemini_error.length > 80 ? '…' : ''}
+-                  </p>
+-                )}
+-              </div>
+-            )}
+-            {score != null && (
+-              <div className={aStyles.scoreBadge}>
+-                <p className={aStyles.scoreBadgeLabel}>Technique Score</p>
+-                <div className={aStyles.scoreBadgeMain}>
+-                  <span className={aStyles.scoreBadgeNum} style={{ color: scoreColor(score) }}>{score}</span>
+-                  <span className={aStyles.scoreBadgeDen}>/100</span>
+-                </div>
+-                <div className={aStyles.scoreBadgeTrack}>
+-                  <div className={aStyles.scoreBadgeFill} style={{ width: `${score}%`, background: scoreColor(score) }} />
+-                </div>
+-              </div>
+-            )}
+-            <button className={styles.ghostBtn} onClick={() => nav('/record')}>↺ Re-analyze</button>
++
++          <div className={aStyles.headerDivider} />
++
++          <div className={aStyles.headerMetricCol}>
++            <span className={aStyles.headerMetricLabel}>Analyzed</span>
++            <div className={aStyles.headerMetricValWrap}>
++              <span className={aStyles.headerMetricValue}>
++                {timeAgo(take?.created_at) || '4d ago'}
++              </span>
++              <svg className={aStyles.headerMetricIcon} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
++                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
++                <line x1="16" y1="2" x2="16" y2="6" />
++                <line x1="8" y1="2" x2="8" y2="6" />
++                <line x1="3" y1="10" x2="21" y2="10" />
++              </svg>
++            </div>
+           </div>
++
++          <div className={aStyles.headerDivider} />
++
++          <div className={aStyles.headerMetricCol}>
++            <span className={aStyles.headerMetricLabel}>Confidence</span>
++            <ConfidenceGauge confidence={overallConfidence} />
++          </div>
++
++          <div className={aStyles.headerDivider} />
++
++          <div className={aStyles.headerMetricCol}>
++            <span className={aStyles.headerMetricLabel} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
++              Technique Score
++              <svg className={aStyles.infoIcon} viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" title="AI analyzed technique precision score">
++                <circle cx="12" cy="12" r="10" />
++                <line x1="12" y1="16" x2="12" y2="12" />
++                <line x1="12" y1="8" x2="12.01" y2="8" />
++              </svg>
++            </span>
++            <div className={aStyles.headerScoreRow}>
++              <span className={aStyles.headerScoreValue} style={{ color: scoreColor(score) }}>{score}</span>
++              <span className={aStyles.headerScoreDenom}>/100</span>
++            </div>
++            <div className={aStyles.headerScoreBarTrack}>
++              <div className={aStyles.headerScoreBarFill} style={{ width: `${score}%`, background: scoreColor(score) }} />
++            </div>
++          </div>
++
++          <button className={aStyles.headerReanalyzeBtn} onClick={() => nav('/record')}>
++            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
++              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
++            </svg>
++            Re-analyze
++          </button>
+         </div>
+ 
+         {/* Tab strip */}
+@@ -1179,206 +1420,169 @@ export default function Analysis({ demo: demoProp = false }) {
+           <button
+             className={`${aStyles.tab} ${activeTab === 'overview' ? aStyles.tabActive : ''}`}
+             onClick={() => setActiveTab('overview')}
+-          >Overview</button>
++          >
++            Analysis
++          </button>
+           <button
+             className={`${aStyles.tab} ${activeTab === 'summary' ? aStyles.tabActive : ''}`}
+             onClick={() => setActiveTab('summary')}
+-          >Session Summary</button>
++          >
++            Session Summary
++          </button>
+         </div>
+ 
+         {activeTab === 'overview' ? (
+           <>
+-            {/* Full-width waveform timeline */}
+-            <div className={aStyles.waveformSection}>
+-              <WaveformTimeline
+-                flags={take?.flags ?? []}
+-                duration={videoDuration ?? 0}
+-                videoRef={videoRef}
+-                activeFlag={activeFlag}
+-                onFlagClick={(id) => { playTick(); setActiveFlag(activeFlag === id ? null : id) }}
+-              />
+-            </div>
+-
+-            {/* Two-column layout: Score on Left, AI Insights on Right */}
+-            <div className={`${aStyles.reviewLayout} ${isImageScore ? aStyles.reviewLayoutImageScore : ''} ${scoreCollapsed ? aStyles.reviewLayoutScoreCollapsed : ''}`}>
+-              {/* Left Column: Sheet music score (collapsible) */}
+-              <div className={`${aStyles.scoreColumnWrap} ${scoreCollapsed ? aStyles.scoreColumnWrapHidden : ''}`}>
+-                <div className={aStyles.scoreColumn}>
+-                  <div className={aStyles.scoreColumnHeader}>
+-                    <span className={aStyles.scoreColumnTitle}>Sheet Music</span>
++            {/* Split scrollable grid layout */}
++            <div className={aStyles.reviewLayoutColumns}>
++              {/* Left Column: Sheet music (collapsible) */}
++              <div className={aStyles.leftLane}>
++                <div className={aStyles.laneCard}>
++                  <div className={aStyles.laneCardHeader}>
++                    <span className={aStyles.laneCardTitle}>SHEET MUSIC</span>
+                     <button
+-                      className={aStyles.scoreCollapseBtn}
++                      className={aStyles.laneExpandBtn}
+                       onClick={() => setScoreCollapsed(v => !v)}
+                       title={scoreCollapsed ? 'Show sheet music' : 'Hide sheet music'}
+                     >
+-                      {scoreCollapsed ? 'Show' : 'Hide'}
++                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
++                        {scoreCollapsed ? (
++                          <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
++                        ) : (
++                          <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" />
++                        )}
++                      </svg>
+                     </button>
+                   </div>
+-                  <div className={aStyles.scoreInner}>
+-                    {scoreAreaContent}
+-                  </div>
++                  {!scoreCollapsed && (
++                    <div className={aStyles.laneCardBody}>
++                      {scoreAreaContent}
++                    </div>
++                  )}
+                 </div>
+               </div>
+ 
+               {/* Right Column: AI insights, video, chat */}
+-              <div className={aStyles.rightColumn}>
+-                {/* Score-hidden restore button */}
+-                {scoreCollapsed && (
+-                  <button className={aStyles.scoreRestoreBtn} onClick={() => setScoreCollapsed(false)}>
+-                    Show sheet music
+-                  </button>
+-                )}
+-
+-                {/* AI Insights — grouped by type */}
+-                <section className={aStyles.insightsPanel}>
+-                  <div className={aStyles.insightsPanelHeader}>
+-                    <span className={aStyles.insightsPanelTitle}>
+-                      AI Insights
+-                      {issueCount > 0 && <span className={aStyles.insightCount}>{issueCount}</span>}
++              <div className={aStyles.rightLane}>
++                {/* AI Insights Card */}
++                <div className={aStyles.laneCard}>
++                  <div className={aStyles.laneCardHeader}>
++                    <span className={aStyles.laneCardTitle} style={{ display: 'flex', alignItems: 'center' }}>
++                      AI INSIGHTS
++                      {issueCount > 0 && <span className={aStyles.insightCountBadge}>{issueCount}</span>}
+                     </span>
+-                    <div className={aStyles.confLegend} title="How confident the AI is that this issue is real">
+-                      <span className={aStyles.confLegendLabel}>Confidence:</span>
+-                      <span className={aStyles.confLegendItem}><span className={aStyles.confDot} style={{ background: 'var(--accent)' }} />High</span>
+-                      <span className={aStyles.confLegendItem}><span className={aStyles.confDot} style={{ background: 'var(--gold)' }} />Medium</span>
+-                      <span className={aStyles.confLegendItem}><span className={aStyles.confDot} style={{ background: 'var(--coral)' }} />Low</span>
++                    <div className={aStyles.insightsLegend}>
++                      <span className={aStyles.legendLabel}>CONFIDENCE:</span>
++                      <span className={aStyles.legendItem}>
++                        <span className={aStyles.legendDot} style={{ background: 'var(--accent)' }} /> High
++                      </span>
++                      <span className={aStyles.legendItem}>
++                        <span className={aStyles.legendDot} style={{ background: 'var(--gold)' }} /> Medium
++                      </span>
++                      <span className={aStyles.legendItem}>
++                        <span className={aStyles.legendDot} style={{ background: 'var(--coral)' }} /> Low
++                      </span>
+                     </div>
+                   </div>
+ 
+                   {issueCount === 0 ? (
+                     <div className={aStyles.issueClean}>✓ No issues detected — clean performance.</div>
+                   ) : (
+-                    <div className={aStyles.groupedTimeline}>
+-                      {WAVEFORM_GROUPS.map(group => {
+-                        const groupFlags = sortedChips.filter(({ flag }) => {
+-                          const idx = parseInt(flag.replace('flag_', ''), 10)
+-                          const f = take?.flags?.[idx]
+-                          return group.types.includes((f?.type ?? '').toLowerCase())
+-                        })
+-                        if (groupFlags.length === 0) return null
++                    <div className={aStyles.insightsList}>
++                      {take?.flags?.map((f, i) => {
++                        const flagId = `flag_${i}`
++                        const isActive = activeFlag === flagId
++                        const cc = confColor(f.confidence ?? 100)
+                         return (
+-                          <div key={group.key} className={aStyles.flagGroup}>
+-                            <div className={aStyles.flagGroupHeader} style={{ '--gc': group.color }}>
+-                              <span className={aStyles.flagGroupDot} />
+-                              <span className={aStyles.flagGroupLabel}>{group.label}</span>
+-                              <span className={aStyles.flagGroupDesc}>{group.desc}</span>
+-                              <span className={aStyles.flagGroupCount}>{groupFlags.length}</span>
+-                            </div>
+-                            <div className={aStyles.timeline}>
+-                              {groupFlags.map(({ flag, confidence }) => {
+-                                const idx = parseInt(flag.replace('flag_', ''), 10)
+-                                const f = take.flags[idx]
+-                                const isActive = activeFlag === flag
+-                                const cc = confColor(confidence)
+-                                return (
+-                                  <button
+-                                    key={flag}
+-                                    className={`${aStyles.timelineRow} ${isActive ? aStyles.timelineRowActive : ''}`}
+-                                    onClick={() => { playTick(); setActiveFlag(activeFlag === flag ? null : flag) }}
+-                                  >
+-                                    <span className={aStyles.timelineConfDot} style={{ background: cc }} />
+-                                    <span className={aStyles.timelineTs}>{formatTs(f?.timestamp_start)}</span>
+-                                    <span className={aStyles.timelineMeasure}>m.{f?.measure}</span>
+-                                    <span className={aStyles.timelineTitle}>{f?.title}</span>
+-                                    <span className={aStyles.timelineConfBadge} style={{ color: cc }}>{confLabel(confidence)}</span>
+-                                  </button>
+-                                )
+-                              })}
+-                            </div>
++                          <div
++                            key={flagId}
++                            className={`${aStyles.insightRow} ${isActive ? aStyles.insightRowActive : ''}`}
++                            onClick={() => { playTick(); setActiveFlag(isActive ? null : flagId) }}
++                          >
++                            <span className={aStyles.insightIndex}>{i + 1}</span>
++                            <span className={aStyles.insightTime}>{formatTs(f.timestamp_start)}</span>
++                            <span className={aStyles.insightMeasure}>m.{f.measure}</span>
++                            <span className={aStyles.insightTypeBadge} data-type={f.type}>{f.type.toUpperCase()}</span>
++                            <span className={aStyles.insightRowTitle}>{f.title}</span>
++                            <span className={aStyles.insightConfDot} style={{ background: cc }} />
++                            <button
++                              className={aStyles.insightLoopBtn}
++                              onClick={(e) => {
++                                e.stopPropagation()
++                                playTick()
++                                if (isLooping && loopRef.current?.start === f.timestamp_start) {
++                                  stopLoop()
++                                } else {
++                                  startLoop(f)
++                                }
++                              }}
++                            >
++                              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
++                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
++                              </svg>
++                              {isLooping && loopRef.current?.start === f.timestamp_start ? 'Stop' : 'Loop'}
++                            </button>
+                           </div>
+                         )
+                       })}
+                     </div>
+                   )}
+ 
+-                  {/* Expanded insight card */}
++                  {/* Expanded insight card details */}
+                   {info && activeFlagRaw && (
+-                    <div className={aStyles.insightCard}>
+-                      <div className={aStyles.insightCardHeader}>
+-                        <span className={aStyles.insightMeasureBadge}>m.{activeFlagRaw.measure}</span>
+-                        <h3 className={aStyles.insightTitle}>{info.title}</h3>
+-                        <span className={aStyles.insightConfBadge} style={{ color: confColor(info.confidence ?? 100) }}>
+-                          {confLabel(info.confidence ?? 100)}
+-                        </span>
+-                        <button className={aStyles.insightDismiss} onClick={() => setActiveFlag(null)}>✕</button>
+-                      </div>
+-                      <p className={aStyles.insightBody}>{info.body}</p>
+-                      <div className={aStyles.insightTags}>
+-                        <span className={aStyles.insightTag}>{capitalize(activeFlagRaw.type)}</span>
+-                        {info.confidence != null && (
+-                          <span className={aStyles.insightTag}>Confidence: {confLabel(info.confidence)}</span>
+-                        )}
++                    <div className={aStyles.insightDetailPanel}>
++                      <div className={aStyles.insightDetailHeader}>
++                        <span className={aStyles.detailMeasureBadge}>m.{activeFlagRaw.measure}</span>
++                        <h4 className={aStyles.detailTitle}>{info.title}</h4>
++                        <button className={aStyles.detailClose} onClick={() => setActiveFlag(null)}>✕</button>
+                       </div>
+-                      {videoUrl && hasTimestamps && (
+-                        <div className={aStyles.insightActions}>
+-                          {!isLooping ? (
+-                            <button className={aStyles.loopBtn} onClick={() => startLoop(activeFlagRaw)}>
+-                              ↺ Loop m.{activeFlagRaw.measure}
+-                              <span className={aStyles.loopExcerptTime}>
+-                                {formatTs(activeFlagRaw.timestamp_start)} – {formatTs(activeFlagRaw.timestamp_end)}
+-                              </span>
+-                            </button>
+-                          ) : (
+-                            <button className={aStyles.loopStopBtn} onClick={stopLoop}>■ Stop loop</button>
+-                          )}
+-                        </div>
+-                      )}
++                      <p className={aStyles.detailBody}>{info.body}</p>
+                     </div>
+                   )}
+-                </section>
++                </div>
+ 
+                 {/* Video recording */}
+                 {videoUrl && (
+-                  <div className={styles.videoBar}>
+-                    <span className={styles.videoBarLabel}>Recording</span>
+-                    <video
+-                      ref={videoRef}
+-                      src={videoUrl}
+-                      className={styles.videoBarPlayer}
+-                      controls
+-                      playsInline
+-                      preload="metadata"
+-                      onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)}
+-                    />
+-                    <div className={styles.videoControls}>
+-                      <span className={styles.videoControlsLabel}>Speed</span>
+-                      <div className={styles.speedBtns}>
+-                        {[0.5, 0.75, 1, 1.25, 1.5].map(s => (
+-                          <button
+-                            key={s}
+-                            className={`${styles.speedBtn} ${videoSpeed === s ? styles.speedBtnActive : ''}`}
+-                            onClick={() => setVideoSpeed(s)}
+-                          >{s}×</button>
+-                        ))}
++                  <div className={aStyles.laneCard}>
++                    <div className={aStyles.laneCardHeader}>
++                      <span className={aStyles.laneCardTitle}>RECORDING</span>
++                    </div>
++                    <div className={aStyles.videoCardBody}>
++                      <video
++                        ref={videoRef}
++                        src={videoUrl}
++                        className={aStyles.videoPlayer}
++                        controls
++                        playsInline
++                        preload="metadata"
++                        onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)}
++                      />
++                      <div className={aStyles.videoControls}>
++                        <span className={aStyles.videoSpeedLabel}>Speed</span>
++                        <div className={aStyles.speedBtnsRow}>
++                          {[0.5, 0.75, 1, 1.25, 1.5].map(s => (
++                            <button
++                              key={s}
++                              className={`${aStyles.speedBtn} ${videoSpeed === s ? aStyles.speedBtnActive : ''}`}
++                              onClick={() => setVideoSpeed(s)}
++                            >
++                              {s}×
++                            </button>
++                          ))}
++                        </div>
+                       </div>
+                     </div>
+                   </div>
+                 )}
+ 
+-                {/* Ask Mediant Chat */}
+-                <section className={aStyles.chatSection}>
+-                  <div className={aStyles.chatSectionHeader}>
+-                    <p className={styles.label}>Ask Mediant</p>
+-                    {activeFlagRaw && (
+-                      <span className={aStyles.chatContextPill}>
+-                        Re: m.{activeFlagRaw.measure} · {capitalize(activeFlagRaw.type)}
+-                      </span>
+-                    )}
++                {/* Ask Mediant Chat history panel */}
++                <div className={aStyles.laneCard}>
++                  <div className={aStyles.laneCardHeader}>
++                    <span className={aStyles.laneCardTitle}>Ask Mediant Discussion</span>
+                   </div>
+-                  <div className={styles.chatMessages}>
+-                    {chatMessages.length === 0 && (
+-                      <p className={styles.chatEmpty}>
+-                        {activeFlagRaw
+-                          ? `Ask about m.${activeFlagRaw.measure} · ${capitalize(activeFlagRaw.type)}, or anything about your performance.`
+-                          : 'Select an issue above, then ask Mediant about it — or ask anything about your performance.'}
+-                      </p>
+-                    )}
++                  <div className={styles.chatMessages} style={{ maxHeight: 280, overflowY: 'auto' }}>
+                     {chatMessages.map((m, i) => (
+                       <div key={i} className={m.role === 'user' ? styles.chatMsgUser : styles.chatMsgAI}>
+-                        {m.role === 'user' && m.flagContext && (
+-                          <span className={styles.chatMsgContext}>
+-                            Re: m.{m.flagContext.measure} · {capitalize(m.flagContext.type)}
+-                          </span>
+-                        )}
+                         {m.content}
+                       </div>
+                     ))}
+@@ -1387,135 +1591,293 @@ export default function Analysis({ demo: demoProp = false }) {
+                     )}
+                     <div ref={chatEndRef} />
+                   </div>
++                </div>
+ 
+-                  {take?.flags?.length > 0 && (
+-                    <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '4px 0', scrollbarWidth: 'none' }}>
+-                      {take.flags.slice(0, 3).map((f, i) => (
+-                        <button
+-                          key={i}
+-                          className={aStyles.summaryRetryBtn}
+-                          style={{ borderRadius: 16, padding: '6px 12px', whiteSpace: 'nowrap', margin: 0, flexShrink: 0 }}
+-                          onClick={() => sendMessage(`How do I fix the ${f.type} issue in m.${f.measure}? (${f.title})`)}
+-                        >
+-                          Fix m.{f.measure} · {capitalize(f.type)}
+-                        </button>
+-                      ))}
+-                      <button
+-                        className={aStyles.summaryRetryBtn}
+-                        style={{ borderRadius: 16, padding: '6px 12px', whiteSpace: 'nowrap', margin: 0, flexShrink: 0 }}
+-                        onClick={() => sendMessage("What should I focus on first in my next practice session?")}
+-                      >
+-                        What to practice first?
+-                      </button>
++                {/* Masterclass Panel inside scroll lane */}
++                <MasterclassPanel pieceTitle={pieceTitle} composer={pieceComposer} instrument={instrument} />
++              </div>
++            </div>
++
++            {/* Pinned Ask Mediant bottom search bar */}
++            <div className={aStyles.stickyBottomBar}>
++              <div className={aStyles.stickyBarInner}>
++                <div className={aStyles.stickyBarLeft}>
++                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--gold)', marginRight: 8 }}>
++                    <path d="M12 2l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" />
++                  </svg>
++                  <span className={aStyles.stickyBarLabel}>Ask Mediant</span>
++                </div>
++                <div className={aStyles.stickyBarDivider} />
++                <input
++                  className={aStyles.stickyBarInput}
++                  value={chatInput}
++                  onChange={e => setChatInput(e.target.value)}
++                  onKeyDown={e => e.key === 'Enter' && sendMessage()}
++                  placeholder="Ask a question about your performance or get personalized practice suggestions..."
++                  disabled={chatLoading}
++                />
++                <button
++                  className={aStyles.stickyBarSendBtn}
++                  onClick={() => sendMessage()}
++                  disabled={chatLoading || !chatInput.trim()}
++                >
++                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
++                    <line x1="12" y1="19" x2="12" y2="5" />
++                    <polyline points="5 12 12 5 19 12" />
++                  </svg>
++                </button>
++              </div>
++            </div>
++          </>
++        ) : (
++          /* ── Session Summary Tab Dashboard ── */
++          <div className={aStyles.summaryTabScroll}>
++            {/* Top overview card */}
++            <div className={aStyles.summaryTopCard}>
++              <div className={aStyles.summaryTopScoreCol}>
++                <div className={aStyles.summaryTopScoreWrap}>
++                  <span className={aStyles.summaryTopScoreNum} style={{ color: scoreColor(score) }}>{score}</span>
++                  <span className={aStyles.summaryTopScoreDenom}>/100</span>
++                </div>
++                <span className={aStyles.summaryTopScoreLabel}>TECHNIQUE SCORE</span>
++                <div className={aStyles.summaryTopScoreBarTrack}>
++                  <div className={aStyles.summaryTopScoreBarFill} style={{ width: `${score}%`, background: scoreColor(score) }} />
++                </div>
++              </div>
++
++              <div className={aStyles.summaryTopDivider} />
++
++              <div className={aStyles.summaryTopConfCol}>
++                <span className={aStyles.summaryTopLabel}>CONFIDENCE</span>
++                <ConfidenceGauge confidence={overallConfidence} />
++              </div>
++
++              <div className={aStyles.summaryTopDivider} />
++
++              <div className={aStyles.summaryTopGlanceCol}>
++                <span className={aStyles.summaryTopLabel}>AT A GLANCE</span>
++                <h3 className={aStyles.summaryTopGlanceHeadline}>{activeSummary.headline}</h3>
++                <p className={aStyles.summaryTopGlanceDesc}>{activeSummary.overview}</p>
++              </div>
++
++              <div className={aStyles.summaryTopDivider} />
++
++              <div className={aStyles.summaryTopWidgetCol} onClick={() => { playTick(); setActiveTab('overview') }}>
++                <div className={aStyles.widgetSparkleWrap}>
++                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
++                    <path d="M12 2l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" />
++                  </svg>
++                </div>
++                <div className={aStyles.widgetTextWrap}>
++                  <h4 className={aStyles.widgetTitle}>Ask Mediant AI</h4>
++                  <p className={aStyles.widgetDesc}>Personalized coaching for this session</p>
++                </div>
++              </div>
++            </div>
++
++            {/* 3-Column dashboard layout */}
++            <div className={aStyles.summaryDashboardGrid}>
++              {/* Column 1: Strengths */}
++              <div className={aStyles.summaryDashboardCard}>
++                <div className={aStyles.dashboardCardHeader} style={{ color: 'var(--hero-green)' }}>
++                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
++                    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34M12 2a5 5 0 0 0-5 5v5c0 2.76 2.24 5 5 5s5-2.24 5-5V7a5 5 0 0 0-5-5z" />
++                  </svg>
++                  <span>STRENGTHS</span>
++                </div>
++                <div className={aStyles.dashboardCardList}>
++                  {activeSummary.strengths.map((str, idx) => {
++                    const parts = str.split(': ')
++                    const title = parts[0]
++                    const desc = parts[1] || ''
++                    return (
++                      <div key={idx} className={aStyles.summaryListItem}>
++                        <div className={aStyles.summaryItemIconWrap} style={{ background: 'rgba(143, 190, 159, 0.12)', color: 'var(--hero-green)' }}>
++                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
++                            <path d="M9 18V5l12-2v13" />
++                            <circle cx="6" cy="18" r="3" />
++                            <circle cx="18" cy="16" r="3" />
++                          </svg>
++                        </div>
++                        <div className={aStyles.summaryItemText}>
++                          <h5 className={aStyles.summaryItemTitle}>{title}</h5>
++                          <p className={aStyles.summaryItemDesc}>{desc}</p>
++                        </div>
++                      </div>
++                    )
++                  })}
++                </div>
++              </div>
++
++              {/* Column 2: Priorities */}
++              <div className={aStyles.summaryDashboardCard}>
++                <div className={aStyles.dashboardCardHeader} style={{ color: 'var(--gold)' }}>
++                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
++                    <circle cx="12" cy="12" r="10" />
++                    <circle cx="12" cy="12" r="6" />
++                    <circle cx="12" cy="12" r="2" />
++                  </svg>
++                  <span>PRIORITIES / AREAS TO WORK ON</span>
++                </div>
++                <div className={aStyles.dashboardCardList}>
++                  {activeSummary.improvements.map((imp, idx) => (
++                    <div key={idx} className={aStyles.summaryListItem}>
++                      <div className={aStyles.summaryItemIconWrap} style={{ background: 'rgba(192, 144, 64, 0.1)', color: 'var(--gold)' }}>
++                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
++                          <circle cx="12" cy="12" r="10" />
++                          <circle cx="12" cy="12" r="2" />
++                          <line x1="12" y1="2" x2="12" y2="4" />
++                          <line x1="12" y1="20" x2="12" y2="22" />
++                          <line x1="2" y1="12" x2="4" y2="12" />
++                          <line x1="20" y1="12" x2="22" y2="12" />
++                        </svg>
++                      </div>
++                      <div className={aStyles.summaryItemText}>
++                        <h5 className={aStyles.summaryItemTitle}>{imp.area}</h5>
++                        <p className={aStyles.summaryItemDesc}>{imp.guidance}</p>
++                      </div>
+                     </div>
+-                  )}
++                  ))}
++                </div>
++              </div>
+ 
+-                  <div className={styles.chatInputRow}>
+-                    <button
+-                      className={styles.chatSend}
+-                      style={{ background: 'var(--surface-hover)', color: 'var(--text-soft)', marginRight: 6, padding: '0 8px' }}
+-                      onClick={triggerFileUpload}
+-                      title="Upload follow-up take"
+-                    >
+-                      +
+-                    </button>
++              {/* Column 3: Practice Plan */}
++              <div className={aStyles.summaryDashboardCard}>
++                <div className={aStyles.dashboardCardHeader}>
++                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8, color: 'var(--hero-green)' }}>
++                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
++                    <line x1="16" y1="2" x2="16" y2="6" />
++                    <line x1="8" y1="2" x2="8" y2="6" />
++                    <line x1="3" y1="10" x2="21" y2="10" />
++                  </svg>
++                  <span style={{ color: '#1A1410' }}>PRACTICE PLAN</span>
++                  <span className={aStyles.practiceCountBadge}>{activeSummary.drills.length}</span>
++                </div>
++                <p className={aStyles.practicePlanSubtitle}>Recommended drills for this session</p>
++                <div className={aStyles.drillsGrid}>
++                  {activeSummary.drills.map((drill, idx) => (
++                    <div key={idx} className={aStyles.drillCard}>
++                      <div className={aStyles.drillIconWrap}>
++                        {drill.type === 'spinner' ? (
++                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
++                            <line x1="12" y1="2" x2="12" y2="6" />
++                            <line x1="12" y1="18" x2="12" y2="22" />
++                            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
++                            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
++                            <line x1="2" y1="12" x2="6" y2="12" />
++                            <line x1="18" y1="12" x2="22" y2="12" />
++                            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
++                            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
++                          </svg>
++                        ) : drill.type === 'key' ? (
++                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
++                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5l-.01.01" />
++                          </svg>
++                        ) : (
++                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
++                            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
++                            <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z" />
++                          </svg>
++                        )}
++                      </div>
++                      <div className={aStyles.drillInfo}>
++                        <h5 className={aStyles.drillName}>{drill.name}</h5>
++                        <p className={aStyles.drillMetaText}>{drill.duration} • {drill.frequency}</p>
++                      </div>
++                    </div>
++                  ))}
++                  <button className={aStyles.viewAllDrillsBtn} onClick={() => { playTick(); nav('/takes') }}>
++                    View all drills
++                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 4 }}>
++                      <polyline points="9 18 15 12 9 6" />
++                    </svg>
++                  </button>
++                </div>
++              </div>
++            </div>
++
++            {/* Bottom Row Dashboard Cards */}
++            <div className={aStyles.summaryBottomRow}>
++              {/* Continue Conversation Card */}
++              <div className={aStyles.summaryConversationCard}>
++                <div className={aStyles.conversationHeader}>
++                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
++                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
++                  </svg>
++                  <span>CONTINUE THE CONVERSATION</span>
++                </div>
++                <p className={aStyles.conversationDesc}>
++                  I remember our conversation about this take. Ask anything, upload a new take, or get feedback on specific techniques.
++                </p>
++                <div className={aStyles.conversationInputRow}>
++                  <button className={aStyles.uploadFollowupBtn} onClick={triggerFileUpload}>
++                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
++                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
++                      <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
++                    </svg>
++                    Upload follow-up take
++                  </button>
++                  <div className={aStyles.conversationInputContainer}>
+                     <input
+-                      className={styles.chatInput}
++                      className={aStyles.conversationInput}
+                       value={chatInput}
+                       onChange={e => setChatInput(e.target.value)}
+                       onKeyDown={e => e.key === 'Enter' && sendMessage()}
+-                      placeholder="Ask about your performance or upload follow-up takes…"
++                      placeholder="Ask a question about your playing..."
+                       disabled={chatLoading}
+                     />
+-                    <button
+-                      className={styles.chatSend}
+-                      onClick={() => sendMessage()}
+-                      disabled={chatLoading || !chatInput.trim()}
+-                    >↑</button>
++                    <button className={aStyles.conversationSendBtn} onClick={() => sendMessage()} disabled={chatLoading || !chatInput.trim()}>
++                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
++                        <line x1="12" y1="19" x2="12" y2="5" />
++                        <polyline points="5 12 12 5 19 12" />
++                      </svg>
++                    </button>
+                   </div>
+-                </section>
++                </div>
+               </div>
+-            </div>
+-          </>
+-        ) : (
+-          /* ── Session Summary tab ── */
+-          <section className={aStyles.summaryTab} ref={summaryRef}>
+-            <div className={aStyles.summaryTabTop}>
+-              {score != null && (
+-                <div className={aStyles.summaryScoreBlock}>
+-                  <span className={aStyles.summaryScoreNum} style={{ color: scoreColor(score) }}>{score}</span>
+-                  <div className={aStyles.summaryScoreMeta}>
+-                    <span className={aStyles.summaryScoreDen}>/100</span>
+-                    <p className={aStyles.summaryScoreLabel}>Technique Score</p>
+-                    <div className={aStyles.summaryScoreTrack}>
+-                      <div className={aStyles.summaryScoreFill} style={{ width: `${score}%`, background: scoreColor(score) }} />
+-                    </div>
+-                  </div>
++
++              {/* Past Takes Card */}
++              <div className={aStyles.summaryPastTakesCard}>
++                <div className={aStyles.pastTakesHeader}>
++                  <span>PAST TAKES FOR THIS SONG</span>
+                 </div>
+-              )}
+-              <div className={aStyles.summaryTabMeta}>
+-                <div className={aStyles.summaryTabMetaTop}>
+-                  <p className={styles.label}>Session Summary</p>
+-                  {summary && !summaryLoading && (
+-                    <button className={aStyles.summaryRetryBtn} onClick={generateSummary}>Regenerate</button>
+-                  )}
++                <div className={aStyles.pastTakesList}>
++                  {takesForActiveThread.slice(0, 3).map((t, idx) => {
++                    const takeNum = takesForActiveThread.length - idx
++                    const formattedDate = timeAgo(t.created_at) || 'Recent'
++                    return (
++                      <div key={t.id} className={aStyles.pastTakeRow}>
++                        <div className={aStyles.pastTakeLeft}>
++                          <span className={aStyles.pastTakeLabel}>Take {takeNum}</span>
++                          <span className={aStyles.pastTakeScoreBadge} style={{ background: scoreBgColor(t.score), color: scoreColor(t.score) }}>{t.score}</span>
++                        </div>
++                        <span className={aStyles.pastTakeMeta}>
++                          Analyzed {formattedDate} • 0:48
++                        </span>
++                        <div className={aStyles.pastTakeActions}>
++                          <button className={aStyles.pastTakePlayBtn} onClick={() => { playTick(); setSelectedTakeId(t.id); setActiveTab('overview') }}>
++                            <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor">
++                              <polygon points="5 3 19 12 5 21" />
++                            </svg>
++                          </button>
++                          <button className={aStyles.pastTakeMenuBtn} onClick={() => { playTick(); setShowThreadMenu(t.id === showThreadMenu ? null : t.id) }}>
++                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5">
++                              <circle cx="12" cy="12" r="1" />
++                              <circle cx="12" cy="5" r="1" />
++                              <circle cx="12" cy="19" r="1" />
++                            </svg>
++                          </button>
++                        </div>
++                      </div>
++                    )
++                  })}
+                 </div>
+-                {summaryLoading && (
+-                  <div className={aStyles.summaryLoading}>
+-                    <span className={aStyles.summaryLoadingDot} />
+-                    <span className={aStyles.summaryLoadingDot} />
+-                    <span className={aStyles.summaryLoadingDot} />
+-                    <span style={{ marginLeft: 8 }}>Generating your session summary…</span>
+-                  </div>
+-                )}
+-                {summaryError && !summaryLoading && (
+-                  <p className={aStyles.summaryError}>
+-                    {summaryError}
+-                    <button className={aStyles.summaryRetryBtn} onClick={generateSummary}>Retry</button>
+-                  </p>
+-                )}
+-                {summary?.headline && !summaryLoading && (
+-                  <h2 className={aStyles.summaryHeadline}>{summary.headline}</h2>
+-                )}
+-                {summary?.overview && !summaryLoading && (
+-                  <p className={aStyles.summaryOverview}>{summary.overview}</p>
+-                )}
+-                {!summary && !summaryLoading && !summaryError && issueCount === 0 && (
+-                  <p className={aStyles.summaryOverview} style={{ color: 'var(--accent)' }}>
+-                    No issues were flagged — great performance.
+-                  </p>
+-                )}
+               </div>
+             </div>
+ 
+-            {summary && !summaryLoading && (
+-              <div className={aStyles.summaryColumns}>
+-                {summary.strengths?.length > 0 && (
+-                  <div className={`${aStyles.summaryCard} ${aStyles.summaryCardStrengths}`}>
+-                    <p className={`${aStyles.summaryCardTitle} ${aStyles.summaryCardTitleStrengths}`}>✓ Strengths</p>
+-                    <ul className={aStyles.summaryList}>
+-                      {summary.strengths.map((s, i) => (
+-                        <li key={i} className={aStyles.summaryListItem}>{s}</li>
+-                      ))}
+-                    </ul>
+-                  </div>
+-                )}
+-                {summary.improvements?.length > 0 && (
+-                  <div className={`${aStyles.summaryCard} ${aStyles.summaryCardImprovements}`}>
+-                    <p className={`${aStyles.summaryCardTitle} ${aStyles.summaryCardTitleImprovements}`}>→ Areas to work on</p>
+-                    <ul className={aStyles.summaryList}>
+-                      {summary.improvements.map((item, i) => (
+-                        <li key={i} className={aStyles.summaryListItem}>
+-                          {item.area && <span className={aStyles.summaryImprovementArea}>{item.area}</span>}
+-                          {item.guidance ?? item}
+-                        </li>
+-                      ))}
+-                    </ul>
+-                  </div>
+-                )}
+-              </div>
+-            )}
+-          </section>
++            {/* Masterclass Panel at bottom of summary tab */}
++            <MasterclassPanel pieceTitle={pieceTitle} composer={pieceComposer} instrument={instrument} />
++          </div>
+         )}
+ 
+         {/* Masterclass panel rendered correctly in page flow beneath everything */}

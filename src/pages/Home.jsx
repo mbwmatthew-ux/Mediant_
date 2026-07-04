@@ -1,36 +1,24 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
 import { useTakes } from '../hooks/useTakes'
-import Onboarding from '../components/Onboarding'
-import MusicAmbience from '../components/MusicAmbience'
+import { useRecordModal } from '../context/RecordModalContext'
 import styles from './Home.module.css'
 import { playPop } from '../utils/sounds'
 
-function formatDate() {
-  return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-}
-
-function formatDateShort(iso) {
-  try {
-    const d = new Date(iso)
-    const now = new Date()
-    const diffMs = now - d
-    const diffDays = Math.floor(diffMs / 86400000)
-    if (diffDays === 0) return 'Today'
-    if (diffDays === 1) return 'Yesterday'
-    if (diffDays < 7) return `${diffDays}d ago`
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  } catch { return '' }
+function scoreColor(n) {
+  if (n == null) return 'var(--text-faintest)'
+  if (n >= 90) return 'var(--score-good)'
+  if (n >= 74) return 'var(--score-ok)'
+  return 'var(--score-bad)'
 }
 
 function calcStreak(sessions) {
   if (!sessions.length) return 0
-  const today = new Date(); today.setHours(0,0,0,0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
   const dateSet = new Set(
     sessions.map(s => {
       const d = new Date(s.created_at || s.date || '')
-      d.setHours(0,0,0,0)
+      d.setHours(0, 0, 0, 0)
       return d.getTime()
     }).filter(Boolean)
   )
@@ -41,384 +29,201 @@ function calcStreak(sessions) {
   return streak
 }
 
-function scoreColor(n) {
-  if (n == null) return 'var(--text-faintest)'
-  if (n >= 88) return 'var(--score-good)'
-  if (n >= 74) return 'var(--score-ok)'
-  return 'var(--score-bad)'
+/* Longest streak across the full history */
+function calcLongestStreak(sessions) {
+  if (!sessions.length) return 0
+  const days = [...new Set(sessions.map(s => {
+    const d = new Date(s.created_at || s.date || '')
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }).filter(Boolean))].sort((a, b) => a - b)
+  let longest = 1, run = 1
+  const DAY = 86400000
+  for (let i = 1; i < days.length; i++) {
+    if (days[i] - days[i - 1] === DAY) { run++; longest = Math.max(longest, run) }
+    else run = 1
+  }
+  return longest
 }
 
-/* Group takes by piece into song threads */
-function buildThreads(takes) {
+/* Most common flag type across a piece's takes */
+function commonIssue(takes) {
+  const counts = {}
+  for (const t of takes) {
+    for (const f of t.flags ?? []) {
+      const type = (f.type ?? '').toLowerCase()
+      if (type) counts[type] = (counts[type] || 0) + 1
+    }
+  }
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
+  if (!top) return null
+  return top[0].charAt(0).toUpperCase() + top[0].slice(1)
+}
+
+function buildPieces(takes) {
   const map = {}
   for (const t of takes) {
     const key = t.piece_title || 'Untitled'
-    if (!map[key]) map[key] = { title: key, composer: t.piece_composer || '', takes: [] }
+    if (!map[key]) map[key] = { title: key, composer: t.piece_composer || 'Unknown', instrument: t.instrument || '', takes: [] }
     map[key].takes.push(t)
   }
-  return Object.values(map).map(thread => ({
-    ...thread,
-    latestScore: thread.takes[0]?.score ?? null,
-    prevScore:   thread.takes[1]?.score ?? null,
-    latestDate:  thread.takes[0]?.created_at ?? null,
-    takeCount:   thread.takes.length,
+  return Object.values(map).map(p => ({
+    ...p,
+    latestScore: p.takes[0]?.score ?? null,
+    latestDate:  p.takes[0]?.created_at ?? null,
+    issue:       commonIssue(p.takes),
   })).sort((a, b) => new Date(b.latestDate) - new Date(a.latestDate))
-}
-
-/* Build 7-day activity data */
-function buildWeekActivity(sessions) {
-  const days = []
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date()
-    d.setHours(0,0,0,0)
-    d.setDate(d.getDate() - i)
-    const practiced = sessions.some(s => {
-      const sd = new Date(s.created_at || '')
-      sd.setHours(0,0,0,0)
-      return sd.getTime() === d.getTime()
-    })
-    days.push({
-      label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1),
-      practiced,
-      isToday: i === 0,
-    })
-  }
-  return days
 }
 
 export default function Home() {
   const nav = useNavigate()
-  const { user } = useAuth()
-  const takes = useTakes({ limit: 20 })
+  const { setOpen } = useRecordModal()
+  const takes = useTakes({ limit: 50 })
   const sessions = takes ?? []
-  const [showOnboarding, setShowOnboarding] = useState(false)
-
-  useEffect(() => {
-    if (!user) return
-    const serverDone = user.user_metadata?.onboarded === true
-    const localDone  = !!localStorage.getItem('mediant_onboarded')
-    if (!serverDone && !localDone) setShowOnboarding(true)
-  }, [user])
-
   const loading = takes === undefined
-  const streak  = useMemo(() => calcStreak(sessions), [sessions])
-  const threads = useMemo(() => buildThreads(sessions), [sessions])
-  const weekActivity = useMemo(() => buildWeekActivity(sessions), [sessions])
 
-  const lastScore = sessions[0]?.score ?? null
-  const prevScore = sessions[1]?.score ?? null
-  const scoreDelta = lastScore != null && prevScore != null ? lastScore - prevScore : null
+  const streak = useMemo(() => calcStreak(sessions), [sessions])
+  const longest = useMemo(() => calcLongestStreak(sessions), [sessions])
+  const pieces = useMemo(() => buildPieces(sessions), [sessions])
 
+  /* Recorded this week — sum duration of takes in the last 7 days */
+  const weekMinutes = useMemo(() => {
+    const cutoff = Date.now() - 7 * 86400000
+    let totalSec = 0, count = 0
+    for (const t of sessions) {
+      const ts = new Date(t.created_at || t.date || '').getTime()
+      if (ts >= cutoff) {
+        count++
+        totalSec += t.duration_sec ?? t.duration ?? 0
+      }
+    }
+    return { totalSec, count }
+  }, [sessions])
+
+  const weekLabel = useMemo(() => {
+    const total = weekMinutes.totalSec
+    if (!total) return weekMinutes.count > 0 ? `${weekMinutes.count} rec` : '0m'
+    const h = Math.floor(total / 3600)
+    const m = Math.floor((total % 3600) / 60)
+    return h > 0 ? `${h}h ${m}m` : `${m}m`
+  }, [weekMinutes])
+
+  /* Avg score — last 10 scored takes */
   const avgScore = useMemo(() => {
-    const scored = sessions.filter(s => s.score != null)
+    const scored = sessions.filter(s => s.score != null).slice(0, 10)
     if (!scored.length) return null
     return Math.round(scored.reduce((sum, s) => sum + s.score, 0) / scored.length)
   }, [sessions])
 
-  /* Technique trends */
-  const techniqueTrends = useMemo(() => {
-    const keys = ['timing', 'intonation', 'dynamics', 'articulation']
-    const countFlags = (takeList) => {
-      const c = Object.fromEntries(keys.map(k => [k, 0]))
-      for (const t of takeList) {
-        for (const f of t.flags ?? []) {
-          const type = (f.type ?? '').toLowerCase()
-          if (type in c) c[type]++
-        }
-      }
-      return c
-    }
-    const newest = countFlags(sessions.slice(0, 3))
-    const older  = countFlags(sessions.slice(3, 8))
-    const labels = { timing: 'Timing', intonation: 'Intonation', dynamics: 'Dynamics', articulation: 'Articulation' }
-    return keys.map(k => {
-      const diff = sessions.length >= 4 ? older[k] - newest[k] : null
-      const delta = diff === null ? null : diff
-      return { label: labels[k], key: k, delta, improved: delta !== null && delta > 0 }
-    })
-  }, [sessions])
-
-  /* Practice priorities from last take's flags */
-  const priorities = useMemo(() => {
-    const lastTake = sessions[0]
-    if (!lastTake?.flags?.length) return []
-    return lastTake.flags
-      .filter(f => f.type && f.detail)
-      .slice(0, 3)
-      .map(f => ({
-        text: f.detail?.slice(0, 90) || f.type,
-        sub:  f.type ? `${f.type.charAt(0).toUpperCase() + f.type.slice(1)} · m.${f.measure}` : '',
-        type: f.type,
-      }))
-  }, [sessions])
-
-  /* Focus tip based on weakest trend */
-  const focusTip = useMemo(() => {
-    if (!sessions.length) return 'Upload your first recording to get personalized coaching feedback.'
-    const worst = techniqueTrends.find(t => t.delta !== null && t.delta < 0)
-    if (worst) return `Your ${worst.label.toLowerCase()} scores have dipped recently. Spend extra time on slow, isolated practice for those passages.`
-    if (sessions[0]?.flags?.length) return `You have ${sessions[0].flags.length} flagged area${sessions[0].flags.length !== 1 ? 's' : ''} from your last session. Focus on those before recording again.`
-    return 'Great consistency this week — keep the momentum going!'
-  }, [sessions, techniqueTrends])
-
-  const STAT_TILES = [
-    {
-      label: 'CURRENT STREAK',
-      value: streak > 0 ? `${streak}` : '0',
-      unit: streak === 1 ? 'day' : 'days',
-      delta: streak > 1 ? `↑ +1` : null,
-      deltaColor: 'var(--mint)',
-    },
-    {
-      label: 'TOTAL SESSIONS',
-      value: `${sessions.length}`,
-      unit: sessions.length === 1 ? 'session' : 'sessions',
-      delta: sessions.length > 0 ? null : null,
-    },
-    {
-      label: 'AVG SCORE',
-      value: avgScore != null ? `${avgScore}` : '—',
-      unit: avgScore != null ? '/ 100' : '',
-      delta: scoreDelta != null ? `${scoreDelta >= 0 ? '↑ +' : '↓ '}${scoreDelta}` : null,
-      deltaColor: scoreDelta != null ? (scoreDelta >= 0 ? 'var(--mint)' : 'var(--coral)') : undefined,
-    },
-    {
-      label: 'ACTIVE PIECES',
-      value: `${threads.length}`,
-      unit: threads.length === 1 ? 'piece' : 'pieces',
-    },
-  ]
+  const lastTakeId = sessions[0]?.id
 
   return (
     <div className={styles.page}>
-      {showOnboarding && user && (
-        <Onboarding onClose={() => setShowOnboarding(false)} />
-      )}
-
-      {/* ── Page header ── */}
-      <div className={styles.pageHeader}>
-        <MusicAmbience />
-        <div className={styles.pageHeaderLeft}>
-          <h1 className={styles.pageTitle}>Overview</h1>
-          <p className={styles.pageSubtitle}>{formatDate()}</p>
+      {/* ── Hero card ── */}
+      <div className={styles.hero}>
+        <div className={styles.heroContent}>
+          <span className={styles.heroLabel}>START HERE</span>
+          <h1 className={styles.heroTitle}>Record a session. Get bar-by-bar feedback.</h1>
+          <p className={styles.heroDesc}>
+            Upload your performance and sheet music, and Mediant returns measure-level notes on
+            pitch, rhythm, dynamics, and articulation.
+          </p>
+          <div className={styles.heroActions}>
+            <button className={styles.heroPrimary} onClick={() => { playPop(); setOpen(true) }}>
+              <MicIcon /> Record &amp; analyze
+            </button>
+            <button
+              className={styles.heroSecondary}
+              onClick={() => { playPop(); nav(lastTakeId ? `/analysis?takeId=${lastTakeId}` : '/analysis') }}
+            >
+              View last analysis →
+            </button>
+          </div>
         </div>
-        <button className={styles.primaryBtn} onClick={() => { playPop(); nav('/record') }}>
-          <PlusIcon /> New Session
+        <div className={styles.heroIconWrap}>
+          <div className={styles.heroIconCircle}><MicIcon large /></div>
+        </div>
+      </div>
+
+      {/* ── Stat cards ── */}
+      <div className={styles.statRow}>
+        <div className={`${styles.statCard} ${styles.statSalmon}`}>
+          <span className={styles.statLabel}>Streak</span>
+          <span className={styles.statValue}>{streak}<span className={styles.statUnit}> {streak === 1 ? 'day' : 'days'}</span></span>
+          <span className={styles.statSub}>Longest: {longest} {longest === 1 ? 'day' : 'days'}</span>
+        </div>
+        <div className={`${styles.statCard} ${styles.statYellow}`}>
+          <span className={styles.statLabel}>Recorded this week</span>
+          <span className={styles.statValue}>{weekLabel}</span>
+          <span className={styles.statSub}>Across {weekMinutes.count} {weekMinutes.count === 1 ? 'session' : 'sessions'}</span>
+        </div>
+        <div className={`${styles.statCard} ${styles.statMint}`}>
+          <span className={styles.statLabel}>Avg score</span>
+          <span className={styles.statValue}>
+            {avgScore != null ? avgScore : '—'}<span className={styles.statUnit}>/100</span>
+          </span>
+          <span className={styles.statSub}>Last 10 sessions</span>
+        </div>
+      </div>
+
+      {/* ── My pieces ── */}
+      <div className={styles.sectionHead}>
+        <h2 className={styles.sectionTitle}>My pieces</h2>
+        <button className={styles.sectionLink} onClick={() => { playPop(); nav('/sessions') }}>
+          View all →
         </button>
       </div>
 
-      {/* ── Stat tiles ── */}
-      <div className={styles.statTilesRow}>
-        {STAT_TILES.map(tile => (
-          <div key={tile.label} className={styles.statTile}>
-            <span className={styles.statTileLabel}>{tile.label}</span>
-            <div className={styles.statTileBottom}>
-              <span className={styles.statTileValue}>
-                {tile.value}
-                {tile.unit && <span className={styles.statTileUnit}> {tile.unit}</span>}
+      {loading ? (
+        <div className={styles.pieceGrid}>
+          {[0, 1, 2].map(i => <div key={i} className={`${styles.pieceCard} ${styles.pieceSkeleton}`} />)}
+        </div>
+      ) : pieces.length === 0 ? (
+        <div className={styles.emptyState}>
+          <p className={styles.emptyTitle}>No pieces yet</p>
+          <p className={styles.emptyBody}>Record your first session and it will appear here.</p>
+          <button className={styles.emptyBtn} onClick={() => { playPop(); setOpen(true) }}>
+            <MicIcon /> Record &amp; analyze
+          </button>
+        </div>
+      ) : (
+        <div className={styles.pieceGrid}>
+          {pieces.slice(0, 6).map((p, i) => (
+            <button
+              key={p.title + i}
+              className={styles.pieceCard}
+              onClick={() => {
+                playPop()
+                localStorage.setItem('mediant_selected_take', p.takes[0]?.id ?? '')
+                nav(p.takes[0]?.id ? `/analysis?takeId=${p.takes[0].id}` : '/sessions')
+              }}
+            >
+              <span className={styles.pieceScore} style={{ color: scoreColor(p.latestScore) }}>
+                {p.latestScore != null ? p.latestScore : '—'}
               </span>
-              {tile.delta && (
-                <span className={styles.statTileDelta} style={{ color: tile.deltaColor }}>
-                  {tile.delta}
-                </span>
+              <span className={styles.pieceTitle}>{p.title}</span>
+              <span className={styles.pieceComposer}>
+                {[p.composer, p.instrument].filter(Boolean).join(' · ')}
+              </span>
+              {p.issue && (
+                <span className={styles.pieceIssue}>Most common issue: {p.issue}</span>
               )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Main content ── */}
-      <div className={styles.contentGrid}>
-
-        {/* ── Left column ── */}
-        <div className={styles.mainCol}>
-
-          {/* Practice activity */}
-          <div className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardTitle}>Practice activity</span>
-              <span className={styles.cardMeta}>Last 7 days</span>
-            </div>
-            <div className={styles.activityChart}>
-              {weekActivity.map((day, i) => (
-                <div key={i} className={styles.activityCol}>
-                  <div className={styles.activityBarWrap}>
-                    <div
-                      className={`${styles.activityBar} ${day.practiced ? styles.activityBarFilled : ''} ${day.isToday ? styles.activityBarToday : ''}`}
-                    />
-                  </div>
-                  <span className={`${styles.activityDayLabel} ${day.isToday ? styles.activityDayToday : ''}`}>
-                    {day.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className={styles.activityFooter}>
-              <span className={styles.activityLegend}>
-                <span className={styles.activityDot} /> Practiced
-              </span>
-              <span className={styles.activityGoal}>Goal · 1 session / day</span>
-            </div>
-          </div>
-
-          {/* Recent sessions */}
-          <div className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardTitle}>Recent sessions</span>
-              <button className={styles.viewAllBtn} onClick={() => { playPop(); nav('/takes') }}>
-                View all →
-              </button>
-            </div>
-
-            {loading ? (
-              <div className={styles.tableEmpty}>Loading…</div>
-            ) : threads.length === 0 ? (
-              <div className={styles.tableEmpty}>
-                No sessions yet —{' '}
-                <button className={styles.inlineLink} onClick={() => { playPop(); nav('/record') }}>
-                  upload your first recording
-                </button>
-              </div>
-            ) : (
-              <table className={styles.sessionsTable}>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Piece</th>
-                    <th>Score</th>
-                    <th>Takes</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {threads.slice(0, 6).map((thread, i) => {
-                    const delta = thread.latestScore != null && thread.prevScore != null
-                      ? thread.latestScore - thread.prevScore
-                      : null
-                    return (
-                      <tr
-                        key={thread.title + i}
-                        className={styles.sessionRow}
-                        onClick={() => { playPop(); nav(`/takes?piece=${encodeURIComponent(thread.title)}`) }}
-                      >
-                        <td className={styles.sessionDate}>{formatDateShort(thread.latestDate)}</td>
-                        <td className={styles.sessionPiece}>
-                          <span className={styles.sessionPieceTitle}>{thread.title}</span>
-                          {thread.composer && <span className={styles.sessionComposer}>{thread.composer}</span>}
-                        </td>
-                        <td className={styles.sessionScore}>
-                          {thread.latestScore != null ? (
-                            <span style={{ color: scoreColor(thread.latestScore), fontWeight: 700 }}>
-                              {thread.latestScore}
-                            </span>
-                          ) : '—'}
-                          {delta != null && (
-                            <span className={styles.sessionDelta}
-                              style={{ color: delta >= 0 ? 'var(--mint)' : 'var(--coral)' }}>
-                              {delta >= 0 ? ` ↑ +${delta}` : ` ↓ ${delta}`}
-                            </span>
-                          )}
-                        </td>
-                        <td className={styles.sessionTakes}>{thread.takeCount}</td>
-                        <td className={styles.sessionChevron}>›</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
-        {/* ── Right column ── */}
-        <div className={styles.sideCol}>
-
-          {/* Today's plan */}
-          <div className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardTitle}>Today's plan</span>
-            </div>
-            {priorities.length > 0 ? (
-              <div className={styles.planList}>
-                {priorities.map((p, i) => (
-                  <div key={i} className={styles.planItem}>
-                    <div className={styles.planItemNum}>{i + 1}</div>
-                    <div className={styles.planItemContent}>
-                      <p className={styles.planItemText}>{p.text}</p>
-                      {p.sub && <span className={styles.planItemSub}>{p.sub}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className={styles.sideEmpty}>
-                {sessions.length > 0
-                  ? 'No recurring issues — record a new take to refresh your plan.'
-                  : 'Upload a recording to see a personalized practice plan.'}
-              </p>
-            )}
-            <button className={styles.recordBtn} onClick={() => { playPop(); nav('/record') }}>
-              <MicIcon /> Record new take
             </button>
-          </div>
-
-          {/* Technique trends */}
-          <div className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardTitle}>Technique trends</span>
-            </div>
-            <div className={styles.trendList}>
-              {techniqueTrends.map(t => (
-                <div key={t.key} className={styles.trendRow}>
-                  <span className={styles.trendLabel}>{t.label}</span>
-                  <span className={styles.trendDelta}
-                    style={{
-                      color: t.delta === null ? 'var(--text-faintest)'
-                        : t.improved ? 'var(--mint)' : 'var(--coral)'
-                    }}>
-                    {t.delta === null ? '—' : t.improved ? `↑ +${t.delta}%` : `↓ ${t.delta}%`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* This week's focus */}
-          <div className={`${styles.card} ${styles.focusCard}`}>
-            <div className={styles.focusCardLabel}>
-              <StarIcon /> THIS WEEK'S FOCUS
-            </div>
-            <p className={styles.focusTip}>{focusTip}</p>
-          </div>
-
+          ))}
         </div>
-      </div>
+      )}
     </div>
   )
 }
 
-/* ── Icons ─────────────────────────────── */
-function PlusIcon() {
+/* ── Icons ── */
+function MicIcon({ large }) {
+  const s = large ? 30 : 15
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-    </svg>
-  )
-}
-function MicIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
       <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-      <line x1="12" y1="19" x2="12" y2="23"/>
-      <line x1="8" y1="23" x2="16" y2="23"/>
-    </svg>
-  )
-}
-function StarIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+      <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
     </svg>
   )
 }

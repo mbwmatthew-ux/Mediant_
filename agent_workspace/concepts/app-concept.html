@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Practapal — App UI Concept</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --teal:       #159A86;
+      --teal-deep:  #0C5C52;
+      --teal-light: rgba(21, 154, 134, 0.10);
+      --teal-mid:   rgba(21, 154, 134, 0.18);
+      --coral:      #EE7B53;
+      --coral-dark: #D4622E;
+      --canvas:     #FAF8F3;
+      --surface:    #FFFFFF;
+      --line:       #E4E1D8;
+      --muted:      #6B6A64;
+      --ink:        #2C2C2A;
+      --green:      #4A7A2E;
+      --amber:      #C09230;
+      --red:        #C44040;
+    }
+
+    html, body {
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      font-size: 14px;
+      height: 100%;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    /* ── SHELL ────────────────────────────────────────── */
+    .shell {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr);
+      height: 100vh;
+    }
+
+    /* ── SIDEBAR ──────────────────────────────────────── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+      transition: width 240ms cubic-bezier(0.16, 1, 0.3, 1);
+      width: 52px;
+      z-index: 10;
+    }
+
+    .sidebar:hover { width: 186px; box-shadow: 4px 0 24px rgba(12,92,82,0.07); }
+
+    .sidebar-logo {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-shrink: 0;
+      gap: 10px;
+      height: 54px;
+      overflow: hidden;
+      padding: 0 9px;
+      text-decoration: none;
+    }
+
+    .logo-mark {
+      align-items: center;
+      background: var(--teal-deep);
+      border-radius: 9px;
+      display: flex;
+      flex-shrink: 0;
+      height: 34px;
+      justify-content: center;
+      width: 34px;
+    }
+
+    .logo-text {
+      color: var(--ink);
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 1rem;
+      font-variation-settings: 'opsz' 18;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      opacity: 0;
+      transition: opacity 180ms ease;
+      white-space: nowrap;
+    }
+
+    .sidebar:hover .logo-text { opacity: 1; }
+
+    .sidebar-nav {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+      padding: 10px 7px;
+    }
+
+    .nav-divider {
+      background: var(--line);
+      flex-shrink: 0;
+      height: 1px;
+      margin: 8px 4px;
+    }
+
+    .nav-item {
+      align-items: center;
+      background: none;
+      border: none;
+      border-radius: 8px;
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      flex-shrink: 0;
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      gap: 12px;
+      height: 38px;
+      justify-content: center;
+      overflow: hidden;
+      padding: 0;
+      text-decoration: none;
+      transition: background 140ms, color 140ms;
+      white-space: nowrap;
+      width: 100%;
+    }
+
+    .nav-item:hover { background: var(--teal-light); color: var(--teal-deep); }
+    .nav-item.active { background: var(--teal-light); color: var(--teal); }
+
+    .sidebar:hover .nav-item {
+      justify-content: flex-start;
+      padding: 0 11px;
+    }
+
+    .nav-icon {
+      align-items: center;
+      display: flex;
+      flex-shrink: 0;
+      height: 18px;
+      justify-content: center;
+      width: 18px;
+    }
+
+    .nav-label {
+      flex: 1;
+      opacity: 0;
+      transition: opacity 150ms ease;
+    }
+
+    .sidebar:hover .nav-label { opacity: 1; }
+
+    .sidebar-bottom {
+      border-top: 1px solid var(--line);
+      padding: 8px 7px 10px;
+    }
+
+    .avatar-chip {
+      align-items: center;
+      background: var(--teal-light);
+      border-radius: 7px;
+      color: var(--teal-deep);
+      display: flex;
+      flex-shrink: 0;
+      font-size: 0.7rem;
+      font-weight: 800;
+      height: 30px;
+      justify-content: center;
+      width: 30px;
+    }
+
+    /* ── MAIN ─────────────────────────────────────────── */
+    .main {
+      background: var(--canvas);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-width: 0;
+      overflow-y: auto;
+    }
+
+    .main-header {
+      align-items: center;
+      background: var(--canvas);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-shrink: 0;
+      gap: 16px;
+      height: 54px;
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    .main-header h1 {
+      color: var(--ink);
+      flex: 1;
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 1.04rem;
+      font-variation-settings: 'opsz' 18;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .header-actions {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-new-take {
+      align-items: center;
+      background: var(--coral);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 700;
+      gap: 7px;
+      padding: 8px 16px;
+      transition: background 140ms, transform 140ms;
+    }
+    .btn-new-take:hover { background: var(--coral-dark); transform: translateY(-1px); }
+
+    .main-content {
+      flex: 1;
+      padding: 24px;
+    }
+
+    /* ── HOME DASHBOARD ───────────────────────────────── */
+    .greeting {
+      margin-bottom: 28px;
+    }
+
+    .greeting-eyebrow {
+      color: var(--teal);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .greeting h2 {
+      color: var(--teal-deep);
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 1.7rem;
+      font-variation-settings: 'opsz' 28;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.15;
+    }
+
+    /* ── STAT CARDS ───────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, 1fr);
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      color: var(--ink);
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 2rem;
+      font-variation-settings: 'opsz' 36;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .stat-delta {
+      align-items: center;
+      display: flex;
+      font-size: 0.75rem;
+      font-weight: 600;
+      gap: 3px;
+    }
+    .stat-delta.up { color: var(--green); }
+    .stat-delta.down { color: var(--red); }
+    .stat-delta.neutral { color: var(--muted); }
+
+    /* ── MAIN GRID ────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr 320px;
+    }
+
+    /* ── RECENT SESSIONS ──────────────────────────────── */
+    .section-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .section-card-header {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 12px;
+      height: 46px;
+      padding: 0 18px;
+    }
+
+    .section-card-title {
+      color: var(--ink);
+      flex: 1;
+      font-size: 0.84rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .section-card-link {
+      color: var(--teal);
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .session-row {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 32px 1fr auto auto;
+      min-height: 58px;
+      padding: 0 18px;
+      transition: background 130ms;
+    }
+    .session-row:last-child { border-bottom: none; }
+    .session-row:hover { background: var(--teal-light); cursor: pointer; }
+
+    .session-icon {
+      align-items: center;
+      background: var(--teal-light);
+      border-radius: 8px;
+      color: var(--teal);
+      display: flex;
+      height: 32px;
+      justify-content: center;
+      width: 32px;
+    }
+
+    .session-title {
+      color: var(--ink);
+      font-size: 0.86rem;
+      font-weight: 600;
+    }
+
+    .session-meta {
+      color: var(--muted);
+      font-size: 0.74rem;
+      margin-top: 2px;
+    }
+
+    .session-score {
+      align-items: center;
+      background: var(--teal-light);
+      border-radius: 999px;
+      color: var(--teal-deep);
+      display: flex;
+      font-size: 0.78rem;
+      font-weight: 800;
+      padding: 4px 11px;
+    }
+    .session-score.amber { background: rgba(192,146,48,0.12); color: var(--amber); }
+    .session-score.red   { background: rgba(196,64,64,0.1); color: var(--red); }
+
+    .session-flags {
+      align-items: center;
+      color: var(--muted);
+      display: flex;
+      font-size: 0.74rem;
+      gap: 4px;
+    }
+
+    /* ── MINI PROGRESS CHART ──────────────────────────── */
+    .progress-bar-row {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 80px 1fr 36px;
+      min-height: 46px;
+      padding: 0 18px;
+    }
+    .progress-bar-row:last-child { border-bottom: none; }
+
+    .progress-bar-label {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 600;
+    }
+
+    .progress-bar-track {
+      background: var(--line);
+      border-radius: 999px;
+      height: 7px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      border-radius: 999px;
+      height: 100%;
+      transition: width 0.6s ease;
+    }
+    .fill-teal  { background: var(--teal); }
+    .fill-green { background: var(--green); }
+    .fill-amber { background: var(--amber); }
+    .fill-red   { background: var(--red); }
+
+    .progress-bar-pct {
+      color: var(--ink);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    /* ── COACH PANEL ──────────────────────────────────── */
+    .coach-panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .coach-header {
+      align-items: center;
+      background: var(--teal-deep);
+      display: flex;
+      gap: 10px;
+      height: 48px;
+      padding: 0 16px;
+    }
+
+    .practa-mini {
+      align-items: center;
+      background: rgba(255,255,255,0.12);
+      border-radius: 8px;
+      display: flex;
+      height: 32px;
+      justify-content: center;
+      width: 32px;
+    }
+
+    .coach-header-text strong {
+      color: #fff;
+      display: block;
+      font-size: 0.84rem;
+    }
+
+    .coach-header-text span {
+      color: rgba(255,255,255,0.6);
+      font-size: 0.72rem;
+    }
+
+    .coach-messages {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+      padding: 14px;
+    }
+
+    .msg {
+      border-radius: 10px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      max-width: 86%;
+      padding: 9px 12px;
+    }
+
+    .msg-practa {
+      align-self: flex-start;
+      background: var(--teal-light);
+      border-bottom-left-radius: 2px;
+      color: var(--teal-deep);
+    }
+
+    .msg-user {
+      align-self: flex-end;
+      background: var(--ink);
+      border-bottom-right-radius: 2px;
+      color: #fff;
+    }
+
+    .coach-input-row {
+      align-items: center;
+      border-top: 1px solid var(--line);
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+    }
+
+    .coach-input {
+      background: var(--canvas);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--ink);
+      flex: 1;
+      font-family: inherit;
+      font-size: 0.82rem;
+      outline: none;
+      padding: 8px 12px;
+      transition: border-color 150ms;
+    }
+    .coach-input:focus { border-color: var(--teal); }
+
+    .coach-send {
+      align-items: center;
+      background: var(--teal);
+      border: none;
+      border-radius: 7px;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      height: 34px;
+      justify-content: center;
+      transition: background 140ms;
+      width: 34px;
+    }
+    .coach-send:hover { background: var(--teal-deep); }
+
+    /* ── ANALYSIS VIEW PREVIEW ────────────────────────── */
+    .analysis-shell {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr 340px;
+      height: calc(100vh - 54px);
+      overflow: hidden;
+      padding: 16px;
+    }
+
+    .analysis-left {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .score-panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .score-toolbar {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 8px;
+      height: 40px;
+      padding: 0 14px;
+    }
+
+    .score-toolbar span {
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    .score-body {
+      background: #F5F3EE;
+      flex: 1;
+      overflow: hidden;
+      padding: 16px;
+      position: relative;
+    }
+
+    .waveform-strip {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      flex-shrink: 0;
+      height: 64px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .waveform-bg {
+      height: 100%;
+      width: 100%;
+    }
+
+    .waveform-playhead {
+      background: var(--teal);
+      bottom: 0;
+      left: 28%;
+      position: absolute;
+      top: 0;
+      width: 2px;
+    }
+
+    .analysis-right {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    .piece-header {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+
+    .piece-title {
+      color: var(--ink);
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 1.02rem;
+      font-variation-settings: 'opsz' 18;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+    }
+
+    .piece-meta {
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    .score-badges {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .score-badge {
+      border-radius: 7px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 3px 10px;
+      text-transform: uppercase;
+    }
+    .score-badge.timing { background: rgba(192,146,48,0.14); color: var(--amber); }
+    .score-badge.pitch  { background: rgba(196,64,64,0.1);   color: var(--red); }
+    .score-badge.dyn    { background: var(--teal-light);     color: var(--teal); }
+
+    .flag-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .flag-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-left: 3px solid transparent;
+      border-radius: 10px;
+      padding: 12px 14px;
+      transition: box-shadow 150ms;
+    }
+    .flag-card:hover { box-shadow: 0 6px 20px rgba(12,92,82,0.08); }
+    .flag-card.timing { border-left-color: var(--amber); }
+    .flag-card.pitch  { border-left-color: var(--red); }
+    .flag-card.dynamics { border-left-color: var(--teal); }
+
+    .flag-top {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .flag-type-chip {
+      border-radius: 4px;
+      font-size: 0.66rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      padding: 2px 7px;
+      text-transform: uppercase;
+    }
+    .flag-card.timing .flag-type-chip  { background: rgba(192,146,48,0.14); color: var(--amber); }
+    .flag-card.pitch  .flag-type-chip  { background: rgba(196,64,64,0.1);   color: var(--red); }
+    .flag-card.dynamics .flag-type-chip { background: var(--teal-light);    color: var(--teal); }
+
+    .flag-measure {
+      color: var(--muted);
+      font-family: 'Courier New', monospace;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    .flag-time {
+      color: var(--teal);
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-left: auto;
+      text-decoration: underline;
+    }
+
+    .flag-desc {
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.45;
+      margin-bottom: 8px;
+    }
+
+    .flag-actions {
+      align-items: center;
+      display: flex;
+      gap: 7px;
+    }
+
+    .btn-loop {
+      align-items: center;
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--teal);
+      cursor: pointer;
+      display: flex;
+      font-family: inherit;
+      font-size: 0.72rem;
+      font-weight: 700;
+      gap: 5px;
+      padding: 5px 11px;
+      transition: background 140ms, border-color 140ms;
+    }
+    .btn-loop:hover { background: var(--teal-light); border-color: var(--teal); }
+    .btn-loop.active { background: var(--teal); border-color: var(--teal); color: #fff; }
+
+    .loop-progress {
+      background: var(--teal);
+      border-radius: 999px;
+      flex: 1;
+      height: 4px;
+    }
+
+    /* ── TABS ─────────────────────────────────────────── */
+    .view-tabs {
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-shrink: 0;
+      height: 44px;
+      padding: 0 24px;
+    }
+
+    .view-tab {
+      align-items: center;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      font-size: 0.82rem;
+      font-weight: 600;
+      height: 44px;
+      margin-bottom: -1px;
+      padding: 0 14px;
+      text-decoration: none;
+      transition: color 140ms, border-color 140ms;
+    }
+    .view-tab:hover { color: var(--ink); }
+    .view-tab.active { border-bottom-color: var(--teal); color: var(--teal); }
+
+    /* ── PAGE SWITCHER ────────────────────────────────── */
+    .pages {
+      display: none;
+    }
+    .pages.active {
+      display: contents;
+    }
+
+    /* ── RECORD PAGE PREVIEW ──────────────────────────── */
+    .record-shell {
+      align-items: center;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      margin: 0 auto;
+      max-width: 600px;
+      padding: 40px 24px;
+    }
+
+    .record-icon-wrap {
+      align-items: center;
+      background: var(--teal-light);
+      border: 2px dashed rgba(21,154,134,0.3);
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      height: 220px;
+      justify-content: center;
+      transition: background 150ms, border-color 150ms;
+      width: 100%;
+    }
+    .record-icon-wrap:hover { background: var(--teal-mid); border-color: var(--teal); cursor: pointer; }
+
+    .record-icon-circle {
+      align-items: center;
+      background: var(--coral);
+      border-radius: 50%;
+      box-shadow: 0 8px 24px rgba(238,123,83,0.35);
+      display: flex;
+      height: 72px;
+      justify-content: center;
+      width: 72px;
+    }
+
+    .record-drop-text {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+    }
+
+    .record-drop-text strong { color: var(--ink); }
+
+    /* ── SCROLLBAR ────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+
+    /* ── PAGE NAV ─────────────────────────────────────── */
+    .page-nav {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+
+    .page-btn {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 8px 16px;
+      transition: background 140ms, color 140ms, border-color 140ms;
+    }
+    .page-btn.active { background: var(--teal); border-color: var(--teal); color: #fff; }
+    .page-btn:hover:not(.active) { border-color: var(--teal); color: var(--teal); }
+
+    .page-label {
+      background: var(--teal-light);
+      border: 1px solid rgba(21,154,134,0.2);
+      border-radius: 8px;
+      color: var(--teal-deep);
+      font-size: 0.76rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding: 8px 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <a href="#" class="sidebar-logo">
+      <div class="logo-mark">
+        <svg width="22" height="22" viewBox="0 0 36 36" fill="none">
+          <circle cx="18" cy="12" r="7" fill="#159A86"/>
+          <path d="M 22 11 Q 27 12.5 24 16 Q 21 14.5 22 11 Z" fill="#EE7B53"/>
+          <circle cx="20.5" cy="10.5" r="2.5" fill="white"/>
+          <circle cx="21" cy="10.5" r="1.2" fill="#0C5C52"/>
+          <ellipse cx="18" cy="24" rx="9" ry="10" fill="#159A86"/>
+        </svg>
+      </div>
+      <span class="logo-text">Practapal</span>
+    </a>
+
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-page="home">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
+        </span>
+        <span class="nav-label">Home</span>
+      </a>
+      <a href="#" class="nav-item" data-page="library">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        </span>
+        <span class="nav-label">Music</span>
+      </a>
+      <a href="#" class="nav-item" data-page="sessions">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+        </span>
+        <span class="nav-label">Sessions</span>
+      </a>
+      <a href="#" class="nav-item" data-page="record">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        </span>
+        <span class="nav-label">New Take</span>
+      </a>
+      <a href="#" class="nav-item" data-page="progress">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        </span>
+        <span class="nav-label">Progress</span>
+      </a>
+
+      <div class="nav-divider"></div>
+
+      <a href="#" class="nav-item" data-page="analysis">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6M7 17h4"/></svg>
+        </span>
+        <span class="nav-label">Analysis</span>
+      </a>
+      <a href="#" class="nav-item">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </span>
+        <span class="nav-label">AI Coach</span>
+      </a>
+      <button class="nav-item">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg>
+        </span>
+        <span class="nav-label">Tuner</span>
+      </button>
+      <button class="nav-item">
+        <span class="nav-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 20 22 4 22"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="8" y1="13" x2="16" y2="13"/></svg>
+        </span>
+        <span class="nav-label">Metronome</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <button class="nav-item">
+        <span class="avatar-chip">MW</span>
+        <span class="nav-label">Matthew</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main" id="main">
+
+    <!-- PAGE SWITCHER BUTTONS (prototype only) -->
+    <div style="background: var(--ink); padding: 10px 24px; display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+      <span style="color: rgba(255,255,255,0.5); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 6px;">View:</span>
+      <button class="page-btn active" data-target="home-page">Home</button>
+      <button class="page-btn" data-target="analysis-page">Analysis</button>
+      <button class="page-btn" data-target="record-page">New Take</button>
+    </div>
+
+    <!-- ─────────────────────────────────────────── HOME PAGE -->
+    <div id="home-page">
+      <div class="main-header">
+        <h1>Home</h1>
+        <div class="header-actions">
+          <button class="btn-new-take">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Take
+          </button>
+        </div>
+      </div>
+
+      <div class="main-content">
+        <div class="greeting">
+          <p class="greeting-eyebrow">Good afternoon</p>
+          <h2>Welcome back, Matthew.</h2>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-label">Takes this week</div>
+            <div class="stat-value">7</div>
+            <div class="stat-delta up">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+              +2 vs last week
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Pieces active</div>
+            <div class="stat-value">3</div>
+            <div class="stat-delta neutral">Same as last week</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg timing score</div>
+            <div class="stat-value">74<span style="font-size:1rem; font-weight:600; color:var(--muted)">%</span></div>
+            <div class="stat-delta up">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+              +6 pts this month
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Issues resolved</div>
+            <div class="stat-value">12</div>
+            <div class="stat-delta up">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+              Great progress
+            </div>
+          </div>
+        </div>
+
+        <div class="main-grid">
+          <div style="display:flex; flex-direction:column; gap:14px; min-width:0;">
+            <!-- Recent sessions -->
+            <div class="section-card">
+              <div class="section-card-header">
+                <span class="section-card-title">Recent sessions</span>
+                <a href="#" class="section-card-link">View all →</a>
+              </div>
+
+              <div class="session-row">
+                <div class="session-icon">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+                </div>
+                <div>
+                  <div class="session-title">Sonata in D Major — Take 3</div>
+                  <div class="session-meta">Violin · Today, 2:14 PM · 4 flags</div>
+                </div>
+                <div class="session-flags">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  4 flags
+                </div>
+                <div class="session-score">82%</div>
+              </div>
+
+              <div class="session-row">
+                <div class="session-icon">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+                </div>
+                <div>
+                  <div class="session-title">Partita No. 2 — Take 1</div>
+                  <div class="session-meta">Violin · Yesterday · 9 flags</div>
+                </div>
+                <div class="session-flags">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  9 flags
+                </div>
+                <div class="session-score amber">61%</div>
+              </div>
+
+              <div class="session-row">
+                <div class="session-icon">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+                </div>
+                <div>
+                  <div class="session-title">Sonata in D Major — Take 2</div>
+                  <div class="session-meta">Violin · Jun 26 · 6 flags</div>
+                </div>
+                <div class="session-flags">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  6 flags
+                </div>
+                <div class="session-score">76%</div>
+              </div>
+
+              <div class="session-row">
+                <div class="session-icon" style="background: rgba(74,122,46,0.1); color: var(--green)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div>
+                  <div class="session-title">Étude Op. 10 No. 3</div>
+                  <div class="session-meta">Piano · Jun 24 · 2 flags · <span style="color:var(--green); font-weight:600">Improved</span></div>
+                </div>
+                <div class="session-flags">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  2 flags
+                </div>
+                <div class="session-score" style="background:rgba(74,122,46,0.12); color:var(--green);">91%</div>
+              </div>
+            </div>
+
+            <!-- Progress overview -->
+            <div class="section-card">
+              <div class="section-card-header">
+                <span class="section-card-title">Progress this month</span>
+                <a href="#" class="section-card-link">Full report →</a>
+              </div>
+              <div class="progress-bar-row">
+                <span class="progress-bar-label">Pitch</span>
+                <div class="progress-bar-track"><div class="progress-bar-fill fill-teal" style="width: 78%"></div></div>
+                <span class="progress-bar-pct">78%</span>
+              </div>
+              <div class="progress-bar-row">
+                <span class="progress-bar-label">Timing</span>
+                <div class="progress-bar-track"><div class="progress-bar-fill fill-amber" style="width: 64%"></div></div>
+                <span class="progress-bar-pct">64%</span>
+              </div>
+              <div class="progress-bar-row">
+                <span class="progress-bar-label">Dynamics</span>
+                <div class="progress-bar-track"><div class="progress-bar-fill fill-green" style="width: 88%"></div></div>
+                <span class="progress-bar-pct">88%</span>
+              </div>
+              <div class="progress-bar-row">
+                <span class="progress-bar-label">Technique</span>
+                <div class="progress-bar-track"><div class="progress-bar-fill fill-teal" style="width: 72%"></div></div>
+                <span class="progress-bar-pct">72%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Coach panel -->
+          <div class="coach-panel">
+            <div class="coach-header">
+              <div class="practa-mini">
+                <svg width="18" height="18" viewBox="0 0 36 36" fill="none">
+                  <circle cx="18" cy="12" r="7" fill="#159A86"/>
+                  <path d="M 22 11 Q 27 12.5 24 16 Q 21 14.5 22 11 Z" fill="#EE7B53"/>
+                  <circle cx="20.5" cy="10.5" r="2" fill="white"/>
+                  <ellipse cx="18" cy="24" rx="9" ry="10" fill="#159A86"/>
+                </svg>
+              </div>
+              <div class="coach-header-text">
+                <strong>Practa</strong>
+                <span>AI Coach · Sonata in D, Take 3</span>
+              </div>
+            </div>
+            <div class="coach-messages">
+              <div class="msg msg-practa">
+                Take 3 is your best on this piece. The G# at m.12 is still landing flat — down about 18 cents. Your timing in mm.2–4 actually improved by 12ms from last session.
+              </div>
+              <div class="msg msg-practa">
+                For the pitch issue: try isolating just mm.11–13. Play it slowly with a drone on G#. Your ears need to lock in before the tempo goes up.
+              </div>
+              <div class="msg msg-user">
+                Should I move to the next section or keep working m.12?
+              </div>
+              <div class="msg msg-practa">
+                Stay on m.12. The pitch issue is consistent across all three takes — which means it's a muscle memory problem, not a focus problem. Two or three slow-practice loops per day should shift it within a week.
+              </div>
+            </div>
+            <div class="coach-input-row">
+              <input class="coach-input" type="text" placeholder="Ask Practa anything…">
+              <button class="coach-send">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────── ANALYSIS PAGE -->
+    <div id="analysis-page" style="display:none;">
+      <div class="main-header">
+        <h1>Sonata in D Major — Take 3</h1>
+        <div class="header-actions">
+          <button class="btn-new-take">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Take
+          </button>
+        </div>
+      </div>
+
+      <div class="view-tabs">
+        <div class="view-tab active">Feedback</div>
+        <div class="view-tab">Score</div>
+        <div class="view-tab">Coach</div>
+        <div class="view-tab">Summary</div>
+      </div>
+
+      <div class="analysis-shell">
+        <!-- Left: score + waveform -->
+        <div class="analysis-left">
+          <div class="score-panel">
+            <div class="score-toolbar">
+              <span>Page 1 of 2</span>
+              <div style="flex:1"></div>
+              <span>Zoom: 100%</span>
+            </div>
+            <div class="score-body">
+              <svg width="100%" height="100%" viewBox="0 0 600 280" preserveAspectRatio="xMidYMid meet">
+                <!-- Sheet music mock -->
+                <!-- Staff 1 -->
+                <line x1="20" y1="60" x2="580" y2="60" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="72" x2="580" y2="72" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="84" x2="580" y2="84" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="96" x2="580" y2="96" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="108" x2="580" y2="108" stroke="#C0BDB5" stroke-width="1"/>
+                <!-- measure bars -->
+                <line x1="20" y1="56" x2="20" y2="112" stroke="#888" stroke-width="1.5"/>
+                <line x1="155" y1="56" x2="155" y2="112" stroke="#888"/>
+                <line x1="290" y1="56" x2="290" y2="112" stroke="#888"/>
+                <line x1="425" y1="56" x2="425" y2="112" stroke="#888"/>
+                <line x1="580" y1="56" x2="580" y2="112" stroke="#888" stroke-width="1.5"/>
+                <!-- highlight m.2 -->
+                <rect x="157" y="52" width="131" height="64" fill="rgba(21,154,134,0.14)" rx="4"/>
+                <rect x="157" y="52" width="3" height="64" fill="#159A86" rx="1"/>
+                <!-- notes -->
+                <ellipse cx="60" cy="84" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="95" cy="72" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="120" cy="96" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="195" cy="84" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="235" cy="72" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="260" cy="90" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="330" cy="84" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="365" cy="66" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="460" cy="78" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="495" cy="90" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="540" cy="72" rx="9" ry="6" fill="#444"/>
+                <!-- stems -->
+                <line x1="69" y1="84" x2="69" y2="58" stroke="#444"/>
+                <line x1="104" y1="72" x2="104" y2="46" stroke="#444"/>
+                <line x1="129" y1="96" x2="129" y2="70" stroke="#444"/>
+                <line x1="204" y1="84" x2="204" y2="58" stroke="#444"/>
+                <line x1="244" y1="72" x2="244" y2="46" stroke="#444"/>
+                <line x1="269" y1="90" x2="269" y2="64" stroke="#444"/>
+                <line x1="339" y1="84" x2="339" y2="58" stroke="#444"/>
+                <line x1="374" y1="66" x2="374" y2="40" stroke="#444"/>
+                <line x1="469" y1="78" x2="469" y2="52" stroke="#444"/>
+                <line x1="504" y1="90" x2="504" y2="64" stroke="#444"/>
+                <line x1="549" y1="72" x2="549" y2="46" stroke="#444"/>
+                <!-- measure numbers -->
+                <text x="20" y="128" font-size="10" fill="#999" font-family="monospace">M.1</text>
+                <text x="158" y="128" font-size="10" fill="#159A86" font-family="monospace" font-weight="bold">M.2 ★</text>
+                <text x="292" y="128" font-size="10" fill="#999" font-family="monospace">M.3</text>
+                <text x="427" y="128" font-size="10" fill="#999" font-family="monospace">M.4</text>
+
+                <!-- Staff 2 -->
+                <line x1="20" y1="180" x2="580" y2="180" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="192" x2="580" y2="192" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="204" x2="580" y2="204" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="216" x2="580" y2="216" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="228" x2="580" y2="228" stroke="#C0BDB5" stroke-width="1"/>
+                <line x1="20" y1="176" x2="20" y2="232" stroke="#888" stroke-width="1.5"/>
+                <line x1="155" y1="176" x2="155" y2="232" stroke="#888"/>
+                <line x1="290" y1="176" x2="290" y2="232" stroke="#888"/>
+                <line x1="425" y1="176" x2="425" y2="232" stroke="#888"/>
+                <line x1="580" y1="176" x2="580" y2="232" stroke="#888" stroke-width="1.5"/>
+                <!-- amber highlight m.7 -->
+                <rect x="292" y="172" width="131" height="64" fill="rgba(192,146,48,0.12)" rx="4"/>
+                <rect x="292" y="172" width="3" height="64" fill="#C09230" rx="1"/>
+                <!-- notes staff 2 -->
+                <ellipse cx="65" cy="204" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="100" cy="192" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="330" cy="204" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="380" cy="192" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="460" cy="210" rx="9" ry="6" fill="#444"/>
+                <ellipse cx="500" cy="198" rx="9" ry="6" fill="#444"/>
+                <line x1="74" y1="204" x2="74" y2="178" stroke="#444"/>
+                <line x1="109" y1="192" x2="109" y2="166" stroke="#444"/>
+                <line x1="339" y1="204" x2="339" y2="178" stroke="#444"/>
+                <line x1="389" y1="192" x2="389" y2="166" stroke="#444"/>
+                <line x1="469" y1="210" x2="469" y2="184" stroke="#444"/>
+                <line x1="509" y1="198" x2="509" y2="172" stroke="#444"/>
+                <text x="20" y="248" font-size="10" fill="#999" font-family="monospace">M.5</text>
+                <text x="156" y="248" font-size="10" fill="#999" font-family="monospace">M.6</text>
+                <text x="293" y="248" font-size="10" fill="#C09230" font-family="monospace" font-weight="bold">M.7 ★</text>
+                <text x="427" y="248" font-size="10" fill="#999" font-family="monospace">M.8</text>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Waveform -->
+          <div class="waveform-strip">
+            <svg class="waveform-bg" viewBox="0 0 600 64" preserveAspectRatio="none">
+              <rect width="600" height="64" fill="#F8F6F1"/>
+              <!-- waveform bars -->
+              <g fill="#D4CFC6">
+                <rect x="10" y="20" width="3" height="24"/>
+                <rect x="16" y="15" width="3" height="34"/>
+                <rect x="22" y="22" width="3" height="20"/>
+                <rect x="28" y="18" width="3" height="28"/>
+                <rect x="34" y="12" width="3" height="40"/>
+                <rect x="40" y="20" width="3" height="24"/>
+                <rect x="46" y="25" width="3" height="14"/>
+                <rect x="52" y="16" width="3" height="32"/>
+                <rect x="58" y="10" width="3" height="44"/>
+                <rect x="64" y="20" width="3" height="24"/>
+                <rect x="70" y="18" width="3" height="28"/>
+                <rect x="76" y="22" width="3" height="20"/>
+                <rect x="82" y="14" width="3" height="36"/>
+                <rect x="88" y="20" width="3" height="24"/>
+                <rect x="94" y="24" width="3" height="16"/>
+              </g>
+              <!-- highlighted region (teal) -->
+              <g fill="#159A86" opacity="0.7">
+                <rect x="150" y="16" width="3" height="32"/>
+                <rect x="156" y="10" width="3" height="44"/>
+                <rect x="162" y="14" width="3" height="36"/>
+                <rect x="168" y="8" width="3" height="48"/>
+                <rect x="174" y="12" width="3" height="40"/>
+                <rect x="180" y="18" width="3" height="28"/>
+                <rect x="186" y="22" width="3" height="20"/>
+                <rect x="192" y="10" width="3" height="44"/>
+                <rect x="198" y="16" width="3" height="32"/>
+                <rect x="204" y="20" width="3" height="24"/>
+                <rect x="210" y="14" width="3" height="36"/>
+                <rect x="216" y="8" width="3" height="48"/>
+              </g>
+              <g fill="#D4CFC6">
+                <rect x="230" y="20" width="3" height="24"/>
+                <rect x="236" y="16" width="3" height="32"/>
+                <rect x="242" y="22" width="3" height="20"/>
+                <rect x="248" y="18" width="3" height="28"/>
+                <rect x="254" y="24" width="3" height="16"/>
+                <rect x="260" y="14" width="3" height="36"/>
+                <rect x="266" y="20" width="3" height="24"/>
+                <rect x="272" y="22" width="3" height="20"/>
+                <rect x="278" y="16" width="3" height="32"/>
+                <rect x="284" y="12" width="3" height="40"/>
+                <rect x="290" y="18" width="3" height="28"/>
+                <rect x="296" y="22" width="3" height="20"/>
+                <rect x="302" y="16" width="3" height="32"/>
+                <rect x="308" y="20" width="3" height="24"/>
+                <rect x="314" y="14" width="3" height="36"/>
+                <rect x="320" y="24" width="3" height="16"/>
+                <rect x="326" y="18" width="3" height="28"/>
+                <rect x="332" y="12" width="3" height="40"/>
+                <rect x="338" y="20" width="3" height="24"/>
+                <rect x="344" y="22" width="3" height="20"/>
+                <rect x="350" y="16" width="3" height="32"/>
+                <rect x="356" y="18" width="3" height="28"/>
+                <rect x="362" y="24" width="3" height="16"/>
+              </g>
+              <!-- playhead -->
+              <rect x="168" y="0" width="2" height="64" fill="#159A86"/>
+              <!-- teal region outline -->
+              <rect x="148" y="0" width="72" height="64" fill="rgba(21,154,134,0.08)" stroke="#159A86" stroke-width="1.5"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Right: flag cards -->
+        <div class="analysis-right">
+          <div class="piece-header">
+            <div class="piece-title">Sonata in D Major</div>
+            <div class="piece-meta">Violin · Take 3 · Jun 29, 2026</div>
+            <div class="score-badges">
+              <span class="score-badge timing">Timing ×2</span>
+              <span class="score-badge pitch">Pitch ×1</span>
+              <span class="score-badge dyn">Dynamics ×1</span>
+            </div>
+          </div>
+
+          <div class="flag-list">
+            <div class="flag-card pitch">
+              <div class="flag-top">
+                <span class="flag-type-chip">Pitch</span>
+                <span class="flag-measure">M. 2</span>
+                <span class="flag-time">0:08.2</span>
+              </div>
+              <div class="flag-desc">G# landing flat by ~18 cents on beat 2. Consistent across takes 1–3.</div>
+              <div class="flag-actions">
+                <button class="btn-loop active">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  Stop
+                </button>
+                <div class="loop-progress" style="width: 46%"></div>
+              </div>
+            </div>
+
+            <div class="flag-card timing">
+              <div class="flag-top">
+                <span class="flag-type-chip">Timing</span>
+                <span class="flag-measure">M. 2, Beat 3</span>
+                <span class="flag-time">0:11.4</span>
+              </div>
+              <div class="flag-desc">Beat 3 arrives 22ms early. May be tied to the pitch issue above.</div>
+              <div class="flag-actions">
+                <button class="btn-loop">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  Loop
+                </button>
+              </div>
+            </div>
+
+            <div class="flag-card timing">
+              <div class="flag-top">
+                <span class="flag-type-chip">Timing</span>
+                <span class="flag-measure">M. 7</span>
+                <span class="flag-time">0:28.1</span>
+              </div>
+              <div class="flag-desc">Slight ritardando entering m.7. Tempo drops ~4 BPM for 2 beats before recovering.</div>
+              <div class="flag-actions">
+                <button class="btn-loop">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  Loop
+                </button>
+              </div>
+            </div>
+
+            <div class="flag-card dynamics">
+              <div class="flag-top">
+                <span class="flag-type-chip">Dynamics</span>
+                <span class="flag-measure">M. 12–14</span>
+                <span class="flag-time">0:46.8</span>
+              </div>
+              <div class="flag-desc">Crescendo arrives 2 beats late. The score marks it at m.12; yours starts at m.13 beat 2.</div>
+              <div class="flag-actions">
+                <button class="btn-loop">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  Loop
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────── RECORD PAGE -->
+    <div id="record-page" style="display:none;">
+      <div class="main-header">
+        <h1>New Take</h1>
+      </div>
+      <div class="record-shell">
+        <div style="width:100%; text-align:left;">
+          <p style="color:var(--teal); font-size:0.72rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:4px;">Recording a new take</p>
+          <p style="color:var(--teal-deep); font-family:'Fraunces', serif; font-size:1.5rem; font-variation-settings:'opsz' 24; font-weight:700; letter-spacing:-0.025em; margin-bottom:20px;">Upload your recording</p>
+        </div>
+
+        <div class="record-icon-wrap">
+          <div class="record-icon-circle">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <div class="record-drop-text">
+            <strong>Drop your recording here</strong><br>
+            MP3, WAV, MP4, MOV · up to 500MB
+          </div>
+        </div>
+
+        <div style="width:100%; display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div style="background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px;">
+            <p style="color:var(--muted); font-size:0.72rem; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:8px;">Piece</p>
+            <p style="color:var(--ink); font-size:0.9rem; font-weight:600;">Sonata in D Major</p>
+            <p style="color:var(--muted); font-size:0.76rem; margin-top:2px;">Violin · 4/4 · ♩= 120</p>
+          </div>
+          <div style="background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px;">
+            <p style="color:var(--muted); font-size:0.72rem; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:8px;">Score</p>
+            <p style="color:var(--teal); font-size:0.86rem; font-weight:600;">sonata-d-major.xml ✓</p>
+            <p style="color:var(--muted); font-size:0.76rem; margin-top:2px;">MusicXML · 4 pages</p>
+          </div>
+        </div>
+
+        <button style="background:var(--coral); border:none; border-radius:10px; color:#fff; cursor:pointer; font-family:inherit; font-size:1rem; font-weight:700; padding:14px 32px; transition:background 140ms; width:100%;">
+          Start Analysis →
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Page switcher
+  const pageBtns = document.querySelectorAll('.page-btn')
+  const pages = { 'home-page': document.getElementById('home-page'), 'analysis-page': document.getElementById('analysis-page'), 'record-page': document.getElementById('record-page') }
+
+  pageBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      pageBtns.forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      Object.values(pages).forEach(p => p.style.display = 'none')
+      const target = btn.dataset.target
+      if (pages[target]) pages[target].style.display = 'block'
+    })
+  })
+
+  // Nav items
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', e => {
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'))
+      item.classList.add('active')
+    })
+  })
+
+  // Loop button toggle
+  document.querySelectorAll('.btn-loop').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wasActive = btn.classList.contains('active')
+      document.querySelectorAll('.btn-loop').forEach(b => {
+        b.classList.remove('active')
+        b.textContent = ''
+        b.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Loop`
+      })
+      if (!wasActive) {
+        btn.classList.add('active')
+        btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Stop`
+      }
+    })
+  })
+</script>
+</body>
+</html>

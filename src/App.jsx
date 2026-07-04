@@ -2,6 +2,7 @@ import { Component } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
+import { RecordModalProvider } from './context/RecordModalContext'
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { hasError: false } }
@@ -26,16 +27,14 @@ import ConfirmEmail from './pages/ConfirmEmail'
 import Pricing from './pages/Pricing'
 import Home from './pages/Home'
 import Search from './pages/Search'
-import Record from './pages/Record'
 import Analysis from './pages/Analysis'
 import Summary from './pages/Summary'
 import Takes from './pages/Takes'
+import Sessions from './pages/Sessions'
 import Coach from './pages/Coach'
 import ProgressFeedback from './pages/ProgressFeedback'
-import Calendar from './pages/Calendar'
-import Plan from './pages/Plan'
+import Reports from './pages/Reports'
 import Settings from './pages/Settings'
-import TeacherDashboard from './pages/TeacherDashboard'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import Contact from './pages/Contact'
@@ -61,20 +60,19 @@ export default function App() {
           <Route path="/contact"         element={<Contact />} />
           <Route path="/reset-password"  element={<ResetPassword />} />
           <Route path="/demo"          element={<Analysis demo />} />
-          <Route element={<RequireSubscription><AppShell /></RequireSubscription>}>
+          <Route element={<RequireSubscription><RecordModalProvider><AppShell /></RecordModalProvider></RequireSubscription>}>
             <Route path="/home"     element={<Home />} />
             <Route path="/search"   element={<Search />} />
-            <Route path="/record"   element={<Record />} />
+            <Route path="/record"   element={<Navigate to="/home" replace />} />
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/summary"  element={<Summary />} />
             <Route path="/takes"    element={<Takes />} />
+            <Route path="/sessions" element={<Sessions />} />
             <Route path="/coach"    element={<Coach />} />
             <Route path="/progress" element={<ProgressFeedback />} />
-            <Route path="/calendar" element={<Calendar />} />
-            <Route path="/plan"     element={<Plan />} />
+            <Route path="/reports"  element={<Reports />} />
             <Route path="/profile"  element={<Navigate to="/settings" replace />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/teacher"  element={<TeacherDashboard />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

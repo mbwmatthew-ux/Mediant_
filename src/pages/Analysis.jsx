@@ -443,7 +443,7 @@ export default function Analysis({ demo: demoProp = false }) {
     setTakesLoaded(false)
     supabase
       .from('takes')
-      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, note, created_at')
+      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
@@ -1484,6 +1484,40 @@ export default function Analysis({ demo: demoProp = false }) {
                 />
               )
             })}
+            {/* Numbered measure markers — placed from measure_layout when available */}
+            {(() => {
+              const measures = take?.measure_layout?.measures
+              if (!Array.isArray(measures) || measures.length === 0) return null
+              return (take?.flags ?? []).map((f, i) => {
+                const m = measures.find(mm => mm.measure === f.measure)
+                if (!m) return null
+                const cx = (m.x + (m.width ?? 0) / 2) * 100
+                const cy = (m.y + (m.height ?? 0) / 2) * 100
+                const flagId = `flag_${i}`
+                const isActive = activeFlag === flagId
+                return (
+                  <button
+                    key={`marker_${i}`}
+                    type="button"
+                    onClick={() => { playTick(); setActiveFlag(isActive ? null : flagId) }}
+                    aria-label={`Flag ${i + 1}, measure ${f.measure}`}
+                    style={{
+                      position: 'absolute', left: `${cx}%`, top: `${cy}%`,
+                      transform: 'translate(-50%, -50%)',
+                      width: 24, height: 24, borderRadius: '50%',
+                      background: 'var(--accent)', color: '#fff',
+                      border: `2px solid ${isActive ? '#fff' : 'rgba(255,255,255,0.7)'}`,
+                      boxShadow: isActive ? '0 0 0 3px rgba(232,132,90,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
+                      fontSize: 12, fontWeight: 700, lineHeight: 1,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', transition: 'box-shadow 150ms ease', padding: 0,
+                    }}
+                  >
+                    {i + 1}
+                  </button>
+                )
+              })
+            })()}
           </div>
         )
       )}

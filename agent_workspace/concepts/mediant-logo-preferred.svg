@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" fill="none">
+  <rect width="1200" height="720" fill="#FAF8F3"/>
+  <path d="M0 472C153 424 296 426 426 472C578 526 710 548 862 501C1017 453 1106 370 1200 392" stroke="#E4E1D8" stroke-width="3"/>
+  <path d="M0 168C170 120 302 126 438 172C592 224 722 265 872 214C1018 164 1110 105 1200 130" stroke="#E4E1D8" stroke-width="3"/>
+
+  <g transform="translate(448 112)">
+    <rect width="304" height="304" rx="68" fill="#0C5C52"/>
+    <rect x="6" y="6" width="292" height="292" rx="62" stroke="#FAF8F3" stroke-opacity="0.22" stroke-width="6"/>
+    <path d="M86 210V98L152 171L218 98V210" stroke="#EE7B53" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M86 98H122" stroke="#EE7B53" stroke-width="16" stroke-linecap="round"/>
+    <path d="M182 98H218" stroke="#EE7B53" stroke-width="16" stroke-linecap="round"/>
+    <path d="M113 210H191" stroke="#EE7B53" stroke-width="16" stroke-linecap="round"/>
+  </g>
+
+  <text x="600" y="514" fill="#0C5C52" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="700" text-anchor="middle" letter-spacing="-2">Mediant</text>
+  <text x="600" y="564" fill="#6B6A64" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="500" text-anchor="middle">Preferred simplified logo direction</text>
+
+  <g transform="translate(94 82)">
+    <text x="0" y="0" fill="#0C5C52" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="4">PREFERRED MARK</text>
+    <text x="0" y="30" fill="#6B6A64" font-family="Arial, Helvetica, sans-serif" font-size="17">Coral M on Mediant green.</text>
+  </g>
+</svg>

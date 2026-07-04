@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" fill="none">
+  <rect width="1600" height="1000" fill="#07100C"/>
+  <circle cx="800" cy="370" r="330" fill="#153522" opacity="0.18"/>
+  <circle cx="806" cy="346" r="220" fill="#5BC878" opacity="0.06"/>
+  <path d="M215 760C377 688 523 700 653 746C783 792 891 855 1040 816C1189 777 1292 647 1452 676" stroke="#F6F4EC" stroke-opacity="0.055" stroke-width="2"/>
+  <path d="M142 281C320 330 496 298 640 238C784 178 899 101 1067 138C1235 175 1379 300 1505 252" stroke="#F6F4EC" stroke-opacity="0.045" stroke-width="2"/>
+
+  <g transform="translate(645 168)">
+    <rect x="0" y="0" width="310" height="310" rx="74" fill="#0A120E"/>
+    <rect x="1" y="1" width="308" height="308" rx="73" stroke="#F6F4EC" stroke-opacity="0.08" stroke-width="2"/>
+    <g filter="url(#primary-glow)">
+      <path d="M80 86V224" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M230 86V224" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M80 86H120L155 198L190 86H230" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M104 224H206" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M130 121L155 198L180 121" stroke="#5BC878" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M96 136H124" stroke="#C9954D" stroke-width="5" stroke-linecap="round" opacity="0.88"/>
+      <path d="M186 136H214" stroke="#C9954D" stroke-width="5" stroke-linecap="round" opacity="0.88"/>
+    </g>
+  </g>
+
+  <text x="800" y="570" fill="#F6F4EC" font-family="Georgia, 'Times New Roman', serif" font-size="88" text-anchor="middle" letter-spacing="-2">Mediant</text>
+  <text x="800" y="620" fill="#A7B2A9" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="middle" letter-spacing="4">AI PERFORMANCE ANALYSIS FOR MUSICIANS</text>
+
+  <g transform="translate(294 740)">
+    <text x="0" y="-32" fill="#5BC878" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="5">APP ICON</text>
+    <rect width="148" height="148" rx="36" fill="#0A120E" stroke="#F6F4EC" stroke-opacity="0.1"/>
+    <g transform="translate(35 35) scale(0.25)">
+      <path d="M80 86V224" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M230 86V224" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M80 86H120L155 198L190 86H230" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M104 224H206" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M130 121L155 198L180 121" stroke="#5BC878" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+
+  <g transform="translate(596 740)">
+    <text x="0" y="-32" fill="#5BC878" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="5">MONO</text>
+    <rect width="148" height="148" rx="36" fill="#F6F4EC"/>
+    <g transform="translate(35 35) scale(0.25)">
+      <path d="M80 86V224" stroke="#0A120E" stroke-width="13" stroke-linecap="round"/>
+      <path d="M230 86V224" stroke="#0A120E" stroke-width="13" stroke-linecap="round"/>
+      <path d="M80 86H120L155 198L190 86H230" stroke="#0A120E" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M104 224H206" stroke="#0A120E" stroke-width="13" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <g transform="translate(900 740)">
+    <text x="0" y="-32" fill="#5BC878" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="5">WORDMARK</text>
+    <rect width="410" height="148" rx="36" fill="#0A120E" stroke="#F6F4EC" stroke-opacity="0.1"/>
+    <g transform="translate(34 39) scale(0.22)">
+      <path d="M80 86V224" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M230 86V224" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M80 86H120L155 198L190 86H230" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M104 224H206" stroke="#F6F4EC" stroke-width="13" stroke-linecap="round"/>
+      <path d="M130 121L155 198L180 121" stroke="#5BC878" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="128" y="92" fill="#F6F4EC" font-family="Georgia, 'Times New Roman', serif" font-size="52" letter-spacing="-1">Mediant</text>
+  </g>
+
+  <text x="80" y="86" fill="#F6F4EC" font-family="Arial, Helvetica, sans-serif" font-size="15" letter-spacing="5" opacity="0.48">LOGO CONCEPT 01</text>
+  <text x="80" y="116" fill="#A7B2A9" font-family="Arial, Helvetica, sans-serif" font-size="17" opacity="0.62">Measured music. Human feedback. AI precision.</text>
+
+  <defs>
+    <filter id="primary-glow" x="48" y="54" width="214" height="202" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset/>
+      <feGaussianBlur stdDeviation="12"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.247 0 0 0 0 0.784 0 0 0 0 0.447 0 0 0 0.42 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+  </defs>
+</svg>

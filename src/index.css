@@ -1,29 +1,29 @@
 :root {
-  /* Mediant LIGHT — warm cream surfaces + dark teal-green ink (Landing palette) */
-  --bg: #faf8f3;
-  --bg-deep: #f1ede2;
-  --bg-card: #ffffff;
-  --bg-card-hover: #f5f1e8;
-  --hero-green: #1a4645;
-  --panel-green: #266867;
-  --accent: #e07407;
-  --accent-dim: rgba(224,116,7,0.14);
-  --accent-bg: rgba(224,116,7,0.10);
-  --accent-bg-hover: rgba(224,116,7,0.18);
-  --accent-border: rgba(224,116,7,0.38);
-  --cream: #f8bc24;
-  --cream-strong: #e07407;
-  --text: #0c5c52;            /* deep teal — headings & strong text (Landing) */
-  --text-soft: rgba(44,44,42,0.88);   /* warm-gray body (Landing #2C2C2A) */
-  --text-muted: rgba(44,44,42,0.60);
-  --text-inverse: #faf8f3;
-  --border: rgba(26,70,69,0.20);
-  --gold: #b8870e;
-  --gold-soft: rgba(248,188,36,0.28);
-  --coral: #e07407;
-  --coral-soft: rgba(224,116,7,0.14);
+  /* Mediant LIGHT — warm cream surfaces + coral accent (Lovable palette) */
+  --bg: #F5F0E8;
+  --bg-deep: #efe9dd;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F9F7F3;
+  --hero-green: #2D5A4E;
+  --panel-green: #2D5A4E;
+  --accent: #E8845A;
+  --accent-dim: rgba(232,132,90,0.14);
+  --accent-bg: rgba(232,132,90,0.10);
+  --accent-bg-hover: rgba(232,132,90,0.18);
+  --accent-border: rgba(232,132,90,0.38);
+  --cream: #C8941A;
+  --cream-strong: #E8845A;
+  --text: #1C1C1A;            /* near-black ink (Lovable) */
+  --text-soft: rgba(28,28,26,0.78);
+  --text-muted: rgba(28,28,26,0.60);
+  --text-inverse: #F5F0E8;
+  --border: rgba(28,28,26,0.10);
+  --gold: #C8941A;
+  --gold-soft: rgba(200,148,26,0.20);
+  --coral: #E8845A;
+  --coral-soft: rgba(232,132,90,0.15);
   --mint: #1f9d76;
-  --mint-soft: rgba(31,157,118,0.16);
+  --mint-soft: rgba(31,157,118,0.15);
   /* Link + secondary-accent tokens. Defaults are dark-appropriate (orange/current);
      the [data-theme="light"] block (after the dark block) overrides these with teal
      for LIGHT MODE ONLY, so dark mode keeps its current look untouched. */
@@ -35,13 +35,13 @@
   --btn2-text: var(--text-soft);
   --btn2-text-hover: var(--accent);
   --btn2-border: var(--border);
-  /* Value-coded score colors: good / ok / needs-work (distinct from action orange) */
+  /* Value-coded score colors: good / ok / needs-work (distinct from action coral) */
   --score-good: #1f9d76;
   --score-ok: #c8941a;
   --score-bad: #d9513a;
-  /* Subtle teal wash for panels/cards so the palette reads without heavy blocks */
-  --panel-tint: rgba(38,104,103,0.05);
-  --panel-tint-strong: rgba(38,104,103,0.10);
+  /* Subtle wash for panels/cards so the palette reads without heavy blocks */
+  --panel-tint: rgba(28,28,26,0.03);
+  --panel-tint-strong: rgba(28,28,26,0.06);
   /* Dashed upload/empty borders. This default is dark-appropriate (inherited by
      [data-theme="dark"], so dark is unchanged); the [data-theme="light"] block
      overrides it to a stronger teal so dashed dropzones read on the cream bg. */
@@ -55,33 +55,32 @@
   --radius-lg: 18px;
   --radius-md: 14px;
   --radius-sm: 10px;
-  --sidebar-w: 230px;
+  --sidebar-w: 220px;
 
-  /* Sidebar rail — intentionally a constant dark teal in BOTH themes
-     (defined only here in :root so it is inherited by [data-theme="dark"]). */
-  --sidebar-bg: #04141c;
-  --sidebar-border: rgba(255,255,255,0.07);
-  --sidebar-text: rgba(255,255,255,0.55);
-  --sidebar-text-hover: rgba(255,255,255,0.95);
-  --sidebar-surface: rgba(255,255,255,0.08);
-  --sidebar-surface-strong: rgba(255,255,255,0.14);
+  /* Sidebar rail — white surface with a right border (Lovable light design). */
+  --sidebar-bg: #FFFFFF;
+  --sidebar-border: rgba(28,28,26,0.10);
+  --sidebar-text: rgba(28,28,26,0.55);
+  --sidebar-text-hover: #1C1C1A;
+  --sidebar-surface: rgba(232,132,90,0.10);
+  --sidebar-surface-strong: rgba(232,132,90,0.18);
 
   /* Semantic surface tokens */
-  --surface-border: rgba(26,70,69,0.16);
-  --surface-hover: rgba(224,116,7,0.07);
-  --surface-subtle: rgba(26,70,69,0.045);
-  --text-dim: rgba(44,44,42,0.66);
-  --text-faint: rgba(44,44,42,0.48);
-  --text-faintest: rgba(44,44,42,0.36);
-  --nav-text: rgba(44,44,42,0.64);
-  --input-bg: rgba(26,70,69,0.045);
-  --input-border: rgba(26,70,69,0.22);
+  --surface-border: rgba(28,28,26,0.12);
+  --surface-hover: rgba(232,132,90,0.07);
+  --surface-subtle: rgba(28,28,26,0.04);
+  --text-dim: rgba(28,28,26,0.66);
+  --text-faint: rgba(28,28,26,0.48);
+  --text-faintest: rgba(28,28,26,0.36);
+  --nav-text: rgba(28,28,26,0.55);
+  --input-bg: rgba(28,28,26,0.035);
+  --input-border: rgba(28,28,26,0.16);
   --dropdown-bg: #ffffff;
 
   /* Glassmorphism overlays */
-  --glass-bg: rgba(250, 248, 243, 0.80);
-  --glass-bg-hover: rgba(250, 248, 243, 0.92);
-  --glass-border: rgba(26, 70, 69, 0.10);
+  --glass-bg: rgba(245, 240, 232, 0.82);
+  --glass-bg-hover: rgba(245, 240, 232, 0.94);
+  --glass-border: rgba(28, 28, 26, 0.10);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 160ms var(--ease-smooth);
@@ -150,16 +149,21 @@
    These win over the :root defaults in light mode and are NOT inherited
    by [data-theme="dark"], so dark mode stays exactly as it is. */
 [data-theme="light"] {
-  --sidebar-bg: #0c5c52;        /* deep teal-green rail (Landing teal-deep) */
-  --link: #0e7a6b;              /* teal text links (readable on cream) */
-  --teal: #159a86;              /* bright teal (Landing) */
-  --teal-strong: #11806f;
-  --btn2-bg: #159a86;           /* secondary buttons = teal filled */
-  --btn2-bg-hover: #11806f;
+  --sidebar-bg: #FFFFFF;        /* white rail (Lovable light design) */
+  --sidebar-border: rgba(28,28,26,0.10);
+  --sidebar-text: rgba(28,28,26,0.55);
+  --sidebar-text-hover: #1C1C1A;
+  --sidebar-surface: rgba(232,132,90,0.10);
+  --sidebar-surface-strong: rgba(232,132,90,0.18);
+  --link: #C4633A;             /* coral text links (readable on cream) */
+  --teal: #2D5A4E;             /* forest green (Lovable hero) */
+  --teal-strong: #234a40;
+  --btn2-bg: #2D5A4E;          /* secondary buttons = forest green filled */
+  --btn2-bg-hover: #234a40;
   --btn2-text: #ffffff;
   --btn2-text-hover: #ffffff;
-  --btn2-border: #159a86;
-  --dashed-border: rgba(26,70,69,0.50);   /* clearly visible dashed lines on cream */
+  --btn2-border: #2D5A4E;
+  --dashed-border: rgba(28,28,26,0.30);   /* visible dashed lines on cream */
 }
 
 *, *::before, *::after { box-sizing: border-box; }

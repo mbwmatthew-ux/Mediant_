@@ -200,6 +200,7 @@
   width: 36px;
 }
 .topBarIconBtn:hover { background: var(--panel-tint); color: var(--text); }
+.topBarIconBtnActive { background: var(--panel-tint); color: var(--text); }
 .topBarAvatar {
   align-items: center;
   background: var(--accent-bg);

@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useState, useEffect } from 'react'
 import { useRecordModal } from '../context/RecordModalContext'
 import NewRecordingModal from './NewRecordingModal'
+import NotificationsPopup from './NotificationsPopup'
 import ErrorBoundary from './ErrorBoundary'
 import styles from './AppShell.module.css'
 import { playNav } from '../utils/sounds'
@@ -33,6 +34,8 @@ export default function AppShell() {
   const initials = user?.name
     ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : '?'
+
+  const [notifOpen, setNotifOpen] = useState(false)
 
   const PAGE_TITLES = {
     '/home': 'Overview', '/analysis': 'Analysis',
@@ -125,10 +128,16 @@ export default function AppShell() {
           {/* Top bar */}
           <header className={styles.topBar}>
             <span className={styles.topBarTitle}>{pageTitle}</span>
-            <div className={styles.topBarRight}>
-              <button className={styles.topBarIconBtn} title="Notifications" aria-label="Notifications">
+            <div className={styles.topBarRight} style={{ position: 'relative' }}>
+              <button
+                className={`${styles.topBarIconBtn} ${notifOpen ? styles.topBarIconBtnActive : ''}`}
+                title="Notifications"
+                aria-label="Notifications"
+                onClick={() => setNotifOpen(o => !o)}
+              >
                 <BellIcon />
               </button>
+              {notifOpen && <NotificationsPopup onClose={() => setNotifOpen(false)} />}
               <button className={styles.topBarIconBtn} onClick={() => { playNav(); nav('/settings') }} title="Settings" aria-label="Settings">
                 <SettingsIcon />
               </button>

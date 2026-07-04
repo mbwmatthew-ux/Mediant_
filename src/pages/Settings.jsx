@@ -7,42 +7,14 @@ import { playToggle, playSave, playThud, playTick } from '../utils/sounds'
 import { INSTRUMENTS } from '../lib/instruments'
 import styles from './Settings.module.css'
 
-/* ── Sidebar nav structure ───────────────────────────────────── */
-const NAV_GROUPS = [
-  {
-    label: 'General',
-    items: [
-      { id: 'profile',     label: 'Profile'     },
-      { id: 'preferences', label: 'Preferences' },
-    ],
-  },
-  {
-    label: 'Security',
-    items: [
-      { id: 'password', label: 'Password'     },
-      { id: 'email',    label: 'Email address' },
-      { id: 'twofa',    label: 'Two-factor'   },
-    ],
-  },
-  {
-    label: 'Data',
-    items: [
-      { id: 'privacy', label: 'Privacy' },
-    ],
-  },
-  {
-    label: 'Billing',
-    items: [
-      { id: 'plan',     label: 'Plan'    },
-      { id: 'invoices', label: 'Invoices' },
-    ],
-  },
-  {
-    label: 'Danger zone',
-    items: [
-      { id: 'danger', label: 'Delete account', danger: true },
-    ],
-  },
+/* ── Tab structure ───────────────────────────────────────────── */
+const TABS = [
+  { id: 'profile',     label: 'Profile'     },
+  { id: 'preferences', label: 'Preferences' },
+  { id: 'security',    label: 'Security'    },
+  { id: 'plan',        label: 'Plan'        },
+  { id: 'privacy',     label: 'Privacy'     },
+  { id: 'danger',      label: 'Danger zone', danger: true },
 ]
 
 /* ── Shared primitives ───────────────────────────────────────── */
@@ -75,9 +47,10 @@ function SettingRow({ label, sub, children, mono, danger }) {
   )
 }
 
-function SectionHeader({ title, sub }) {
+function SectionHeader({ eyebrow, title, sub }) {
   return (
-    <div className={styles.sectionHeader}>
+    <div>
+      {eyebrow && <span className={styles.sectionEyebrow}>{eyebrow}</span>}
       <h2 className={styles.sectionTitle}>{title}</h2>
       {sub && <p className={styles.sectionSub}>{sub}</p>}
     </div>
@@ -128,7 +101,7 @@ function ProfileSection() {
 
   return (
     <div className={styles.section}>
-      <SectionHeader title="Profile" sub="Your account identity and AI coaching preferences." />
+      <SectionHeader eyebrow="General" title="Profile" sub="Your account identity and AI coaching preferences." />
 
       <div className={styles.card}>
         {/* Avatar row */}
@@ -209,7 +182,7 @@ function PreferencesSection() {
 
   return (
     <div className={styles.section}>
-      <SectionHeader title="Preferences" sub="Appearance and audio feedback." />
+      <SectionHeader eyebrow="General" title="Preferences" sub="Appearance and audio feedback." />
       <div className={styles.card}>
         <SettingRow label="Dark mode" sub="Switch between light and dark interface theme.">
           <Toggle checked={theme === 'dark'} onChange={handleTheme} />
@@ -242,7 +215,7 @@ function PreferencesSection() {
 
 /* ── Password section ────────────────────────────────────────── */
 
-function PasswordSection() {
+function PasswordSection({ standalone = true }) {
   const [pw,    setPw]    = useState('')
   const [pw2,   setPw2]   = useState('')
   const [state, setState] = useState('idle')
@@ -262,32 +235,37 @@ function PasswordSection() {
     setTimeout(() => { setState('idle'); setMsg('') }, 3500)
   }
 
+  const inner = (
+    <div className={styles.card}>
+      <form onSubmit={submit}>
+        <SettingRow label="New password">
+          <input className={styles.input} type="password" autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)} placeholder="At least 8 characters" />
+        </SettingRow>
+        <SettingRow label="Confirm password">
+          <input className={styles.input} type="password" autoComplete="new-password" value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Re-enter password" />
+        </SettingRow>
+        <div className={styles.cardFooter}>
+          <StatusMsg kind={state === 'ok' ? 'ok' : state === 'err' ? 'err' : ''}>{msg}</StatusMsg>
+          <Btn variant="primary" type="submit" disabled={state === 'saving' || !pw || !pw2}>
+            {state === 'saving' ? 'Updating…' : 'Update password'}
+          </Btn>
+        </div>
+      </form>
+    </div>
+  )
+
+  if (!standalone) return inner
   return (
     <div className={styles.section}>
-      <SectionHeader title="Password" sub="Choose a strong password — at least 8 characters. You'll stay signed in on this device." />
-      <div className={styles.card}>
-        <form onSubmit={submit}>
-          <SettingRow label="New password">
-            <input className={styles.input} type="password" autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)} placeholder="At least 8 characters" />
-          </SettingRow>
-          <SettingRow label="Confirm password">
-            <input className={styles.input} type="password" autoComplete="new-password" value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Re-enter password" />
-          </SettingRow>
-          <div className={styles.cardFooter}>
-            <StatusMsg kind={state === 'ok' ? 'ok' : state === 'err' ? 'err' : ''}>{msg}</StatusMsg>
-            <Btn variant="primary" type="submit" disabled={state === 'saving' || !pw || !pw2}>
-              {state === 'saving' ? 'Updating…' : 'Update password'}
-            </Btn>
-          </div>
-        </form>
-      </div>
+      <SectionHeader title="Password" sub="Choose a strong password — at least 8 characters." />
+      {inner}
     </div>
   )
 }
 
 /* ── Email section ───────────────────────────────────────────── */
 
-function EmailSection() {
+function EmailSectionInner() {
   const { user } = useAuth()
   const [email, setEmail] = useState('')
   const [state, setState] = useState('idle')
@@ -307,29 +285,50 @@ function EmailSection() {
   }
 
   return (
-    <div className={styles.section}>
-      <SectionHeader title="Email address" sub="Changing your email sends a confirmation link to the new address before the change takes effect." />
-      <div className={styles.card}>
-        <SettingRow label="Current email" mono>
-          <span className={styles.monoValue}>{user?.email ?? '—'}</span>
+    <div className={styles.card}>
+      <SettingRow label="Current email" mono>
+        <span className={styles.monoValue}>{user?.email ?? '—'}</span>
+      </SettingRow>
+      <form onSubmit={submit}>
+        <SettingRow label="New email">
+          <input className={styles.input} type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
         </SettingRow>
-        <form onSubmit={submit}>
-          <SettingRow label="New email">
-            <input className={styles.input} type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
-          </SettingRow>
-          <div className={styles.cardFooter}>
-            <StatusMsg kind={state === 'ok' ? 'ok' : state === 'err' ? 'err' : ''}>{msg}</StatusMsg>
-            <Btn variant="primary" type="submit" disabled={state === 'saving' || !email}>
-              {state === 'saving' ? 'Sending…' : 'Send confirmation'}
-            </Btn>
-          </div>
-        </form>
-      </div>
+        <div className={styles.cardFooter}>
+          <StatusMsg kind={state === 'ok' ? 'ok' : state === 'err' ? 'err' : ''}>{msg}</StatusMsg>
+          <Btn variant="primary" type="submit" disabled={state === 'saving' || !email}>
+            {state === 'saving' ? 'Sending…' : 'Send confirmation'}
+          </Btn>
+        </div>
+      </form>
     </div>
   )
 }
 
-/* ── Two-factor section ──────────────────────────────────────── */
+function EmailSection() {
+  return (
+    <div className={styles.section}>
+      <SectionHeader title="Email address" sub="Changing your email sends a confirmation link to the new address before the change takes effect." />
+      <EmailSectionInner />
+    </div>
+  )
+}
+
+/* ── Security section (Password + Email + 2FA combined) ──────── */
+
+function SecuritySection() {
+  return (
+    <div className={styles.section}>
+      <SectionHeader eyebrow="Security" title="Password & login" sub="Manage your password, email address, and two-factor authentication." />
+      <PasswordSection standalone={false} />
+      <EmailSectionInner />
+      <div className={styles.card}>
+        <SettingRow label="Two-factor authentication" sub="TOTP via Google Authenticator, Authy, or 1Password.">
+          <span className={styles.comingSoon}>Coming soon</span>
+        </SettingRow>
+      </div>
+    </div>
+  )
+}
 
 function TwoFactorSection() {
   return (
@@ -365,7 +364,7 @@ function PrivacySection() {
 
   return (
     <div className={styles.section}>
-      <SectionHeader title="Privacy" sub="How your data is stored and how you can manage it." />
+      <SectionHeader eyebrow="Data" title="Privacy" sub="How your data is stored and how you can manage it." />
       <div className={styles.card}>
         <SettingRow label="Data handling" sub="Your recordings are processed only to generate feedback and are never sold or shared with advertisers.">
           <Link to="/privacy" className={styles.linkBtn}>Privacy policy ↗</Link>
@@ -403,7 +402,7 @@ function PrivacySection() {
 
 /* ── Plan section ────────────────────────────────────────────── */
 
-function PlanSection() {
+function PlanSection({ standalone = true }) {
   const { subscription } = useAuth()
   const nav = useNavigate()
 
@@ -413,10 +412,8 @@ function PlanSection() {
     ? new Date(subscription.current_period_end).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
     : null
 
-  return (
-    <div className={styles.section}>
-      <SectionHeader title="Plan" sub="Manage your Mediant subscription." />
-      <div className={styles.card}>
+  const card = (
+    <div className={styles.card}>
         <SettingRow label="Current plan" mono>
           <div className={styles.planRow}>
             <span className={`${styles.planBadge} ${isPaid ? styles.planBadgePaid : styles.planBadgeFree}`}>
@@ -441,13 +438,20 @@ function PlanSection() {
           </div>
         </SettingRow>
       </div>
+  )
+
+  if (!standalone) return card
+  return (
+    <div className={styles.section}>
+      <SectionHeader eyebrow="Billing" title="Plan" sub="Manage your Mediant subscription." />
+      {card}
     </div>
   )
 }
 
 /* ── Invoices section ────────────────────────────────────────── */
 
-function InvoicesSection() {
+function InvoicesSection({ standalone = true }) {
   const invoices = [
     { id: 'INV-2026-0007', date: 'Jun 1, 2026',  amount: '$14.99', status: 'paid' },
     { id: 'INV-2026-0006', date: 'May 1, 2026',  amount: '$14.99', status: 'paid' },
@@ -457,43 +461,60 @@ function InvoicesSection() {
   const statusStyle = { paid: styles.pillPaid, pending: styles.pillPending, refunded: styles.pillRefunded }
   const statusLabel = { paid: 'Paid', pending: 'Pending', refunded: 'Refunded' }
 
+  const card = (
+    <div className={styles.card}>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Invoice</th>
+              <th>Date</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map(inv => (
+              <tr key={inv.id}>
+                <td className={styles.mono}>{inv.id}</td>
+                <td>{inv.date}</td>
+                <td className={styles.mono}>{inv.amount}</td>
+                <td>
+                  <span className={`${styles.pill} ${statusStyle[inv.status] ?? ''}`}>
+                    {statusLabel[inv.status] ?? inv.status}
+                  </span>
+                </td>
+                <td className={styles.tableBtnCell}>
+                  <button className={styles.iconBtn} disabled aria-label="Download receipt">
+                    <DownloadIcon />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
+  if (!standalone) return card
   return (
     <div className={styles.section}>
       <SectionHeader title="Invoices" sub="Download receipts for past payments. Sample data — real invoices appear once Stripe is connected." />
-      <div className={styles.card}>
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Invoice</th>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map(inv => (
-                <tr key={inv.id}>
-                  <td className={styles.mono}>{inv.id}</td>
-                  <td>{inv.date}</td>
-                  <td className={styles.mono}>{inv.amount}</td>
-                  <td>
-                    <span className={`${styles.pill} ${statusStyle[inv.status] ?? ''}`}>
-                      {statusLabel[inv.status] ?? inv.status}
-                    </span>
-                  </td>
-                  <td className={styles.tableBtnCell}>
-                    <button className={styles.iconBtn} disabled aria-label="Download receipt">
-                      <DownloadIcon />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {card}
+    </div>
+  )
+}
+
+/* ── Billing section (Plan + Invoices combined) ──────────────── */
+
+function BillingSection() {
+  return (
+    <div className={styles.section}>
+      <SectionHeader eyebrow="Billing" title="Plan &amp; invoices" sub="Manage your subscription and download past receipts." />
+      <PlanSection standalone={false} />
+      <InvoicesSection standalone={false} />
     </div>
   )
 }
@@ -525,7 +546,7 @@ function DangerSection() {
 
   return (
     <div className={styles.section}>
-      <SectionHeader title="Delete account" />
+      <SectionHeader eyebrow="Danger zone" title="Delete account" />
       <div className={`${styles.card} ${styles.dangerCard}`}>
         <SettingRow
           label="Delete account"
@@ -551,75 +572,49 @@ function DangerSection() {
   )
 }
 
-/* ── Sign-out ────────────────────────────────────────────────── */
-
-function SignOutSection() {
-  const { logout } = useAuth()
-  const nav = useNavigate()
-  function handleSignOut() { playThud(); logout(); nav('/') }
-  return (
-    <div className={styles.signOutWrap}>
-      <button className={styles.signOutBtn} onClick={handleSignOut}>Sign out</button>
-    </div>
-  )
-}
-
 /* ── Page ────────────────────────────────────────────────────── */
 
 const SECTION_MAP = {
   profile:     ProfileSection,
   preferences: PreferencesSection,
-  password:    PasswordSection,
-  email:       EmailSection,
-  twofa:       TwoFactorSection,
+  security:    SecuritySection,
+  plan:        BillingSection,
   privacy:     PrivacySection,
-  plan:        PlanSection,
-  invoices:    InvoicesSection,
   danger:      DangerSection,
 }
 
 export default function Settings() {
+  const { logout } = useAuth()
+  const nav = useNavigate()
   const [active, setActive] = useState('profile')
 
-  function navigate(id) {
+  function handleTab(id) {
     if (id === active) return
     playTick()
     setActive(id)
   }
 
+  function handleSignOut() { playThud(); logout(); nav('/') }
+
   const ActiveSection = SECTION_MAP[active] ?? ProfileSection
 
   return (
     <div className={styles.page}>
-      {/* Sidebar */}
-      <aside className={styles.sidebar}>
-        <div className={styles.sidebarInner}>
-          <div className={styles.sidebarHeader}>Settings</div>
-          {NAV_GROUPS.map(group => (
-            <div key={group.label} className={styles.navGroup}>
-              <span className={styles.navGroupLabel}>{group.label}</span>
-              {group.items.map(item => (
-                <button
-                  key={item.id}
-                  className={`${styles.navItem} ${active === item.id ? styles.navItemActive : ''} ${item.danger ? styles.navItemDanger : ''}`}
-                  onClick={() => navigate(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          ))}
-          <div className={styles.sidebarFooter}>
-            <SignOutSection />
-          </div>
-        </div>
-      </aside>
+      <div className={styles.tabBar}>
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`${styles.tab} ${active === tab.id ? styles.tabActive : ''} ${tab.danger ? styles.tabDanger : ''}`}
+            onClick={() => handleTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <button className={styles.signOutBtn} onClick={handleSignOut}>Sign out</button>
+      </div>
 
-      {/* Content */}
-      <main className={styles.content} key={active}>
-        <ActiveSection />
-        <div className={styles.mobileSignOut}><SignOutSection /></div>
-      </main>
+      <ActiveSection key={active} />
     </div>
   )
 }

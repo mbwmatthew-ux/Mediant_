@@ -18,7 +18,7 @@
 /* ── Sidebar ────────────────────────────────────────────────── */
 .sidebar {
   background: var(--sidebar-bg);
-  border-right: none;
+  border-right: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
   height: 100vh;

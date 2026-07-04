@@ -146,23 +146,43 @@
   transform: translateY(-2px);
   box-shadow: var(--shadow-sm);
 }
+.pieceCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pieceIconCircle {
+  align-items: center;
+  background: rgba(45, 90, 78, 0.12);
+  border-radius: 50%;
+  color: var(--hero-green);
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
 .pieceScore {
-  font-size: 1.7rem;
+  font-size: 1.55rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1;
-  margin-bottom: 4px;
 }
 .pieceTitle {
-  font-size: 1rem;
+  font-size: 0.96rem;
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pieceComposer { font-size: 0.82rem; color: var(--text-muted); }
-.pieceIssue { font-size: 0.78rem; color: var(--text-faint); margin-top: 6px; }
+.pieceComposer { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+.pieceDivider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 10px 0 8px;
+}
+.pieceIssue { font-size: 0.76rem; color: var(--text-faint); }
 
 .pieceSkeleton {
   height: 132px;

@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { SkeletonCard } from '../components/Skeleton'
-import WaveformTimeline, { WAVEFORM_GROUPS } from '../components/WaveformTimeline'
-import MasterclassPanel from '../components/MasterclassPanel'
+import { useRecordModal } from '../context/RecordModalContext'
 import AnalysisOnboarding from '../components/AnalysisOnboarding'
 import styles from './Page.module.css'
 import aStyles from './Analysis.module.css'
@@ -351,10 +348,9 @@ export default function Analysis({ demo: demoProp = false }) {
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
   const { user, profile } = useAuth()
+  const { setOpen: setOpenRecord } = useRecordModal()
   
-  const scoreEl  = useRef(null)
-  const osmdRef  = useRef(null)
-  const videoRef    = useRef(null)
+const videoRef    = useRef(null)
   const loopRef     = useRef(null)
   const chatEndRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -897,79 +893,6 @@ export default function Analysis({ demo: demoProp = false }) {
     try { video.currentTime = start } catch {}
   }, [activeFlagRaw])
 
-  // OSMD sheet music loader
-  useEffect(() => {
-    if (!scoreEl.current || scoreReady) return
-    
-    const pieceTitle = take?.piece_title ?? ''
-    const scoreFile = scoreUrl ?? scoreFileForPiece(pieceTitle)
-
-    if (!scoreFile) {
-      setScoreReady(true)
-      return
-    }
-
-    const flagMeasures = new Map() // Map<measureNum, { flagIds: string[], types: string[] }>
-    if (take?.flags?.length) {
-      take.flags.forEach((f, i) => {
-        const endMeasure = f.measure_end ?? f.measure
-        for (let m = f.measure; m <= endMeasure; m++) {
-          const existing = flagMeasures.get(m) ?? { flagIds: [], types: [] }
-          existing.flagIds.push(`flag_${i}`)
-          existing.types.push(f.type ?? '')
-          flagMeasures.set(m, existing)
-        }
-      })
-    }
-
-    const osmd = new OpenSheetMusicDisplay(scoreEl.current, {
-      autoResize: true,
-      backend: 'svg',
-      drawTitle: false,
-      drawComposer: false,
-      drawCredits: false,
-      drawPartNames: false,
-      drawMeasureNumbers: true,
-      measureNumberInterval: 1,
-    })
-    osmdRef.current = osmd
-
-    osmd.load(scoreFile)
-      .then(() => {
-        osmd.render()
-        setScoreReady(true)
-
-        try {
-          const measureList = osmd.GraphicSheet.MeasureList
-          const zoom = osmd.zoom * 10
-          const newHighlights = []
-
-          flagMeasures.forEach(({ flagIds, types }, measureNum) => {
-            const row = measureList[measureNum - 1]
-            if (!row) return
-            const gm = row[0]
-            if (!gm) return
-            const pos = gm.PositionAndShape
-            newHighlights.push({
-              flagIds,
-              primaryType: types[0] ?? '',
-              measureNum,
-              x: pos.AbsolutePosition.x * zoom,
-              y: pos.AbsolutePosition.y * zoom,
-              w: pos.Size.width * zoom,
-              h: pos.Size.height * zoom,
-            })
-          })
-          setHighlights(newHighlights)
-        } catch (e) {
-          console.warn('Could not render measure highlights:', e)
-        }
-      })
-      .catch(err => {
-        console.error('OSMD load error:', err)
-        setScoreReady(true)
-      })
-  }, [take, scoreUrl, scoreReady])
 
   // Scroll chat area
   useEffect(() => {
@@ -1458,134 +1381,20 @@ export default function Analysis({ demo: demoProp = false }) {
     )
   }
 
-  const scoreAreaContent = (
-    <div className={`${styles.scoreArea} ${aStyles.scoreAreaPolish} ${isImageScore ? `${styles.scoreAreaImage} ${aStyles.scoreAreaImagePolish}` : ''}`}>
-      {isVisualScore && scoreUrl && (
-        isPdfScore ? (
-          <iframe src={scoreUrl} className={`${styles.scorePdf} ${aStyles.scorePdfPolish}`} title="Sheet music" />
-        ) : (
-          <div className={`${styles.scorePhotoWrap} ${aStyles.scorePhotoWrapPolish}`}>
-            <img src={scoreUrl} className={`${styles.scorePhoto} ${aStyles.scorePhotoPolish}`} alt="Sheet music" loading="lazy" />
-            {(take?.flags ?? []).map((f, i) => {
-              if (!f.spot) return null
-              const flagId = `flag_${i}`
-              if (activeFlag !== flagId) return null
-              const [y0, x0, y1, x1] = f.spot
-              const cx = (x0 + x1) / 2 / 10, cy = (y0 + y1) / 2 / 10
-              const w = (x1 - x0) / 10, h = (y1 - y0) / 10
-              return (
-                <div key={flagId}
-                  style={{
-                    position: 'absolute', left: `${cx}%`, top: `${cy}%`,
-                    width: `${w}%`, height: `${h}%`,
-                    transform: 'translate(-50%, -50%)',
-                    background: 'rgba(184,146,42,0.3)', borderRadius: 4,
-                  }}
-                />
-              )
-            })}
-            {/* Numbered measure markers — placed from measure_layout when available */}
-            {(() => {
-              const measures = take?.measure_layout?.measures
-              if (!Array.isArray(measures) || measures.length === 0) return null
-              return (take?.flags ?? []).map((f, i) => {
-                const m = measures.find(mm => mm.measure === f.measure)
-                if (!m) return null
-                const cx = (m.x + (m.width ?? 0) / 2) * 100
-                const cy = (m.y + (m.height ?? 0) / 2) * 100
-                const flagId = `flag_${i}`
-                const isActive = activeFlag === flagId
-                return (
-                  <button
-                    key={`marker_${i}`}
-                    type="button"
-                    onClick={() => { playTick(); setActiveFlag(isActive ? null : flagId) }}
-                    aria-label={`Flag ${i + 1}, measure ${f.measure}`}
-                    style={{
-                      position: 'absolute', left: `${cx}%`, top: `${cy}%`,
-                      transform: 'translate(-50%, -50%)',
-                      width: 24, height: 24, borderRadius: '50%',
-                      background: 'var(--accent)', color: '#fff',
-                      border: `2px solid ${isActive ? '#fff' : 'rgba(255,255,255,0.7)'}`,
-                      boxShadow: isActive ? '0 0 0 3px rgba(232,132,90,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
-                      fontSize: 12, fontWeight: 700, lineHeight: 1,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      cursor: 'pointer', transition: 'box-shadow 150ms ease', padding: 0,
-                    }}
-                  >
-                    {i + 1}
-                  </button>
-                )
-              })
-            })()}
-          </div>
-        )
-      )}
-      {!isVisualScore && (
-        <>
-          {take?._demo && (
-            <div style={{ position: 'relative', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <img src="/scores/clair-de-lune-preview.png" alt="Clair de lune Sheet music"
-                style={{ width: '100%', borderRadius: 8, opacity: 0.9, boxShadow: 'var(--shadow-sm)' }}
-                onError={(e) => {
-                  e.target.style.display = 'none'
-                }}
-              />
-              <div style={{
-                position: 'absolute', left: '20%', top: '35%', width: '15%', height: '12%',
-                background: activeFlag === 'flag_0' ? 'rgba(184,146,42,0.22)' : 'rgba(184,146,42,0.06)',
-                border: `2px solid ${activeFlag === 'flag_0' ? 'var(--accent)' : 'var(--accent-border)'}`,
-                borderRadius: 6, cursor: 'pointer', transition: 'all 0.2s'
-              }} onClick={() => { playTick(); setActiveFlag('flag_0') }} />
-              <div style={{
-                position: 'absolute', left: '55%', top: '55%', width: '18%', height: '12%',
-                background: activeFlag === 'flag_1' ? 'rgba(184,146,42,0.22)' : 'rgba(184,146,42,0.06)',
-                border: `2px solid ${activeFlag === 'flag_1' ? 'var(--accent)' : 'var(--accent-border)'}`,
-                borderRadius: 6, cursor: 'pointer', transition: 'all 0.2s'
-              }} onClick={() => { playTick(); setActiveFlag('flag_1') }} />
-            </div>
-          )}
-          {!take?._demo && !scoreFileForPiece(pieceTitle) && scoreReady && (
-            <div className={styles.scoreUnavailable}>
-              <p>Sheet music is not uploaded for this session.</p>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-faint)' }}>Comparative review is based on audio playback.</p>
-            </div>
-          )}
-          <div style={{ position: 'relative' }}>
-            <div ref={scoreEl} />
-            {scoreReady && highlights.map(({ flagIds, primaryType, measureNum, x, y, w, h }) => {
-              const isMeasureActive = flagIds.includes(activeFlag)
-              const TYPE_RGB = { iconGreen: '88,121,101', iconCoral: '207,63,63', iconGold: '184,146,42' }
-              const rgb = TYPE_RGB[flagTypeMeta(primaryType).cls] ?? TYPE_RGB.iconGold
-              return (
-                <div key={measureNum}
-                  onClick={() => {
-                    playTick()
-                    setActiveFlag(prev => {
-                      if (!isMeasureActive) return flagIds[0]
-                      const idx = flagIds.indexOf(prev)
-                      if (idx === flagIds.length - 1) return null
-                      return flagIds[idx + 1]
-                    })
-                  }}
-                  style={{
-                    position: 'absolute', left: x, top: y, width: w, height: h,
-                    background: isMeasureActive ? `rgba(${rgb},0.22)` : `rgba(${rgb},0.12)`,
-                    border: `1.5px solid rgba(${rgb},${isMeasureActive ? '0.65' : '0.3'})`,
-                    borderRadius: 6, cursor: 'pointer', transition: 'background 150ms ease',
-                  }}
-                />
-              )
-            })}
-          </div>
-        </>
-      )}
-    </div>
-  )
-
   return (
-    <div className={aStyles.pageShell}>
-      {/* Hidden file input for uploads */}
+    <div className={aStyles.page}>
+      {/* Hidden video for loop/seek — keeps audio loop functional without showing player */}
+      {videoUrl && (
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          style={{ display: 'none' }}
+          preload="metadata"
+          onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)}
+        />
+      )}
+
+      {/* Hidden file input for follow-up uploads */}
       <input
         ref={fileInputRef}
         type="file"
@@ -1594,859 +1403,217 @@ export default function Analysis({ demo: demoProp = false }) {
         onChange={handleFileUpload}
       />
 
-      {/* ───── MAIN CONTENT AREA ───── */}
-      <main className={aStyles.mainPageContent}>
-
-        {/* ── Page header ── */}
-        <div className={aStyles.analysisPageHeader}>
-          <div className={aStyles.analysisPageHeaderLeft}>
-            <h1 className={aStyles.analysisPageTitle}>Sessions</h1>
-            <p className={aStyles.analysisPageSubtitle}>
-              {pieceTitle || 'Select a session below'}{pieceComposer ? ` · ${pieceComposer}` : ''}
-            </p>
-          </div>
-          <button className={aStyles.analysisNewSessionBtn} onClick={() => nav('/record')}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            New session
-          </button>
+      {/* Demo banner */}
+      {isDemo && (
+        <div className={aStyles.demoBanner}>
+          <span className={aStyles.demoPill}>Demo</span>
+          Sample analysis for Clair de lune.{' '}
+          <a href="#/signup" className={aStyles.demoBannerLink}>Create a free account →</a>
         </div>
+      )}
 
-        {/* ── Session strip (horizontal scroll of recent threads) ── */}
-        <div className={aStyles.sessionStrip}>
-          {threads.map((thread) => {
-            const latestTake = thread.takes?.[0]
-            const isActive = thread.piece_title === activeThreadTitle
+      {/* Thread strip — shown when user has multiple pieces */}
+      {threads.length > 1 && (
+        <div className={aStyles.threadStrip}>
+          {threads.map(thread => {
+            const latestScore = thread.takes?.[0]?.score ?? null
             return (
               <button
                 key={thread.piece_title}
-                className={`${aStyles.sessionStripCard} ${isActive ? aStyles.sessionStripCardActive : ''}`}
+                className={`${aStyles.threadChip} ${thread.piece_title === activeThreadTitle ? aStyles.threadChipActive : ''}`}
                 onClick={() => { playPop(); setActiveThreadTitle(thread.piece_title); setSelectedTakeId(null) }}
               >
-                <div className={aStyles.sessionStripTop}>
-                  <span className={aStyles.sessionStripPiece}>{thread.piece_title}</span>
-                  {latestTake?.score != null && (
-                    <span className={aStyles.sessionStripScore} style={{ color: scoreColor(latestTake.score) }}>
-                      {latestTake.score}
-                    </span>
-                  )}
-                </div>
-                <div className={aStyles.sessionStripMeta}>
-                  <span>{thread.piece_composer ?? ''}</span>
-                  {latestTake?.created_at && (
-                    <span>{timeAgo(latestTake.created_at)}</span>
-                  )}
-                </div>
+                {thread.piece_title}
+                {latestScore != null && (
+                  <span className={aStyles.threadChipScore} style={{ color: scoreColor(latestScore) }}>{latestScore}</span>
+                )}
               </button>
             )
           })}
         </div>
+      )}
 
-        {/* Demo banner */}
-        {isDemo && (
-          <div style={{
-            background: 'rgba(92,184,107,0.1)',
-            border: '1px solid rgba(92,184,107,0.25)',
-            borderRadius: 8,
-            color: 'rgba(248,246,242,0.75)',
-            fontSize: '0.85rem',
-            marginBottom: 16,
-            padding: '10px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-          }}>
-            <span style={{ color: 'var(--hero-green)', fontWeight: 600 }}>Demo</span>
-            This is a sample analysis for Clair de lune. Create a free account to analyze your own recordings.
-            <a href="#/signup" style={{ color: 'var(--hero-green)', marginLeft: 'auto', textDecoration: 'none', fontWeight: 500, whiteSpace: 'nowrap' }}>
-              Get started free →
-            </a>
-          </div>
-        )}
-
-        {/* ── Waveform score header ── */}
-        <div className={aStyles.waveHeader}>
-          {/* Left: piece info */}
-          <div className={aStyles.waveHeaderMeta}>
-            <div className={aStyles.waveHeaderTitleRow}>
-              <h1 className={aStyles.waveHeaderTitle}>{pieceTitle}</h1>
-              {instrument && <span className={aStyles.waveHeaderBadge}>{instrument}</span>}
-            </div>
-            <p className={aStyles.waveHeaderComposer}>{pieceComposer}</p>
-            {takesForActiveThread.length > 0 && (
-              <div className={aStyles.waveHeaderTakeRow}>
-                <select
-                  className={aStyles.waveHeaderTakeSelect}
-                  value={selectedTakeId ?? take?.id ?? ''}
-                  onChange={(e) => { playTick(); setSelectedTakeId(e.target.value) }}
-                >
-                  {takesForActiveThread.map((t, idx) => {
-                    const takeNum = takesForActiveThread.length - idx
-                    return (
-                      <option key={t.id} value={t.id}>
-                        Take {takeNum} of {takesForActiveThread.length}
-                      </option>
-                    )
-                  })}
-                </select>
-                <button className={aStyles.waveHeaderDeleteBtn} onClick={handleDeleteTake} title="Delete this take">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                </button>
-                <span className={aStyles.waveHeaderAnalyzedAt}>{timeAgo(take?.created_at) || '4d ago'}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Center: animated waveform bars */}
-          <div className={aStyles.waveHeaderBarsWrap}>
-            {HEADER_WAVE_BARS.map((h, i) => (
-              <div
-                key={i}
-                className={`${aStyles.waveHeaderBar} ${flaggedBarIndices.includes(i) ? aStyles.waveHeaderBarFlagged : ''}`}
-                style={{ '--barH': `${h}px`, '--d': `${(i * 53) % 720}ms` }}
-              />
-            ))}
-          </div>
-
-          {/* Right: animated metric bars */}
-          <div className={aStyles.waveHeaderMetrics}>
-            <div className={aStyles.waveHeaderMetricRow}>
-              <span className={aStyles.waveHeaderMetricLabel}>Intonation</span>
-              <div className={aStyles.waveHeaderMetricTrack}>
-                <div ref={hFill1Ref} className={`${aStyles.waveHeaderMetricFill} ${aStyles.waveHeaderFill1}`} style={{ width: `${aspectScores?.intonation ?? 77}%`, background: scoreColor(Math.round(aspectScores?.intonation ?? 77)) }} />
-              </div>
-              <span ref={hNum1Ref} className={aStyles.waveHeaderMetricVal} style={{ color: scoreColor(Math.round(aspectScores?.intonation ?? 77)) }}>{Math.round(aspectScores?.intonation ?? 77)}</span>
-            </div>
-            <div className={aStyles.waveHeaderMetricRow}>
-              <span className={aStyles.waveHeaderMetricLabel}>Dynamics</span>
-              <div className={aStyles.waveHeaderMetricTrack}>
-                <div ref={hFill2Ref} className={`${aStyles.waveHeaderMetricFill} ${aStyles.waveHeaderFill2}`} style={{ width: `${aspectScores?.dynamics ?? 83}%`, background: scoreColor(Math.round(aspectScores?.dynamics ?? 83)) }} />
-              </div>
-              <span ref={hNum2Ref} className={aStyles.waveHeaderMetricVal} style={{ color: scoreColor(Math.round(aspectScores?.dynamics ?? 83)) }}>{Math.round(aspectScores?.dynamics ?? 83)}</span>
-            </div>
-            <div className={`${aStyles.waveHeaderMetricRow} ${aStyles.waveHeaderMetricRowOverall}`}>
-              <span className={aStyles.waveHeaderMetricLabel}>Overall</span>
-              <div className={aStyles.waveHeaderMetricTrack}>
-                <div ref={hFill3Ref} className={`${aStyles.waveHeaderMetricFill} ${aStyles.waveHeaderFill3}`} style={{ width: `${score ?? 82}%`, background: scoreColor(score ?? 82) }} />
-              </div>
-              <span ref={hNum3Ref} className={aStyles.waveHeaderMetricVal} style={{ color: scoreColor(score ?? 82) }}>{score ?? 82}</span>
-            </div>
-          </div>
-
-          {/* Far right: big score + re-analyze */}
-          <div className={aStyles.waveHeaderScoreCol}>
-            <div className={aStyles.waveHeaderBigScore} style={{ color: scoreColor(score ?? 82) }}>
-              {score ?? '—'}
-            </div>
-            <div className={aStyles.waveHeaderBigScoreDenom}>/100</div>
-            <button className={aStyles.waveHeaderReanalyze} onClick={() => nav('/record')}>
-              New Session
+      {/* SESSION HEADER */}
+      <div className={aStyles.sessionHeader}>
+        <div className={aStyles.sessionHeaderLeft}>
+          <span className={aStyles.sessionPill}>SESSION</span>
+          <h1 className={aStyles.sessionTitle}>{pieceTitle || 'No session selected'}</h1>
+          <p className={aStyles.sessionMeta}>{subtext}</p>
+        </div>
+        <div className={aStyles.sessionHeaderRight}>
+          {takesForActiveThread.length > 1 && (
+            <select
+              className={aStyles.takeSelect}
+              value={selectedTakeId ?? take?.id ?? ''}
+              onChange={e => { playTick(); setSelectedTakeId(e.target.value) }}
+            >
+              {takesForActiveThread.map((t, idx) => {
+                const n = takesForActiveThread.length - idx
+                return (
+                  <option key={t.id} value={t.id}>
+                    Take {n}{t.score != null ? ` · ${t.score}` : ''} · {timeAgo(t.created_at)}
+                  </option>
+                )
+              })}
+            </select>
+          )}
+          <a href="#summary-section" className={aStyles.jumpSummaryBtn}>Jump to summary ↓</a>
+          {!isDemo && (
+            <button className={aStyles.newSessionBtn} onClick={() => { playPop(); setOpenRecord(true) }}>
+              + New session
             </button>
-          </div>
+          )}
         </div>
+      </div>
 
-        {/* ── Metric tiles ── */}
-        <div className={aStyles.metricTilesRow}>
-          <div className={aStyles.metricTile}>
-            <span className={aStyles.metricTileLabel}>ISSUES FLAGGED</span>
-            <span className={aStyles.metricTileValue}>{issueCount}</span>
+      {/* TWO-PANEL BODY */}
+      <div className={aStyles.twoPanel}>
+        {/* LEFT: Annotated Score */}
+        <div className={aStyles.scorePanel}>
+          <div className={aStyles.panelHead}>
+            <span className={aStyles.panelHeadTitle}>ANNOTATED SCORE</span>
           </div>
-          <div className={aStyles.metricTile}>
-            <span className={aStyles.metricTileLabel}>MEASURES</span>
-            <span className={aStyles.metricTileValue}>
-              {take?.flags?.length
-                ? Math.max(...take.flags.map(f => f.measure_end ?? f.measure ?? 0))
-                : '—'}
-            </span>
-          </div>
-          <div className={aStyles.metricTile}>
-            <span className={aStyles.metricTileLabel}>CONFIDENCE</span>
-            <span className={aStyles.metricTileValue}>{overallConfidence}%</span>
-          </div>
-          <div className={aStyles.metricTile}>
-            <span className={aStyles.metricTileLabel}>ANALYZED</span>
-            <span className={aStyles.metricTileValue} style={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>
-              {timeAgo(take?.created_at) ?? '—'}
-            </span>
-          </div>
-        </div>
-
-        {/* ── AI context note + re-analyze ── */}
-        {!isDemo && (
-          <div className={aStyles.noteCard}>
-            <div className={aStyles.noteCardHead}>
-              <span className={aStyles.noteCardTitle}>NOTES FOR THE AI</span>
-              <span className={aStyles.noteCardHint}>Context the AI uses when analyzing this take</span>
-            </div>
-            <textarea
-              className={aStyles.noteCardInput}
-              value={noteDraft}
-              onChange={e => setNoteDraft(e.target.value)}
-              maxLength={800}
-              rows={2}
-              placeholder="e.g. “sight-reading”, “my piano runs flat”, “recorded on my phone” — then re-analyze to apply it."
-            />
-            <div className={aStyles.noteCardActions}>
-              <button
-                className={aStyles.noteSaveBtn}
-                onClick={saveNote}
-                disabled={noteSaving || reanalyzing || noteDraft.trim() === (take?.note ?? '').trim()}
-              >
-                {noteSaving ? 'Saving…' : noteSaved ? '✓ Saved' : 'Save note'}
-              </button>
-              <button
-                className={aStyles.noteReanalyzeBtn}
-                onClick={reanalyzeWithNote}
-                disabled={reanalyzing || !take?.video_path}
-              >
-                {reanalyzing ? 'Re-analyzing…' : '↻ Re-analyze with this context'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Tab strip */}
-        <div className={aStyles.tabStrip}>
-          <button
-            className={`${aStyles.tab} ${activeTab === 'overview' ? aStyles.tabActive : ''}`}
-            onClick={() => setActiveTab('overview')}
-          >
-            Analysis
-          </button>
-          <button
-            data-onboarding-label="analysis-summary-tab"
-            className={`${aStyles.tab} ${activeTab === 'summary' ? aStyles.tabActive : ''}`}
-            onClick={() => setActiveTab('summary')}
-          >
-            Session Summary
-          </button>
-        </div>
-
-        {activeTab === 'overview' ? (
-          <>
-            {/* Split scrollable grid layout */}
-            <div className={aStyles.reviewLayoutColumns}>
-              {/* Left Column: Sheet music (collapsible) */}
-              <div className={aStyles.leftLane}>
-                <div className={aStyles.laneCard}>
-                  <div className={aStyles.laneCardHeader}>
-                    <span className={aStyles.laneCardTitle}>SHEET MUSIC</span>
-                    <button
-                      className={aStyles.laneExpandBtn}
-                      onClick={() => setScoreCollapsed(v => !v)}
-                      title={scoreCollapsed ? 'Show sheet music' : 'Hide sheet music'}
-                    >
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        {scoreCollapsed ? (
-                          <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                        ) : (
-                          <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7" />
-                        )}
-                      </svg>
-                    </button>
-                  </div>
-                  {!scoreCollapsed && (
-                    <div className={aStyles.laneCardBody}>
-                      {scoreAreaContent}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Right Column: Insights, video, chat */}
-              <div className={aStyles.rightLane}>
-                {/* Insights Card */}
-                <div className={`${aStyles.laneCard} ${aStyles.insightsCard}`}>
-                  <div data-onboarding-label="analysis-flags" className={aStyles.laneCardHeader}>
-                    <span className={aStyles.laneCardTitle} style={{ display: 'flex', alignItems: 'center' }}>
-                      INSIGHTS
-                      {issueCount > 0 && <span className={aStyles.insightCountBadge}>{issueCount}</span>}
-                    </span>
-                    <div className={aStyles.insightsLegend}>
-                      <span className={aStyles.legendLabel}>CONFIDENCE:</span>
-                      <span className={aStyles.legendItem}>
-                        <span className={aStyles.legendDot} style={{ background: 'var(--accent)' }} /> High
-                      </span>
-                      <span className={aStyles.legendItem}>
-                        <span className={aStyles.legendDot} style={{ background: 'var(--gold)' }} /> Medium
-                      </span>
-                      <span className={aStyles.legendItem}>
-                        <span className={aStyles.legendDot} style={{ background: 'var(--coral)' }} /> Low
-                      </span>
-                    </div>
-                  </div>
-
-                  {issueCount === 0 ? (
-                    <div className={aStyles.issueClean}>✓ No issues detected — clean performance.</div>
-                  ) : (
-                    <div className={aStyles.insightsList}>
-                      {take?.flags?.map((f, i) => {
-                        const flagId = `flag_${i}`
-                        const isActive = activeFlag === flagId
-                        const cc = confColor(f.confidence ?? 100)
-                        const isThisLooping = isLooping && loopRef.current?.start === Number(f.timestamp_start)
-                        const loopStart = Number(f.timestamp_start)
-                        const loopEnd = Number(f.timestamp_end)
-                        const loopDuration = loopEnd - loopStart
-                        const loopProgress = isThisLooping && loopDuration > 0
-                          ? Math.min(1, Math.max(0, (currentTime - loopStart) / loopDuration))
-                          : 0
-                        return (
-                          <div key={flagId}>
-                            <div
-                              className={`${aStyles.insightRow} ${isActive ? aStyles.insightRowActive : ''}`}
-                              onClick={() => { playTick(); setActiveFlag(isActive ? null : flagId) }}
-                            >
-                              <span className={aStyles.insightIndex}>{i + 1}</span>
-                              <button
-                                className={aStyles.insightTime}
-                                title="Seek to this timestamp"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (f.timestamp_start != null) seekTo(Number(f.timestamp_start))
-                                }}
-                              >
-                                {formatTs(f.timestamp_start)}
-                              </button>
-                              <span className={aStyles.insightMeasure}>m.{f.measure}</span>
-                              <span className={aStyles.insightTypeBadge} data-type={f.type}>{f.type.toUpperCase()}</span>
-                              <span className={aStyles.insightRowTitle}>{f.title}</span>
-                              <span className={aStyles.insightConfDot} style={{ background: cc }} />
-                              <button
-                                className={`${aStyles.insightLoopBtn} ${isThisLooping ? aStyles.insightLoopBtnActive : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  playTick()
-                                  if (isThisLooping) {
-                                    stopLoop()
-                                  } else {
-                                    startLoop(f)
-                                  }
-                                }}
-                              >
-                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
-                                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-                                </svg>
-                                {isThisLooping ? 'Stop' : 'Loop'}
-                              </button>
-                              <button
-                                className={aStyles.insightAskBtn}
-                                title="Ask Mediant about this flag"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  const msg = `Explain the ${capitalize(f.type)} issue in measure ${f.measure} — "${f.title}". How do I fix it?`
-                                  setChatInput(msg)
-                                  document.getElementById('practa-chat-input')?.focus()
-                                }}
-                              >
-                                Ask Mediant →
-                              </button>
-                            </div>
-                            {isThisLooping && (
-                              <div style={{ height: 2, background: 'rgba(0,0,0,0.06)', margin: '0 12px', borderRadius: 1, overflow: 'hidden' }}>
-                                <div style={{
-                                  height: '100%',
-                                  width: `${loopProgress * 100}%`,
-                                  background: 'var(--gold)',
-                                  transition: 'width 0.1s linear',
-                                  borderRadius: 1,
-                                }} />
-                              </div>
-                            )}
-
-                            {/* Teacher annotation bar */}
-                            {profile?.role === 'teacher' && !isDemo && !take?._demo && (() => {
-                              const ann        = annotations[i]
-                              const isAnnoting = activeAnnot?.flagIndex === i
-                              const isAnnLoading = annotLoading[i]
-                              return (
-                                <div style={{ padding: '6px 12px 8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-faint)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginRight: 4 }}>
-                                      {ann ? `✓ ${ann.action}${ann.rejection_reason ? ` · ${ann.rejection_reason.replace(/_/g,' ')}` : ''}` : 'Annotate:'}
-                                    </span>
-                                    <button
-                                      onClick={e => { e.stopPropagation(); ann?.action === 'approve' ? deleteAnnotation(i) : submitAnnotation(i, 'approve') }}
-                                      disabled={isAnnLoading}
-                                      style={{ ...annotBtnStyle, ...(ann?.action === 'approve' ? { background: 'rgba(143,190,159,0.18)', color: '#8fbe9f', borderColor: '#8fbe9f' } : {}) }}
-                                    >✓</button>
-                                    <button
-                                      onClick={e => { e.stopPropagation(); setActiveAnnot(isAnnoting && activeAnnot.action === 'reject' ? null : { flagIndex: i, action: 'reject' }); setRejectReason('wrong_measure') }}
-                                      disabled={isAnnLoading}
-                                      style={{ ...annotBtnStyle, ...(ann?.action === 'reject' || (isAnnoting && activeAnnot.action === 'reject') ? { background: 'rgba(192,83,74,0.15)', color: 'var(--coral)', borderColor: 'var(--coral)' } : {}) }}
-                                    >✗</button>
-                                    <button
-                                      onClick={e => { e.stopPropagation(); setActiveAnnot(isAnnoting && activeAnnot.action === 'edit' ? null : { flagIndex: i, action: 'edit' }); setEditedTitle(f.title ?? ''); setEditedDetail(f.detail ?? f.body ?? '') }}
-                                      disabled={isAnnLoading}
-                                      style={{ ...annotBtnStyle, ...(ann?.action === 'edit' || (isAnnoting && activeAnnot.action === 'edit') ? { background: 'rgba(184,146,42,0.15)', color: 'var(--gold)', borderColor: 'var(--gold)' } : {}) }}
-                                    >✎</button>
-                                    {ann && (
-                                      <button onClick={e => { e.stopPropagation(); deleteAnnotation(i) }} disabled={isAnnLoading}
-                                        style={{ ...annotBtnStyle, color: 'var(--text-faint)', fontSize: '0.7rem' }}>Clear</button>
-                                    )}
-                                  </div>
-
-                                  {/* Reject inline */}
-                                  {isAnnoting && activeAnnot.action === 'reject' && (
-                                    <div style={{ marginTop: 8, padding: '10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5 }} onClick={e => e.stopPropagation()}>
-                                      <p style={{ margin: '0 0 7px', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Why is this flag wrong?</p>
-                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                                        {[['wrong_measure','Wrong measure'],['not_audible','Not audible'],['too_harsh','Too harsh'],['not_actionable','Not actionable'],['duplicate','Duplicate'],['other','Other']].map(([v,l]) => (
-                                          <button key={v} onClick={() => setRejectReason(v)} style={{ ...annotBtnStyle, ...(rejectReason === v ? { background: 'rgba(192,83,74,0.15)', color: 'var(--coral)', borderColor: 'var(--coral)' } : {}) }}>{l}</button>
-                                        ))}
-                                      </div>
-                                      <div style={{ display: 'flex', gap: 7, marginTop: 9 }}>
-                                        <button onClick={() => submitAnnotation(i, 'reject', { rejectionReason: rejectReason })} style={{ background: 'var(--accent)', border: 0, borderRadius: 4, color: '#fff', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', fontWeight: 600, padding: '6px 12px' }}>Submit</button>
-                                        <button onClick={() => setActiveAnnot(null)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', padding: '6px 10px' }}>Cancel</button>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Edit inline */}
-                                  {isAnnoting && activeAnnot.action === 'edit' && (
-                                    <div style={{ marginTop: 8, padding: '10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5 }} onClick={e => e.stopPropagation()}>
-                                      <p style={{ margin: '0 0 7px', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Corrected flag</p>
-                                      <input value={editedTitle} onChange={e => setEditedTitle(e.target.value)} placeholder="Corrected title" style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 4, color: 'var(--text)', display: 'block', font: 'inherit', fontSize: '0.85rem', marginBottom: 6, outline: 'none', padding: '7px 10px', width: '100%' }} />
-                                      <textarea value={editedDetail} onChange={e => setEditedDetail(e.target.value)} placeholder="Corrected detail…" rows={2} style={{ background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 4, color: 'var(--text)', display: 'block', font: 'inherit', fontSize: '0.85rem', marginBottom: 6, outline: 'none', padding: '7px 10px', resize: 'vertical', width: '100%' }} />
-                                      <div style={{ display: 'flex', gap: 7 }}>
-                                        <button onClick={() => submitAnnotation(i, 'edit', { editedFlag: { ...f, title: editedTitle, detail: editedDetail } })} disabled={!editedTitle.trim()} style={{ background: 'var(--accent)', border: 0, borderRadius: 4, color: '#fff', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', fontWeight: 600, padding: '6px 12px' }}>Save</button>
-                                        <button onClick={() => setActiveAnnot(null)} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', font: 'inherit', fontSize: '0.8rem', padding: '6px 10px' }}>Cancel</button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })()}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  {/* Expanded insight card details */}
-                  {info && activeFlagRaw && (
-                    <div className={aStyles.insightDetailPanel}>
-                      <div className={aStyles.insightDetailHeader}>
-                        <span className={`${aStyles.detailTypeIcon} ${aStyles[flagTypeMeta(activeFlagRaw?.type).cls]}`}>
-                          {flagTypeMeta(activeFlagRaw?.type).icon}
-                        </span>
-                        <span className={aStyles.detailMeasureBadge}>m.{activeFlagRaw.measure}</span>
-                        <h4 className={aStyles.detailTitle}>{info.title}</h4>
-                        <button className={aStyles.detailClose} onClick={() => setActiveFlag(null)}>✕</button>
-                      </div>
-                      <p className={aStyles.detailBody}>{info.body}</p>
-                      <div className={aStyles.practiceRecBox}>
-                        <p className={aStyles.practiceRecLabel}>Practice Recommendation</p>
-                        <p className={aStyles.practiceRecText}>{practiceRec(activeFlagRaw?.type)}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Video recording */}
-                <div className={`${aStyles.laneCard} ${aStyles.recordingCard}`}>
-                  <div className={aStyles.laneCardHeader}>
-                    <span className={aStyles.laneCardTitle}>RECORDING</span>
-                  </div>
-                  <div className={aStyles.videoCardBody}>
-                    {videoUrl ? (
-                      <>
-                        <video
-                          ref={videoRef}
-                          src={videoUrl}
-                          className={aStyles.videoPlayer}
-                          controls
-                          playsInline
-                          preload="metadata"
-                          onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)}
-                        />
-                        <div className={aStyles.videoControls}>
-                          <span className={aStyles.videoSpeedLabel}>Speed</span>
-                          <div className={aStyles.speedBtnsRow}>
-                            {[0.5, 0.75, 1, 1.25, 1.5].map(s => (
-                              <button
-                                key={s}
-                                className={`${aStyles.speedBtn} ${videoSpeed === s ? aStyles.speedBtnActive : ''}`}
-                                onClick={() => setVideoSpeed(s)}
-                              >
-                                {s}×
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className={aStyles.videoMissingState}>
-                        <span>No recording video is attached to this analysis.</span>
-                        <button onClick={() => nav('/record')}>Upload a new take</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Ask Mediant Chat history panel */}
-                <div className={aStyles.laneCard}>
-                  <div className={aStyles.laneCardHeader}>
-                    <span className={aStyles.laneCardTitle}>Ask Mediant</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-faint)', fontWeight: 500 }}>AI coach for this take</span>
-                  </div>
-                  <div className={aStyles.analysisChatMessages}>
-                    {chatMessages.map((m, i) => (
-                      <div key={i} className={m.role === 'user' ? aStyles.analysisChatMsgUser : aStyles.analysisChatMsgAI}>
-                        {m.content}
-                      </div>
-                    ))}
-                    {chatLoading && (
-                      <div className={aStyles.analysisChatMsgAI}><span className={aStyles.analysisChatTyping}>···</span></div>
-                    )}
-                    <div ref={chatEndRef} />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Pinned Ask Mediant bottom bar */}
-            <div className={aStyles.stickyBottomBar}>
-              <div className={aStyles.stickyBarPrompts}>
-                {QUICK_PROMPTS.map(p => (
-                  <button
-                    key={p}
-                    className={aStyles.stickyPromptChip}
-                    onClick={() => sendMessage(p)}
-                    disabled={chatLoading}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-              <div className={aStyles.stickyBarInner}>
-                {activeFlagRaw && (
-                  <span className={aStyles.stickyBarFlagCtx} title={`Context: ${activeFlagRaw.title}`}>
-                    m.{activeFlagRaw.measure} · {capitalize(activeFlagRaw.type)}
-                    <button className={aStyles.stickyBarFlagCtxClear} onClick={() => setActiveFlag(null)}>✕</button>
-                  </span>
-                )}
-                <div className={aStyles.stickyBarLeft}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)', flexShrink: 0 }}>
-                    <path d="M12 2l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" />
-                  </svg>
-                  <span className={aStyles.stickyBarLabel}>Ask Mediant</span>
-                </div>
-                <div className={aStyles.stickyBarDivider} />
-                <input
-                  id="practa-chat-input"
-                  className={aStyles.stickyBarInput}
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                  placeholder={activeFlagRaw ? `Ask about ${capitalize(activeFlagRaw.type)} in m.${activeFlagRaw.measure}…` : 'Ask anything about your performance…'}
-                  disabled={chatLoading}
-                />
-                <button
-                  className={aStyles.stickyBarUploadBtn}
-                  onClick={triggerFileUpload}
-                  title="Upload follow-up take"
-                  disabled={chatLoading}
-                >
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
-                  </svg>
-                </button>
-                <button
-                  className={aStyles.stickyBarSendBtn}
-                  onClick={() => sendMessage()}
-                  disabled={chatLoading || !chatInput.trim()}
-                >
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="19" x2="12" y2="5" />
-                    <polyline points="5 12 12 5 19 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </>
-        ) : (
-          /* ── Session Summary Tab Dashboard ── */
-          <div className={aStyles.summaryTabScroll}>
-            {/* Per-aspect score breakdown */}
-            {aspectScores && (
-              <div className={aStyles.aspectScoresSection}>
-                <p className={aStyles.aspectScoresSectionLabel}>Score Breakdown</p>
-                <div className={aStyles.aspectScoresGrid}>
-                  {Object.entries(ASPECT_LABELS).map(([key, { label, icon }]) => {
-                    const val = aspectScores[key] ?? take?.score ?? 0
+          <div className={aStyles.scorePanelBody}>
+            {scoreUrl ? (
+              <div className={aStyles.scoreImgWrap}>
+                <img src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
+                {(() => {
+                  const measures = take?.measure_layout?.measures
+                  return (take?.flags ?? []).map((f, i) => {
+                    const m = Array.isArray(measures) ? measures.find(mm => mm.measure === f.measure) : null
+                    if (!m) return null
+                    const cx = (m.x + (m.width ?? 0) / 2) * 100
+                    const cy = (m.y + (m.height ?? 0) / 2) * 100
+                    const flagId = `flag_${i}`
+                    const isAct = activeFlag === flagId
                     return (
-                      <div key={key} className={aStyles.aspectScoreCard}>
-                        <span className={`${aStyles.aspectScoreIcon} ${aStyles[TYPE_META[key]?.cls ?? 'iconGold']}`}>{icon}</span>
-                        <div className={aStyles.aspectScoreInfo}>
-                          <span className={aStyles.aspectScoreLabel}>{label}</span>
-                          <span className={aStyles.aspectScoreVal} style={{ color: scoreColor(val) }}>{val}</span>
-                        </div>
-                        <div className={aStyles.aspectScoreBar}>
-                          <div className={aStyles.aspectScoreBarFill} style={{ width: `${val}%`, background: scoreColor(val) }} />
-                        </div>
-                      </div>
+                      <button
+                        key={flagId}
+                        type="button"
+                        className={`${aStyles.scoreMarker} ${isAct ? aStyles.scoreMarkerActive : ''}`}
+                        style={{ left: `${cx}%`, top: `${cy}%` }}
+                        onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
+                        aria-label={`Flag ${i + 1}, measure ${f.measure}`}
+                      >
+                        {i + 1}
+                      </button>
                     )
-                  })}
-                </div>
+                  })
+                })()}
               </div>
+            ) : (
+              <div className={aStyles.scoreEmpty}>No sheet music uploaded for this session.</div>
             )}
+          </div>
+        </div>
 
-            {/* Top overview card */}
-            <div className={aStyles.summaryTopCard}>
-              <div className={aStyles.summaryTopScoreCol}>
-                <div className={aStyles.summaryTopScoreWrap}>
-                  <span className={aStyles.summaryTopScoreNum} style={{ color: scoreColor(score) }}>{score}</span>
-                  <span className={aStyles.summaryTopScoreDenom}>/100</span>
-                </div>
-                <span className={aStyles.summaryTopScoreLabel}>TECHNIQUE SCORE</span>
-                <div className={aStyles.summaryTopScoreBarTrack}>
-                  <div className={aStyles.summaryTopScoreBarFill} style={{ width: `${score}%`, background: scoreColor(score) }} />
-                </div>
-              </div>
-
-              <div className={aStyles.summaryTopDivider} />
-
-              <div className={aStyles.summaryTopConfCol}>
-                <span className={aStyles.summaryTopLabel}>CONFIDENCE</span>
-                <ConfidenceGauge confidence={overallConfidence} />
-              </div>
-
-              <div className={aStyles.summaryTopDivider} />
-
-              <div className={aStyles.summaryTopGlanceCol}>
-                <span className={aStyles.summaryTopLabel}>AT A GLANCE</span>
-                <h3 className={aStyles.summaryTopGlanceHeadline}>{activeSummary.headline}</h3>
-                <p className={aStyles.summaryTopGlanceDesc}>{activeSummary.overview}</p>
-              </div>
-
-              <div className={aStyles.summaryTopDivider} />
-
-              <div className={aStyles.summaryTopWidgetCol} onClick={() => { playTick(); setActiveTab('overview') }}>
-                <div className={aStyles.widgetSparkleWrap}>
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" />
-                  </svg>
-                </div>
-                <div className={aStyles.widgetTextWrap}>
-                  <h4 className={aStyles.widgetTitle}>Ask Mediant AI</h4>
-                  <p className={aStyles.widgetDesc}>Personalized coaching for this session</p>
-                </div>
-              </div>
-            </div>
-
-            {/* 3-Column dashboard layout */}
-            <div className={aStyles.summaryDashboardGrid}>
-              {/* Column 1: Strengths */}
-              <div className={aStyles.summaryDashboardCard}>
-                <div className={aStyles.dashboardCardHeader} style={{ color: 'var(--hero-green)' }}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
-                    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34M12 2a5 5 0 0 0-5 5v5c0 2.76 2.24 5 5 5s5-2.24 5-5V7a5 5 0 0 0-5-5z" />
-                  </svg>
-                  <span>STRENGTHS</span>
-                </div>
-                <div className={aStyles.dashboardCardList}>
-                  {activeSummary.strengths.map((str, idx) => {
-                    const parts = str.split(': ')
-                    const title = parts[0]
-                    const desc = parts[1] || ''
-                    return (
-                      <div key={idx} className={aStyles.summaryListItem}>
-                        <div className={aStyles.summaryItemIconWrap} style={{ background: 'rgba(143, 190, 159, 0.12)', color: 'var(--hero-green)' }}>
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M9 18V5l12-2v13" />
-                            <circle cx="6" cy="18" r="3" />
-                            <circle cx="18" cy="16" r="3" />
-                          </svg>
-                        </div>
-                        <div className={aStyles.summaryItemText}>
-                          <h5 className={aStyles.summaryItemTitle}>{title}</h5>
-                          <p className={aStyles.summaryItemDesc}>{desc}</p>
-                        </div>
+        {/* RIGHT: Detected Issues */}
+        <div className={aStyles.issuesPanel}>
+          <div className={aStyles.panelHead}>
+            <span className={aStyles.panelHeadTitle}>DETECTED ISSUES</span>
+            {issueCount > 0 && <span className={aStyles.issuesBadge}>{issueCount}</span>}
+          </div>
+          <div className={aStyles.issuesList}>
+            {issueCount === 0 ? (
+              <div className={aStyles.noIssues}>✓ No issues detected — clean performance.</div>
+            ) : (
+              (take?.flags ?? []).map((f, i) => {
+                const flagId = `flag_${i}`
+                const isAct = activeFlag === flagId
+                const isThisLooping = isLooping && loopRef.current?.start === Number(f.timestamp_start)
+                return (
+                  <div key={flagId} className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
+                    <button
+                      className={aStyles.issueCardRow}
+                      onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
+                    >
+                      <span className={aStyles.issueNum}>{i + 1}</span>
+                      <div className={aStyles.issueInfo}>
+                        <span className={aStyles.issueMeta}>
+                          M.{f.measure}{f.measure_end ? `–${f.measure_end}` : ''} · {capitalize(f.type)}
+                        </span>
+                        <span className={aStyles.issueName}>{f.title}</span>
                       </div>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Column 2: Priorities */}
-              <div className={aStyles.summaryDashboardCard}>
-                <div className={aStyles.dashboardCardHeader} style={{ color: 'var(--gold)' }}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="6" />
-                    <circle cx="12" cy="12" r="2" />
-                  </svg>
-                  <span>PRIORITIES / AREAS TO WORK ON</span>
-                </div>
-                <div className={aStyles.dashboardCardList}>
-                  {activeSummary.improvements.map((imp, idx) => (
-                    <div key={idx} className={aStyles.summaryListItem}>
-                      <div className={aStyles.summaryItemIconWrap} style={{ background: 'rgba(192, 144, 64, 0.1)', color: 'var(--gold)' }}>
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="10" />
-                          <circle cx="12" cy="12" r="2" />
-                          <line x1="12" y1="2" x2="12" y2="4" />
-                          <line x1="12" y1="20" x2="12" y2="22" />
-                          <line x1="2" y1="12" x2="4" y2="12" />
-                          <line x1="20" y1="12" x2="22" y2="12" />
-                        </svg>
-                      </div>
-                      <div className={aStyles.summaryItemText}>
-                        <h5 className={aStyles.summaryItemTitle}>{imp.area}</h5>
-                        <p className={aStyles.summaryItemDesc}>{imp.guidance}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Column 3: Practice Plan */}
-              <div className={aStyles.summaryDashboardCard}>
-                <div className={aStyles.dashboardCardHeader}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8, color: 'var(--hero-green)' }}>
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                    <line x1="16" y1="2" x2="16" y2="6" />
-                    <line x1="8" y1="2" x2="8" y2="6" />
-                    <line x1="3" y1="10" x2="21" y2="10" />
-                  </svg>
-                  <span style={{ color: 'var(--text-faint)' }}>PRACTICE PLAN</span>
-                  <span className={aStyles.practiceCountBadge}>{activeSummary.drills.length}</span>
-                </div>
-                <p className={aStyles.practicePlanSubtitle}>Recommended drills for this session</p>
-                <div className={aStyles.drillsGrid}>
-                  {activeSummary.drills.map((drill, idx) => (
-                    <div key={idx} className={aStyles.drillCard}>
-                      <div className={aStyles.drillIconWrap}>
-                        {drill.type === 'spinner' ? (
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="12" y1="2" x2="12" y2="6" />
-                            <line x1="12" y1="18" x2="12" y2="22" />
-                            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-                            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-                            <line x1="2" y1="12" x2="6" y2="12" />
-                            <line x1="18" y1="12" x2="22" y2="12" />
-                            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-                            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
-                          </svg>
-                        ) : drill.type === 'key' ? (
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5l-.01.01" />
-                          </svg>
-                        ) : (
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
-                            <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z" />
-                          </svg>
-                        )}
-                      </div>
-                      <div className={aStyles.drillInfo}>
-                        <h5 className={aStyles.drillName}>{drill.name}</h5>
-                        <p className={aStyles.drillMetaText}>{drill.duration} • {drill.frequency}</p>
-                      </div>
-                    </div>
-                  ))}
-                  <button className={aStyles.viewAllDrillsBtn} onClick={() => { playTick(); nav('/takes') }}>
-                    View all drills
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 4 }}>
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Row Dashboard Cards */}
-            <div className={aStyles.summaryBottomRow}>
-              {/* Continue Conversation Card */}
-              <div className={aStyles.summaryConversationCard}>
-                <div className={aStyles.conversationHeader}>
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
-                  <span>CONTINUE THE CONVERSATION</span>
-                </div>
-                <p className={aStyles.conversationDesc}>
-                  I remember our conversation about this take. Ask anything, upload a new take, or get feedback on specific techniques.
-                </p>
-                <div className={aStyles.conversationInputRow}>
-                  <button className={aStyles.uploadFollowupBtn} onClick={triggerFileUpload}>
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6 }}>
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
-                    </svg>
-                    Upload follow-up take
-                  </button>
-                  <div className={aStyles.conversationInputContainer}>
-                    <input
-                      className={aStyles.conversationInput}
-                      value={chatInput}
-                      onChange={e => setChatInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                      placeholder="Ask a question about your playing..."
-                      disabled={chatLoading}
-                    />
-                    <button className={aStyles.conversationSendBtn} onClick={() => sendMessage()} disabled={chatLoading || !chatInput.trim()}>
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="19" x2="12" y2="5" />
-                        <polyline points="5 12 12 5 19 12" />
+                      <svg
+                        className={aStyles.issueChevron}
+                        viewBox="0 0 24 24" width="16" height="16"
+                        fill="none" stroke="currentColor" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round"
+                        style={{ transform: isAct ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease', flexShrink: 0 }}
+                      >
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Past Takes Card */}
-              <div className={aStyles.summaryPastTakesCard}>
-                <div className={aStyles.pastTakesHeader}>
-                  <span>PAST TAKES FOR THIS SONG</span>
-                </div>
-                <div className={aStyles.pastTakesList}>
-                  {takesForActiveThread.slice(0, 3).map((t, idx) => {
-                    const takeNum = takesForActiveThread.length - idx
-                    const formattedDate = timeAgo(t.created_at) || 'Recent'
-                    return (
-                      <div key={t.id} className={aStyles.pastTakeRow}>
-                        <div className={aStyles.pastTakeLeft}>
-                          <span className={aStyles.pastTakeLabel}>Take {takeNum}</span>
-                          <span className={aStyles.pastTakeScoreBadge} style={{ background: scoreBgColor(t.score), color: scoreColor(t.score) }}>{t.score}</span>
-                        </div>
-                        <span className={aStyles.pastTakeMeta}>
-                          Analyzed {formattedDate} • 0:48
-                        </span>
-                        <div className={aStyles.pastTakeActions}>
-                          <button className={aStyles.pastTakePlayBtn} onClick={() => { playTick(); setSelectedTakeId(t.id); setActiveTab('overview') }}>
-                            <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor">
-                              <polygon points="5 3 19 12 5 21" />
+                    {isAct && (
+                      <div className={aStyles.issueCardBody}>
+                        <p className={aStyles.issueDetailText}>{f.detail ?? f.body}</p>
+                        {f.timestamp_start != null && (
+                          <button
+                            className={`${aStyles.loopBtn} ${isThisLooping ? aStyles.loopBtnActive : ''}`}
+                            onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}
+                          >
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
                             </svg>
+                            {isThisLooping ? 'Stop' : 'Loop'}
                           </button>
-                          <button className={aStyles.pastTakeMenuBtn} onClick={() => { playTick(); setShowThreadMenu(t.id === showThreadMenu ? null : t.id) }}>
-                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5">
-                              <circle cx="12" cy="12" r="1" />
-                              <circle cx="12" cy="5" r="1" />
-                              <circle cx="12" cy="19" r="1" />
-                            </svg>
-                          </button>
-                        </div>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <MasterclassPanel
-              pieceTitle={activeThread?.piece_title ?? activeThreadTitle}
-              composer={activeThread?.piece_composer}
-              instrument={activeThread?.instrument}
-            />
+                    )}
+                  </div>
+                )
+              })
+            )}
           </div>
-        )}
-      </main>
+        </div>
+      </div>
+
+      {/* SUMMARY SECTION */}
+      <div id="summary-section" className={aStyles.summarySection}>
+        <h2 className={aStyles.summarySectionTitle}>Summary</h2>
+
+        {/* Score breakdown */}
+        <div className={aStyles.scoreBreakdownRow}>
+          <div className={aStyles.scoreBreakdownCard}>
+            <span className={aStyles.breakdownLabel}>OVERALL</span>
+            <span className={aStyles.breakdownValue} style={{ color: scoreColor(score) }}>
+              {score ?? '—'}<span className={aStyles.breakdownDenom}>/100</span>
+            </span>
+          </div>
+          {aspectScores && Object.entries(ASPECT_LABELS).map(([key, { label }]) => {
+            const val = aspectScores[key]
+            if (val == null) return null
+            return (
+              <div key={key} className={aStyles.scoreBreakdownCard}>
+                <span className={aStyles.breakdownLabel}>{label.toUpperCase()}</span>
+                <span className={aStyles.breakdownValue} style={{ color: scoreColor(Math.round(val)) }}>{Math.round(val)}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Strengths + How to improve */}
+        <div className={aStyles.summaryCols}>
+          <div className={aStyles.summaryCol}>
+            <h3 className={aStyles.summaryColTitle}>Strengths</h3>
+            <ul className={aStyles.summaryColList}>
+              {activeSummary.strengths.map((s, i) => (
+                <li key={i} className={aStyles.summaryColItem}>{s}</li>
+              ))}
+            </ul>
+          </div>
+          <div className={aStyles.summaryCol}>
+            <h3 className={aStyles.summaryColTitle}>How to improve</h3>
+            <ol className={aStyles.summaryColList}>
+              {activeSummary.improvements.map((imp, i) => (
+                <li key={i} className={aStyles.summaryColItem}>
+                  <strong>{imp.area}</strong> — {imp.guidance}
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </div>
 
       {showAnalysisIntro && (
         <AnalysisOnboarding onClose={() => setShowAnalysisIntro(false)} />

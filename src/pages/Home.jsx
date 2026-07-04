@@ -198,15 +198,21 @@ export default function Home() {
                 nav(p.takes[0]?.id ? `/analysis?takeId=${p.takes[0].id}` : '/sessions')
               }}
             >
-              <span className={styles.pieceScore} style={{ color: scoreColor(p.latestScore) }}>
-                {p.latestScore != null ? p.latestScore : '—'}
-              </span>
+              <div className={styles.pieceCardTop}>
+                <span className={styles.pieceIconCircle}><MusicNoteIcon /></span>
+                <span className={styles.pieceScore} style={{ color: scoreColor(p.latestScore) }}>
+                  {p.latestScore != null ? p.latestScore : '—'}
+                </span>
+              </div>
               <span className={styles.pieceTitle}>{p.title}</span>
               <span className={styles.pieceComposer}>
                 {[p.composer, p.instrument].filter(Boolean).join(' · ')}
               </span>
               {p.issue && (
-                <span className={styles.pieceIssue}>Most common issue: {p.issue}</span>
+                <>
+                  <div className={styles.pieceDivider} />
+                  <span className={styles.pieceIssue}>Most common issue: {p.issue}</span>
+                </>
               )}
             </button>
           ))}
@@ -217,6 +223,16 @@ export default function Home() {
 }
 
 /* ── Icons ── */
+function MusicNoteIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18V5l12-2v13"/>
+      <circle cx="6" cy="18" r="3"/>
+      <circle cx="18" cy="16" r="3"/>
+    </svg>
+  )
+}
+
 function MicIcon({ large }) {
   const s = large ? 30 : 15
   return (

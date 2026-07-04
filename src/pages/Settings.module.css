@@ -5,6 +5,29 @@
   padding: 28px 32px 64px;
 }
 
+/* ── Page header (back button) ───────────────────────────────── */
+.pageHeader {
+  margin-bottom: 4px;
+}
+
+.backBtn {
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 500;
+  gap: 6px;
+  margin-left: -6px;
+  padding: 6px 10px;
+  transition: background 130ms ease, color 130ms ease;
+}
+.backBtn:hover { background: var(--panel-tint); color: var(--text); }
+
 /* ── Tab nav ─────────────────────────────────────────────────── */
 .tabBar {
   display: flex;

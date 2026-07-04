@@ -594,12 +594,27 @@ export default function Settings() {
     setActive(id)
   }
 
+  function handleBack() {
+    playTick()
+    if (window.history.length > 2) nav(-1)
+    else nav('/home')
+  }
+
   function handleSignOut() { playThud(); logout(); nav('/') }
 
   const ActiveSection = SECTION_MAP[active] ?? ProfileSection
 
   return (
     <div className={styles.page}>
+      <div className={styles.pageHeader}>
+        <button className={styles.backBtn} onClick={handleBack} aria-label="Go back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Back
+        </button>
+      </div>
+
       <div className={styles.tabBar}>
         {TABS.map(tab => (
           <button

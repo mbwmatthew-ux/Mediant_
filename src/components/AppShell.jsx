@@ -34,6 +34,12 @@ export default function AppShell() {
     ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : '?'
 
+  const PAGE_TITLES = {
+    '/home': 'Overview', '/analysis': 'Analysis',
+    '/sessions': 'Sessions', '/reports': 'Reports', '/settings': 'Settings',
+  }
+  const pageTitle = PAGE_TITLES[location.pathname] ?? ''
+
   return (
     <div className={styles.shell}>
       <NewRecordingModal open={showRecord} onClose={() => setShowRecord(false)} />
@@ -116,6 +122,21 @@ export default function AppShell() {
 
         {/* Main content */}
         <main className={styles.main} id="main-content">
+          {/* Top bar */}
+          <header className={styles.topBar}>
+            <span className={styles.topBarTitle}>{pageTitle}</span>
+            <div className={styles.topBarRight}>
+              <button className={styles.topBarIconBtn} title="Notifications" aria-label="Notifications">
+                <BellIcon />
+              </button>
+              <button className={styles.topBarIconBtn} onClick={() => { playNav(); nav('/settings') }} title="Settings" aria-label="Settings">
+                <SettingsIcon />
+              </button>
+              <button className={styles.topBarAvatar} onClick={() => { playNav(); nav('/settings') }} title={user?.name ?? 'Account'} aria-label="Account">
+                {initials}
+              </button>
+            </div>
+          </header>
           <ErrorBoundary key={location.pathname}>
             <div key={location.pathname} className={styles.pageIn}>
               <Outlet />
@@ -193,6 +214,15 @@ function ReportsIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="16" rx="2"/>
       <path d="M7 14l3-3 2 2 4-4"/>
+    </svg>
+  )
+}
+
+function BellIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
     </svg>
   )
 }

@@ -57,8 +57,8 @@
   --radius-sm: 10px;
   --sidebar-w: 220px;
 
-  /* Sidebar rail — white surface with a right border (Lovable light design). */
-  --sidebar-bg: #FFFFFF;
+  /* Sidebar rail — matches main content background so they blend seamlessly. */
+  --sidebar-bg: var(--bg);
   --sidebar-border: rgba(28,28,26,0.10);
   --sidebar-text: rgba(28,28,26,0.55);
   --sidebar-text-hover: #1C1C1A;
@@ -149,7 +149,7 @@
    These win over the :root defaults in light mode and are NOT inherited
    by [data-theme="dark"], so dark mode stays exactly as it is. */
 [data-theme="light"] {
-  --sidebar-bg: #FFFFFF;        /* white rail (Lovable light design) */
+  --sidebar-bg: var(--bg);      /* matches main content background */
   --sidebar-border: rgba(28,28,26,0.10);
   --sidebar-text: rgba(28,28,26,0.55);
   --sidebar-text-hover: #1C1C1A;

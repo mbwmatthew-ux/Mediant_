@@ -439,7 +439,7 @@ const videoRef    = useRef(null)
     setTakesLoaded(false)
     supabase
       .from('takes')
-      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, created_at')
+      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, duration_sec, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
@@ -1337,6 +1337,28 @@ const videoRef    = useRef(null)
 
   const aspectScores = useMemo(() => computeAspectScores(take), [take])
 
+  const takeMeta = useMemo(() => {
+    if (!take?.created_at) return ''
+    const d = new Date(take.created_at)
+    const now = new Date()
+    let dateLabel
+    if (d.toDateString() === now.toDateString()) {
+      dateLabel = `Today, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+    } else if (d.toDateString() === new Date(Date.now()-86400000).toDateString()) {
+      dateLabel = 'Yesterday'
+    } else {
+      dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+    const durSec = take.duration_sec ?? 0
+    const durMin = Math.round(durSec / 60)
+    return durMin > 0 ? `${dateLabel} · ${durMin}m` : dateLabel
+  }, [take])
+
+  const scoreDelta = useMemo(() => {
+    if (take?.score == null) return null
+    const prev = takesForActiveThread.find(t => t.id !== take.id && t.score != null)
+    return prev ? take.score - prev.score : null
+  }, [take, takesForActiveThread])
 
   // Compute flagged bar indices from actual flag measures (scaled to bar count)
   const flaggedBarIndices = useMemo(() => {
@@ -1383,27 +1405,12 @@ const videoRef    = useRef(null)
 
   return (
     <div className={aStyles.page}>
-      {/* Hidden video for loop/seek — keeps audio loop functional without showing player */}
       {videoUrl && (
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          style={{ display: 'none' }}
-          preload="metadata"
-          onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)}
-        />
+        <video ref={videoRef} src={videoUrl} style={{ display: 'none' }} preload="metadata"
+          onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)} />
       )}
+      <input ref={fileInputRef} type="file" style={{ display: 'none' }} accept="audio/*,video/*" onChange={handleFileUpload} />
 
-      {/* Hidden file input for follow-up uploads */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        style={{ display: 'none' }}
-        accept="audio/*,video/*"
-        onChange={handleFileUpload}
-      />
-
-      {/* Demo banner */}
       {isDemo && (
         <div className={aStyles.demoBanner}>
           <span className={aStyles.demoPill}>Demo</span>
@@ -1412,57 +1419,42 @@ const videoRef    = useRef(null)
         </div>
       )}
 
-      {/* Thread strip — shown when user has multiple pieces */}
       {threads.length > 1 && (
         <div className={aStyles.threadStrip}>
-          {threads.map(thread => {
-            const latestScore = thread.takes?.[0]?.score ?? null
-            return (
-              <button
-                key={thread.piece_title}
-                className={`${aStyles.threadChip} ${thread.piece_title === activeThreadTitle ? aStyles.threadChipActive : ''}`}
-                onClick={() => { playPop(); setActiveThreadTitle(thread.piece_title); setSelectedTakeId(null) }}
-              >
-                {thread.piece_title}
-                {latestScore != null && (
-                  <span className={aStyles.threadChipScore} style={{ color: scoreColor(latestScore) }}>{latestScore}</span>
-                )}
-              </button>
-            )
-          })}
+          {threads.map(thread => (
+            <button key={thread.piece_title}
+              className={`${aStyles.threadChip} ${thread.piece_title === activeThreadTitle ? aStyles.threadChipActive : ''}`}
+              onClick={() => { playPop(); setActiveThreadTitle(thread.piece_title); setSelectedTakeId(null) }}>
+              {thread.piece_title}
+              {thread.takes?.[0]?.score != null && (
+                <span className={aStyles.threadChipScore} style={{ color: scoreColor(thread.takes[0].score) }}>{thread.takes[0].score}</span>
+              )}
+            </button>
+          ))}
         </div>
       )}
 
       {/* SESSION HEADER */}
       <div className={aStyles.sessionHeader}>
         <div className={aStyles.sessionHeaderLeft}>
-          <span className={aStyles.sessionPill}>SESSION</span>
-          <h1 className={aStyles.sessionTitle}>{pieceTitle || 'No session selected'}</h1>
-          <p className={aStyles.sessionMeta}>{subtext}</p>
+          <span className={aStyles.sessionLabel}>SESSION</span>
+          <h1 className={aStyles.sessionTitle}>
+            {pieceComposer && pieceComposer !== 'Unknown' ? `${pieceComposer} — ` : ''}{pieceTitle || 'No session selected'}
+          </h1>
+          <p className={aStyles.sessionMeta}>{takeMeta}</p>
         </div>
         <div className={aStyles.sessionHeaderRight}>
           {takesForActiveThread.length > 1 && (
-            <select
-              className={aStyles.takeSelect}
-              value={selectedTakeId ?? take?.id ?? ''}
-              onChange={e => { playTick(); setSelectedTakeId(e.target.value) }}
-            >
+            <select className={aStyles.takeSelect} value={selectedTakeId ?? take?.id ?? ''}
+              onChange={e => { playTick(); setSelectedTakeId(e.target.value) }}>
               {takesForActiveThread.map((t, idx) => {
                 const n = takesForActiveThread.length - idx
-                return (
-                  <option key={t.id} value={t.id}>
-                    Take {n}{t.score != null ? ` · ${t.score}` : ''} · {timeAgo(t.created_at)}
-                  </option>
-                )
+                return <option key={t.id} value={t.id}>Take {n}{t.score != null ? ` · ${t.score}` : ''}</option>
               })}
             </select>
           )}
+          <button className={aStyles.analysisTabBtn}>Analysis</button>
           <a href="#summary-section" className={aStyles.jumpSummaryBtn}>Jump to summary ↓</a>
-          {!isDemo && (
-            <button className={aStyles.newSessionBtn} onClick={() => { playPop(); setOpenRecord(true) }}>
-              + New session
-            </button>
-          )}
         </div>
       </div>
 
@@ -1487,14 +1479,11 @@ const videoRef    = useRef(null)
                     const flagId = `flag_${i}`
                     const isAct = activeFlag === flagId
                     return (
-                      <button
-                        key={flagId}
-                        type="button"
-                        className={`${aStyles.scoreMarker} ${isAct ? aStyles.scoreMarkerActive : ''}`}
-                        style={{ left: `${cx}%`, top: `${cy}%` }}
+                      <button key={flagId} type="button"
+                        className={aStyles.scoreMarker}
+                        style={{ left: `${cx}%`, top: `${cy}%`, background: isAct ? 'var(--accent)' : '#2A2A28', boxShadow: isAct ? '0 0 0 3px rgba(232,132,90,0.35)' : '0 1px 4px rgba(0,0,0,0.3)' }}
                         onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
-                        aria-label={`Flag ${i + 1}, measure ${f.measure}`}
-                      >
+                        aria-label={`Flag ${i + 1}, measure ${f.measure}`}>
                         {i + 1}
                       </button>
                     )
@@ -1523,35 +1512,45 @@ const videoRef    = useRef(null)
                 const isThisLooping = isLooping && loopRef.current?.start === Number(f.timestamp_start)
                 return (
                   <div key={flagId} className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
-                    <button
-                      className={aStyles.issueCardRow}
-                      onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
-                    >
-                      <span className={aStyles.issueNum}>{i + 1}</span>
+                    <button className={aStyles.issueCardRow}
+                      onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}>
+                      <span className={aStyles.issueNum}
+                        style={{ background: isAct ? 'var(--accent)' : '#2A2A28' }}>
+                        {i + 1}
+                      </span>
                       <div className={aStyles.issueInfo}>
                         <span className={aStyles.issueMeta}>
-                          M.{f.measure}{f.measure_end ? `–${f.measure_end}` : ''} · {capitalize(f.type)}
+                          M. {f.measure}{f.measure_end ? `–${f.measure_end}` : ''} · {(f.type ?? '').toUpperCase()}
                         </span>
                         <span className={aStyles.issueName}>{f.title}</span>
                       </div>
-                      <svg
-                        className={aStyles.issueChevron}
+                      <svg className={aStyles.issueChevron}
                         viewBox="0 0 24 24" width="16" height="16"
                         fill="none" stroke="currentColor" strokeWidth="2"
                         strokeLinecap="round" strokeLinejoin="round"
-                        style={{ transform: isAct ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease', flexShrink: 0 }}
-                      >
+                        style={{ transform: isAct ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease', flexShrink: 0 }}>
                         <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </button>
                     {isAct && (
                       <div className={aStyles.issueCardBody}>
+                        {videoUrl && (
+                          <div className={aStyles.issueThumbnail}>
+                            <video src={videoUrl} className={aStyles.issueThumbnailVideo}
+                              playsInline preload="metadata" muted
+                              onClick={() => { playTick(); startLoop(f) }} />
+                            <div className={aStyles.issueThumbnailOverlay}
+                              onClick={() => { playTick(); startLoop(f) }}>
+                              <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
+                                <polygon points="5 3 19 12 5 21" />
+                              </svg>
+                            </div>
+                          </div>
+                        )}
                         <p className={aStyles.issueDetailText}>{f.detail ?? f.body}</p>
                         {f.timestamp_start != null && (
-                          <button
-                            className={`${aStyles.loopBtn} ${isThisLooping ? aStyles.loopBtnActive : ''}`}
-                            onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}
-                          >
+                          <button className={`${aStyles.loopBtn} ${isThisLooping ? aStyles.loopBtnActive : ''}`}
+                            onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}>
                             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
                             </svg>
@@ -1570,15 +1569,21 @@ const videoRef    = useRef(null)
 
       {/* SUMMARY SECTION */}
       <div id="summary-section" className={aStyles.summarySection}>
-        <h2 className={aStyles.summarySectionTitle}>Summary</h2>
+        <span className={aStyles.summaryEyebrow}>SUMMARY</span>
+        <h2 className={aStyles.summaryTitle}>Your progress at a glance</h2>
 
-        {/* Score breakdown */}
         <div className={aStyles.scoreBreakdownRow}>
           <div className={aStyles.scoreBreakdownCard}>
             <span className={aStyles.breakdownLabel}>OVERALL</span>
-            <span className={aStyles.breakdownValue} style={{ color: scoreColor(score) }}>
-              {score ?? '—'}<span className={aStyles.breakdownDenom}>/100</span>
-            </span>
+            <div className={aStyles.breakdownMain}>
+              <span className={aStyles.breakdownValue} style={{ color: scoreColor(score) }}>{score ?? '—'}</span>
+              <span className={aStyles.breakdownDenom}>/ 100</span>
+            </div>
+            {scoreDelta != null && (
+              <span className={aStyles.breakdownDelta} style={{ color: scoreDelta > 0 ? 'var(--hero-green)' : scoreDelta < 0 ? '#C0534A' : 'var(--text-faint)' }}>
+                {scoreDelta > 0 ? '↗' : scoreDelta < 0 ? '↘' : '→'} {scoreDelta > 0 ? '+' : ''}{scoreDelta}
+              </span>
+            )}
           </div>
           {aspectScores && Object.entries(ASPECT_LABELS).map(([key, { label }]) => {
             const val = aspectScores[key]
@@ -1586,31 +1591,45 @@ const videoRef    = useRef(null)
             return (
               <div key={key} className={aStyles.scoreBreakdownCard}>
                 <span className={aStyles.breakdownLabel}>{label.toUpperCase()}</span>
-                <span className={aStyles.breakdownValue} style={{ color: scoreColor(Math.round(val)) }}>{Math.round(val)}</span>
+                <div className={aStyles.breakdownMain}>
+                  <span className={aStyles.breakdownValue} style={{ color: scoreColor(Math.round(val)) }}>{Math.round(val)}</span>
+                </div>
               </div>
             )
           })}
         </div>
 
-        {/* Strengths + How to improve */}
-        <div className={aStyles.summaryCols}>
-          <div className={aStyles.summaryCol}>
-            <h3 className={aStyles.summaryColTitle}>Strengths</h3>
-            <ul className={aStyles.summaryColList}>
+        <div className={aStyles.strWeakRow}>
+          <div className={aStyles.strWeakCard}>
+            <h3 className={aStyles.strWeakTitle}>Strengths</h3>
+            <ul className={aStyles.strWeakList}>
               {activeSummary.strengths.map((s, i) => (
-                <li key={i} className={aStyles.summaryColItem}>{s}</li>
+                <li key={i} className={aStyles.strWeakItem}>{s}</li>
               ))}
             </ul>
           </div>
-          <div className={aStyles.summaryCol}>
-            <h3 className={aStyles.summaryColTitle}>How to improve</h3>
-            <ol className={aStyles.summaryColList}>
+          <div className={aStyles.strWeakCard}>
+            <h3 className={aStyles.strWeakTitle}>Weaknesses</h3>
+            <ul className={aStyles.strWeakList}>
               {activeSummary.improvements.map((imp, i) => (
-                <li key={i} className={aStyles.summaryColItem}>
-                  <strong>{imp.area}</strong> — {imp.guidance}
-                </li>
+                <li key={i} className={aStyles.strWeakItem}>{imp.area}</li>
               ))}
-            </ol>
+            </ul>
+          </div>
+        </div>
+
+        <div className={aStyles.howToCard}>
+          <h3 className={aStyles.howToTitle}>How to improve</h3>
+          <div className={aStyles.howToList}>
+            {activeSummary.improvements.map((imp, i) => (
+              <div key={i} className={aStyles.howToItem}>
+                <span className={aStyles.howToNum}>{i + 1}</span>
+                <div className={aStyles.howToContent}>
+                  <span className={aStyles.howToArea}>{imp.area}</span>
+                  <p className={aStyles.howToGuidance}>{imp.guidance}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

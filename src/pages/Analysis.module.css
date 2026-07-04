@@ -3,486 +3,245 @@
   max-width: 1160px;
   margin: 0 auto;
   padding: 28px 32px 64px;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
 }
 
-/* ── Demo banner ── */
+/* Demo banner */
 .demoBanner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(45, 90, 78, 0.08);
-  border: 1px solid rgba(45, 90, 78, 0.18);
-  border-radius: 10px;
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  margin-bottom: 20px;
-  padding: 10px 16px;
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(45,90,78,0.08); border: 1px solid rgba(45,90,78,0.18);
+  border-radius: 10px; color: var(--text-muted); font-size: 0.88rem;
+  margin-bottom: 20px; padding: 10px 16px;
 }
 .demoPill {
-  background: var(--hero-green);
-  border-radius: 5px;
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 2px 8px;
-  text-transform: uppercase;
+  background: var(--hero-green); border-radius: 5px; color: #fff;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+  padding: 2px 8px; text-transform: uppercase;
 }
-.demoBannerLink {
-  color: var(--hero-green);
-  font-weight: 600;
-  margin-left: auto;
-  text-decoration: none;
-}
+.demoBannerLink { color: var(--hero-green); font-weight: 600; margin-left: auto; text-decoration: none; }
 .demoBannerLink:hover { text-decoration: underline; }
 
-/* ── Thread strip ── */
-.threadStrip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 20px;
-}
+/* Thread strip */
+.threadStrip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .threadChip {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.83rem;
-  font-weight: 500;
-  padding: 6px 14px;
-  transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
-  white-space: nowrap;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px;
+  color: var(--text-muted); cursor: pointer; font-size: 0.83rem; font-weight: 500;
+  padding: 6px 14px; transition: background 130ms ease, color 130ms ease; white-space: nowrap;
 }
-.threadChip:hover {
-  background: var(--bg-card-hover);
-  color: var(--text);
-}
-.threadChipActive {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--bg);
-}
-.threadChipScore {
-  font-size: 0.78rem;
-  font-weight: 700;
-  margin-left: 6px;
-}
+.threadChip:hover { background: var(--bg-card-hover); color: var(--text); }
+.threadChipActive { background: var(--text); border-color: var(--text); color: var(--bg); }
+.threadChipScore { font-size: 0.78rem; font-weight: 700; margin-left: 6px; }
 
-/* ── Session header ── */
+/* ── SESSION HEADER ── */
 .sessionHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 28px;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 24px; margin-bottom: 28px;
 }
 .sessionHeaderLeft { flex: 1; min-width: 0; }
-.sessionPill {
-  background: rgba(232, 132, 90, 0.12);
-  border: 1px solid rgba(232, 132, 90, 0.25);
-  border-radius: 5px;
-  color: var(--accent);
-  display: inline-block;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  margin-bottom: 8px;
-  padding: 3px 8px;
-  text-transform: uppercase;
+.sessionLabel {
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.12em;
+  color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 6px;
 }
 .sessionTitle {
-  font-size: 1.65rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.025em;
-  line-height: 1.15;
-  margin: 0 0 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 1.7rem; font-weight: 700; color: var(--text);
+  letter-spacing: -0.025em; line-height: 1.15; margin: 0 0 6px;
 }
-.sessionMeta {
-  font-size: 0.88rem;
-  color: var(--text-muted);
-  margin: 0;
-}
+.sessionMeta { font-size: 0.88rem; color: var(--text-muted); margin: 0; }
 .sessionHeaderRight {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  padding-top: 6px;
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0; padding-top: 4px;
 }
 .takeSelect {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.84rem;
-  padding: 7px 10px;
-  outline: none;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); cursor: pointer; font: inherit; font-size: 0.84rem; padding: 7px 10px; outline: none;
 }
 .takeSelect:focus { border-color: var(--accent); }
+.analysisTabBtn {
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); cursor: pointer; font: inherit; font-size: 0.84rem; font-weight: 500; padding: 8px 16px;
+}
 .jumpSummaryBtn {
-  color: var(--accent);
-  font-size: 0.84rem;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
+  background: var(--accent); border: none; border-radius: 8px; color: #fff;
+  cursor: pointer; font-size: 0.84rem; font-weight: 600; padding: 8px 16px;
+  text-decoration: none; transition: background 140ms ease; white-space: nowrap;
 }
-.jumpSummaryBtn:hover { text-decoration: underline; }
-.newSessionBtn {
-  background: var(--accent);
-  border: none;
-  border-radius: 10px;
-  color: #fff;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.86rem;
-  font-weight: 600;
-  padding: 9px 18px;
-  transition: background 140ms ease, transform 140ms ease;
-  white-space: nowrap;
-}
-.newSessionBtn:hover { background: #d9743f; transform: translateY(-1px); }
+.jumpSummaryBtn:hover { background: #d9743f; }
 
-/* ── Two-panel body ── */
+/* ── TWO-PANEL ── */
 .twoPanel {
-  display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 20px;
-  align-items: start;
-  margin-bottom: 40px;
+  display: grid; grid-template-columns: 1fr 400px;
+  gap: 20px; align-items: start; margin-bottom: 48px;
 }
 
-/* ── Panel shared ── */
+/* Panel shared */
 .panelHead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 20px 14px;
-  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px 14px; border-bottom: 1px solid var(--border);
 }
 .panelHeadTitle {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-  text-transform: uppercase;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em;
+  color: var(--text-muted); text-transform: uppercase;
 }
 .issuesBadge {
-  background: var(--accent);
-  border-radius: 10px;
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 1px 7px;
+  background: var(--text); border-radius: 10px; color: var(--bg);
+  font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
-/* ── Score panel ── */
+/* Score panel */
 .scorePanel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  overflow: hidden;
+  background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
 }
-.scorePanelBody {
-  padding: 16px;
-}
-.scoreImgWrap {
-  position: relative;
-  display: inline-block;
-  width: 100%;
-}
+.scorePanelBody { padding: 16px; }
+.scoreImgWrap { position: relative; display: inline-block; width: 100%; }
 .scoreImg {
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
-  display: block;
-  width: 100%;
+  background: #fff; border-radius: 8px; box-shadow: var(--shadow-sm);
+  display: block; width: 100%;
 }
 .scoreMarker {
-  align-items: center;
-  background: var(--accent);
-  border: 2px solid rgba(255, 255, 255, 0.75);
-  border-radius: 50%;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  font-size: 11px;
-  font-weight: 700;
-  height: 24px;
-  justify-content: center;
-  line-height: 1;
-  padding: 0;
-  position: absolute;
-  transform: translate(-50%, -50%);
-  transition: box-shadow 150ms ease, transform 150ms ease;
-  width: 24px;
-  z-index: 2;
-}
-.scoreMarkerActive {
-  border-color: #fff;
-  box-shadow: 0 0 0 3px rgba(232, 132, 90, 0.4);
-  transform: translate(-50%, -50%) scale(1.15);
+  align-items: center; border: 2px solid rgba(255,255,255,0.8); border-radius: 50%;
+  color: #fff; cursor: pointer; display: flex; font-size: 11px; font-weight: 700;
+  height: 26px; justify-content: center; line-height: 1; padding: 0;
+  position: absolute; transform: translate(-50%, -50%);
+  transition: box-shadow 150ms ease; width: 26px; z-index: 2;
 }
 .scoreEmpty {
-  color: var(--text-faint);
-  font-size: 0.88rem;
-  padding: 40px 0;
-  text-align: center;
+  color: var(--text-faint); font-size: 0.88rem; padding: 48px 0; text-align: center;
 }
 
-/* ── Issues panel ── */
+/* Issues panel */
 .issuesPanel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  overflow: hidden;
-  position: sticky;
-  top: 80px;
+  background: #fff; border: 1px solid var(--border); border-radius: 16px;
+  overflow: hidden; position: sticky; top: 80px;
 }
-.issuesList {
-  max-height: 560px;
-  overflow-y: auto;
-  padding: 8px 0;
-}
+.issuesList { max-height: 620px; overflow-y: auto; }
 .issuesList::-webkit-scrollbar { width: 4px; }
 .issuesList::-webkit-scrollbar-track { background: transparent; }
 .issuesList::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 .noIssues {
-  color: var(--hero-green);
-  font-size: 0.88rem;
-  font-weight: 500;
-  padding: 24px 20px;
-  text-align: center;
+  color: var(--hero-green); font-size: 0.88rem; font-weight: 500; padding: 28px 20px; text-align: center;
 }
-.issueCard {
-  border-bottom: 1px solid var(--border);
-  transition: background 130ms ease;
-}
+.issueCard { border-bottom: 1px solid var(--border); }
 .issueCard:last-child { border-bottom: none; }
-.issueCardOpen { background: rgba(232, 132, 90, 0.04); }
+.issueCardOpen { background: rgba(232,132,90,0.04); }
 .issueCardRow {
-  align-items: center;
-  background: none;
-  border: none;
-  color: inherit;
-  cursor: pointer;
-  display: flex;
-  font: inherit;
-  gap: 12px;
-  padding: 13px 16px;
-  text-align: left;
-  width: 100%;
+  align-items: center; background: none; border: none; color: inherit; cursor: pointer;
+  display: flex; font: inherit; gap: 12px; padding: 16px 16px; text-align: left; width: 100%;
   transition: background 130ms ease;
 }
-.issueCardRow:hover { background: rgba(0, 0, 0, 0.03); }
+.issueCardRow:hover { background: rgba(0,0,0,0.02); }
 .issueNum {
-  align-items: center;
-  background: var(--accent);
-  border-radius: 50%;
-  color: #fff;
-  display: flex;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  height: 22px;
-  justify-content: center;
-  width: 22px;
+  align-items: center; border-radius: 50%; color: #fff; display: flex; flex-shrink: 0;
+  font-size: 12px; font-weight: 700; height: 26px; justify-content: center; width: 26px;
+  transition: background 200ms ease;
 }
-.issueInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
+.issueInfo { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
 .issueMeta {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  text-transform: uppercase;
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+  color: var(--text-muted); text-transform: uppercase;
 }
 .issueName {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.92rem; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.issueChevron {
-  color: var(--text-faint);
-  flex-shrink: 0;
+.issueChevron { color: var(--text-faint); flex-shrink: 0; }
+.issueCardBody { padding: 0 16px 16px 16px; }
+.issueThumbnail {
+  border-radius: 8px; margin-bottom: 12px; overflow: hidden;
+  position: relative; cursor: pointer; background: #000;
 }
-.issueCardBody {
-  padding: 0 16px 14px 50px;
+.issueThumbnailVideo { display: block; width: 100%; max-height: 180px; object-fit: cover; }
+.issueThumbnailOverlay {
+  align-items: center; background: rgba(0,0,0,0.35); border-radius: 8px;
+  bottom: 0; display: flex; justify-content: center; left: 0;
+  position: absolute; right: 0; top: 0;
 }
-.issueDetailText {
-  color: var(--text-muted);
-  font-size: 0.87rem;
-  line-height: 1.55;
-  margin: 0 0 10px;
-}
+.issueDetailText { color: var(--text-muted); font-size: 0.88rem; line-height: 1.55; margin: 0 0 12px; }
 .loopBtn {
-  align-items: center;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: inline-flex;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  gap: 5px;
-  padding: 5px 12px;
+  align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text-muted); cursor: pointer; display: inline-flex; font: inherit; font-size: 0.78rem;
+  font-weight: 600; gap: 5px; padding: 6px 14px;
   transition: background 130ms ease, color 130ms ease, border-color 130ms ease;
 }
 .loopBtn:hover { border-color: var(--accent); color: var(--accent); }
-.loopBtnActive {
-  background: rgba(232, 132, 90, 0.1);
-  border-color: var(--accent);
-  color: var(--accent);
-}
+.loopBtnActive { background: rgba(232,132,90,0.1); border-color: var(--accent); color: var(--accent); }
 
-/* ── Summary section ── */
-.summarySection {
-  border-top: 1px solid var(--border);
-  padding-top: 40px;
+/* ── SUMMARY ── */
+.summarySection { border-top: 1px solid var(--border); padding-top: 48px; }
+.summaryEyebrow {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em;
+  color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 8px;
 }
-.summarySectionTitle {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.015em;
-  margin: 0 0 24px;
+.summaryTitle {
+  font-size: 1.6rem; font-weight: 700; color: var(--text);
+  letter-spacing: -0.02em; margin: 0 0 28px;
 }
 
 /* Score breakdown */
-.scoreBreakdownRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 32px;
-}
+.scoreBreakdownRow { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
 .scoreBreakdownCard {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 110px;
-  padding: 16px 18px;
+  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  display: flex; flex-direction: column; gap: 4px; min-width: 110px; padding: 18px 20px;
+  flex: 1;
 }
 .breakdownLabel {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-  text-transform: uppercase;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--text-muted); text-transform: uppercase;
 }
-.breakdownValue {
-  font-size: 1.8rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.05;
+.breakdownMain { display: flex; align-items: baseline; gap: 4px; }
+.breakdownValue { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+.breakdownDenom { font-size: 0.9rem; color: var(--text-faint); }
+.breakdownDelta { font-size: 0.78rem; font-weight: 600; }
+
+/* Strengths + Weaknesses */
+.strWeakRow { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.strWeakCard {
+  background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 24px;
 }
-.breakdownDenom {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--text-faint);
-  margin-left: 2px;
+.strWeakTitle { font-size: 1rem; font-weight: 700; color: var(--text); margin: 0 0 16px; }
+.strWeakList { display: flex; flex-direction: column; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.strWeakItem {
+  color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;
+  padding-left: 16px; position: relative;
+}
+.strWeakItem::before {
+  content: '•'; color: var(--accent); left: 0; position: absolute; font-size: 1rem; line-height: 1.5;
 }
 
-/* Strengths / How to improve */
-.summaryCols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+/* How to improve */
+.howToCard {
+  background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 24px;
 }
-.summaryCol {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 22px 24px;
+.howToTitle { font-size: 1rem; font-weight: 700; color: var(--text); margin: 0 0 20px; }
+.howToList { display: flex; flex-direction: column; gap: 20px; }
+.howToItem { display: flex; gap: 14px; align-items: flex-start; }
+.howToNum {
+  align-items: center; background: var(--text); border-radius: 50%; color: var(--bg);
+  display: flex; flex-shrink: 0; font-size: 12px; font-weight: 700;
+  height: 24px; justify-content: center; width: 24px; margin-top: 1px;
 }
-.summaryColTitle {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: -0.01em;
-  margin: 0 0 14px;
-}
-.summaryColList {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 0;
-  padding-left: 18px;
-}
-.summaryColItem {
-  color: var(--text-muted);
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-.summaryColItem strong { color: var(--text); }
+.howToContent { flex: 1; }
+.howToArea { font-size: 0.92rem; font-weight: 700; color: var(--text); display: block; margin-bottom: 4px; }
+.howToGuidance { color: var(--text-muted); font-size: 0.88rem; line-height: 1.55; margin: 0; }
 
-/* ── Empty state button ── */
+/* Empty state / legacy */
 .analysisNewSessionBtn {
-  align-items: center;
-  background: var(--accent);
-  border: none;
-  border-radius: 10px;
-  color: #fff;
-  cursor: pointer;
-  display: inline-flex;
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 600;
-  gap: 7px;
-  padding: 10px 18px;
-  transition: background 140ms ease;
+  align-items: center; background: var(--accent); border: none; border-radius: 10px;
+  color: #fff; cursor: pointer; display: inline-flex; font: inherit; font-size: 0.88rem;
+  font-weight: 600; gap: 7px; padding: 10px 18px; transition: background 140ms ease;
 }
 .analysisNewSessionBtn:hover { background: #d9743f; }
-
-/* ── Legacy wrappers kept for empty-state render path ── */
 .pageShell { min-height: 100%; }
-.mainPageContent {
-  max-width: 1160px;
-  margin: 0 auto;
-  padding: 24px 32px 64px;
-}
-.analysisPageHeader {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 24px;
-}
+.mainPageContent { max-width: 1160px; margin: 0 auto; padding: 24px 32px 64px; }
+.analysisPageHeader { align-items: center; display: flex; justify-content: space-between; margin-bottom: 24px; }
 .analysisPageHeaderLeft { flex: 1; }
-.analysisPageTitle {
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: var(--text);
-  margin: 0 0 4px;
+.analysisPageTitle { font-size: 1.4rem; font-weight: 700; color: var(--text); margin: 0 0 4px; }
+.analysisPageSubtitle { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+.newSessionBtn {
+  background: var(--accent); border: none; border-radius: 10px; color: #fff;
+  cursor: pointer; font: inherit; font-size: 0.86rem; font-weight: 600; padding: 9px 18px;
+  transition: background 140ms ease; white-space: nowrap;
 }
-.analysisPageSubtitle {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  margin: 0;
-}
+.newSessionBtn:hover { background: #d9743f; }
 
-/* ── Responsive ── */
+/* Responsive */
 @media (max-width: 960px) {
   .twoPanel { grid-template-columns: 1fr; }
   .issuesPanel { position: static; }
@@ -491,7 +250,8 @@
   .page { padding: 20px 16px 48px; }
   .sessionHeader { flex-direction: column; align-items: flex-start; gap: 14px; }
   .sessionHeaderRight { flex-wrap: wrap; }
-  .summaryCols { grid-template-columns: 1fr; }
+  .sessionTitle { font-size: 1.3rem; }
+  .strWeakRow { grid-template-columns: 1fr; }
   .scoreBreakdownRow { gap: 8px; }
-  .scoreBreakdownCard { min-width: 90px; padding: 12px 14px; }
+  .scoreBreakdownCard { min-width: 90px; }
 }

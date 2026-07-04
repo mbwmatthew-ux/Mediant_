@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PLANS, HIGHLIGHT_PLAN_ID } from '../lib/pricing'
+import LogoMark from '../components/LogoMark'
 import styles from './Landing.module.css'
 
 function usePrefersReducedMotion() {
@@ -198,9 +199,9 @@ export default function Landing() {
       {/* ── NAV ────────────────────────────────────────── */}
       <nav className={styles.nav} aria-label="Main navigation">
           <Link to="/" className={styles.navBrand} aria-label="Mediant home">
-          <span className={styles.navLogoMark} aria-hidden="true" />
-          <span className={styles.navWordmark}>Mediant</span>
-        </Link>
+            <LogoMark size={30} />
+            <span className={styles.navWordmark}>Mediant</span>
+          </Link>
 
         <div className={styles.navLinks}>
           <a href="#how-it-works">How it works</a>
@@ -437,7 +438,7 @@ export default function Landing() {
         <div className={styles.footerInner}>
           <div className={styles.footerBrand}>
             <div className={styles.footerLogoRow}>
-              <span className={styles.footerLogoMark} aria-hidden="true" />
+              <LogoMark size={26} />
               <span className={styles.footerWordmark}>Mediant</span>
             </div>
             <p className={styles.footerTagline}>AI music practice coaching for growing musicians.</p>

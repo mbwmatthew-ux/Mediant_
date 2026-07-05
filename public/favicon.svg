@@ -1,28 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <defs>
-    <clipPath id="r">
-      <rect width="100" height="100" rx="22"/>
-    </clipPath>
-  </defs>
-
-  <!-- Teal background, clipped to rounded square -->
   <rect width="100" height="100" rx="22" fill="#11808A"/>
 
-  <!-- White music note -->
-  <ellipse cx="38" cy="70" rx="17" ry="15" fill="white"/>
-  <rect x="53" y="20" width="5" height="52" rx="2.5" fill="white"/>
-  <path d="M 58 20 C 90 18 90 46 72 54 C 64 58 58 52 58 47"
-        stroke="white" stroke-width="6" fill="none"
+  <!-- Note head — large, lower-left -->
+  <ellipse cx="34" cy="72" rx="22" ry="19" fill="white"/>
+  <!-- Stem -->
+  <rect x="54" y="8" width="6" height="66" rx="3" fill="white"/>
+  <!-- Flag -->
+  <path d="M 60 8 C 96 6 96 44 74 53 C 64 58 60 51 60 46"
+        stroke="white" stroke-width="7" fill="none"
         stroke-linecap="round" stroke-linejoin="round"/>
 
   <!-- Coral glasses — left -->
-  <rect x="17" y="63" width="24" height="16" rx="5" fill="#E8614A"/>
-  <rect x="21" y="67" width="16" height="8" rx="2.5" fill="white"/>
+  <rect x="11" y="64" width="26" height="17" rx="5" fill="#E8614A"/>
+  <rect x="15" y="68" width="18" height="9" rx="3" fill="white"/>
 
   <!-- Coral glasses — right -->
-  <rect x="43" y="63" width="24" height="16" rx="5" fill="#E8614A"/>
-  <rect x="47" y="67" width="16" height="8" rx="2.5" fill="white"/>
+  <rect x="39" y="64" width="26" height="17" rx="5" fill="#E8614A"/>
+  <rect x="43" y="68" width="18" height="9" rx="3" fill="white"/>
 
   <!-- Bridge -->
-  <rect x="41" y="67" width="2" height="6" fill="#E8614A"/>
+  <rect x="37" y="68" width="2" height="7" fill="#E8614A"/>
 </svg>

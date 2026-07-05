@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRecordModal } from '../context/RecordModalContext'
 import NewRecordingModal from './NewRecordingModal'
 import NotificationsPopup from './NotificationsPopup'
+import LogoMark from './LogoMark'
 import ErrorBoundary from './ErrorBoundary'
 import styles from './AppShell.module.css'
 import { playNav } from '../utils/sounds'
@@ -52,6 +53,7 @@ export default function AppShell() {
       {/* Mobile top header (logo + account) — hidden on desktop */}
       <header className={styles.mobileHeader}>
         <NavLink to="/home" className={styles.mobileHeaderBrand} onClick={playNav} aria-label="Mediant home">
+          <LogoMark size={26} />
           <span className={styles.mobileHeaderWordmark}>MEDIANT</span>
         </NavLink>
         <button
@@ -68,6 +70,7 @@ export default function AppShell() {
         <aside className={styles.sidebar}>
           {/* Logo */}
           <NavLink to="/home" className={styles.sidebarLogo} onClick={playNav} title="Mediant">
+            <LogoMark size={28} />
             MEDIANT
           </NavLink>
 

@@ -1,12 +1,12 @@
-export default function LogoMark({ size = 28, color }) {
+export default function LogoMark({ size = 32, rounded = true, style }) {
+  const r = rounded ? Math.round(size * 0.22) : 0
   return (
-    <div style={{
-      width: size, height: size, flexShrink: 0,
-      background: color || 'var(--text)',
-      WebkitMask: `url('/logo-mark.png') center/contain no-repeat`,
-      WebkitMaskMode: 'luminance',
-      mask: `url('/logo-mark.png') center/contain no-repeat`,
-      maskMode: 'luminance',
-    }} />
+    <img
+      src="/Newlogo.png"
+      width={size}
+      height={size}
+      alt="Mediant"
+      style={{ borderRadius: r, display: 'block', flexShrink: 0, objectFit: 'cover', ...style }}
+    />
   )
 }

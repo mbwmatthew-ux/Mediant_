@@ -199,7 +199,7 @@ export default function Landing() {
       {/* ── NAV ────────────────────────────────────────── */}
       <nav className={styles.nav} aria-label="Main navigation">
           <Link to="/" className={styles.navBrand} aria-label="Mediant home">
-            <LogoMark size={30} />
+            <LogoMark size={34} />
             <span className={styles.navWordmark}>Mediant</span>
           </Link>
 
@@ -438,7 +438,7 @@ export default function Landing() {
         <div className={styles.footerInner}>
           <div className={styles.footerBrand}>
             <div className={styles.footerLogoRow}>
-              <LogoMark size={28} />
+              <LogoMark size={32} />
               <span className={styles.footerWordmark}>Mediant</span>
             </div>
             <p className={styles.footerTagline}>AI music practice coaching for growing musicians.</p>

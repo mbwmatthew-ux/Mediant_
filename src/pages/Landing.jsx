@@ -270,7 +270,7 @@ export default function Landing() {
                     <div className={styles.waveformMetricTrack}>
                       <div ref={fill3Ref} className={`${styles.waveformMetricFill} ${styles.waveformMetricFill3}`} style={{ width: '79%' }} />
                     </div>
-                    <span ref={num3Ref} className={styles.waveformMetricVal} style={{ color: '#2bbdc9' }}>79</span>
+                    <span ref={num3Ref} className={styles.waveformMetricVal} style={{ color: 'rgba(255,255,255,0.92)' }}>79</span>
                   </div>
                 </div>
               </div>

@@ -372,7 +372,7 @@
 
 .waveformMetricFill1 { background: var(--accent); }
 .waveformMetricFill2 { background: var(--gold); }
-.waveformMetricFill3 { background: var(--score-good); }
+.waveformMetricFill3 { background: rgba(255, 255, 255, 0.88); }
 
 .waveformMetricVal {
   font-size: 0.88rem;

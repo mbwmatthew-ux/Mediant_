@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useRecordModal } from '../context/RecordModalContext'
 import AnalysisOnboarding from '../components/AnalysisOnboarding'
+import FixThisSection from '../components/FixThisSection'
 import styles from './Page.module.css'
 import aStyles from './Analysis.module.css'
 import { playTick, playPop, playNav } from '../utils/sounds'
@@ -1457,6 +1458,21 @@ const videoRef    = useRef(null)
           <a href="#summary-section" className={aStyles.jumpSummaryBtn}>Jump to summary ↓</a>
         </div>
       </div>
+
+      {/* FIX THIS SECTION */}
+      {take?.flags?.length > 0 && (
+        <FixThisSection
+          flags={take.flags}
+          isLooping={isLooping}
+          loopRef={loopRef}
+          onStartLoop={startLoop}
+          onStopLoop={stopLoop}
+          videoSpeed={videoSpeed}
+          onSpeedChange={setVideoSpeed}
+          onReRecord={() => setOpenRecord(true)}
+          onSeek={seekTo}
+        />
+      )}
 
       {/* TWO-PANEL BODY */}
       <div className={aStyles.twoPanel}>

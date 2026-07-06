@@ -1,0 +1,263 @@
+/* ── Fix This Section card ─────────────────────────────────── */
+
+.card {
+  border: 1px solid rgba(17,128,138,0.30);
+  border-radius: 16px;
+  background: var(--bg-card);
+  margin: 0 0 24px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid rgba(17,128,138,0.15);
+  background: rgba(17,128,138,0.06);
+}
+
+.eyebrow {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #11808A;
+}
+
+.dismissBtn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: color 140ms ease;
+}
+.dismissBtn:hover { color: var(--text); }
+
+/* ── Body ── */
+.body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.problem { display: flex; flex-direction: column; gap: 5px; }
+
+.headline {
+  margin: 0;
+  font-size: 1.0rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+.headline strong { color: #11808A; font-weight: 700; }
+
+.sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.tip {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 -20px;
+}
+
+/* ── Tools ── */
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toolRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toolLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  min-width: 42px;
+}
+
+/* Loop button */
+.loopBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(17,128,138,0.35);
+  background: rgba(17,128,138,0.08);
+  color: #11808A;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 130ms ease, border-color 130ms ease;
+}
+.loopBtn:hover:not(:disabled) {
+  background: rgba(17,128,138,0.14);
+  border-color: rgba(17,128,138,0.55);
+}
+.loopBtn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.loopBtnActive {
+  background: rgba(17,128,138,0.15);
+  border-color: #11808A;
+  color: #11808A;
+}
+
+/* Ghost buttons (replay, re-record) */
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 130ms ease, color 130ms ease, background 130ms ease;
+}
+.ghostBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+/* Speed buttons */
+.speedBtn {
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 130ms ease, color 130ms ease, background 130ms ease;
+}
+.speedBtn:hover { border-color: var(--accent); color: var(--accent); }
+.speedBtnActive {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+/* BPM controls */
+.bpmAdj {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 130ms ease, color 130ms ease;
+}
+.bpmAdj:hover { border-color: var(--text-muted); color: var(--text); }
+
+.bpmVal {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 32px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tapBtn {
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 130ms ease, color 130ms ease;
+}
+.tapBtn:active { border-color: var(--text-muted); color: var(--text); }
+
+.metroToggle {
+  padding: 5px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 130ms ease, color 130ms ease, background 130ms ease;
+}
+.metroToggle:hover { border-color: var(--text-muted); color: var(--text); }
+.metroToggleActive { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+/* Beat dots */
+.beatRow { display: flex; gap: 5px; align-items: center; }
+.beatDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 60ms ease, transform 60ms ease;
+}
+.beatDotLit { background: var(--text-muted); transform: scale(1.2); }
+.beatDotAccent { background: #11808A !important; transform: scale(1.5) !important; }
+
+/* ── Before/after teaser ── */
+.teaser {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: var(--surface-subtle);
+  border: 1px dashed var(--border);
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+.teaserIcon { font-size: 1rem; color: var(--text-faintest); }
+.teaser em { font-style: normal; opacity: 0.7; }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .body { padding: 16px; }
+  .toolRow { gap: 6px; }
+}

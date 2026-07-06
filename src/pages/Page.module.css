@@ -860,7 +860,7 @@
 .analyzeTitle { color: var(--text); font-family: "Iowan Old Style", Georgia, serif; font-size: 1.5rem; font-weight: 400; letter-spacing: -0.02em; margin: 0; }
 .analyzeSub   { color: var(--text-dim); font-size: 0.88rem; line-height: 1.65; }
 .progressBar  { background: var(--surface-border); border-radius: 999px; height: 3px; overflow: hidden; width: 100%; }
-.progressFill { background: var(--hero-green); border-radius: 999px; height: 100%; transition: width 280ms ease; }
+.progressFill { background: #2D5A4E; border-radius: 999px; height: 100%; transition: width 280ms ease; }
 .progressLabel { color: var(--text-faint); font-size: 0.78rem; }
 
 .errorBanner {

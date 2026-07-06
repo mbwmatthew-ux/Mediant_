@@ -3,10 +3,10 @@
    app-wide, which broke the dark theme (white cards, cream borders, invisible
    text on the teacher dashboard). CSS Modules do not scope :root; .page does. */
 .page {
-  --teal:       #159A86;
-  --teal-deep:  #0C5C52;
-  --teal-light: rgba(21, 154, 134, 0.10);
-  --teal-mid:   rgba(21, 154, 134, 0.18);
+  --teal:       #11808A;
+  --teal-deep:  #0d6670;
+  --teal-light: rgba(17, 128, 138, 0.10);
+  --teal-mid:   rgba(17, 128, 138, 0.18);
   --coral:      var(--accent);
   --coral-dark: var(--accent);
   --canvas:     #FAF8F3;
@@ -14,7 +14,6 @@
   --line:       #E4E1D8;
   --muted:      #6B6A64;
   --ink:        #2C2C2A;
-  --green:      #4A7A2E;
   --amber:      var(--gold);
   --red:        #C44040;
 }
@@ -23,7 +22,7 @@
 .page {
   background: var(--canvas);
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   min-height: 100dvh;
   overflow-x: clip;
 }
@@ -62,7 +61,7 @@
 
 .navWordmark {
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: 1.02rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -155,7 +154,7 @@
 
 .heroH1 {
   color: #fff;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: clamp(2.8rem, 5.5vw, 5rem);
   font-weight: 700;
   letter-spacing: -0.04em;
@@ -194,7 +193,7 @@
   color: #fff;
   cursor: pointer;
   display: inline-flex;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: 0.94rem;
   font-weight: 700;
   padding: 12px 24px;
@@ -211,7 +210,7 @@
   color: rgba(255, 255, 255, 0.88);
   cursor: pointer;
   display: inline-flex;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: 0.94rem;
   font-weight: 600;
   padding: 12px 22px;
@@ -228,7 +227,7 @@
   color: var(--ink);
   cursor: pointer;
   display: inline-flex;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: 0.94rem;
   font-weight: 600;
   padding: 12px 22px;
@@ -247,7 +246,7 @@
   color: var(--teal-deep);
   cursor: pointer;
   display: inline-flex;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: 1rem;
   font-weight: 700;
   padding: 13px 26px;
@@ -264,7 +263,7 @@
   color: rgba(255, 255, 255, 0.88);
   cursor: pointer;
   display: inline-flex;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: 1rem;
   font-weight: 600;
   padding: 13px 22px;
@@ -554,59 +553,6 @@
   max-width: 520px;
 }
 
-/* ── COMING SOON ─────────────────────────────────────── */
-.comingSoonSection {
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-}
-
-.comingSoonBox {
-  border: 2px dashed var(--line);
-  border-radius: 20px;
-  padding: clamp(56px, 8vw, 96px) clamp(32px, 5vw, 72px);
-  text-align: center;
-}
-
-.comingSoonEyebrow {
-  color: var(--teal);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  margin: 0 0 16px;
-  text-transform: uppercase;
-}
-
-.comingSoonH2 {
-  color: var(--teal-deep);
-  font-size: clamp(1.8rem, 3.5vw, 3rem);
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1.06;
-  margin: 0 0 16px;
-}
-
-.comingSoonBody {
-  color: var(--muted);
-  font-size: 1.05rem;
-  line-height: 1.68;
-  margin: 0 auto 32px;
-  max-width: 480px;
-}
-
-.comingSoonActions {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  justify-content: center;
-}
-
-.comingSoonNote {
-  color: var(--muted);
-  font-size: 0.82rem;
-  opacity: 0.7;
-}
-
 /* ── FEATURES LIST ───────────────────────────────────── */
 .featuresSection {
   background: var(--canvas);
@@ -629,7 +575,7 @@
 .featListItem:nth-child(odd)  { border-right: 1px solid var(--line); padding-right: 48px; }
 .featListItem:nth-child(even) { padding-left: 48px; }
 .featListItem:nth-last-child(-n+2) { border-bottom: none; }
-.featListItem:hover { background: rgba(21, 154, 134, 0.025); }
+.featListItem:hover { background: rgba(17, 128, 138, 0.025); }
 
 .featListIcon {
   align-items: center;
@@ -747,15 +693,6 @@
   margin-top: 0;
 }
 
-.pricingCompare {
-  margin: 22px 0 0;
-  text-align: center;
-}
-.pricingCompare a {
-  color: var(--teal-deep);
-  font-weight: 600;
-}
-.pricingCompare a:hover { text-decoration: underline; }
 
 .pricingCard {
   background: var(--surface);
@@ -880,7 +817,7 @@
   border: none;
   cursor: pointer;
   display: flex;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Inter", "Segoe UI", sans-serif;
   font-size: 0.96rem;
   font-weight: 600;
   gap: 16px;

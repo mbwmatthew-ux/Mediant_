@@ -313,23 +313,6 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ── COMING SOON ────────────────────────────────── */}
-        <section className={styles.comingSoonSection}>
-          <div className={styles.sectionInner}>
-            <Reveal className={styles.comingSoonBox}>
-              <p className={styles.comingSoonEyebrow}>App Preview</p>
-              <h2 className={styles.comingSoonH2}>The full interface is on its way.</h2>
-              <p className={styles.comingSoonBody}>
-                We're in the final stretch, putting the finishing touches on the Mediant experience. Sign up now and be the first to know when it launches.
-              </p>
-              <div className={styles.comingSoonActions}>
-                <Link to="/signup" className={styles.btnPrimary}>Get early access →</Link>
-                <span className={styles.comingSoonNote}>Launching soon</span>
-              </div>
-            </Reveal>
-          </div>
-        </section>
-
         {/* ── FEATURES GRID ──────────────────────────────── */}
         <section className={styles.featuresSection} id="features">
           <div className={styles.sectionInner}>
@@ -358,7 +341,7 @@ export default function Landing() {
             <Reveal className={styles.sectionHead}>
               <p className={styles.eyebrow}>Pricing</p>
               <h2>Simple, honest pricing.</h2>
-              <p>Choose the plan that fits how seriously you practice.</p>
+              <p>Everything included. No tiers, no feature gates.</p>
             </Reveal>
 
             <div className={styles.pricingGrid}>
@@ -380,20 +363,12 @@ export default function Landing() {
                       </li>
                     ))}
                   </ul>
-                  <Link
-                    to="/signup"
-                    className={styles.btnPrimary}
-                  >
+                  <Link to="/signup" className={styles.btnPrimary}>
                     {plan.cta}
                   </Link>
                 </Reveal>
               ))}
             </div>
-            <Reveal>
-              <p className={styles.pricingCompare}>
-                <Link to="/pricing">Compare all plans →</Link>
-              </p>
-            </Reveal>
           </div>
         </section>
 

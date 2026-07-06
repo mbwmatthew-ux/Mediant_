@@ -106,8 +106,8 @@
 }
 
 .hoursBadge {
-  background: rgba(88,121,101,0.15);
-  border: 1px solid rgba(88,121,101,0.28);
+  background: rgba(17,128,138,0.15);
+  border: 1px solid rgba(17,128,138,0.28);
   border-radius: 6px;
   color: var(--score-good);
   font-size: 0.82rem;

@@ -134,7 +134,7 @@ export default function AnalysisOnboarding({ onClose }) {
 
   return createPortal(
     <>
-      <style>{`@keyframes ob-pulse{0%,100%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 3px var(--accent)}50%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 5px var(--accent),0 0 16px 4px rgba(88,121,101,.45)}}`}</style>
+      <style>{`@keyframes ob-pulse{0%,100%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 3px var(--accent)}50%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 5px var(--accent),0 0 16px 4px rgba(17,128,138,.45)}}`}</style>
 
       {/* Backdrop — transparent when spotlight active, dark when centered */}
       <div

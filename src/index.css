@@ -4,8 +4,8 @@
   --bg-deep: #efe9dd;
   --bg-card: #FFFFFF;
   --bg-card-hover: #F9F7F3;
-  --hero-green: #2D5A4E;
-  --panel-green: #2D5A4E;
+  --hero-green: #11808A;
+  --panel-green: #11808A;
   --accent: #E8845A;
   --accent-dim: rgba(232,132,90,0.14);
   --accent-bg: rgba(232,132,90,0.10);
@@ -22,8 +22,8 @@
   --gold-soft: rgba(200,148,26,0.20);
   --coral: #E8845A;
   --coral-soft: rgba(232,132,90,0.15);
-  --mint: #1f9d76;
-  --mint-soft: rgba(31,157,118,0.15);
+  --mint: #11808A;
+  --mint-soft: rgba(17,128,138,0.15);
   /* Link + secondary-accent tokens. Defaults are dark-appropriate (orange/current);
      the [data-theme="light"] block (after the dark block) overrides these with teal
      for LIGHT MODE ONLY, so dark mode keeps its current look untouched. */
@@ -36,7 +36,7 @@
   --btn2-text-hover: var(--accent);
   --btn2-border: var(--border);
   /* Value-coded score colors: good / ok / needs-work (distinct from action coral) */
-  --score-good: #1f9d76;
+  --score-good: #11808A;
   --score-ok: #c8941a;
   --score-bad: #d9513a;
   /* Subtle wash for panels/cards so the palette reads without heavy blocks */
@@ -111,10 +111,10 @@
   --gold-soft: rgba(248,188,36,0.18);
   --coral: #f58800;
   --coral-soft: rgba(245,136,0,0.16);
-  --mint: #34c79b;
-  --mint-soft: rgba(52,199,155,0.16);
+  --mint: #2bbdc9;
+  --mint-soft: rgba(43,189,201,0.16);
   /* Value-coded score colors: good / ok / needs-work (distinct from action orange) */
-  --score-good: #46c98f;
+  --score-good: #2bbdc9;
   --score-ok: #f8bc24;
   --score-bad: #f0613a;
   /* Subtle teal wash for panels/cards so the palette reads without heavy blocks */
@@ -156,13 +156,13 @@
   --sidebar-surface: rgba(232,132,90,0.10);
   --sidebar-surface-strong: rgba(232,132,90,0.18);
   --link: #C4633A;             /* coral text links (readable on cream) */
-  --teal: #2D5A4E;             /* forest green (Lovable hero) */
-  --teal-strong: #234a40;
-  --btn2-bg: #2D5A4E;          /* secondary buttons = forest green filled */
-  --btn2-bg-hover: #234a40;
+  --teal: #11808A;
+  --teal-strong: #0d6670;
+  --btn2-bg: #11808A;
+  --btn2-bg-hover: #0d6670;
   --btn2-text: #ffffff;
   --btn2-text-hover: #ffffff;
-  --btn2-border: #2D5A4E;
+  --btn2-border: #11808A;
   --dashed-border: rgba(28,28,26,0.30);   /* visible dashed lines on cream */
 }
 

@@ -20,6 +20,25 @@
 .demoBannerLink { color: var(--hero-green); font-weight: 600; margin-left: auto; text-decoration: none; }
 .demoBannerLink:hover { text-decoration: underline; }
 
+/* Back button (from sessions) */
+.backBtn {
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.83rem;
+  font-weight: 600;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 6px 10px 6px 6px;
+  transition: color 130ms ease, background 130ms ease;
+}
+.backBtn:hover { color: var(--text); background: var(--surface-subtle); }
+
 /* Thread strip */
 .threadStrip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .threadChip {

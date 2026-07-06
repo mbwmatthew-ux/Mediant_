@@ -1,9 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTakes } from '../hooks/useTakes'
+import { useAuth } from '../context/AuthContext'
 import { useRecordModal } from '../context/RecordModalContext'
+import { supabase } from '../lib/supabase'
 import styles from './Sessions.module.css'
-import { playPop } from '../utils/sounds'
+import { playPop, playThud } from '../utils/sounds'
 
 function scoreColor(n) {
   if (n == null) return 'var(--text-faint)'
@@ -41,11 +43,18 @@ function commonIssue(flags) {
 
 export default function Sessions() {
   const nav = useNavigate()
+  const { user } = useAuth()
   const { setOpen } = useRecordModal()
   const rawTakes = useTakes({ limit: 100 })
-  const takes = rawTakes ?? []
   const loading = rawTakes === undefined
+
+  // Local copy so we can remove deleted takes immediately
+  const [takes, setTakes] = useState([])
+  useEffect(() => { if (rawTakes !== undefined) setTakes(rawTakes) }, [rawTakes])
+
   const [search, setSearch] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(null) // takeId pending confirm
+  const [deleting, setDeleting] = useState(null)           // takeId being deleted
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -62,8 +71,24 @@ export default function Sessions() {
 
   function openTake(take) {
     playPop()
-    localStorage.setItem('mediant_selected_take', take.id ?? '')
-    nav(take.id ? `/analysis?takeId=${take.id}` : '/analysis')
+    nav(take.id ? `/analysis?takeId=${take.id}&from=sessions` : '/analysis?from=sessions')
+  }
+
+  async function handleDeleteConfirm(takeId) {
+    setDeleting(takeId)
+    setConfirmDelete(null)
+    // Optimistic remove
+    setTakes(prev => prev.filter(t => t.id !== takeId))
+    playThud()
+    if (user?.id) {
+      await supabase.from('takes').delete().eq('id', takeId)
+    } else {
+      try {
+        const stored = JSON.parse(localStorage.getItem('mediant_takes') || '[]')
+        localStorage.setItem('mediant_takes', JSON.stringify(stored.filter(t => t.id !== takeId)))
+      } catch {}
+    }
+    setDeleting(null)
   }
 
   return (
@@ -107,22 +132,53 @@ export default function Sessions() {
         <div className={styles.list}>
           {filtered.map((take, i) => {
             const issue = commonIssue(take.flags)
+            const isPendingDelete = confirmDelete === take.id
             return (
-              <button key={take.id || i} className={styles.row} onClick={() => openTake(take)}>
-                <span className={styles.rowIcon}><MusicNoteIcon /></span>
-                <div className={styles.rowMain}>
-                  <span className={styles.rowTitle}>{take.piece_title || 'Untitled'}</span>
-                  <span className={styles.rowSub}>
-                    {[take.piece_composer, take.instrument].filter(Boolean).join(' · ') || 'Unknown'}
+              <div key={take.id || i} className={`${styles.row} ${isPendingDelete ? styles.rowDanger : ''}`}>
+                {/* Main clickable area */}
+                <button className={styles.rowBtn} onClick={() => openTake(take)}>
+                  <span className={styles.rowIcon}><MusicNoteIcon /></span>
+                  <div className={styles.rowMain}>
+                    <span className={styles.rowTitle}>{take.piece_title || 'Untitled'}</span>
+                    <span className={styles.rowSub}>
+                      {[take.piece_composer, take.instrument].filter(Boolean).join(' · ') || 'Unknown'}
+                    </span>
+                  </div>
+                  {issue && <span className={styles.rowTag}>{issue}</span>}
+                  <span className={styles.rowDate}>{relativeDate(take.created_at)}</span>
+                  <span className={styles.rowScore} style={{ color: scoreColor(take.score) }}>
+                    {take.score != null ? take.score : '—'}
                   </span>
+                  <span className={styles.rowArrow}><ArrowIcon /></span>
+                </button>
+
+                {/* Delete controls */}
+                <div className={styles.rowActions}>
+                  {isPendingDelete ? (
+                    <>
+                      <button
+                        className={styles.confirmDeleteBtn}
+                        onClick={() => handleDeleteConfirm(take.id)}
+                        disabled={deleting === take.id}
+                      >
+                        Delete
+                      </button>
+                      <button className={styles.cancelDeleteBtn} onClick={() => setConfirmDelete(null)}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className={styles.deleteBtn}
+                      onClick={e => { e.stopPropagation(); setConfirmDelete(take.id) }}
+                      aria-label="Delete session"
+                      title="Delete session"
+                    >
+                      <TrashIcon />
+                    </button>
+                  )}
                 </div>
-                {issue && <span className={styles.rowTag}>{issue}</span>}
-                <span className={styles.rowDate}>{relativeDate(take.created_at)}</span>
-                <span className={styles.rowScore} style={{ color: scoreColor(take.score) }}>
-                  {take.score != null ? take.score : '—'}
-                </span>
-                <span className={styles.rowArrow}><ArrowIcon /></span>
-              </button>
+              </div>
             )
           })}
         </div>
@@ -157,6 +213,16 @@ function ArrowIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+    </svg>
+  )
+}
+function TrashIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+      <path d="M10 11v6M14 11v6"/>
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
     </svg>
   )
 }

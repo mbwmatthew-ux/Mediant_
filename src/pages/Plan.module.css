@@ -66,8 +66,8 @@
 /* ── AI context banner ───────────────────────────────────── */
 .contextBanner {
   align-items: flex-start;
-  background: rgba(38, 104, 103, 0.07);
-  border-bottom: 1px solid rgba(38, 104, 103, 0.14);
+  background: rgba(59, 122, 87, 0.07);
+  border-bottom: 1px solid rgba(59, 122, 87, 0.14);
   display: flex;
   gap: 14px;
   padding: 18px 32px;
@@ -224,7 +224,7 @@
 
 .allDoneIcon {
   align-items: center;
-  background: rgba(38, 104, 103, 0.14);
+  background: rgba(59, 122, 87, 0.14);
   border-radius: 50%;
   color: var(--accent);
   display: flex;

@@ -4,8 +4,8 @@
   --bg-deep: #efe9dd;
   --bg-card: #FFFFFF;
   --bg-card-hover: #F9F7F3;
-  --hero-green: #11808A;
-  --panel-green: #11808A;
+  --hero-green: #3B7A57;
+  --panel-green: #3B7A57;
   --accent: #E8845A;
   --accent-dim: rgba(232,132,90,0.14);
   --accent-bg: rgba(232,132,90,0.10);
@@ -22,8 +22,8 @@
   --gold-soft: rgba(200,148,26,0.20);
   --coral: #E8845A;
   --coral-soft: rgba(232,132,90,0.15);
-  --mint: #11808A;
-  --mint-soft: rgba(17,128,138,0.15);
+  --mint: #3B7A57;
+  --mint-soft: rgba(59,122,87,0.15);
   /* Link + secondary-accent tokens. Defaults are dark-appropriate (orange/current);
      the [data-theme="light"] block (after the dark block) overrides these with teal
      for LIGHT MODE ONLY, so dark mode keeps its current look untouched. */
@@ -36,7 +36,7 @@
   --btn2-text-hover: var(--accent);
   --btn2-border: var(--border);
   /* Value-coded score colors: good / ok / needs-work (distinct from action coral) */
-  --score-good: #11808A;
+  --score-good: #3B7A57;
   --score-ok: #c8941a;
   --score-bad: #d9513a;
   /* Subtle wash for panels/cards so the palette reads without heavy blocks */
@@ -45,8 +45,8 @@
   /* Dashed upload/empty borders. This default is dark-appropriate (inherited by
      [data-theme="dark"], so dark is unchanged); the [data-theme="light"] block
      overrides it to a stronger teal so dashed dropzones read on the cream bg. */
-  --dashed-border: rgba(38,104,103,0.42);
-  --line: rgba(26,70,69,0.14);
+  --dashed-border: rgba(59,122,87,0.42);
+  --line: rgba(59,122,87,0.14);
 
   /* Layered Premium Shadows */
   --shadow-lg: 0 20px 40px -15px rgba(5,24,33,0.10), 0 1px 3px rgba(5,24,33,0.04);
@@ -88,13 +88,13 @@
 }
 
 [data-theme="dark"] {
-  /* Mediant DARK — #051821 canvas, #1A4645/#266867 teal surfaces, orange = action, gold = data */
+  /* Mediant DARK — #051821 canvas, #1A3D2A/#254F36 forest green surfaces, orange = action, gold = data */
   --bg: #051821;
   --bg-deep: #04141c;
-  --bg-card: #1a4645;
-  --bg-card-hover: #266867;
-  --hero-green: #266867;
-  --panel-green: #1a4645;
+  --bg-card: #1a3d2a;
+  --bg-card-hover: #254f36;
+  --hero-green: #254f36;
+  --panel-green: #1a3d2a;
   --accent: #f58800;
   --accent-dim: rgba(245,136,0,0.16);
   --accent-bg: rgba(245,136,0,0.12);
@@ -106,21 +106,21 @@
   --text-soft: rgba(233,240,238,0.78);
   --text-muted: rgba(233,240,238,0.55);
   --text-inverse: #051821;
-  --border: rgba(38,104,103,0.45);
+  --border: rgba(59,122,87,0.45);
   --gold: #f8bc24;
   --gold-soft: rgba(248,188,36,0.18);
   --coral: #f58800;
   --coral-soft: rgba(245,136,0,0.16);
-  --mint: #2bbdc9;
-  --mint-soft: rgba(43,189,201,0.16);
+  --mint: #52B069;
+  --mint-soft: rgba(82,176,105,0.16);
   /* Value-coded score colors: good / ok / needs-work (distinct from action orange) */
-  --score-good: #2bbdc9;
+  --score-good: #52B069;
   --score-ok: #f8bc24;
   --score-bad: #f0613a;
   /* Subtle teal wash for panels/cards so the palette reads without heavy blocks */
-  --panel-tint: rgba(38,104,103,0.13);
-  --panel-tint-strong: rgba(38,104,103,0.22);
-  --line: rgba(38,104,103,0.30);
+  --panel-tint: rgba(59,122,87,0.13);
+  --panel-tint-strong: rgba(59,122,87,0.22);
+  --line: rgba(59,122,87,0.30);
 
   /* Layered Premium Shadows (Dark) */
   --shadow-lg: 0 20px 50px -12px rgba(0,0,0,0.65), 0 1px 3px rgba(0,0,0,0.3);
@@ -128,7 +128,7 @@
   --shadow-sm: 0 4px 12px -4px rgba(0,0,0,0.25), 0 1px 1px rgba(0,0,0,0.1);
 
   /* Semantic surface tokens (dark teal) */
-  --surface-border: rgba(38,104,103,0.40);
+  --surface-border: rgba(59,122,87,0.40);
   --surface-hover: rgba(245,136,0,0.08);
   --surface-subtle: rgba(233,240,238,0.03);
   --text-dim: rgba(233,240,238,0.60);
@@ -136,13 +136,13 @@
   --text-faintest: rgba(233,240,238,0.34);
   --nav-text: rgba(233,240,238,0.66);
   --input-bg: rgba(233,240,238,0.05);
-  --input-border: rgba(38,104,103,0.40);
-  --dropdown-bg: #1a4645;
+  --input-border: rgba(59,122,87,0.40);
+  --dropdown-bg: #1a3d2a;
 
   /* Glassmorphism overlays (Dark) */
   --glass-bg: rgba(5, 24, 33, 0.78);
   --glass-bg-hover: rgba(5, 24, 33, 0.92);
-  --glass-border: rgba(38, 104, 103, 0.20);
+  --glass-border: rgba(59, 122, 87, 0.20);
 }
 
 /* ── LIGHT-MODE-ONLY overrides (Landing palette) ──────────────────
@@ -156,13 +156,13 @@
   --sidebar-surface: rgba(232,132,90,0.10);
   --sidebar-surface-strong: rgba(232,132,90,0.18);
   --link: #C4633A;             /* coral text links (readable on cream) */
-  --teal: #11808A;
-  --teal-strong: #0d6670;
-  --btn2-bg: #11808A;
-  --btn2-bg-hover: #0d6670;
+  --teal: #3B7A57;
+  --teal-strong: #2E6044;
+  --btn2-bg: #3B7A57;
+  --btn2-bg-hover: #2E6044;
   --btn2-text: #ffffff;
   --btn2-text-hover: #ffffff;
-  --btn2-border: #11808A;
+  --btn2-border: #3B7A57;
   --dashed-border: rgba(28,28,26,0.30);   /* visible dashed lines on cream */
 }
 

@@ -134,7 +134,7 @@ export default function Reports() {
 
         {/* SVG chart */}
         <svg className={styles.chart} viewBox={`0 0 ${chart.W} ${chart.H}`} preserveAspectRatio="none" role="img" aria-label="Average score trend">
-          <polygon points={chart.area} fill="rgba(17,128,138,0.15)" />
+          <polygon points={chart.area} fill="rgba(59,122,87,0.15)" />
           <polyline points={chart.line} fill="none" stroke="var(--score-good)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           {chart.pts.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y} r="4.5" fill="#fff" stroke="var(--score-good)" strokeWidth="2.5" />

@@ -131,7 +131,7 @@
 }
 
 .inviteOk {
-  color: #2bbdc9;
+  color: #52B069;
   font-size: 0.82rem;
   margin: 8px 0 0;
 }
@@ -195,7 +195,7 @@
 .activeBadge {
   background: rgba(143, 190, 159, 0.15);
   border-radius: 10px;
-  color: #2bbdc9;
+  color: #52B069;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -340,7 +340,7 @@
 }
 
 .noFlags {
-  color: #2bbdc9;
+  color: #52B069;
   font-size: 0.88rem;
   margin: 0;
 }
@@ -385,8 +385,8 @@
 .flagType[data-type="timing"]       { background: rgba(184,146,42,0.14); color: var(--gold); }
 .flagType[data-type="dynamics"]     { background: rgba(192,83,74,0.14); color: var(--coral); }
 .flagType[data-type="articulation"] { background: rgba(184,146,42,0.14); color: var(--gold); }
-.flagType[data-type="technique"]    { background: rgba(17,128,138,0.14); color: #2bbdc9; }
-.flagType[data-type="tone"]         { background: rgba(17,128,138,0.14); color: #2bbdc9; }
+.flagType[data-type="technique"]    { background: rgba(59,122,87,0.14); color: #52B069; }
+.flagType[data-type="tone"]         { background: rgba(59,122,87,0.14); color: #52B069; }
 .flagType[data-type="phrasing"]     { background: rgba(184,146,42,0.14); color: var(--gold); }
 
 .flagTitle {
@@ -412,7 +412,7 @@
   padding: 2px 8px;
   white-space: nowrap;
 }
-.annBadge_approve { background: rgba(17,128,138,0.15); color: #2bbdc9; }
+.annBadge_approve { background: rgba(59,122,87,0.15); color: #52B069; }
 .annBadge_edit    { background: rgba(184,146,42,0.15);  color: var(--gold); }
 .annBadge_reject  { background: rgba(192,83,74,0.15);   color: var(--coral); }
 .annBadge_add     { background: rgba(188,148,99,0.15);  color: var(--accent); }
@@ -440,9 +440,9 @@
 .annotBtn:disabled { opacity: 0.5; }
 
 .annotApprove:hover:not(:disabled), .annotApprove.annotBtnActive {
-  background: rgba(17,128,138,0.18);
-  border-color: #2bbdc9;
-  color: #2bbdc9;
+  background: rgba(59,122,87,0.18);
+  border-color: #52B069;
+  color: #52B069;
 }
 .annotEdit:hover:not(:disabled), .annotEdit.annotBtnActive {
   background: rgba(184,146,42,0.15);

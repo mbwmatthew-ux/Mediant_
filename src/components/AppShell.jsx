@@ -99,31 +99,6 @@ export default function AppShell() {
             ))}
           </nav>
 
-          {/* Bottom: Settings + Help + account */}
-          <div className={styles.sidebarBottom}>
-            <NavLink
-              to="/settings"
-              onClick={playNav}
-              className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
-              title="Settings"
-            >
-              <span className={styles.navIcon}><SettingsIcon /></span>
-              <span className={styles.navLabel}>Settings</span>
-            </NavLink>
-            <span className={`${styles.navItem} ${styles.navItemDisabled}`} title="Help center">
-              <span className={styles.navIcon}><HelpIcon /></span>
-              <span className={styles.navLabel}>Help center</span>
-            </span>
-
-            <button
-              className={`${styles.navItem} ${styles.avatarItem}`}
-              onClick={() => { playNav(); nav('/settings') }}
-              title={user?.name ?? 'Account'}
-            >
-              <span className={styles.avatarChip}>{initials}</span>
-              <span className={styles.navLabel}>{user?.name?.split(' ')[0] ?? 'Account'}</span>
-            </button>
-          </div>
         </aside>
 
         {/* Main content */}

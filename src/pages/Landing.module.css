@@ -3,10 +3,10 @@
    app-wide, which broke the dark theme (white cards, cream borders, invisible
    text on the teacher dashboard). CSS Modules do not scope :root; .page does. */
 .page {
-  --teal:       #117080;
-  --teal-deep:  #0d5a68;
-  --teal-light: rgba(17, 112, 128, 0.10);
-  --teal-mid:   rgba(17, 112, 128, 0.18);
+  --teal:       #3B7A57;
+  --teal-deep:  #2E6044;
+  --teal-light: rgba(59, 122, 87, 0.10);
+  --teal-mid:   rgba(59, 122, 87, 0.18);
   --coral:      var(--accent);
   --coral-dark: var(--accent);
   --canvas:     #FAF8F3;
@@ -124,7 +124,7 @@
 }
 
 .hero::before {
-  background: radial-gradient(ellipse at 70% 50%, rgba(17, 112, 128, 0.35) 0%, transparent 65%);
+  background: radial-gradient(ellipse at 70% 50%, rgba(59, 122, 87, 0.35) 0%, transparent 65%);
   content: '';
   inset: 0;
   pointer-events: none;
@@ -575,7 +575,7 @@
 .featListItem:nth-child(odd)  { border-right: 1px solid var(--line); padding-right: 48px; }
 .featListItem:nth-child(even) { padding-left: 48px; }
 .featListItem:nth-last-child(-n+2) { border-bottom: none; }
-.featListItem:hover { background: rgba(17, 112, 128, 0.025); }
+.featListItem:hover { background: rgba(59, 122, 87, 0.025); }
 
 .featListIcon {
   align-items: center;

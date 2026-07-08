@@ -145,7 +145,7 @@ export default function TunerModal({ onClose }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [stop, onClose])
 
-  const color     = note ? centsColor(note.cents) : 'rgba(17,112,128,0.3)'
+  const color     = note ? centsColor(note.cents) : 'rgba(59,122,87,0.3)'
   const needlePct = note ? Math.max(2, Math.min(98, 50 + note.cents)) : 50
   const tuned     = note && Math.abs(note.cents) < 8
 

@@ -1391,7 +1391,7 @@
   flex-direction: column;
   padding-bottom: 20px;
 }
-.takeCardFeatured { border-color: rgba(17,112,128,0.25); }
+.takeCardFeatured { border-color: rgba(59,122,87,0.25); }
 
 .comparePanel { display: flex; flex-direction: column; }
 .compareRow {

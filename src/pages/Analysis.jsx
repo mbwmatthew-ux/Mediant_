@@ -1369,6 +1369,13 @@ const videoRef    = useRef(null)
     return flags.map(f => Math.round(((f.measure ?? 1) / maxMeasure) * (HEADER_WAVE_BARS.length - 1)))
   }, [take?.flags])
 
+  // While data is loading, show a neutral skeleton so there's no flash of empty UI
+  if (!isDemo && !takesLoaded) {
+    return (
+      <div className={aStyles.pageShell} style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+    )
+  }
+
   // Real user with no recordings yet — show a friendly empty state instead of
   // the full analysis UI populated with placeholder numbers.
   if (!isDemo && takesLoaded && threads.length === 0) {

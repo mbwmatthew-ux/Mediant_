@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTakes } from '../hooks/useTakes'
 import { useAuth } from '../context/AuthContext'
@@ -48,9 +48,9 @@ export default function Sessions() {
   const rawTakes = useTakes({ limit: 100 })
   const loading = rawTakes === undefined
 
-  // Local copy so we can remove deleted takes immediately
-  const [takes, setTakes] = useState([])
-  useEffect(() => { if (rawTakes !== undefined) setTakes(rawTakes) }, [rawTakes])
+  // Track optimistic deletes by ID — avoids a two-state sync that causes a one-frame flash
+  const [deletedIds, setDeletedIds] = useState(new Set())
+  const takes = (rawTakes ?? []).filter(t => !deletedIds.has(t.id))
 
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(null) // takeId pending confirm
@@ -77,8 +77,7 @@ export default function Sessions() {
   async function handleDeleteConfirm(takeId) {
     setDeleting(takeId)
     setConfirmDelete(null)
-    // Optimistic remove
-    setTakes(prev => prev.filter(t => t.id !== takeId))
+    setDeletedIds(prev => new Set([...prev, takeId]))
     playThud()
     if (user?.id) {
       await supabase.from('takes').delete().eq('id', takeId)

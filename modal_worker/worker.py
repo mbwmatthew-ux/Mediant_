@@ -204,7 +204,36 @@ def _dedupe_times(times: list[float], min_separation: float = 0.05) -> list[floa
     return deduped
 
 
-def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None) -> list[dict]:
+def _instrument_pitch_bounds(instrument: str) -> tuple[float, float]:
+    """Return (fmin_hz, fmax_hz) for CREPE based on the instrument's playable range.
+    Tighter bounds reduce false positives from out-of-range noise.
+    CREPE tops out around 1975 Hz internally; violin's high E (2637 Hz) is above that
+    — Gemini's audio evaluation handles the high register for violin."""
+    i = instrument.lower()
+    if "violin" in i:
+        return 196.0, 2093.0      # G3 – C7 (CREPE ceiling; high E7 covered by Gemini)
+    if "viola" in i:
+        return 131.0, 2093.0      # C3 – C7
+    if "cello" in i:
+        return 65.0, 1047.0       # C2 – C6
+    if "double bass" in i or ("bass" in i and "bassoon" not in i):
+        return 41.0, 524.0        # E1 – C5
+    if "flute" in i:
+        return 262.0, 2093.0      # C4 – C7
+    if any(x in i for x in ("oboe", "clarinet", "saxophone")):
+        return 138.0, 1760.0      # C#3 – A6
+    if "bassoon" in i:
+        return 58.0, 698.0        # Bb1 – F5
+    if "trumpet" in i:
+        return 165.0, 1047.0      # E3 – C6
+    if any(x in i for x in ("trombone", "french horn", "tuba", "horn")):
+        return 58.0, 698.0
+    if any(x in i for x in ("piano", "keyboard", "harp")):
+        return 27.5, 2093.0       # A0 – C7
+    return 32.70, 2093.0          # safe default covering cello–violin range
+
+
+def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None, instrument: str = "") -> list[dict]:
     """
     Detect note events using CREPE (neural pitch tracking) + librosa onset detection.
 
@@ -246,12 +275,13 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None)
         # Dense event sampling already improved coverage substantially. Use the
         # supported lightweight CREPE model here so ~1 minute takes finish reliably in
         # production instead of timing out mid-analysis.
+        fmin_hz, fmax_hz = _instrument_pitch_bounds(instrument)
         pitch, periodicity = torchcrepe.predict(
             audio_tensor,
             CREPE_SR,
             CREPE_HOP,
-            fmin=32.70,    # C1 — well below cello low C
-            fmax=2093.0,   # C7 — covers violin high E
+            fmin=fmin_hz,
+            fmax=fmax_hz,
             model="tiny",
             batch_size=256,
             device="cpu",
@@ -1065,7 +1095,7 @@ def analyze(body: dict) -> dict:
 
         # CREPE pitch tracking, guided by beat locations so we don't skip
         # quieter internal moments between strong onsets.
-        raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"])
+        raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"], instrument=instrument)
 
         beat_times = beats["beat_times"]
         events_with_measures = assign_events_to_measures(
@@ -1182,13 +1212,44 @@ def _instrument_guidance(instrument: str) -> str:
     if any(x in i for x in ("trumpet", "trombone", "french horn", "tuba", "horn")):
         return (f"For {instrument} (brass): flag missed lip slurs, clipped valve attacks, notes that don't speak cleanly, "
                 "intonation in the upper register (brass plays sharp when overblown), and breath support failures causing notes to cut out.")
-    if any(x in i for x in ("violin", "viola", "cello", "double bass", "bass")):
-        return (f"For {instrument} (strings): flag bow scratches, tone cracks from arm weight, string crossings that clip adjacent strings, "
-                "shifts that arrive late or out of tune, open string intonation issues, and flying bow that breaks the line.")
+    if "violin" in i or "viola" in i:
+        return (
+            f"For {instrument} (bowed string — unfretted): hold intonation to a high standard; even 15–20 cents off is flaggable. "
+            "INTONATION — flag every note or passage that is sharp or flat, including: shifts that land out of tune, "
+            "open-string notes that don't resonate with the stopped pitch, and consistent directional drift (e.g. playing sharp in first position). "
+            "Name the specific note and estimate the deviation (e.g. 'B4 roughly 25¢ sharp at m.5 beat 2'). "
+            "Note: CREPE pitch analysis may miss the extreme high register (above C7); rely on your audio perception there. "
+            "BOW TONE — flag bow scratches (excessive weight or bow moving too slowly), sul tasto sound (bow drifting toward the fingerboard), "
+            "glassy thin tone (too near the bridge with too little weight), choked or uncontrolled spiccato in slow passages, "
+            "and bow changes that click or interrupt the musical line. "
+            "STRING CROSSINGS — flag when an adjacent string sounds accidentally, or when the arc of the crossing is abrupt rather than smooth. "
+            "SHIFTS — flag late arrivals, out-of-tune landings, and position changes that disrupt the musical line. "
+            "VIBRATO — flag absent vibrato in expressive passages, vibrato that starts too late, or vibrato that is too fast/wide/mechanical."
+        )
+    if "cello" in i:
+        return (
+            "For cello (bowed string — unfretted): hold intonation to a high standard; even 15–20 cents off is flaggable. "
+            "INTONATION — flag every flat or sharp note. Pay extra attention to thumb position passages (above the harmonic node) "
+            "where intonation is hardest. Name the note and direction. "
+            "BOW TONE — flag bow scratches (too much arm weight at slow speed), glassy unfocused tone (too little weight or contact point too near bridge), "
+            "bow changes that bump or click, and inconsistent sounding point. "
+            "SHIFTS — flag late arrivals, out-of-tune landings, and shifts that disrupt the phrase. "
+            "STRING CROSSINGS — flag any accidental brushing of adjacent strings. "
+            "THUMB POSITION — flag intonation instability in thumb position and any excess thumb pressure that damps the string. "
+            "VIBRATO — flag absent or mechanical vibrato in lyrical passages."
+        )
+    if "double bass" in i or ("bass" in i and "bassoon" not in i and "voice" not in i):
+        return (
+            "For double bass (bowed string — unfretted): "
+            "INTONATION — flag every flat or sharp note; intonation is hardest in upper positions and thumb position. "
+            "BOW TONE — flag scratchy or grinding tone from heavy arm or slow bow speed, thin tone from too little weight. "
+            "RHYTHM — double bass is the harmonic and rhythmic anchor; flag any dragging, rushing, or unsteady pulse. "
+            "SHIFTS — flag late arrivals and out-of-tune landings in position changes."
+        )
     if any(x in i for x in ("piano", "keyboard")):
         return (f"For {instrument}: flag wrong notes (name the pitch heard vs. expected), notes that don't speak, "
                 "pedaling that creates muddiness over incompatible harmonies, and uneven voicing where the melody disappears.")
-    if any(x in i for x in ("voice", "soprano", "alto", "tenor", "bass")):
+    if any(x in i for x in ("voice", "soprano", "alto", "tenor")):
         return (f"For {instrument} (voice): flag pitchy passages (name sharp or flat), unstable or overly wide vibrato, "
                 "vowel modifications that change pitch, and breath support failures at phrase ends.")
     return "Flag all audible errors: wrong notes, intonation drift, tone issues, and rhythmic problems."
@@ -1197,17 +1258,39 @@ def _instrument_guidance(instrument: str) -> str:
 def _technique_visual_guidance(instrument: str) -> str:
     """Per-instrument visual technique prompts for Gemini's video observation."""
     i = instrument.lower()
-    if any(x in i for x in ("violin", "viola")):
-        return (f"For {instrument}: observe bow contact point (is it between bridge and fingerboard, or sliding to sul tasto?), "
-                "bow direction (tilting toward bridge or fingerboard?), bow distribution (hogging upper or lower half?), "
-                "bow speed (too slow/choppy causing scratches?), left hand thumb position (squeezing the neck?), "
-                "wrist collapse on either hand, and shoulder/chin rest setup causing tension.")
-    if any(x in i for x in ("cello",)):
-        return ("For cello: observe bow contact point, bow arm path (should travel parallel to the bridge), "
-                "left thumb behind the neck (not squeezing), wrist angle in thumb position, and seat posture (instrument angle).")
-    if any(x in i for x in ("double bass", "bass")):
-        return ("For double bass: observe bow contact point near the bridge, standing posture and instrument angle, "
-                "left hand thumb release in upper positions, and bow arm path.")
+    if "violin" in i or "viola" in i:
+        return (
+            f"For {instrument}: "
+            "BOW ARM — observe contact point (is the bow between the bridge and fingerboard, or drifting sul tasto toward the fingerboard?); "
+            "bow tilt (hair flat vs. tilted — tilting increases clarity); bow distribution (hogging upper or lower half?); "
+            "bow speed (too slow and heavy → scratches; too fast and light → thin tone); "
+            "bow changes at the frog and tip — do they flow or bump? "
+            "RIGHT WRIST — is the wrist flexible through the bow change, or locked? "
+            "LEFT HAND — thumb position (gripping the neck rather than resting?); finger curvature (collapsed or arched?); "
+            "left wrist alignment (caving under the neck?). "
+            "SHOULDER / CHIN REST — is there visible tension in the left shoulder, neck, or jaw? "
+            "Is the instrument held level or drooping?"
+        )
+    if "cello" in i:
+        return (
+            "For cello: "
+            "BOW ARM — contact point (between bridge and fingerboard?); bow arm path (should travel roughly parallel to the bridge); "
+            "bow weight (arm hanging freely vs. pressing or lifting?); bow changes — do they flow? "
+            "LEFT HAND — thumb position behind the neck (not squeezing); wrist angle in thumb position (should be neutral, not bent); "
+            "finger curvature on the fingerboard. "
+            "POSTURE — instrument angle on the endpin (too upright or too horizontal?); "
+            "is the left elbow swinging freely to support string crossings? "
+            "SEAT HEIGHT — is the player leaning forward from the hips or rounding the back?"
+        )
+    if "double bass" in i or ("bass" in i and "bassoon" not in i):
+        return (
+            "For double bass: "
+            "BOW ARM — contact point (near the bridge for focused tone); bow arm path; "
+            "bow weight (arm weight vs. active pressing?). "
+            "LEFT HAND — thumb release in upper positions (thumb should come off the back of the neck); "
+            "finger spacing and curvature on the fingerboard. "
+            "STANDING POSTURE — instrument angle and player stance; is the back rounded or upright?"
+        )
     if any(x in i for x in ("piano", "keyboard")):
         return ("For piano: observe finger curvature (curved vs. flat fingers), wrist height (collapsing below keys?), "
                 "arm weight into keys vs. arm tension, pedal foot position, and overall bench height and distance.")
@@ -1570,6 +1653,10 @@ def compare_and_coach_claude(
         "intonation", "timing", "rhythm", "articulation", "dynamics",
         "voicing", "phrasing", "tone", "error", "posture", "technique",
     }
+    # Unfretted strings require tighter intonation; flag at 8¢ instead of 10¢
+    is_string = any(x in instrument.lower() for x in ("violin", "viola", "cello", "double bass"))
+    cents_flag_threshold = 8 if is_string else 10
+
     events_by_measure: dict[int, list] = {}
     for ev in aligned:
         events_by_measure.setdefault(ev["measure"], []).append(ev)
@@ -1589,7 +1676,7 @@ def compare_and_coach_claude(
         spb     = m_dur / max(1, bpm)
         for ev in events:
             cents = ev.get("cents_offset")
-            if cents is not None and abs(cents) >= 10 and ev.get("confidence", 100) >= 25:
+            if cents is not None and abs(cents) >= cents_flag_threshold and ev.get("confidence", 100) >= 25:
                 beat = max(1, round((ev["time_sec"] - m_start) / spb + 1, 2))
                 sign = "+" if cents > 0 else ""
                 evidence_candidates.append(
@@ -1690,7 +1777,8 @@ HARD RULES:
   - "articulation" → staccato/tenuto/accent execution failures
   - "phrasing" → musical shape, line, or expression issues
   - "posture" → body alignment, shoulder tension, instrument hold issues (observed visually by Gemini)
-  - "technique" → mechanical execution issues: bow technique, finger position, embouchure (observed visually)
+  - "technique" → mechanical execution issues: bow technique (string players), finger position, embouchure (observed visually)
+  - For string instruments: bow scratches, sounding point, bow distribution, and left-hand frame issues go under "technique"; intonation on shifts goes under "intonation"
 - Do NOT invent issues not supported by the Gemini evidence or CREPE candidates.
 - If the Gemini evidence says something is clean in a category, do not flag it.
 - Use "posture" or "technique" ONLY when Gemini's posture_issues or technique_issues explicitly mention an observation.
@@ -1888,7 +1976,7 @@ def run_full_analysis(payload: dict) -> None:
         beats      = run_beat_tracking(wav_bytes)
         debug_steps.append(f"beat_tracking: tempo={beats['tempo_bpm']:.1f}bpm beats={len(beats['beat_times'])}")
 
-        raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"])
+        raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"], instrument=instrument)
         debug_steps.append(f"pitch_tracking: {len(raw_events)} events (CREPE)")
 
         events_with_measures = assign_events_to_measures(raw_events, beats["beat_times"], bpm_int, start_measure)

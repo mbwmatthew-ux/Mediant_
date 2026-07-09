@@ -31,22 +31,40 @@ CREATE TABLE IF NOT EXISTS public.flag_annotations (
 ALTER TABLE public.flag_annotations ENABLE ROW LEVEL SECURITY;
 
 -- Teachers manage their own annotations
-CREATE POLICY "fa_teacher_all" ON public.flag_annotations FOR ALL
-  USING (auth.uid() = teacher_id)
-  WITH CHECK (auth.uid() = teacher_id);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'flag_annotations' AND policyname = 'fa_teacher_all'
+  ) THEN
+    CREATE POLICY "fa_teacher_all" ON public.flag_annotations FOR ALL
+      USING (auth.uid() = teacher_id)
+      WITH CHECK (auth.uid() = teacher_id);
+  END IF;
+END $$;
 
 -- Students can read annotations on their own takes
-CREATE POLICY "fa_student_read" ON public.flag_annotations FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.takes t
-      WHERE t.id = flag_annotations.take_id AND t.user_id = auth.uid()
-    )
-  );
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'flag_annotations' AND policyname = 'fa_student_read'
+  ) THEN
+    CREATE POLICY "fa_student_read" ON public.flag_annotations FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM public.takes t
+          WHERE t.id = flag_annotations.take_id AND t.user_id = auth.uid()
+        )
+      );
+  END IF;
+END $$;
 
 -- Service role can read all (for prompt calibration queries)
-CREATE POLICY "fa_service_read" ON public.flag_annotations FOR SELECT
-  USING (auth.role() = 'service_role');
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'flag_annotations' AND policyname = 'fa_service_read'
+  ) THEN
+    CREATE POLICY "fa_service_read" ON public.flag_annotations FOR SELECT
+      USING (auth.role() = 'service_role');
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_fa_take_id    ON public.flag_annotations(take_id);
 CREATE INDEX IF NOT EXISTS idx_fa_teacher_id ON public.flag_annotations(teacher_id);

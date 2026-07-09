@@ -13,30 +13,46 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Users read/update their own profile
-CREATE POLICY "profiles_own_select" ON public.profiles FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "profiles_own_update" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'profiles_own_select') THEN
+    CREATE POLICY "profiles_own_select" ON public.profiles FOR SELECT USING (auth.uid() = id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'profiles_own_update') THEN
+    CREATE POLICY "profiles_own_update" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+  END IF;
+END $$;
 
 -- Teachers can read profiles of their students (needed for dashboard)
-CREATE POLICY "profiles_teacher_select_students" ON public.profiles FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.teacher_students ts
-      WHERE ts.teacher_id = auth.uid()
-        AND ts.student_id = public.profiles.id
-        AND ts.status = 'active'
-    )
-  );
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'profiles_teacher_select_students') THEN
+    CREATE POLICY "profiles_teacher_select_students" ON public.profiles FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM public.teacher_students ts
+          WHERE ts.teacher_id = auth.uid()
+            AND ts.student_id = public.profiles.id
+            AND ts.status = 'active'
+        )
+      );
+  END IF;
+END $$;
 
 -- Students can read profiles of their teachers
-CREATE POLICY "profiles_student_select_teachers" ON public.profiles FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.teacher_students ts
-      WHERE ts.student_id = auth.uid()
-        AND ts.teacher_id = public.profiles.id
-        AND ts.status = 'active'
-    )
-  );
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'profiles_student_select_teachers') THEN
+    CREATE POLICY "profiles_student_select_teachers" ON public.profiles FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM public.teacher_students ts
+          WHERE ts.student_id = auth.uid()
+            AND ts.teacher_id = public.profiles.id
+            AND ts.status = 'active'
+        )
+      );
+  END IF;
+END $$;
 
 -- Auto-create profile row when a new user signs up
 CREATE OR REPLACE FUNCTION public.handle_new_user_profile()

@@ -25,31 +25,43 @@ CREATE TABLE IF NOT EXISTS public.reference_performances (
 ALTER TABLE public.reference_performances ENABLE ROW LEVEL SECURITY;
 
 -- Owners manage their references
-CREATE POLICY "rp_owner_all" ON public.reference_performances FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'reference_performances' AND policyname = 'rp_owner_all') THEN
+    CREATE POLICY "rp_owner_all" ON public.reference_performances FOR ALL
+      USING (auth.uid() = user_id)
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- Active teachers can read their students' references
-CREATE POLICY "rp_teacher_read" ON public.reference_performances FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.teacher_students ts
-      WHERE ts.teacher_id = auth.uid()
-        AND ts.student_id = public.reference_performances.user_id
-        AND ts.status = 'active'
-    )
-  );
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'reference_performances' AND policyname = 'rp_teacher_read') THEN
+    CREATE POLICY "rp_teacher_read" ON public.reference_performances FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM public.teacher_students ts
+          WHERE ts.teacher_id = auth.uid()
+            AND ts.student_id = public.reference_performances.user_id
+            AND ts.status = 'active'
+        )
+      );
+  END IF;
+END $$;
 
 -- Students can read references shared by their teachers
-CREATE POLICY "rp_student_read_teacher" ON public.reference_performances FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.teacher_students ts
-      WHERE ts.student_id = auth.uid()
-        AND ts.teacher_id = public.reference_performances.user_id
-        AND ts.status = 'active'
-    )
-  );
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'reference_performances' AND policyname = 'rp_student_read_teacher') THEN
+    CREATE POLICY "rp_student_read_teacher" ON public.reference_performances FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM public.teacher_students ts
+          WHERE ts.student_id = auth.uid()
+            AND ts.teacher_id = public.reference_performances.user_id
+            AND ts.status = 'active'
+        )
+      );
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_rp_song_id ON public.reference_performances(song_id);
 CREATE INDEX IF NOT EXISTS idx_rp_user_id ON public.reference_performances(user_id);

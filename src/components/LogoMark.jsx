@@ -2,7 +2,7 @@ export default function LogoMark({ size = 32, rounded = true, style }) {
   const r = rounded ? Math.round(size * 0.225) : 0
   return (
     <img
-      src="/Newlogo.png"
+      src="/Tuffnewlogo.png"
       width={size}
       height={size}
       alt="Mediant"

@@ -8,7 +8,6 @@ class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { hasError: false } }
   static getDerivedStateFromError() { return { hasError: true } }
   componentDidCatch(err, info) {
-    // Forward to Sentry if it was initialised
     if (typeof window.__SENTRY_INITIALIZED__ !== 'undefined') {
       import('@sentry/react').then(S => S.captureException(err, { extra: info })).catch(() => {})
     }
@@ -26,13 +25,8 @@ import Signup from './pages/Signup'
 import ConfirmEmail from './pages/ConfirmEmail'
 import Pricing from './pages/Pricing'
 import Home from './pages/Home'
-import Search from './pages/Search'
 import Analysis from './pages/Analysis'
-import Summary from './pages/Summary'
-import Takes from './pages/Takes'
 import Sessions from './pages/Sessions'
-import Coach from './pages/Coach'
-import ProgressFeedback from './pages/ProgressFeedback'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Privacy from './pages/Privacy'
@@ -50,26 +44,21 @@ export default function App() {
     <AuthProvider>
       <HashRouter>
         <Routes>
-          <Route path="/"       element={<Landing />} />
-          <Route path="/login"  element={<Login />} />
+          <Route path="/"              element={<Landing />} />
+          <Route path="/login"         element={<Login />} />
           <Route path="/signup"        element={<Signup />} />
           <Route path="/confirm-email" element={<ConfirmEmail />} />
           <Route path="/pricing"       element={<Pricing />} />
-          <Route path="/privacy"         element={<Privacy />} />
-          <Route path="/terms"           element={<Terms />} />
-          <Route path="/contact"         element={<Contact />} />
-          <Route path="/reset-password"  element={<ResetPassword />} />
+          <Route path="/privacy"       element={<Privacy />} />
+          <Route path="/terms"         element={<Terms />} />
+          <Route path="/contact"       element={<Contact />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/demo"          element={<Analysis demo />} />
           <Route element={<RequireSubscription><RecordModalProvider><AppShell /></RecordModalProvider></RequireSubscription>}>
             <Route path="/home"     element={<Home />} />
-            <Route path="/search"   element={<Search />} />
             <Route path="/record"   element={<Navigate to="/home" replace />} />
             <Route path="/analysis" element={<Analysis />} />
-            <Route path="/summary"  element={<Summary />} />
-            <Route path="/takes"    element={<Takes />} />
             <Route path="/sessions" element={<Sessions />} />
-            <Route path="/coach"    element={<Coach />} />
-            <Route path="/progress" element={<ProgressFeedback />} />
             <Route path="/reports"  element={<Reports />} />
             <Route path="/profile"  element={<Navigate to="/settings" replace />} />
             <Route path="/settings" element={<Settings />} />

@@ -430,12 +430,11 @@ export default function Landing() {
           </div>
 
           <div className={styles.footerCol}>
-            <p className={styles.footerColHead}>Tools</p>
+            <p className={styles.footerColHead}>App</p>
             <Link to="/home">Dashboard</Link>
-            <Link to="/record">New Session</Link>
-            <Link to="/analysis">Sessions</Link>
-            <Link to="/progress">Reports</Link>
-            <Link to="/coach">AI Coach</Link>
+            <Link to="/analysis">Analysis</Link>
+            <Link to="/sessions">Sessions</Link>
+            <Link to="/reports">Reports</Link>
           </div>
 
           <div className={styles.footerCol}>

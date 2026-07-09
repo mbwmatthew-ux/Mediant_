@@ -346,13 +346,7 @@ function TwoFactorSection() {
 /* ── Privacy section ─────────────────────────────────────────── */
 
 function PrivacySection() {
-  const [exportState, setExportState] = useState('idle')
-  const [clearState,  setClearState]  = useState('idle')
-
-  function requestExport() {
-    playTick(); setExportState('requested')
-    setTimeout(() => setExportState('idle'), 5000)
-  }
+  const [clearState, setClearState] = useState('idle')
 
   function clearCache() {
     if (clearState !== 'confirm') { playTick(); setClearState('confirm'); return }
@@ -368,14 +362,6 @@ function PrivacySection() {
       <div className={styles.card}>
         <SettingRow label="Data handling" sub="Your recordings are processed only to generate feedback and are never sold or shared with advertisers.">
           <Link to="/privacy" className={styles.linkBtn}>Privacy policy ↗</Link>
-        </SettingRow>
-        <SettingRow label="Export data" sub="Request a copy of your sessions and feedback history.">
-          <div className={styles.rowActions}>
-            {exportState === 'requested'
-              ? <StatusMsg kind="ok">Export requested — feature coming soon.</StatusMsg>
-              : <Btn variant="secondary" onClick={requestExport}>Request export</Btn>
-            }
-          </div>
         </SettingRow>
         <SettingRow label="Cached recordings" sub="Clears browser-cached media. Nothing is deleted from your account.">
           <div className={styles.rowActions}>
@@ -420,22 +406,12 @@ function PlanSection({ standalone = true }) {
               {planName}
             </span>
             {renewal && <span className={styles.monoValue}>Renews {renewal}</span>}
-            {!isPaid && <span className={styles.monoValueFaint}>5 sessions / month</span>}
           </div>
         </SettingRow>
         <SettingRow label="Payment method" sub="Billing is handled by Stripe — card details never touch Mediant servers.">
-          <div className={styles.rowActions}>
-            {isPaid
-              ? <div className={styles.cardOnFile}>
-                  <span className={styles.cardBrand}>VISA</span>
-                  <span className={styles.monoValue}>•••• 4242</span>
-                </div>
-              : null
-            }
-            <Btn variant="secondary" onClick={() => { playTick(); nav('/pricing') }}>
-              {isPaid ? 'Change plan' : 'Upgrade to Pro'}
-            </Btn>
-          </div>
+          <Btn variant="secondary" onClick={() => { playTick(); nav('/pricing') }}>
+            {isPaid ? 'Manage billing' : 'Upgrade to Pro'}
+          </Btn>
         </SettingRow>
       </div>
   )
@@ -449,72 +425,13 @@ function PlanSection({ standalone = true }) {
   )
 }
 
-/* ── Invoices section ────────────────────────────────────────── */
-
-function InvoicesSection({ standalone = true }) {
-  const invoices = [
-    { id: 'INV-2026-0007', date: 'Jun 1, 2026',  amount: '$14.99', status: 'paid' },
-    { id: 'INV-2026-0006', date: 'May 1, 2026',  amount: '$14.99', status: 'paid' },
-    { id: 'INV-2026-0005', date: 'Apr 1, 2026',  amount: '$14.99', status: 'refunded' },
-  ]
-
-  const statusStyle = { paid: styles.pillPaid, pending: styles.pillPending, refunded: styles.pillRefunded }
-  const statusLabel = { paid: 'Paid', pending: 'Pending', refunded: 'Refunded' }
-
-  const card = (
-    <div className={styles.card}>
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Invoice</th>
-              <th>Date</th>
-              <th>Amount</th>
-              <th>Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.map(inv => (
-              <tr key={inv.id}>
-                <td className={styles.mono}>{inv.id}</td>
-                <td>{inv.date}</td>
-                <td className={styles.mono}>{inv.amount}</td>
-                <td>
-                  <span className={`${styles.pill} ${statusStyle[inv.status] ?? ''}`}>
-                    {statusLabel[inv.status] ?? inv.status}
-                  </span>
-                </td>
-                <td className={styles.tableBtnCell}>
-                  <button className={styles.iconBtn} disabled aria-label="Download receipt">
-                    <DownloadIcon />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-
-  if (!standalone) return card
-  return (
-    <div className={styles.section}>
-      <SectionHeader title="Invoices" sub="Download receipts for past payments. Sample data — real invoices appear once Stripe is connected." />
-      {card}
-    </div>
-  )
-}
-
-/* ── Billing section (Plan + Invoices combined) ──────────────── */
+/* ── Billing section ─────────────────────────────────────────── */
 
 function BillingSection() {
   return (
     <div className={styles.section}>
-      <SectionHeader eyebrow="Billing" title="Plan &amp; invoices" sub="Manage your subscription and download past receipts." />
+      <SectionHeader eyebrow="Billing" title="Plan" sub="Manage your Mediant subscription." />
       <PlanSection standalone={false} />
-      <InvoicesSection standalone={false} />
     </div>
   )
 }
@@ -634,14 +551,3 @@ export default function Settings() {
   )
 }
 
-/* ── Icons ───────────────────────────────────────────────────── */
-
-function DownloadIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  )
-}

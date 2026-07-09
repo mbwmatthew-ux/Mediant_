@@ -12,7 +12,7 @@ const STEPS = [
   {
     targetLabel: 'analysis-summary-tab',
     title: 'Session Summary & Masterclasses',
-    body: 'Open this tab to see your full score breakdown, compare against past takes of the same piece, and browse expert masterclass videos curated for this exact work.',
+    body: 'Open this tab to see your full score breakdown and compare against past takes of the same piece.',
   },
 ]
 

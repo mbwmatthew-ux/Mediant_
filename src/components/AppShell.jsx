@@ -39,10 +39,13 @@ export default function AppShell() {
   const [notifOpen, setNotifOpen] = useState(false)
   const [barVisible, setBarVisible] = useState(true)
   const lastScrollY = useRef(0)
+  const mainRef = useRef(null)
 
   useEffect(() => {
+    const el = mainRef.current
+    if (!el) return
     function onScroll() {
-      const y = window.scrollY
+      const y = el.scrollTop
       if (y <= 60) {
         setBarVisible(true)
       } else if (y > lastScrollY.current + 4) {
@@ -52,8 +55,8 @@ export default function AppShell() {
       }
       lastScrollY.current = y
     }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
   }, [])
 
   const PAGE_TITLES = {
@@ -120,7 +123,7 @@ export default function AppShell() {
         </aside>
 
         {/* Main content */}
-        <main className={styles.main} id="main-content">
+        <main ref={mainRef} className={styles.main} id="main-content">
           {/* Top bar */}
           <header className={`${styles.topBar} ${barVisible ? '' : styles.barHidden}`}>
             <span className={styles.topBarTitle}>{pageTitle}</span>

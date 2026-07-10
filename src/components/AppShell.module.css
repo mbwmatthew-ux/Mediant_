@@ -227,9 +227,10 @@
 /* ── Main content ───────────────────────────────────────────── */
 .main {
   background: var(--bg);
-  min-height: 100vh;
+  height: 100vh;
   min-width: 0;
-  overflow-x: clip;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .skipLink {
@@ -258,7 +259,7 @@
 @media (max-width: 760px) {
   .body { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .main { min-height: calc(100vh - 60px); padding-top: 52px; padding-bottom: 66px; }
+  .main { height: calc(100vh - 60px); padding-top: 52px; padding-bottom: 66px; }
 
   .mobileNav {
     background: var(--bg-card);

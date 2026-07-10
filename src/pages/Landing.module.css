@@ -997,21 +997,48 @@
   .navLinks { display: none; }
   .stepRow { grid-template-columns: 56px 1px 1fr; }
   .stepRowBar { margin: 4px 20px 0; }
+  .heroH1 { font-size: clamp(2rem, 5vw, 4rem); }
 }
 
 @media (max-width: 700px) {
   .featuresList { grid-template-columns: 1fr; }
-  .footerInner { grid-template-columns: 1fr; }
+  .footerInner { grid-template-columns: 1fr; padding: 40px 20px; }
   .footerBrand { grid-column: 1; }
   .statsInner { flex-wrap: wrap; }
   .statItem { border-right: none; border-bottom: 1px solid var(--line); flex: 1 1 45%; }
   .heroActions { flex-direction: column; align-items: flex-start; }
-  .ctaActions { flex-direction: column; }
+  .ctaActions { flex-direction: column; align-items: stretch; }
   .pricingGrid { grid-template-columns: 1fr; max-width: 100%; }
   .stepRow { grid-template-columns: 48px 1px 1fr; padding: 28px 0; }
   .stepRowBar { margin: 4px 14px 0; }
   .comingSoonBox { padding: 40px 24px; }
   .marqueeStrip { display: none; }
+
+  /* Nav: drop Login link to fit brand + CTA in ~375px */
+  .navLogin { display: none; }
+  .navCta { font-size: 0.84rem; padding: 8px 14px; }
+
+  /* Hero: smaller heading, tighter padding */
+  .hero { padding: 44px 20px 56px; }
+  .heroH1 { font-size: 2rem; line-height: 1.08; }
+  .heroLead { font-size: 0.96rem; max-width: 100%; }
+
+  /* Sections: less vertical air on small screens */
+  .sectionInner { padding: 52px 20px; }
+  .sectionHead { margin-bottom: 32px; }
+  .sectionHead h2 { font-size: 1.8rem; }
+
+  /* Pricing card: reduce padding on narrow screens */
+  .pricingCard { padding: 24px; }
+
+  /* CTA strip: scale heading down, full-width stacked buttons */
+  .ctaStrip h2 { font-size: 1.8rem; }
+  .btnWhite { justify-content: center; }
+  .btnGhostLight { justify-content: center; }
+
+  /* FAQ: less gap between sticky left label and questions on mobile */
+  .faqLeft { padding-bottom: 0; }
+  .faqLeft h2 { font-size: 1.6rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

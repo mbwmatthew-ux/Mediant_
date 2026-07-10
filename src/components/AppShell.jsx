@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRecordModal } from '../context/RecordModalContext'
 import NewRecordingModal from './NewRecordingModal'
 import NotificationsPopup from './NotificationsPopup'
@@ -37,6 +37,24 @@ export default function AppShell() {
     : '?'
 
   const [notifOpen, setNotifOpen] = useState(false)
+  const [barVisible, setBarVisible] = useState(true)
+  const lastScrollY = useRef(0)
+
+  useEffect(() => {
+    function onScroll() {
+      const y = window.scrollY
+      if (y <= 60) {
+        setBarVisible(true)
+      } else if (y > lastScrollY.current + 4) {
+        setBarVisible(false)
+      } else if (y < lastScrollY.current - 4) {
+        setBarVisible(true)
+      }
+      lastScrollY.current = y
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   const PAGE_TITLES = {
     '/home': 'Overview', '/analysis': 'Analysis',
@@ -51,7 +69,7 @@ export default function AppShell() {
       <a className={styles.skipLink} href="#main-content">Skip to content</a>
 
       {/* Mobile top header (logo + account) — hidden on desktop */}
-      <header className={styles.mobileHeader}>
+      <header className={`${styles.mobileHeader} ${barVisible ? '' : styles.barHidden}`}>
         <NavLink to="/home" className={styles.mobileHeaderBrand} onClick={playNav} aria-label="Mediant home">
           <LogoMark size={30} />
           <span className={styles.mobileHeaderWordmark}>MEDIANT</span>
@@ -104,7 +122,7 @@ export default function AppShell() {
         {/* Main content */}
         <main className={styles.main} id="main-content">
           {/* Top bar */}
-          <header className={styles.topBar}>
+          <header className={`${styles.topBar} ${barVisible ? '' : styles.barHidden}`}>
             <span className={styles.topBarTitle}>{pageTitle}</span>
             <div className={styles.topBarRight} style={{ position: 'relative' }}>
               <button

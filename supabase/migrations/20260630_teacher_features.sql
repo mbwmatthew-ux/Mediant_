@@ -1,0 +1,2 @@
+-- Teacher features schema (profiles, teacher_students, reference_performances,
+-- flag_annotations, debug column). Content is in 20260630000001–20260630000005.

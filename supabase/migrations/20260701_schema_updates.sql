@@ -1,0 +1,2 @@
+-- July 1 schema updates (practice_plan column, score_cache table, security hardening).
+-- Content is in 20260701000001–20260701000003.

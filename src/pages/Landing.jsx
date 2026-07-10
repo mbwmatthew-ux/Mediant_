@@ -163,6 +163,25 @@ const MARQUEE_ITEMS = [
 ]
 
 export default function Landing() {
+  const [navVisible, setNavVisible] = useState(true)
+  const lastScrollY = useRef(0)
+
+  useEffect(() => {
+    function onScroll() {
+      const y = window.scrollY
+      if (y <= 60) {
+        setNavVisible(true)
+      } else if (y > lastScrollY.current + 4) {
+        setNavVisible(false)
+      } else if (y < lastScrollY.current - 4) {
+        setNavVisible(true)
+      }
+      lastScrollY.current = y
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   // Refs for direct DOM writes — avoids React re-renders at 60fps
   const fill1Ref = useRef(null)
   const fill2Ref = useRef(null)
@@ -197,7 +216,7 @@ export default function Landing() {
     <div className={styles.page}>
 
       {/* ── NAV ────────────────────────────────────────── */}
-      <nav className={styles.nav} aria-label="Main navigation">
+      <nav className={`${styles.nav} ${navVisible ? '' : styles.navHidden}`} aria-label="Main navigation">
           <Link to="/" className={styles.navBrand} aria-label="Mediant home">
             <LogoMark size={34} />
             <span className={styles.navWordmark}>Mediant</span>

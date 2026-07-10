@@ -220,7 +220,7 @@
   transition: background 130ms ease;
   width: 34px;
 }
-.topBarAvatar:hover { background: var(--accent-bg-hover, rgba(232,132,90,0.18)); }
+.topBarAvatar:hover { background: var(--accent-bg-hover, rgba(233,112,39,0.18)); }
 
 /* ── Main content ───────────────────────────────────────────── */
 .main {

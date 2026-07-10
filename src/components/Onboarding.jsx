@@ -150,7 +150,7 @@ export default function Onboarding({ onClose }) {
   return createPortal(
     <>
       {/* inject pulse keyframe once */}
-      <style>{`@keyframes ob-pulse{0%,100%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 3px var(--accent)}50%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 5px var(--accent),0 0 16px 4px rgba(59,122,87,.45)}}`}</style>
+      <style>{`@keyframes ob-pulse{0%,100%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 3px var(--accent)}50%{box-shadow:0 0 0 9999px rgba(10,12,14,.82),0 0 0 5px var(--accent),0 0 16px 4px rgba(44,103,75,.45)}}`}</style>
 
       {/* Base overlay — captures backdrop clicks */}
       <div
@@ -217,8 +217,8 @@ export default function Onboarding({ onClose }) {
           {current.navLabel && (
             <div style={{
               display: 'inline-block',
-              background: 'rgba(59,122,87,.14)',
-              border: '1px solid rgba(59,122,87,.28)',
+              background: 'rgba(44,103,75,.14)',
+              border: '1px solid rgba(44,103,75,.28)',
               borderRadius: 20,
               color: 'var(--accent)',
               fontSize: '0.7rem',

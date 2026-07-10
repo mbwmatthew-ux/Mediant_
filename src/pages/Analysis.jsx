@@ -1513,7 +1513,7 @@ const videoRef    = useRef(null)
                     return (
                       <button key={flagId} type="button"
                         className={aStyles.scoreMarker}
-                        style={{ left: `${cx}%`, top: `${cy}%`, background: isAct ? 'var(--accent)' : '#2A2A28', boxShadow: isAct ? '0 0 0 3px rgba(232,132,90,0.35)' : '0 1px 4px rgba(0,0,0,0.3)' }}
+                        style={{ left: `${cx}%`, top: `${cy}%`, background: isAct ? 'var(--accent)' : '#2A2A28', boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)' }}
                         onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
                         aria-label={`Flag ${i + 1}, measure ${f.measure}`}>
                         {i + 1}

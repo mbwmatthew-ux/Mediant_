@@ -4,15 +4,15 @@
   --bg-deep: #efe9dd;
   --bg-card: #FFFFFF;
   --bg-card-hover: #F9F7F3;
-  --hero-green: #3B7A57;
-  --panel-green: #3B7A57;
-  --accent: #E8845A;
-  --accent-dim: rgba(232,132,90,0.14);
-  --accent-bg: rgba(232,132,90,0.10);
-  --accent-bg-hover: rgba(232,132,90,0.18);
-  --accent-border: rgba(232,132,90,0.38);
+  --hero-green: #2C674B;
+  --panel-green: #2C674B;
+  --accent: #E97027;
+  --accent-dim: rgba(233,112,39,0.14);
+  --accent-bg: rgba(233,112,39,0.10);
+  --accent-bg-hover: rgba(233,112,39,0.18);
+  --accent-border: rgba(233,112,39,0.38);
   --cream: #C8941A;
-  --cream-strong: #E8845A;
+  --cream-strong: #E97027;
   --text: #1C1C1A;            /* near-black ink (Lovable) */
   --text-soft: rgba(28,28,26,0.78);
   --text-muted: rgba(28,28,26,0.60);
@@ -20,10 +20,10 @@
   --border: rgba(28,28,26,0.10);
   --gold: #C8941A;
   --gold-soft: rgba(200,148,26,0.20);
-  --coral: #E8845A;
-  --coral-soft: rgba(232,132,90,0.15);
-  --mint: #3B7A57;
-  --mint-soft: rgba(59,122,87,0.15);
+  --coral: #E97027;
+  --coral-soft: rgba(233,112,39,0.15);
+  --mint: #2C674B;
+  --mint-soft: rgba(44,103,75,0.15);
   /* Link + secondary-accent tokens. Defaults are dark-appropriate (orange/current);
      the [data-theme="light"] block (after the dark block) overrides these with teal
      for LIGHT MODE ONLY, so dark mode keeps its current look untouched. */
@@ -36,7 +36,7 @@
   --btn2-text-hover: var(--accent);
   --btn2-border: var(--border);
   /* Value-coded score colors: good / ok / needs-work (distinct from action coral) */
-  --score-good: #3B7A57;
+  --score-good: #2C674B;
   --score-ok: #c8941a;
   --score-bad: #d9513a;
   /* Subtle wash for panels/cards so the palette reads without heavy blocks */
@@ -45,8 +45,8 @@
   /* Dashed upload/empty borders. This default is dark-appropriate (inherited by
      [data-theme="dark"], so dark is unchanged); the [data-theme="light"] block
      overrides it to a stronger teal so dashed dropzones read on the cream bg. */
-  --dashed-border: rgba(59,122,87,0.42);
-  --line: rgba(59,122,87,0.14);
+  --dashed-border: rgba(44,103,75,0.42);
+  --line: rgba(44,103,75,0.14);
 
   /* Layered Premium Shadows */
   --shadow-lg: 0 20px 40px -15px rgba(5,24,33,0.10), 0 1px 3px rgba(5,24,33,0.04);
@@ -62,12 +62,12 @@
   --sidebar-border: rgba(28,28,26,0.10);
   --sidebar-text: rgba(28,28,26,0.55);
   --sidebar-text-hover: #1C1C1A;
-  --sidebar-surface: rgba(232,132,90,0.10);
-  --sidebar-surface-strong: rgba(232,132,90,0.18);
+  --sidebar-surface: rgba(233,112,39,0.10);
+  --sidebar-surface-strong: rgba(233,112,39,0.18);
 
   /* Semantic surface tokens */
   --surface-border: rgba(28,28,26,0.12);
-  --surface-hover: rgba(232,132,90,0.07);
+  --surface-hover: rgba(233,112,39,0.07);
   --surface-subtle: rgba(28,28,26,0.04);
   --text-dim: rgba(28,28,26,0.66);
   --text-faint: rgba(28,28,26,0.48);
@@ -88,39 +88,39 @@
 }
 
 [data-theme="dark"] {
-  /* Mediant DARK — #051821 canvas, #1A3D2A/#254F36 forest green surfaces, orange = action, gold = data */
+  /* Mediant DARK — #051821 canvas, #163325/#1D4331 forest green surfaces, orange = action, gold = data */
   --bg: #051821;
   --bg-deep: #04141c;
-  --bg-card: #1a3d2a;
-  --bg-card-hover: #254f36;
-  --hero-green: #254f36;
-  --panel-green: #1a3d2a;
-  --accent: #f58800;
-  --accent-dim: rgba(245,136,0,0.16);
-  --accent-bg: rgba(245,136,0,0.12);
-  --accent-bg-hover: rgba(245,136,0,0.20);
-  --accent-border: rgba(245,136,0,0.34);
+  --bg-card: #163325;
+  --bg-card-hover: #1D4331;
+  --hero-green: #1D4331;
+  --panel-green: #163325;
+  --accent: #E97027;
+  --accent-dim: rgba(233,112,39,0.16);
+  --accent-bg: rgba(233,112,39,0.12);
+  --accent-bg-hover: rgba(233,112,39,0.20);
+  --accent-border: rgba(233,112,39,0.34);
   --cream: #f8bc24;
-  --cream-strong: #f58800;
+  --cream-strong: #E97027;
   --text: #e9f0ee;
   --text-soft: rgba(233,240,238,0.78);
   --text-muted: rgba(233,240,238,0.55);
   --text-inverse: #051821;
-  --border: rgba(59,122,87,0.45);
+  --border: rgba(44,103,75,0.45);
   --gold: #f8bc24;
   --gold-soft: rgba(248,188,36,0.18);
-  --coral: #f58800;
-  --coral-soft: rgba(245,136,0,0.16);
-  --mint: #52B069;
-  --mint-soft: rgba(82,176,105,0.16);
+  --coral: #E97027;
+  --coral-soft: rgba(233,112,39,0.16);
+  --mint: #3D8A5F;
+  --mint-soft: rgba(61,138,95,0.16);
   /* Value-coded score colors: good / ok / needs-work (distinct from action orange) */
-  --score-good: #52B069;
+  --score-good: #3D8A5F;
   --score-ok: #f8bc24;
   --score-bad: #f0613a;
   /* Subtle teal wash for panels/cards so the palette reads without heavy blocks */
-  --panel-tint: rgba(59,122,87,0.13);
-  --panel-tint-strong: rgba(59,122,87,0.22);
-  --line: rgba(59,122,87,0.30);
+  --panel-tint: rgba(44,103,75,0.13);
+  --panel-tint-strong: rgba(44,103,75,0.22);
+  --line: rgba(44,103,75,0.30);
 
   /* Layered Premium Shadows (Dark) */
   --shadow-lg: 0 20px 50px -12px rgba(0,0,0,0.65), 0 1px 3px rgba(0,0,0,0.3);
@@ -128,21 +128,21 @@
   --shadow-sm: 0 4px 12px -4px rgba(0,0,0,0.25), 0 1px 1px rgba(0,0,0,0.1);
 
   /* Semantic surface tokens (dark teal) */
-  --surface-border: rgba(59,122,87,0.40);
-  --surface-hover: rgba(245,136,0,0.08);
+  --surface-border: rgba(44,103,75,0.40);
+  --surface-hover: rgba(233,112,39,0.08);
   --surface-subtle: rgba(233,240,238,0.03);
   --text-dim: rgba(233,240,238,0.60);
   --text-faint: rgba(233,240,238,0.50);
   --text-faintest: rgba(233,240,238,0.34);
   --nav-text: rgba(233,240,238,0.66);
   --input-bg: rgba(233,240,238,0.05);
-  --input-border: rgba(59,122,87,0.40);
-  --dropdown-bg: #1a3d2a;
+  --input-border: rgba(44,103,75,0.40);
+  --dropdown-bg: #163325;
 
   /* Glassmorphism overlays (Dark) */
   --glass-bg: rgba(5, 24, 33, 0.78);
   --glass-bg-hover: rgba(5, 24, 33, 0.92);
-  --glass-border: rgba(59, 122, 87, 0.20);
+  --glass-border: rgba(44, 103, 75, 0.20);
 }
 
 /* ── LIGHT-MODE-ONLY overrides (Landing palette) ──────────────────
@@ -153,16 +153,16 @@
   --sidebar-border: rgba(28,28,26,0.10);
   --sidebar-text: rgba(28,28,26,0.55);
   --sidebar-text-hover: #1C1C1A;
-  --sidebar-surface: rgba(232,132,90,0.10);
-  --sidebar-surface-strong: rgba(232,132,90,0.18);
-  --link: #C4633A;             /* coral text links (readable on cream) */
-  --teal: #3B7A57;
-  --teal-strong: #2E6044;
-  --btn2-bg: #3B7A57;
-  --btn2-bg-hover: #2E6044;
+  --sidebar-surface: rgba(233,112,39,0.10);
+  --sidebar-surface-strong: rgba(233,112,39,0.18);
+  --link: #B85A18;             /* logo orange darkened for legibility on cream */
+  --teal: #2C674B;
+  --teal-strong: #224F3B;
+  --btn2-bg: #2C674B;
+  --btn2-bg-hover: #224F3B;
   --btn2-text: #ffffff;
   --btn2-text-hover: #ffffff;
-  --btn2-border: #3B7A57;
+  --btn2-border: #2C674B;
   --dashed-border: rgba(28,28,26,0.30);   /* visible dashed lines on cream */
 }
 

@@ -89,8 +89,8 @@
 .item:last-child { border-bottom: none; }
 .item:hover { background: var(--bg); }
 
-.itemUnread { background: rgba(232,132,90,0.04); }
-.itemUnread:hover { background: rgba(232,132,90,0.08); }
+.itemUnread { background: rgba(233,112,39,0.04); }
+.itemUnread:hover { background: rgba(233,112,39,0.08); }
 
 .iconWrap {
   align-items: center;
@@ -105,7 +105,7 @@
   border: 1px solid var(--border);
 }
 
-.icon_analysis { background: rgba(232,132,90,0.10); border-color: rgba(232,132,90,0.2); color: var(--accent); }
+.icon_analysis { background: rgba(233,112,39,0.10); border-color: rgba(233,112,39,0.2); color: var(--accent); }
 .icon_pattern  { background: rgba(45,90,78,0.10);   border-color: rgba(45,90,78,0.2);   color: var(--hero-green); }
 .icon_tip      { background: rgba(200,160,30,0.10); border-color: rgba(200,160,30,0.2); color: #b8920a; }
 

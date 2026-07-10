@@ -139,7 +139,7 @@
 }
 .issueCard { border-bottom: 1px solid var(--border); }
 .issueCard:last-child { border-bottom: none; }
-.issueCardOpen { background: rgba(232,132,90,0.04); }
+.issueCardOpen { background: rgba(233,112,39,0.04); }
 .issueCardRow {
   align-items: center; background: none; border: none; color: inherit; cursor: pointer;
   display: flex; font: inherit; gap: 12px; padding: 16px 16px; text-align: left; width: 100%;
@@ -180,7 +180,7 @@
   transition: background 130ms ease, color 130ms ease, border-color 130ms ease;
 }
 .loopBtn:hover { border-color: var(--accent); color: var(--accent); }
-.loopBtnActive { background: rgba(232,132,90,0.1); border-color: var(--accent); color: var(--accent); }
+.loopBtnActive { background: rgba(233,112,39,0.1); border-color: var(--accent); color: var(--accent); }
 
 /* ── SUMMARY ── */
 .summarySection { border-top: 1px solid var(--border); padding-top: 48px; }

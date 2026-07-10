@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import styles from './PieceDetailPanel.module.css'
 
 function scoreColor(n) {
-  if (n >= 88) return '#52B069'
+  if (n >= 88) return '#3D8A5F'
   if (n >= 74) return 'var(--gold)'
   return 'var(--coral)'
 }

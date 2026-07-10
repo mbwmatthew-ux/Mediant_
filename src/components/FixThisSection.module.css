@@ -1,7 +1,7 @@
 /* ── Fix This Section card ─────────────────────────────────── */
 
 .card {
-  border: 1px solid rgba(59,122,87,0.30);
+  border: 1px solid rgba(44,103,75,0.30);
   border-radius: 16px;
   background: var(--bg-card);
   margin: 0 0 24px;
@@ -13,8 +13,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px 12px;
-  border-bottom: 1px solid rgba(59,122,87,0.15);
-  background: rgba(59,122,87,0.06);
+  border-bottom: 1px solid rgba(44,103,75,0.15);
+  background: rgba(44,103,75,0.06);
 }
 
 .eyebrow {
@@ -22,7 +22,7 @@
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #3B7A57;
+  color: #2C674B;
 }
 
 .dismissBtn {
@@ -55,7 +55,7 @@
   color: var(--text);
   line-height: 1.3;
 }
-.headline strong { color: #3B7A57; font-weight: 700; }
+.headline strong { color: #2C674B; font-weight: 700; }
 
 .sub {
   margin: 0;
@@ -106,9 +106,9 @@
   gap: 6px;
   padding: 7px 16px;
   border-radius: 8px;
-  border: 1px solid rgba(59,122,87,0.35);
-  background: rgba(59,122,87,0.08);
-  color: #3B7A57;
+  border: 1px solid rgba(44,103,75,0.35);
+  background: rgba(44,103,75,0.08);
+  color: #2C674B;
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;
@@ -116,17 +116,17 @@
   transition: background 130ms ease, border-color 130ms ease;
 }
 .loopBtn:hover:not(:disabled) {
-  background: rgba(59,122,87,0.14);
-  border-color: rgba(59,122,87,0.55);
+  background: rgba(44,103,75,0.14);
+  border-color: rgba(44,103,75,0.55);
 }
 .loopBtn:disabled {
   opacity: 0.38;
   cursor: not-allowed;
 }
 .loopBtnActive {
-  background: rgba(59,122,87,0.15);
-  border-color: #3B7A57;
-  color: #3B7A57;
+  background: rgba(44,103,75,0.15);
+  border-color: #2C674B;
+  color: #2C674B;
 }
 
 /* Ghost buttons (replay, re-record) */
@@ -239,7 +239,7 @@
   transition: background 60ms ease, transform 60ms ease;
 }
 .beatDotLit { background: var(--text-muted); transform: scale(1.2); }
-.beatDotAccent { background: #3B7A57 !important; transform: scale(1.5) !important; }
+.beatDotAccent { background: #2C674B !important; transform: scale(1.5) !important; }
 
 /* ── Before/after teaser ── */
 .teaser {

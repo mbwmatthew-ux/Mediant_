@@ -3,8 +3,8 @@
    app-wide, which broke the dark theme (white cards, cream borders, invisible
    text on the teacher dashboard). CSS Modules do not scope :root; .page does. */
 .page {
-  --teal:       #3B7A57;
-  --teal-deep:  #2E6044;
+  --teal:       #2C674B;
+  --teal-deep:  #224F3B;
   --teal-light: rgba(59, 122, 87, 0.10);
   --teal-mid:   rgba(59, 122, 87, 0.18);
   --coral:      var(--accent);

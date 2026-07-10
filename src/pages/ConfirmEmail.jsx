@@ -19,7 +19,7 @@ export default function ConfirmEmail() {
           We sent a confirmation link to your email address. Click it to activate your account, then come back and log in.
         </p>
 
-        <div style={{ background: 'rgba(59,122,87,0.08)', borderRadius: 16, padding: '18px 20px', marginBottom: 24 }}>
+        <div style={{ background: 'rgba(44,103,75,0.08)', borderRadius: 16, padding: '18px 20px', marginBottom: 24 }}>
           <p style={{ color: 'var(--text-soft)', fontSize: '0.88rem', lineHeight: 1.65, margin: 0 }}>
             Didn&apos;t get it? Check your spam folder. The link expires in 24 hours.
           </p>

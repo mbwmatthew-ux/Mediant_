@@ -111,12 +111,9 @@ export default function Sessions() {
         />
       </div>
 
-      {/* List */}
-      {loading ? (
-        <div className={styles.list}>
-          {[0, 1, 2, 3].map(i => <div key={i} className={styles.rowSkeleton} />)}
-        </div>
-      ) : filtered.length === 0 ? (
+      {/* List — hidden while loading so there's no skeleton → content flash */}
+      <div style={{ opacity: loading ? 0 : 1, transition: 'opacity 180ms ease' }}>
+      {filtered.length === 0 ? (
         <div className={styles.emptyState}>
           <p className={styles.emptyTitle}>
             {search ? 'No sessions match your search.' : 'No sessions yet.'}
@@ -182,6 +179,7 @@ export default function Sessions() {
           })}
         </div>
       )}
+      </div>
     </div>
   )
 }

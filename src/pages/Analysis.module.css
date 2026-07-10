@@ -3,6 +3,11 @@
   max-width: 1160px;
   margin: 0 auto;
   padding: 28px 32px 64px;
+  animation: contentFadeIn 200ms ease both;
+}
+@keyframes contentFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* Demo banner */

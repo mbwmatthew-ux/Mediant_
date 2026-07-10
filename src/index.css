@@ -227,6 +227,11 @@ a { text-decoration: none; color: inherit; }
   50% { opacity: 0.45; }
 }
 
+@keyframes contentFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* ── Public page fade-in ── */
 @keyframes publicPageIn {
   from { opacity: 0; transform: translateY(10px); }

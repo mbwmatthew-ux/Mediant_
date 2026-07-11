@@ -91,7 +91,7 @@ export default function AppShell() {
         <aside className={styles.sidebar}>
           {/* Logo */}
           <NavLink to="/home" className={styles.sidebarLogo} onClick={playNav} title="Mediant">
-            <LogoMark size={30} />
+            <LogoMark size={36} />
             <span className={styles.sidebarWordmark}>MEDIANT</span>
           </NavLink>
 

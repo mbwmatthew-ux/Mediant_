@@ -80,11 +80,14 @@
 }
 .recordCta:hover { background: #d9743f; transform: translateY(-1px); }
 .ctaLabel {
+  max-width: 0;
   opacity: 0;
-  transition: opacity 160ms ease;
+  overflow: hidden;
+  transition: max-width 240ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease;
   white-space: nowrap;
 }
 .sidebar:hover .ctaLabel {
+  max-width: 200px;
   opacity: 1;
   transition-delay: 80ms;
 }

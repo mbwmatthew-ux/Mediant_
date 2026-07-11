@@ -472,7 +472,7 @@ export default function Settings() {
               aria-current={active === item.id ? 'page' : undefined}
             >
               <span className={styles.navIcon}><item.icon /></span>
-              {item.label}
+              <span className={styles.navLabel}>{item.label}</span>
             </button>
           ))}
         </nav>
@@ -480,7 +480,7 @@ export default function Settings() {
         <div className={styles.sidebarFooter}>
           <button className={styles.signOutBtn} onClick={signOut}>
             <span className={styles.navIcon}><LogOutIcon /></span>
-            Sign out
+            <span className={styles.navLabel}>Sign out</span>
           </button>
         </div>
       </aside>

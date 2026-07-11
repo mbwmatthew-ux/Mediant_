@@ -92,7 +92,7 @@ export default function AppShell() {
           {/* Logo */}
           <NavLink to="/home" className={styles.sidebarLogo} onClick={playNav} title="Mediant">
             <LogoMark size={30} />
-            MEDIANT
+            <span className={styles.sidebarWordmark}>MEDIANT</span>
           </NavLink>
 
           {/* Record & Analyze CTA */}
@@ -100,7 +100,7 @@ export default function AppShell() {
             className={styles.recordCta}
             onClick={() => { playNav(); setShowRecord(true) }}
           >
-            <MicIcon /> Record &amp; Analyze
+            <MicIcon /><span className={styles.ctaLabel}>Record &amp; Analyze</span>
           </button>
 
           <nav className={styles.nav} aria-label="Primary navigation">

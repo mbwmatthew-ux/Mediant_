@@ -11,7 +11,7 @@
 .body {
   display: grid;
   flex: 1;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -23,11 +23,18 @@
   flex-direction: column;
   height: 100vh;
   left: 0;
+  overflow: hidden;
   padding: 18px 14px;
   position: sticky;
   top: 0;
-  width: var(--sidebar-w);
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1) 80ms, box-shadow 240ms ease 80ms;
+  width: 72px;
   z-index: 200;
+}
+.sidebar:hover {
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.14);
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 240ms ease;
+  width: 220px;
 }
 
 /* ── Logo ───────────────────────────────────────────────────── */
@@ -42,6 +49,15 @@
   letter-spacing: 0.06em;
   padding: 2px 6px 0;
   text-decoration: none;
+}
+.sidebarWordmark {
+  opacity: 0;
+  transition: opacity 160ms ease;
+  white-space: nowrap;
+}
+.sidebar:hover .sidebarWordmark {
+  opacity: 1;
+  transition-delay: 80ms;
 }
 
 /* ── Record & Analyze CTA ───────────────────────────────────── */
@@ -63,6 +79,15 @@
   width: 100%;
 }
 .recordCta:hover { background: #d9743f; transform: translateY(-1px); }
+.ctaLabel {
+  opacity: 0;
+  transition: opacity 160ms ease;
+  white-space: nowrap;
+}
+.sidebar:hover .ctaLabel {
+  opacity: 1;
+  transition-delay: 80ms;
+}
 
 /* ── Nav ────────────────────────────────────────────────────── */
 .nav {
@@ -134,9 +159,15 @@
   font-size: 0.88rem;
   font-weight: 550;
   letter-spacing: -0.005em;
+  opacity: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: opacity 160ms ease;
   white-space: nowrap;
+}
+.sidebar:hover .navLabel {
+  opacity: 1;
+  transition-delay: 80ms;
 }
 
 /* ── Sidebar bottom ─────────────────────────────────────────── */

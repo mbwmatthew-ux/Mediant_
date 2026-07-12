@@ -22,10 +22,10 @@ export default function Pricing() {
       {/* Nav */}
       <nav className={styles.nav}>
         <div className={styles.navLeft}>
-          <Link to="/" className={styles.brand} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <LogoMark size={24} />
-              Mediant
-            </Link>
+          <Link to="/" className={styles.brand}>
+            <LogoMark size={26} />
+            MEDIANT
+          </Link>
         </div>
         <div className={styles.navRight}>
           {user ? (
@@ -93,9 +93,7 @@ export default function Pricing() {
               {plan.cta}
             </button>
             {pendingPlan === plan.id && (
-              <p style={{ color: 'rgba(248,246,242,0.55)', fontSize: '0.8rem', margin: '8px 0 0', textAlign: 'center' }}>
-                Stripe checkout coming soon — we'll notify you when it's ready.
-              </p>
+              <p className={styles.pendingNote}>Stripe checkout coming soon — we'll notify you when it's ready.</p>
             )}
 
             <ul className={styles.featureList}>

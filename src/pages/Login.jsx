@@ -12,11 +12,9 @@ export default function Login() {
   const [password,   setPassword]   = useState('')
   const [error,      setError]      = useState('')
   const [forgotMode, setForgotMode] = useState(false)
-  const [resetState, setResetState] = useState('idle') // idle | sending | sent | error
+  const [resetState, setResetState] = useState('idle')
   const [resetMsg,   setResetMsg]   = useState('')
 
-  // Auto-redirect when user arrives already authenticated — happens after clicking
-  // the email confirmation link, which sets the session before landing here.
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) nav('/home', { replace: true })
@@ -31,11 +29,7 @@ export default function Login() {
     e.preventDefault()
     setError('')
     const result = await login(email, password)
-    if (result.ok) {
-      nav('/home')
-    } else {
-      setError(result.error)
-    }
+    if (result.ok) { nav('/home') } else { setError(result.error) }
   }
 
   async function handleForgot(e) {
@@ -51,12 +45,10 @@ export default function Login() {
 
   return (
     <div className={styles.page}>
-      <nav className={styles.nav}>
-        <Link to="/" className={styles.brandMark} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <LogoMark size={24} />
-          Mediant
-        </Link>
-      </nav>
+      <Link to="/" className={styles.logoLink}>
+        <LogoMark size={32} />
+        MEDIANT
+      </Link>
 
       <div className={styles.card}>
         {forgotMode ? (
@@ -66,23 +58,13 @@ export default function Login() {
             <p className={styles.sub}>Enter your email and we'll send a reset link.</p>
 
             {resetState === 'sent' ? (
-              <p style={{ marginTop: 20, color: 'var(--accent, #587965)', fontSize: '0.95rem', lineHeight: 1.6 }}>
-                {resetMsg}
-              </p>
+              <p className={styles.successMsg}>{resetMsg}</p>
             ) : (
               <form className={styles.form} onSubmit={handleForgot}>
                 {resetState === 'error' && <div className={styles.error}>{resetMsg}</div>}
                 <div className={styles.field}>
                   <label className={styles.label}>Email</label>
-                  <input
-                    className={styles.input}
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    required
-                    autoFocus
-                  />
+                  <input className={styles.input} type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required autoFocus />
                 </div>
                 <button className={styles.submitBtn} type="submit" disabled={resetState === 'sending'}>
                   {resetState === 'sending' ? 'Sending…' : 'Send reset link'}
@@ -90,12 +72,9 @@ export default function Login() {
               </form>
             )}
 
+            <hr className={styles.footerDivider} />
             <p className={styles.footer}>
-              <button
-                onClick={() => { setForgotMode(false); setResetState('idle'); setResetMsg('') }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                className={styles.footerLink}
-              >
+              <button className={styles.footerLink} onClick={() => { setForgotMode(false); setResetState('idle'); setResetMsg('') }}>
                 ← Back to log in
               </button>
             </p>
@@ -103,45 +82,25 @@ export default function Login() {
         ) : (
           <>
             <p className={styles.eyebrow}>Welcome back</p>
-            <h1 className={styles.heading}>Log in</h1>
+            <h1 className={styles.heading}>Log in to Mediant</h1>
             <p className={styles.sub}>Pick up right where you left off.</p>
 
             <form className={styles.form} onSubmit={handleSubmit}>
               {error && <div className={styles.error}>{error}</div>}
-
               <div className={styles.field}>
                 <label className={styles.label}>Email</label>
-                <input
-                  className={styles.input}
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  required
-                />
+                <input className={styles.input} type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required autoFocus />
               </div>
-
               <div className={styles.field}>
                 <label className={styles.label}>Password</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                />
+                <input className={styles.input} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
               </div>
-
               <button className={styles.submitBtn} type="submit">Log in</button>
             </form>
 
+            <hr className={styles.footerDivider} />
             <p className={styles.footer}>
-              <button
-                onClick={() => setForgotMode(true)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                className={styles.footerLink}
-              >
+              <button className={styles.footerLink} onClick={() => setForgotMode(true)}>
                 Forgot password?
               </button>
             </p>

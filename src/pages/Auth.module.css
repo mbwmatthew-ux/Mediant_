@@ -1,16 +1,13 @@
-/* ── Auth pages (Login + Signup + Reset + Confirm) ─────────────
-   Themed via design tokens so these pages match the dark teal/orange
-   app (and follow light mode too). Serif display headings kept. */
-@keyframes publicPageIn {
-  from { opacity: 0; transform: translateY(10px); }
+/* ── Auth pages (Login · Signup · Reset · Confirm) ───────────── */
+@keyframes authIn {
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 .page {
   align-items: center;
-  animation: publicPageIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: authIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
   background: var(--bg);
-  color: var(--text);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -18,67 +15,63 @@
   padding: 40px 20px;
 }
 
-.nav {
+/* ── Logo above card ─────────────────────────────────────────── */
+.logoLink {
   align-items: center;
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-bottom: 20px;
-  padding: 0;
-}
-
-.brandMark {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
-  font-size: 1.3rem;
-  letter-spacing: -0.02em;
+  display: flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1.1rem;
+  font-weight: 800;
+  gap: 10px;
+  letter-spacing: 0.06em;
+  margin-bottom: 24px;
   text-decoration: none;
 }
 
-.brandMark svg {
-  background: var(--accent);
-  border-radius: 4px;
-  box-sizing: content-box;
-  color: #fff;
-  padding: 5px;
-}
-
+/* ── Card ────────────────────────────────────────────────────── */
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.06);
+  max-width: 440px;
+  padding: 36px;
   width: 100%;
-  max-width: 448px;
 }
 
+/* ── Eyebrow label ───────────────────────────────────────────── */
 .eyebrow {
-  display: none;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
 }
 
+/* ── Heading + sub ───────────────────────────────────────────── */
 .heading {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
-  font-size: 2rem;
-  font-weight: 400;
-  letter-spacing: -0.03em;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
   margin: 0 0 6px;
-  text-align: center;
 }
 
 .sub {
-  color: var(--text-soft);
-  font-size: 0.95rem;
-  line-height: 1.6;
-  margin: 0 0 30px;
-  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  margin: 0 0 28px;
 }
 
+/* ── Form ────────────────────────────────────────────────────── */
 .form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .field {
@@ -88,128 +81,157 @@
 }
 
 .label {
-  color: var(--text-soft);
-  font-size: 0.85rem;
-  font-weight: 600;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 500;
 }
 
+/* ── Inputs ──────────────────────────────────────────────────── */
 .input,
 .select {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-sizing: border-box;
   color: var(--text);
-  font: inherit;
-  font-size: 0.95rem;
+  font-family: inherit;
+  font-size: 0.9rem;
   outline: none;
-  padding: 11px 13px;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  padding: 10px 13px;
+  transition: border-color 140ms, box-shadow 140ms;
+  width: 100%;
 }
 .input::placeholder { color: var(--text-muted); }
 .input:focus,
 .select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
-  outline: none;
 }
 
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  padding-right: 32px;
+}
+
+/* ── Error box ───────────────────────────────────────────────── */
 .error {
-  background: rgba(245, 136, 0, 0.12);
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-  font-size: 0.88rem;
-  padding: 11px 14px;
+  background: rgba(192, 83, 74, 0.06);
+  border: 1px solid rgba(192, 83, 74, 0.22);
+  border-radius: 8px;
+  color: var(--coral, #c0534a);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  padding: 10px 14px;
 }
 
+/* ── Submit button ───────────────────────────────────────────── */
 .submitBtn {
+  align-items: center;
   background: var(--accent);
-  border: 0;
-  border-radius: var(--radius-sm);
+  border: none;
+  border-radius: 9px;
   color: #fff;
-  font-size: 0.95rem;
+  cursor: pointer;
+  display: flex;
+  font-family: inherit;
+  font-size: 0.92rem;
   font-weight: 700;
+  justify-content: center;
   margin-top: 6px;
   padding: 12px;
-  transition: filter 160ms ease, transform 160ms ease;
+  transition: background 140ms, transform 120ms;
+  width: 100%;
 }
-.submitBtn:hover { filter: brightness(1.08); transform: translateY(-1px); }
-.submitBtn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+.submitBtn:hover:not(:disabled) { background: #d9743f; transform: translateY(-1px); }
+.submitBtn:active:not(:disabled) { transform: scale(0.98); }
+.submitBtn:disabled { cursor: not-allowed; opacity: 0.5; transform: none; }
+
+/* ── Footer (links below card) ───────────────────────────────── */
+.footerDivider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0 0;
+}
 
 .footer {
   color: var(--text-muted);
-  font-size: 0.9rem;
-  margin-top: 22px;
+  font-size: 0.84rem;
+  margin-top: 16px;
   text-align: center;
 }
 
 .footerLink {
+  background: none;
+  border: none;
   color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
   font-weight: 600;
+  padding: 0;
   text-decoration: none;
 }
 .footerLink:hover { text-decoration: underline; }
 
-/* ── Role toggle (Student / Teacher) ─────────────────────────── */
+/* ── Role toggle (Student / Teacher) ────────────────────────── */
 .roleToggle {
+  border: 1px solid var(--border);
+  border-radius: 8px;
   display: flex;
-  border: 1px solid var(--input-border);
-  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
 .roleOption {
-  background: var(--input-bg);
-  border: 0;
+  background: var(--bg);
+  border: none;
   color: var(--text-muted);
+  cursor: pointer;
   flex: 1;
-  font: inherit;
-  font-size: 0.9rem;
+  font-family: inherit;
+  font-size: 0.88rem;
   font-weight: 500;
   padding: 10px 0;
-  transition: background 150ms ease, color 150ms ease;
+  transition: background 150ms, color 150ms;
 }
-.roleOption:not(:last-child) {
-  border-right: 1px solid var(--input-border);
+.roleOption:not(:last-child) { border-right: 1px solid var(--border); }
+.roleOptionActive { background: var(--accent); color: #fff; font-weight: 600; }
+
+/* ── Teacher code hint ───────────────────────────────────────── */
+.fieldHint {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin-top: 4px;
 }
-.roleOptionActive {
-  background: var(--accent);
-  color: #fff;
+.fieldHintLink { color: var(--accent); text-decoration: none; }
+.fieldHintLink:hover { text-decoration: underline; }
+
+/* ── Success state (reset sent) ──────────────────────────────── */
+.successMsg {
+  color: var(--score-good, #5a8a62);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-top: 18px;
 }
 
-/* ── Responsive ──────────────────────────────────────────────── */
+/* ── Mobile ──────────────────────────────────────────────────── */
 @media (max-width: 700px) {
-  .page {
-    justify-content: flex-start;
-    padding: 32px 16px;
-  }
+  .page { justify-content: flex-start; padding: 28px 16px 40px; }
+  .card { border-radius: 12px; padding: 24px 20px; }
+  .heading { font-size: 1.35rem; }
 
-  .card {
-    max-width: 100%;
-    padding: 22px 18px;
-  }
-
-  .heading { font-size: 1.7rem; }
-
-  .sub {
-    font-size: 0.95rem;
-    margin-bottom: 26px;
-  }
-
-  /* 16px font prevents iOS focus zoom; min-height for comfortable touch targets */
   .input,
   .select {
     font-size: 16px;
     min-height: 44px;
-    padding: 12px 14px;
   }
 
   .submitBtn {
     font-size: 1rem;
     min-height: 44px;
-    padding: 12px;
   }
-
-  .footer,
-  .footerLink { font-size: 0.95rem; }
 }

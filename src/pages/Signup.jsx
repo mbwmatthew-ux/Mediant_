@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
 import { INSTRUMENTS } from '../lib/instruments'
 import styles from './Auth.module.css'
 import LogoMark from '../components/LogoMark'
@@ -13,34 +12,17 @@ export default function Signup() {
   const [email,       setEmail]       = useState('')
   const [password,    setPassword]    = useState('')
   const [instrument,  setInstrument]  = useState('')
-  const [role,        setRole]        = useState('student')
-  const [teacherCode, setTeacherCode] = useState('')
   const [error,       setError]       = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     if (!instrument) { setError('Please select your primary instrument.'); return }
-    if (role === 'teacher' && !teacherCode.trim()) {
-      setError('A teacher access code is required. Contact the Mediant team if you need one.')
-      return
-    }
     const result = await signup(name, email, password, instrument)
     if (result.ok) {
-      let becameTeacher = false
-      if (role === 'teacher' && result.user?.id) {
-        const { data, error: codeErr } = await supabase.functions.invoke('redeem-teacher-code', {
-          body: { code: teacherCode.trim() },
-        }).catch(err => ({ data: null, error: err }))
-        if (!codeErr && data?.ok) {
-          becameTeacher = true
-        } else {
-          setError('Your account was created, but that teacher code was not valid. You are set up as a student — you can enter a valid code from the Teacher page to upgrade.')
-        }
-      }
       if (!result.user) { nav('/confirm-email'); return }
       supabase.functions.invoke('send-welcome-email', { body: { name } }).catch(() => {})
-      nav(becameTeacher ? '/teacher' : '/home')
+      nav('/home')
     } else {
       const msg = result.error ?? ''
       if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {
@@ -94,25 +76,6 @@ export default function Signup() {
               {INSTRUMENTS.map(i => <option key={i} value={i}>{i}</option>)}
             </select>
           </div>
-
-          <div className={styles.field}>
-            <label className={styles.label}>I am a…</label>
-            <div className={styles.roleToggle}>
-              <button type="button" className={`${styles.roleOption} ${role === 'student' ? styles.roleOptionActive : ''}`} onClick={() => setRole('student')}>Student</button>
-              <button type="button" className={`${styles.roleOption} ${role === 'teacher' ? styles.roleOptionActive : ''}`} onClick={() => setRole('teacher')}>Teacher</button>
-            </div>
-          </div>
-
-          {role === 'teacher' && (
-            <div className={styles.field}>
-              <label className={styles.label}>Teacher access code</label>
-              <input className={styles.input} type="text" placeholder="Enter your invite code" value={teacherCode} onChange={e => setTeacherCode(e.target.value)} autoComplete="off" />
-              <p className={styles.fieldHint}>
-                Teacher accounts are invite-only.{' '}
-                <a href="mailto:mediantteam@gmail.com" className={styles.fieldHintLink}>Request a code</a>.
-              </p>
-            </div>
-          )}
 
           <button className={styles.submitBtn} type="submit">Create account</button>
         </form>

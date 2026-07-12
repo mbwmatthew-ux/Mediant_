@@ -45,9 +45,8 @@
   font-family: Arial, Helvetica, sans-serif;
   font-size: 1.05rem;
   font-weight: 800;
-  justify-content: center;
   letter-spacing: 0.06em;
-  padding: 2px 0 0;
+  padding: 2px 12px 0;
   text-decoration: none;
 }
 .sidebarWordmark {

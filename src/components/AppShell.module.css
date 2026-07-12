@@ -46,8 +46,12 @@
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: 0.06em;
-  padding: 2px 12px 0;
+  padding: 2px 4px 0;
   text-decoration: none;
+  transition: padding-left 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sidebar:hover .sidebarLogo {
+  padding-left: 12px;
 }
 .sidebarWordmark {
   margin-left: 0;

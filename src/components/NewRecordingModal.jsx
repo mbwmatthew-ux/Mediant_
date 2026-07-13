@@ -177,30 +177,29 @@ export default function NewRecordingModal({ open, onClose }) {
       const { data: { session: freshSession } } = await supabase.auth.getSession()
       if (!freshSession) throw new Error('Your session has expired. Please log in again.')
 
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`
+      console.log('[mediant] analysis fetch →', fnUrl)
       let fnResp
       try {
-        fnResp = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`,
-          {
-            method:  'POST',
-            headers: {
-              'Content-Type':  'application/json',
-              'Authorization': `Bearer ${freshSession.access_token}`,
-              'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
-            },
-            body: JSON.stringify({
-              videoPath:     filePath,
-              videoMimeType: media.type || (videoFile ? 'video/mp4' : 'audio/mpeg'),
-              scorePath:     scorePath || undefined,
-              scoreMimeType: scoreFile?.type || undefined,
-              pieceTitle:    pieceName.trim() || undefined,
-              timeSig:       '4/4',
-              notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
-            }),
-          }
-        )
+        fnResp = await fetch(fnUrl, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${freshSession.access_token}`,
+            'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            videoPath:     filePath,
+            videoMimeType: media.type || (videoFile ? 'video/mp4' : 'audio/mpeg'),
+            scorePath:     scorePath || undefined,
+            scoreMimeType: scoreFile?.type || undefined,
+            pieceTitle:    pieceName.trim() || undefined,
+            timeSig:       '4/4',
+            notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
+          }),
+        })
       } catch (networkErr) {
-        throw new Error(`Network error reaching analysis service: ${networkErr.message}`)
+        throw new Error(`Network error [${fnUrl}]: ${networkErr.message}`)
       }
       if (!fnResp.ok) {
         let msg = `Analysis service returned ${fnResp.status}`

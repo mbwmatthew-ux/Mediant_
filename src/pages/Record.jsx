@@ -391,29 +391,40 @@ export default function Record() {
 
       let finalResult = null
       const alreadyDone = jobResult?.status === 'done'
-      for (let attempt = 0; attempt < 60; attempt++) {
-        if (!alreadyDone || attempt > 0) await new Promise(r => setTimeout(r, 4000))
-        setProgress(p => Math.min(p + 0.75, 95))
 
-        try {
-          const resp = await fetch(
-            `${fnBase}/job-status?takeId=${encodeURIComponent(jobId)}`,
-            { headers: { Authorization: `Bearer ${token}` } },
-          )
-          if (!resp.ok) continue
-          const status = await resp.json()
+      // Smooth progress: tick 0.15% every 500ms so the bar moves continuously
+      // during the 4-second gaps between polls (caps at 94 so we never "hit" 95
+      // before the job actually finishes).
+      const progressTicker = setInterval(() => {
+        setProgress(p => Math.min(p + 0.15, 94))
+      }, 500)
 
-          if (status.status === 'done') {
-            finalResult = status
-            break
+      try {
+        for (let attempt = 0; attempt < 60; attempt++) {
+          if (!alreadyDone || attempt > 0) await new Promise(r => setTimeout(r, 4000))
+
+          try {
+            const resp = await fetch(
+              `${fnBase}/job-status?takeId=${encodeURIComponent(jobId)}`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            )
+            if (!resp.ok) continue
+            const status = await resp.json()
+
+            if (status.status === 'done') {
+              finalResult = status
+              break
+            }
+            if (status.status === 'failed') {
+              throw new Error(status.error || 'Analysis failed on the server.')
+            }
+          } catch (pollErr) {
+            // Re-throw real errors (not network blips)
+            if (pollErr.message && !pollErr.message.includes('Failed to fetch')) throw pollErr
           }
-          if (status.status === 'failed') {
-            throw new Error(status.error || 'Analysis failed on the server.')
-          }
-        } catch (pollErr) {
-          // Re-throw real errors (not network blips)
-          if (pollErr.message && !pollErr.message.includes('Failed to fetch')) throw pollErr
         }
+      } finally {
+        clearInterval(progressTicker)
       }
 
       if (!finalResult) throw new Error('Analysis timed out after 4 minutes. Please try a shorter recording.')

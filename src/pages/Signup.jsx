@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 import { INSTRUMENTS } from '../lib/instruments'
 import styles from './Auth.module.css'
 import LogoMark from '../components/LogoMark'

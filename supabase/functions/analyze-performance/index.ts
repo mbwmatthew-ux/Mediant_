@@ -1338,7 +1338,7 @@ serve(async (req: Request) => {
           gemini_api_key:       Deno.env.get('GOOGLE_AI_API_KEY'),
           anthropic_api_key:    Deno.env.get('ANTHROPIC_API_KEY'),
         }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(12000),
       }).catch((e) => { console.warn('[analyze-performance] Modal dispatch error:', e?.message); return null })
 
       if (dispatchRes?.ok) {
@@ -1416,7 +1416,7 @@ serve(async (req: Request) => {
       ])
     }
 
-    // Path A: Gemini full-video analysis (60s max — upload + ACTIVE wait + generation)
+    // Path A: Gemini full-video analysis (55s max — upload + ACTIVE wait + generation)
     if (videoSignedUrl) {
       try {
         const geminiResult = await withTimeout(
@@ -1428,7 +1428,7 @@ serve(async (req: Request) => {
             scoreMimeType: scoreMimeType ?? null,
             ...sharedOpts,
           }),
-          75_000, 'Gemini'
+          55_000, 'Gemini'
         )
         score   = geminiResult.score
         flags   = geminiResult.flags
@@ -1453,13 +1453,13 @@ serve(async (req: Request) => {
       }
     }
 
-    // Path B: browser-extracted video frames → Claude vision (45s max)
+    // Path B: browser-extracted video frames → Claude vision (30s max)
     const frames = Array.isArray(videoFrames) && videoFrames.length > 0 ? videoFrames : null
     if (score === null && frames) {
       try {
         const visionResult = await withTimeout(
           runClaudeVision({ frames, ...sharedOpts }),
-          45_000, 'Claude vision'
+          30_000, 'Claude vision'
         )
         score   = visionResult.score
         flags   = visionResult.flags
@@ -1481,12 +1481,12 @@ serve(async (req: Request) => {
       }
     }
 
-    // Path C: Claude coaching fallback (20s max)
+    // Path C: Claude coaching fallback (15s max)
     if (score === null) {
       try {
         const claudeResult = await withTimeout(
           runClaudeCoaching({ scoreUrl: scoreSignedUrl, scoreMimeType: scoreMimeType ?? null, ...sharedOpts }),
-          20_000, 'Claude coaching'
+          15_000, 'Claude coaching'
         )
         flags = claudeResult.flags
         backend = 'claude-coaching'

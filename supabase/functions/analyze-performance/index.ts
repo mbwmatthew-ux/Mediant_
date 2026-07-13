@@ -1356,200 +1356,209 @@ serve(async (req: Request) => {
       }).eq('id', takeId).catch(() => {})
     }
 
-    // ── 2. Look up most recent prior completed take for this piece ──
-    type PriorTake = { score: number | null; flags: any[] } | null
-    let priorTake: PriorTake = null
-    if (pieceTitle) {
-      const { data: prior } = await admin
-        .from('takes')
-        .select('score, flags')
-        .eq('user_id', user.id)
-        .ilike('piece_title', pieceTitle.trim())
-        .eq('job_status', 'done')
-        .neq('id', takeId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (prior && (prior.score !== null || (Array.isArray(prior.flags) && prior.flags.length > 0))) {
-        priorTake = { score: prior.score, flags: Array.isArray(prior.flags) ? prior.flags : [] }
-        console.log('[analyze-performance] prior take found, score:', prior.score, 'flags:', priorTake.flags.length)
-      }
-    }
-
-    // ── 3. Inline analysis: vision → Gemini → coaching ───────────
-    const safeLevel = ['Beginner', 'Intermediate', 'Advanced'].includes(difficulty) ? difficulty : 'Intermediate'
-    const sharedOpts = {
-      pieceTitle:   pieceTitle   ?? 'Unknown Piece',
-      composer:     composer     ?? 'Unknown',
-      instrument:   instrument   ?? 'instrument',
-      timeSig:      timeSig      ?? '4/4',
-      keySignature: keySignature ?? '',
-      safeStart,
-      safeEnd,
-      tempo:        safeTempo,
-      difficulty:   safeLevel,
-      priorTake,
-      scoreFacts:    safeScoreFacts,
-      audioFeatures: safeAudioFeatures,
-      measureTimeline,
-      userNote:      cleanNote,
-    }
-
-    let score: number | null = null
-    let flags: unknown[]     = []
-    let backend              = 'claude-coaching'
-    let backendError: string | null = null
-    let quality: unknown     = buildQuality({
-      trust: 'low',
-      backend,
-      evidence: 'score-only',
-      flags: [],
-      reasons: ['Sheet music analysis only — no video score or timestamps available.'],
-    })
-
-    function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-      return Promise.race([
-        promise,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
-        ),
-      ])
-    }
-
-    // Path A: Gemini full-video analysis (55s max — upload + ACTIVE wait + generation)
-    if (videoSignedUrl) {
+    // ── 2–3. Inline analysis (background task) ───────────────────────────────
+    // When Modal is unavailable the inline paths (Gemini 55s + vision 30s +
+    // coaching 15s) can silently run for up to ~112s before the Response is sent.
+    // Browsers drop TCP connections after 60-90s of silence and surface this as
+    // FunctionsFetchError on the client — same symptom as a network error.
+    // Fix: kick off the analysis as a background promise and return 'processing'
+    // immediately. EdgeRuntime.waitUntil keeps the Deno isolate alive while the
+    // work completes; the existing job-status polling loop catches the result.
+    const inlineTask = (async () => {
       try {
-        const geminiResult = await withTimeout(
-          runGeminiVideo({
-            takeId,
-            videoUrl: videoSignedUrl,
-            videoMimeType,
-            scoreUrl: scoreSignedUrl,
-            scoreMimeType: scoreMimeType ?? null,
-            ...sharedOpts,
-          }),
-          55_000, 'Gemini'
-        )
-        score   = geminiResult.score
-        flags   = geminiResult.flags
-        backend = 'gemini-inline'
-        quality = buildQuality({
-          trust: 'high',
-          backend,
-          evidence: 'audio-video',
-          flags: geminiResult.flags,
-          reasons: evidenceReasons(safeScoreFacts, safeAudioFeatures, measureTimeline),
-          scoreContext: [
-            geminiResult.scoreContext,
-            safeScoreFacts ? 'structured-score-facts' : null,
-            safeAudioFeatures ? 'objective-audio-features' : null,
-            measureTimeline.length ? 'estimated-measure-timeline' : null,
-          ].filter(Boolean).join(' + '),
-        })
-        console.log('[analyze-performance] Gemini inline done:', takeId, 'score:', score)
-      } catch (geminiErr) {
-        backendError = (geminiErr as Error).message
-        console.warn('[analyze-performance] Gemini failed:', backendError)
-      }
-    }
+        // ── 2. Prior take lookup ────────────────────────────────────────────
+        type PriorTake = { score: number | null; flags: any[] } | null
+        let priorTake: PriorTake = null
+        if (pieceTitle) {
+          const { data: prior } = await admin
+            .from('takes')
+            .select('score, flags')
+            .eq('user_id', user.id)
+            .ilike('piece_title', pieceTitle.trim())
+            .eq('job_status', 'done')
+            .neq('id', takeId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (prior && (prior.score !== null || (Array.isArray(prior.flags) && prior.flags.length > 0))) {
+            priorTake = { score: prior.score, flags: Array.isArray(prior.flags) ? prior.flags : [] }
+            console.log('[analyze-performance] prior take found, score:', prior.score, 'flags:', priorTake.flags.length)
+          }
+        }
 
-    // Path B: browser-extracted video frames → Claude vision (30s max)
-    const frames = Array.isArray(videoFrames) && videoFrames.length > 0 ? videoFrames : null
-    if (score === null && frames) {
-      try {
-        const visionResult = await withTimeout(
-          runClaudeVision({ frames, ...sharedOpts }),
-          30_000, 'Claude vision'
-        )
-        score   = visionResult.score
-        flags   = visionResult.flags
-        backend = 'claude-vision'
-        quality = buildQuality({
-          trust: 'medium',
-          backend,
-          evidence: 'visual-only',
-          flags: visionResult.flags,
-          reasons: [
-            'Analyzed from sampled video frames — visual technique scored; intonation and precise timing are limited.',
-            ...evidenceReasons(safeScoreFacts, safeAudioFeatures, measureTimeline),
-          ],
-          backendError,
-        })
-        console.log('[analyze-performance] Claude vision done:', takeId, 'score:', score, 'flags:', flags.length)
-      } catch (visionErr) {
-        console.warn('[analyze-performance] Claude vision failed:', (visionErr as Error).message)
-      }
-    }
+        // ── 3. Inline analysis: Gemini → vision → coaching ─────────────────
+        const safeLevel = ['Beginner', 'Intermediate', 'Advanced'].includes(difficulty) ? difficulty : 'Intermediate'
+        const sharedOpts = {
+          pieceTitle:   pieceTitle   ?? 'Unknown Piece',
+          composer:     composer     ?? 'Unknown',
+          instrument:   instrument   ?? 'instrument',
+          timeSig:      timeSig      ?? '4/4',
+          keySignature: keySignature ?? '',
+          safeStart,
+          safeEnd,
+          tempo:        safeTempo,
+          difficulty:   safeLevel,
+          priorTake,
+          scoreFacts:    safeScoreFacts,
+          audioFeatures: safeAudioFeatures,
+          measureTimeline,
+          userNote:      cleanNote,
+        }
 
-    // Path C: Claude coaching fallback (15s max)
-    if (score === null) {
-      try {
-        const claudeResult = await withTimeout(
-          runClaudeCoaching({ scoreUrl: scoreSignedUrl, scoreMimeType: scoreMimeType ?? null, ...sharedOpts }),
-          15_000, 'Claude coaching'
-        )
-        flags = claudeResult.flags
-        backend = 'claude-coaching'
-        quality = buildQuality({
+        let score: number | null = null
+        let flags: unknown[]     = []
+        let backend              = 'claude-coaching'
+        let backendError: string | null = null
+        let quality: unknown     = buildQuality({
           trust: 'low',
           backend,
           evidence: 'score-only',
-          flags: claudeResult.flags,
-          reasons: [
-            'Generated practice priorities from score/context because full recording analysis was unavailable.',
-            ...evidenceReasons(safeScoreFacts, safeAudioFeatures, measureTimeline),
-          ],
-          backendError,
+          flags: [],
+          reasons: ['Sheet music analysis only — no video score or timestamps available.'],
         })
-      } catch (err) {
-        console.error('[analyze-performance] Claude coaching failed:', (err as Error).message)
-      }
-    }
 
-    await admin.from('takes').update({
-      job_status:       'done',
-      score,
-      flags,
-      analysis_quality: quality,
-      analysis_backend: backend,
-      job_error:        null,
-    }).eq('id', takeId)
+        function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+          return Promise.race([
+            promise,
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+            ),
+          ])
+        }
 
-    // Generate practice plan with Haiku (non-blocking)
-    const anthropicKeyForPlan = Deno.env.get('ANTHROPIC_API_KEY')
-    if (anthropicKeyForPlan && Array.isArray(flags) && flags.length > 0) {
-      ;(async () => {
-        try {
-          const client = new Anthropic({ apiKey: anthropicKeyForPlan })
-          const flagSummary = (flags as any[]).slice(0, 8).map((f: any) =>
-            `- ${f.type ?? 'issue'} in m.${f.measure ?? '?'}: ${f.title ?? ''} — ${(f.detail ?? '').slice(0, 120)}`
-          ).join('\n')
-          const msg = await client.messages.create({
-            model:    'claude-haiku-4-5-20251001',
-            max_tokens: 1200,
-            messages: [{ role: 'user', content: `You are a music practice coach. A student just completed an AI analysis of "${pieceTitle ?? 'this piece'}" on ${instrument ?? 'their instrument'}. Issues found:\n\n${flagSummary}\n\nGenerate a focused 5-day practice plan. Return ONLY valid JSON (no markdown):\n{"summary":"<one sentence>","days":[{"day":1,"label":"<short label>","tasks":[{"title":"<8 words max>","description":"<2 sentences>","minutes":15,"measure":null}],"total_minutes":30}]}` }],
-          })
-          const raw = (msg.content[0] as { type: string; text: string }).text ?? '{}'
-          const start = raw.indexOf('{'), end = raw.lastIndexOf('}')
-          if (start !== -1 && end !== -1) {
-            const plan = JSON.parse(raw.slice(start, end + 1))
-            await admin.from('takes').update({ practice_plan: plan }).eq('id', takeId)
+        // Path A: Gemini full-video analysis (55s max)
+        if (videoSignedUrl) {
+          try {
+            const geminiResult = await withTimeout(
+              runGeminiVideo({
+                takeId,
+                videoUrl: videoSignedUrl,
+                videoMimeType,
+                scoreUrl: scoreSignedUrl,
+                scoreMimeType: scoreMimeType ?? null,
+                ...sharedOpts,
+              }),
+              55_000, 'Gemini'
+            )
+            score   = geminiResult.score
+            flags   = geminiResult.flags
+            backend = 'gemini-inline'
+            quality = buildQuality({
+              trust: 'high',
+              backend,
+              evidence: 'audio-video',
+              flags: geminiResult.flags,
+              reasons: evidenceReasons(safeScoreFacts, safeAudioFeatures, measureTimeline),
+              scoreContext: [
+                geminiResult.scoreContext,
+                safeScoreFacts ? 'structured-score-facts' : null,
+                safeAudioFeatures ? 'objective-audio-features' : null,
+                measureTimeline.length ? 'estimated-measure-timeline' : null,
+              ].filter(Boolean).join(' + '),
+            })
+            console.log('[analyze-performance] Gemini inline done:', takeId, 'score:', score)
+          } catch (geminiErr) {
+            backendError = (geminiErr as Error).message
+            console.warn('[analyze-performance] Gemini failed:', backendError)
           }
-        } catch { /* non-fatal */ }
-      })()
-    }
+        }
 
-    // Fire-and-forget: notify user by email
-    if (user.email) {
-      // Escape user-controlled text before interpolating into email HTML.
-      const escapeHtml = (s: unknown) =>
-        String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-      const firstName = escapeHtml((user.user_metadata?.name ?? '').split(' ')[0]) || 'there'
-      const safeTitle = escapeHtml(pieceTitle ?? 'your piece')
-      const analysisUrl = `https://www.mediant-music.com/#/analysis?takeId=${takeId}`
-      const scoreLabel = score != null ? `Your score: ${score}/100.` : ''
-      const html = emailWrapper(`
+        // Path B: browser-extracted video frames → Claude vision (30s max)
+        const frames = Array.isArray(videoFrames) && videoFrames.length > 0 ? videoFrames : null
+        if (score === null && frames) {
+          try {
+            const visionResult = await withTimeout(
+              runClaudeVision({ frames, ...sharedOpts }),
+              30_000, 'Claude vision'
+            )
+            score   = visionResult.score
+            flags   = visionResult.flags
+            backend = 'claude-vision'
+            quality = buildQuality({
+              trust: 'medium',
+              backend,
+              evidence: 'visual-only',
+              flags: visionResult.flags,
+              reasons: [
+                'Analyzed from sampled video frames — visual technique scored; intonation and precise timing are limited.',
+                ...evidenceReasons(safeScoreFacts, safeAudioFeatures, measureTimeline),
+              ],
+              backendError,
+            })
+            console.log('[analyze-performance] Claude vision done:', takeId, 'score:', score, 'flags:', flags.length)
+          } catch (visionErr) {
+            console.warn('[analyze-performance] Claude vision failed:', (visionErr as Error).message)
+          }
+        }
+
+        // Path C: Claude coaching fallback (15s max)
+        if (score === null) {
+          try {
+            const claudeResult = await withTimeout(
+              runClaudeCoaching({ scoreUrl: scoreSignedUrl, scoreMimeType: scoreMimeType ?? null, ...sharedOpts }),
+              15_000, 'Claude coaching'
+            )
+            flags = claudeResult.flags
+            backend = 'claude-coaching'
+            quality = buildQuality({
+              trust: 'low',
+              backend,
+              evidence: 'score-only',
+              flags: claudeResult.flags,
+              reasons: [
+                'Generated practice priorities from score/context because full recording analysis was unavailable.',
+                ...evidenceReasons(safeScoreFacts, safeAudioFeatures, measureTimeline),
+              ],
+              backendError,
+            })
+          } catch (err) {
+            console.error('[analyze-performance] Claude coaching failed:', (err as Error).message)
+          }
+        }
+
+        await admin.from('takes').update({
+          job_status:       'done',
+          score,
+          flags,
+          analysis_quality: quality,
+          analysis_backend: backend,
+          job_error:        null,
+        }).eq('id', takeId)
+
+        // Generate practice plan with Haiku (non-blocking)
+        const anthropicKeyForPlan = Deno.env.get('ANTHROPIC_API_KEY')
+        if (anthropicKeyForPlan && Array.isArray(flags) && flags.length > 0) {
+          ;(async () => {
+            try {
+              const client = new Anthropic({ apiKey: anthropicKeyForPlan })
+              const flagSummary = (flags as any[]).slice(0, 8).map((f: any) =>
+                `- ${f.type ?? 'issue'} in m.${f.measure ?? '?'}: ${f.title ?? ''} — ${(f.detail ?? '').slice(0, 120)}`
+              ).join('\n')
+              const msg = await client.messages.create({
+                model:    'claude-haiku-4-5-20251001',
+                max_tokens: 1200,
+                messages: [{ role: 'user', content: `You are a music practice coach. A student just completed an AI analysis of "${pieceTitle ?? 'this piece'}" on ${instrument ?? 'their instrument'}. Issues found:\n\n${flagSummary}\n\nGenerate a focused 5-day practice plan. Return ONLY valid JSON (no markdown):\n{"summary":"<one sentence>","days":[{"day":1,"label":"<short label>","tasks":[{"title":"<8 words max>","description":"<2 sentences>","minutes":15,"measure":null}],"total_minutes":30}]}` }],
+              })
+              const raw = (msg.content[0] as { type: string; text: string }).text ?? '{}'
+              const start = raw.indexOf('{'), end = raw.lastIndexOf('}')
+              if (start !== -1 && end !== -1) {
+                const plan = JSON.parse(raw.slice(start, end + 1))
+                await admin.from('takes').update({ practice_plan: plan }).eq('id', takeId)
+              }
+            } catch { /* non-fatal */ }
+          })()
+        }
+
+        // Fire-and-forget: notify user by email
+        if (user.email) {
+          const escapeHtml = (s: unknown) =>
+            String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+          const firstName = escapeHtml((user.user_metadata?.name ?? '').split(' ')[0]) || 'there'
+          const safeTitle = escapeHtml(pieceTitle ?? 'your piece')
+          const analysisUrl = `https://www.mediant-music.com/#/analysis?takeId=${takeId}`
+          const scoreLabel = score != null ? `Your score: ${score}/100.` : ''
+          const html = emailWrapper(`
         <h1 style="font-size:1.3rem;font-weight:700;color:#1a1710;margin:0 0 8px;">Your analysis is ready, ${firstName}.</h1>
         <p style="color:#5a5040;font-size:0.95rem;line-height:1.7;margin:0 0 6px;">
           <strong style="color:#1a1710;">${safeTitle}</strong>
@@ -1565,11 +1574,23 @@ serve(async (req: Request) => {
           <a href="mailto:mediantteam@gmail.com" style="color:#587965;">mediantteam@gmail.com</a>.
         </p>
       `)
-      sendEmail({ to: user.email, subject: `Analysis ready: ${pieceTitle}`, html }).catch(() => {})
-    }
+          sendEmail({ to: user.email, subject: `Analysis ready: ${pieceTitle}`, html }).catch(() => {})
+        }
+      } catch (bgErr) {
+        const bgMsg = (bgErr as Error).message ?? 'Unknown error'
+        console.error('[analyze-performance] inline bg error:', bgMsg)
+        await admin.from('takes').update({
+          job_status: 'failed',
+          job_error:  bgMsg,
+        }).eq('id', takeId).catch(() => {})
+      }
+    })()
 
-    // Return jobId — polling loop will see status=done on first check
-    return new Response(JSON.stringify({ jobId: takeId, status: 'done' }), {
+    // Keep the isolate alive while inlineTask runs (Supabase edge runtime).
+    try { (globalThis as any).EdgeRuntime?.waitUntil(inlineTask) } catch { /* noop */ }
+
+    // Return immediately — the polling loop in Record.jsx will pick up the result.
+    return new Response(JSON.stringify({ jobId: takeId, status: 'processing' }), {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })
 

@@ -324,10 +324,11 @@ export default function Record() {
       setProgress(50)
       setPhase('analyzing')
 
-      // Extract video frames for Mediant analysis (best-effort, non-fatal)
+      // Extract video frames — keep to 3 to avoid large request bodies that cause
+      // Cloudflare to drop the TCP connection before the function responds.
       let videoFrames = []
       try {
-        videoFrames = await extractVideoFrames(file)
+        videoFrames = await extractVideoFrames(file, 3)
       } catch { /* skip if extraction fails */ }
 
       // Best-effort objective evidence for the long-term analysis engine.
@@ -335,49 +336,71 @@ export default function Record() {
       let scoreFacts = null
       let audioFeatures = null
       try {
-        scoreFacts = await extractScoreFacts(scoreFile)
+        const raw = await extractScoreFacts(scoreFile)
+        if (raw) {
+          // Strip the per-part measures array — it duplicates the top-level measures
+          // and can be several MB for orchestral scores. The edge function selects
+          // the right part from the metadata (id, name, instrumentName) alone.
+          const { parts, ...rest } = raw
+          scoreFacts = {
+            ...rest,
+            measures: rest.measures?.slice(0, 60),
+            parts: parts?.map(({ measures: _m, ...p }) => p),
+          }
+        }
       } catch { /* skip if score parsing fails */ }
       try {
         audioFeatures = await extractAudioFeatures(file)
       } catch { /* skip if audio decoding fails */ }
 
       // Ensure the session token is fresh before calling the edge function.
-      // If the gateway receives an expired/malformed JWT it returns ACAO:* which
-      // browsers reject on credentialed requests, surfacing as FunctionsFetchError.
       const { data: { session: freshSession } } = await supabase.auth.getSession()
       if (!freshSession) {
         throw new Error('Your session has expired. Please log in again.')
       }
 
-      const { data: jobResult, error: fnError } = await supabase.functions.invoke('analyze-performance', {
-        body: {
-          videoPath:      filePath,
-          videoMimeType:  file.type || 'video/mp4',
-          scorePath,
-          scoreMimeType:  scoreFile?.type || null,
-          pieceTitle:     pieceTitle.trim() || undefined,
-          composer:       composer.trim() || undefined,
-          instrument,
-          part:           part.trim() || undefined,
-          timeSig:        timeSig.trim() || '4/4',
-          keySignature:   keySignature.trim() || undefined,
-          startMeasure:   startMeasure || undefined,
-          endMeasure:     endMeasure || undefined,
-          tempo:          (() => { const n = parseInt(tempo, 10); return Number.isFinite(n) ? n : undefined })(),
-          videoFrames:    videoFrames.length > 0 ? videoFrames : undefined,
-          difficulty:     difficulty || undefined,
-          scoreFacts:      scoreFacts || undefined,
-          audioFeatures:   audioFeatures || undefined,
-          notes:           notes.trim() || undefined,
-        },
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`
+      const fnBody = JSON.stringify({
+        videoPath:      filePath,
+        videoMimeType:  file.type || 'video/mp4',
+        scorePath,
+        scoreMimeType:  scoreFile?.type || null,
+        pieceTitle:     pieceTitle.trim() || undefined,
+        composer:       composer.trim() || undefined,
+        instrument,
+        part:           part.trim() || undefined,
+        timeSig:        timeSig.trim() || '4/4',
+        keySignature:   keySignature.trim() || undefined,
+        startMeasure:   startMeasure || undefined,
+        endMeasure:     endMeasure || undefined,
+        tempo:          (() => { const n = parseInt(tempo, 10); return Number.isFinite(n) ? n : undefined })(),
+        videoFrames:    videoFrames.length > 0 ? videoFrames : undefined,
+        difficulty:     difficulty || undefined,
+        scoreFacts:     scoreFacts || undefined,
+        audioFeatures:  audioFeatures || undefined,
+        notes:          notes.trim() || undefined,
       })
 
-      if (fnError || jobResult?.error) {
-        let msg = jobResult?.error || fnError?.message || 'Failed to start analysis'
-        if (msg === 'Edge Function returned a non-2xx status code' && fnError?.context) {
-          try { const b = await fnError.context.json(); if (b?.error) msg = b.error } catch { /* keep generic */ }
-        }
+      const fnResp = await fetch(fnUrl, {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${freshSession.access_token}`,
+          'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: fnBody,
+      })
+
+      if (!fnResp.ok) {
+        let msg = 'Failed to start analysis'
+        try { const b = await fnResp.json(); if (b?.error) msg = b.error } catch { /* keep generic */ }
         throw new Error(msg)
+      }
+
+      const jobResult = await fnResp.json()
+
+      if (jobResult?.error) {
+        throw new Error(jobResult.error)
       }
 
       const jobId = jobResult?.jobId

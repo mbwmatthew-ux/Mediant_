@@ -167,41 +167,62 @@ export default function NewRecordingModal({ open, onClose }) {
       setProgress(50)
       setPhase('analyzing')
 
-      // Best-effort evidence extraction (non-fatal)
+      // Best-effort evidence extraction (non-fatal) — keep frames small to avoid
+      // Cloudflare dropping the connection on large request bodies.
       let videoFrames = []
       if (videoFile) {
-        try { videoFrames = await extractVideoFrames(media) } catch { /* skip */ }
+        try { videoFrames = await extractVideoFrames(media, 3) } catch { /* skip */ }
       }
       let scoreFacts = null
       let audioFeatures = null
-      if (scoreFile) { try { scoreFacts = await extractScoreFacts(scoreFile) } catch { /* skip */ } }
+      if (scoreFile) {
+        try {
+          const raw = await extractScoreFacts(scoreFile)
+          if (raw) {
+            const { parts, ...rest } = raw
+            scoreFacts = {
+              ...rest,
+              measures: rest.measures?.slice(0, 60),
+              parts: parts?.map(({ measures: _m, ...p }) => p),
+            }
+          }
+        } catch { /* skip */ }
+      }
       try { audioFeatures = await extractAudioFeatures(media) } catch { /* skip */ }
 
       const { data: { session: freshSession } } = await supabase.auth.getSession()
       if (!freshSession) throw new Error('Your session has expired. Please log in again.')
 
-      const { data: jobResult, error: fnError } = await supabase.functions.invoke('analyze-performance', {
-        body: {
-          videoPath:     filePath,
-          videoMimeType: media.type || (videoFile ? 'video/mp4' : 'audio/mpeg'),
-          scorePath,
-          scoreMimeType: scoreFile?.type || null,
-          pieceTitle:    pieceName.trim() || undefined,
-          timeSig:       '4/4',
-          videoFrames:   videoFrames.length > 0 ? videoFrames : undefined,
-          scoreFacts:    scoreFacts || undefined,
-          audioFeatures: audioFeatures || undefined,
-          notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
-        },
-      })
-
-      if (fnError || jobResult?.error) {
-        let msg = jobResult?.error || fnError?.message || 'Failed to start analysis'
-        if (msg === 'Edge Function returned a non-2xx status code' && fnError?.context) {
-          try { const b = await fnError.context.json(); if (b?.error) msg = b.error } catch { /* keep generic */ }
+      const fnResp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`,
+        {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${freshSession.access_token}`,
+            'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            videoPath:     filePath,
+            videoMimeType: media.type || (videoFile ? 'video/mp4' : 'audio/mpeg'),
+            scorePath,
+            scoreMimeType: scoreFile?.type || null,
+            pieceTitle:    pieceName.trim() || undefined,
+            timeSig:       '4/4',
+            videoFrames:   videoFrames.length > 0 ? videoFrames : undefined,
+            scoreFacts:    scoreFacts || undefined,
+            audioFeatures: audioFeatures || undefined,
+            notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
+          }),
         }
+      )
+      if (!fnResp.ok) {
+        let msg = 'Failed to start analysis'
+        try { const b = await fnResp.json(); if (b?.error) msg = b.error } catch { /* keep generic */ }
         throw new Error(msg)
       }
+      const jobResult = await fnResp.json()
+      if (jobResult?.error) throw new Error(jobResult.error)
 
       const jobId = jobResult?.jobId
       if (!jobId) throw new Error('No job ID returned from analysis service')

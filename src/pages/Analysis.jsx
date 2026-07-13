@@ -677,19 +677,34 @@ const videoRef    = useRef(null)
     try {
       // Persist the note first so it travels with the take
       await supabase.from('takes').update({ note: noteDraft.trim() }).eq('id', take.id).catch(() => {})
-      const { data: jobResult, error: fnError } = await supabase.functions.invoke('analyze-performance', {
-        body: {
-          videoPath:     take.video_path,
-          videoMimeType: 'video/mp4',
-          scorePath:     take.score_path || null,
-          pieceTitle:    take.piece_title,
-          composer:      take.piece_composer,
-          instrument:    take.instrument,
-          songId:        activeSongId ?? null,
-          notes:         noteDraft.trim() || undefined,
-        },
-      })
-      if (fnError || jobResult?.error) throw new Error(jobResult?.error || fnError?.message)
+      const _reanalyzeResp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`,
+        {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+            'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            videoPath:     take.video_path,
+            videoMimeType: 'video/mp4',
+            scorePath:     take.score_path || null,
+            pieceTitle:    take.piece_title,
+            composer:      take.piece_composer,
+            instrument:    take.instrument,
+            songId:        activeSongId ?? null,
+            notes:         noteDraft.trim() || undefined,
+          }),
+        }
+      )
+      if (!_reanalyzeResp.ok) {
+        let msg = 'Failed to start re-analysis'
+        try { const b = await _reanalyzeResp.json(); if (b?.error) msg = b.error } catch { /* keep */ }
+        throw new Error(msg)
+      }
+      const jobResult = await _reanalyzeResp.json()
+      if (jobResult?.error) throw new Error(jobResult.error)
       const jobId = jobResult?.jobId
       let completed = null
       for (let i = 0; i < 60; i++) {
@@ -1075,19 +1090,34 @@ const videoRef    = useRef(null)
           .upload(filePath, file, { contentType: file.type || 'video/mp4', upsert: false })
         if (uploadError) throw new Error(uploadError.message)
 
-        const { data: jobResult, error: fnError } = await supabase.functions.invoke('analyze-performance', {
-          body: {
-            videoPath:      filePath,
-            videoMimeType:  file.type || 'video/mp4',
-            scorePath:      take?.score_path || null,
-            pieceTitle:     activeThreadTitle,
-            composer:       activeThread?.piece_composer,
-            instrument:     activeThread?.instrument,
-            songId:         activeSongId ?? null,
-            notes:          noteDraft.trim() || undefined,
+        const _followupResp = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`,
+          {
+            method:  'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+              'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({
+              videoPath:      filePath,
+              videoMimeType:  file.type || 'video/mp4',
+              scorePath:      take?.score_path || null,
+              pieceTitle:     activeThreadTitle,
+              composer:       activeThread?.piece_composer,
+              instrument:     activeThread?.instrument,
+              songId:         activeSongId ?? null,
+              notes:          noteDraft.trim() || undefined,
+            }),
           }
-        })
-        if (fnError || jobResult?.error) throw new Error(jobResult?.error || fnError?.message)
+        )
+        if (!_followupResp.ok) {
+          let msg = 'Failed to start analysis'
+          try { const b = await _followupResp.json(); if (b?.error) msg = b.error } catch { /* keep */ }
+          throw new Error(msg)
+        }
+        const jobResult = await _followupResp.json()
+        if (jobResult?.error) throw new Error(jobResult.error)
 
         const jobId = jobResult?.jobId
         let completedTake = null

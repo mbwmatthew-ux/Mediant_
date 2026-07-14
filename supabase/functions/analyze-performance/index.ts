@@ -1311,6 +1311,7 @@ serve(async (req: Request) => {
               take_id:              takeId,
               webhook_url:          `${Deno.env.get('SUPABASE_URL')}/functions/v1/analysis-webhook`,
               webhook_secret:       Deno.env.get('MODAL_WEBHOOK_SECRET'),
+              webhook_anon_key:     Deno.env.get('SUPABASE_ANON_KEY'),
               video_url:            videoSignedUrl,
               video_mime_type:      videoMimeType,
               score_url:            scoreSignedUrl,

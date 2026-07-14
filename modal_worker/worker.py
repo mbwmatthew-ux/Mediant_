@@ -1466,8 +1466,8 @@ Return JSON only (no markdown):
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4000,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=8192,
             messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
         )
         raw    = msg.content[0].text
@@ -1904,15 +1904,20 @@ def assess_quality(
     return {"trust": "medium", "canProceed": True, "reasons": reasons}
 
 
-def post_webhook(webhook_url: str, webhook_secret: str | None, payload: dict) -> None:
+def post_webhook(webhook_url: str, webhook_secret: str | None, payload: dict, anon_key: str | None = None) -> None:
     import httpx
     try:
         headers = {"Content-Type": "application/json"}
         if webhook_secret:
             headers["x-webhook-secret"] = webhook_secret
+        if anon_key:
+            headers["Authorization"] = f"Bearer {anon_key}"
+            headers["apikey"] = anon_key
         with httpx.Client(timeout=30) as client:
             resp = client.post(webhook_url, json=payload, headers=headers)
             print(f"[post_webhook] status={resp.status_code}")
+            if resp.status_code >= 400:
+                print(f"[post_webhook] body={resp.text[:200]}")
     except Exception as e:
         print(f"[post_webhook] failed: {e}")
 
@@ -1935,6 +1940,7 @@ def run_full_analysis(payload: dict) -> None:
     take_id             = payload["take_id"]
     webhook_url         = payload["webhook_url"]
     webhook_secret      = payload.get("webhook_secret")
+    webhook_anon_key    = payload.get("webhook_anon_key")
     video_url           = payload.get("video_url")
     video_mime          = payload.get("video_mime_type", "video/mp4")
     score_url           = payload.get("score_url")
@@ -2178,9 +2184,9 @@ def run_full_analysis(payload: dict) -> None:
             "analysisQuality":   quality,
             "analysisBackend":   backend,
             "pipelineDebug":     debug_steps,
-            "parsedScoreNotes":  parsed_score_notes,  # None if cached or not visual score
+            "parsedScoreNotes":  parsed_score_notes,
             "scorePath":         score_path,
-        })
+        }, anon_key=webhook_anon_key)
 
     except Exception as e:
         import traceback
@@ -2191,7 +2197,7 @@ def run_full_analysis(payload: dict) -> None:
             "takeId":        take_id,
             "error":         str(e),
             "pipelineDebug": debug_steps,
-        })
+        }, anon_key=webhook_anon_key)
 
 
 # ── Fire-and-forget dispatcher endpoint ───────────────────────────────────

@@ -162,7 +162,7 @@ export default function NewRecordingModal({ open, onClose }) {
       }
 
       clearInterval(progressTick)
-      if (uploadError) throw new Error(uploadError.message || 'Upload failed')
+      if (uploadError) throw new Error(`Upload failed: ${uploadError.message || 'please try a different file'}`)
 
       setProgress(50)
       setPhase('analyzing')

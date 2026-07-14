@@ -1304,7 +1304,7 @@ serve(async (req: Request) => {
         // ── 2. Try Modal (async video analysis) ──────────────────────────────
         const modalUrl = Deno.env.get('MODAL_WORKER_URL')
         if (modalUrl) {
-          const dispatchRes = await fetch(`${modalUrl}/analyze_async`, {
+          const dispatchRes = await fetch(modalUrl, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

@@ -1150,13 +1150,14 @@ def analyze(body: dict) -> dict:
 
 def extract_json_object(raw: str) -> dict | None:
     import json, re
-    stripped = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.IGNORECASE).rstrip('`').strip()
-    start = stripped.find('{')
-    end   = stripped.rfind('}')
+    # Strip all markdown code fences regardless of position or leading whitespace
+    text = re.sub(r'```(?:json)?\s*', '', raw, flags=re.IGNORECASE).strip()
+    start = text.find('{')
+    end   = text.rfind('}')
     if start == -1 or end == -1:
         return None
     try:
-        return json.loads(stripped[start:end + 1])
+        return json.loads(text[start:end + 1])
     except Exception:
         return None
 
@@ -1197,9 +1198,7 @@ def upload_video_to_gemini(video_bytes: bytes, mime_type: str, api_key: str) -> 
 # Models to try in order — flash first (faster + cheaper), pro as last resort
 GEMINI_MODELS = [
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-001",
-    "gemini-1.5-flash",
+    "gemini-2.5-pro",
 ]
 
 
@@ -1407,9 +1406,9 @@ Return JSON only (no markdown fences). Each issue MUST be an object with "measur
                     raise RuntimeError(f"Gemini auth error ({resp.status_code}) — check GOOGLE_AI_API_KEY")
                 continue
             data = resp.json()
-            # Skip thinking parts (gemini-2.5 series)
-            parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-            text = next((p.get("text", "") for p in parts if not p.get("thought") and p.get("text", "").strip()), "")
+            # Skip thinking parts (gemini-2.5 series); use resp_parts to avoid shadowing request parts
+            resp_parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            text = next((p.get("text", "") for p in resp_parts if not p.get("thought") and p.get("text", "").strip()), "")
             if not text:
                 last_error = f"{model} → empty response"
                 print(f"[evaluate_with_gemini] {last_error}")
@@ -1693,6 +1692,71 @@ def find_wrong_note_candidates(
     return candidates[:6]
 
 
+def _group_similar_flags(flags: list) -> list:
+    """
+    Group flags of the same type that share a directional theme (e.g., all intonation
+    flags that are 'sharp') into a single grouped flag with an `occurrences` list.
+    Single flags and ungroupable flags are returned unchanged.
+    """
+    _SHARP = {'sharp', 'high'}
+    _FLAT  = {'flat', 'low'}
+    _RUSH  = {'rush', 'hurr', 'early', 'ahead'}
+    _DRAG  = {'drag', 'late', 'behind', 'slow', 'delay'}
+
+    def _direction(flag) -> str | None:
+        text = f"{flag.get('title','')} {flag.get('raw_detail','')} {flag.get('detail','')}".lower()
+        ftype = flag.get('type', '')
+        if ftype == 'intonation':
+            if any(w in text for w in _SHARP): return 'sharp'
+            if any(w in text for w in _FLAT):  return 'flat'
+        elif ftype in ('timing', 'rhythm'):
+            if any(w in text for w in _RUSH): return 'rushing'
+            if any(w in text for w in _DRAG): return 'dragging'
+        return ftype  # use type itself as direction key for others
+
+    # Cluster by (type, direction)
+    clusters: dict = {}
+    for flag in flags:
+        key = (flag.get('type'), _direction(flag))
+        clusters.setdefault(key, []).append(flag)
+
+    result = []
+    for (ftype, direction), group in clusters.items():
+        if len(group) < 2 or ftype in ('posture', 'technique'):
+            result.extend(group)
+            continue
+        labels = [chr(ord('a') + i) for i in range(min(26, len(group)))]
+        occurrences = [
+            {
+                'label':           labels[i],
+                'measure':         f['measure'],
+                'title':           f['title'],
+                'detail':          f.get('detail', f.get('body', '')),
+                'timestamp_start': f.get('timestamp_start'),
+                'timestamp_end':   f.get('timestamp_end'),
+            }
+            for i, f in enumerate(group)
+        ]
+        dir_word = direction if direction != ftype else ftype
+        result.append({
+            'type':            ftype,
+            'title':           f"Recurring {dir_word} — {len(group)} passages",
+            'grouped':         True,
+            'occurrences':     occurrences,
+            'measure':         group[0]['measure'],
+            'timestamp_start': group[0].get('timestamp_start'),
+            'timestamp_end':   group[0].get('timestamp_end'),
+            'detail':          (f"This {dir_word} issue recurs across {len(group)} passages. "
+                                "Work on each spot individually at half-tempo, then connect."),
+            'body':            (f"This {dir_word} issue recurs across {len(group)} passages. "
+                                "Work on each spot individually at half-tempo, then connect."),
+            'confidence':      max(f.get('confidence', 100) for f in group),
+        })
+
+    result.sort(key=lambda x: x.get('measure', 0))
+    return result
+
+
 def compare_and_coach_claude(
     score: dict, aligned: list[dict], alignment_ranges: list[dict],
     tempo: dict, piece_title: str, composer: str, instrument: str,
@@ -1819,14 +1883,17 @@ Tempo: {tempo.get('bpm', '?')} BPM. Key: {score.get('key_signature', '?')}. Time
 {gemini_block}
 {f'STUDENT NOTE (subjective context — prioritize the evidence above; use only to interpret ambiguous moments, never to invent or excuse issues): "{user_note}"' if user_note else ''}
 
-YOUR TASK: Identify 4–8 specific, actionable issues grounded in the Gemini evidence above.
+YOUR TASK: Identify ALL significant, actionable issues grounded in the Gemini evidence above. Report every confirmed issue — do not stop early. Aim to cover every category that Gemini observed a problem in.
 
 PRIORITY ORDER (most important first):
-1. Wrong notes / pitch errors / tone cracks — flag every confirmed one ("error" type)
+1. Wrong notes / pitch errors / tone cracks — flag EVERY confirmed one ("error" type)
 2. Intonation with specific direction: sharp or flat, magnitude, which note or passage ("intonation" type)
-3. Posture problems if Gemini observed them visually ("posture" type)
-4. Technique issues if Gemini observed them visually ("technique" type)
-5. Rhythm/timing, dynamics, articulation, tone, phrasing
+3. Rhythm/timing issues — flag every distinct rhythmic problem ("rhythm" or "timing" type)
+4. Dynamics — every place a dynamic marking was missed or ignored
+5. Tone quality issues
+6. Posture problems if Gemini observed them visually ("posture" type)
+7. Technique issues if Gemini observed them visually ("technique" type)
+If Gemini reported issues in a category, you MUST include at least one flag for that category.
 
 HARD RULES:
 - Every "measure" field MUST be one of: [{', '.join(str(m) for m in valid_list)}].
@@ -1863,7 +1930,7 @@ Return JSON only (no markdown):
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg    = client.messages.create(
-            model=CLAUDE_MODEL, max_tokens=3000,
+            model=CLAUDE_MODEL, max_tokens=6000,
             messages=[{"role": "user", "content": prompt}],
         )
         raw    = msg.content[0].text
@@ -1946,8 +2013,10 @@ Return JSON only (no markdown):
                 seen.add(key)
                 deduped.append(flag)
     deduped.sort(key=lambda x: x["measure"])
-    print(f"[compare_and_coach_claude] {len(deduped)} flags: {[(f['measure'], f['type']) for f in deduped]}")
-    return deduped[:8]
+    grouped = _group_similar_flags(deduped)
+    print(f"[compare_and_coach_claude] {len(deduped)} raw flags → {len(grouped)} after grouping: "
+          f"{[(g.get('measure'), g.get('type'), g.get('grouped')) for g in grouped]}")
+    return grouped
 
 
 def assess_quality(

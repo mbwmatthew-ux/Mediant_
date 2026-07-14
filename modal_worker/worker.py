@@ -1316,12 +1316,16 @@ def evaluate_with_gemini(
     start_measure: int, end_measure: int | None,
     api_key: str,
     user_note: str = "",
+    score_bytes: bytes | None = None,
+    score_mime: str | None = None,
 ) -> dict:
     """
-    Audio analysis via Gemini. Raises if ALL models fail — never returns None.
-    Returns structured observations that Claude uses as primary audio evidence.
+    Audio/video analysis via Gemini. When score_bytes is provided, Gemini receives
+    both the score image and the recording, enabling direct score-to-audio comparison
+    and accurate printed measure number reporting.
+    Raises if ALL models fail — never returns None.
     """
-    import httpx
+    import httpx, base64
     end_info = f" through measure {end_measure}" if end_measure else ""
     instrument_guidance = _instrument_guidance(instrument)
     technique_guidance  = _technique_visual_guidance(instrument)
@@ -1330,17 +1334,25 @@ def evaluate_with_gemini(
         f'use it only to interpret ambiguous moments, never to invent or excuse audible problems): "{user_note}"\n'
         if user_note else ""
     )
-    prompt = f"""PERFORMANCE ANALYSIS TASK. You are analyzing a student's recording of "{piece_title}" by {composer} on {instrument}, starting at measure {start_measure}{end_info}.
 
+    has_score = bool(score_bytes and score_mime)
+    score_block = """
+SHEET MUSIC: You have the score image above. Read the printed measure numbers directly off the page (look for numbers printed above/below the staff, or boxed rehearsal marks which indicate measure numbers). When reporting issues, give the EXACT PRINTED measure number from the score — do not guess or estimate.
+""" if has_score else f"""
+No score image provided. The recording starts at measure {start_measure}. Use timestamps only.
+"""
+
+    prompt = f"""PERFORMANCE ANALYSIS TASK. You are analyzing a student's recording of "{piece_title}" by {composer} on {instrument}.
+{score_block}
 You have access to BOTH the audio AND the video. Listen carefully to the sound for categories 1–5. Observe the player visually for categories 6–7.
 
 {instrument_guidance}
 {note_block}
 MANDATORY — address all seven categories. Do not skip any:
 
-1. INTONATION (listen): Every passage where pitch is audibly flat or sharp. Give timestamp, direction (flat/sharp), and magnitude. If clean, say so.
+1. INTONATION (listen): Every passage where pitch is audibly flat or sharp. Give measure number (from the score if available, else timestamp), direction (flat/sharp), and magnitude. If clean, say so.
 
-2. TIMING / RHYTHM (listen): Rushing, dragging, uneven spacing, hesitations, beat instability. Give timestamps. If solid, say so.
+2. TIMING / RHYTHM (listen): Rushing, dragging, uneven spacing, hesitations, beat instability. Give measure number or timestamp. If solid, say so.
 
 3. WRONG NOTES / CRACKS (listen): Any pitch that doesn't belong, squeaks, tone breaks. Name the note heard if possible.
 
@@ -1352,19 +1364,30 @@ MANDATORY — address all seven categories. Do not skip any:
 
 7. TECHNIQUE (visual): {technique_guidance} If not clearly observable from this camera angle, write "not visible".
 
-Be specific — name timestamps (e.g. "0:08"), direction (sharp/flat), magnitude (slightly / roughly a quarter tone). Vague observations are not useful.
+Be specific. For each issue include:
+- The PRINTED measure number from the score (e.g. "m.14") — read it directly off the page if the score is provided
+- The timestamp in the recording (e.g. "0:08")
+- Direction (sharp/flat), magnitude, specific note or passage
 
-Return JSON only (no markdown fences):
+Return JSON only (no markdown fences). Each issue MUST be an object with "measure" (int — the printed number from the score, or {start_measure} if no score), "time" (string "M:SS"), and "description" (string):
 {{
-  "intonation_issues": ["<timestamp>: <note/passage> sounds <sharp|flat> by <magnitude>"],
-  "rhythm_issues": ["<timestamp>: <specific observation>"],
-  "wrong_notes_cracks": ["<timestamp>: <what was heard vs. expected>"],
-  "dynamics_issues": ["<timestamp>: <marking expected vs. what was played>"],
-  "tone_issues": ["<timestamp>: <specific description>"],
+  "intonation_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<note/passage> sounds <sharp|flat> by <magnitude>"}}],
+  "rhythm_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<specific observation>"}}],
+  "wrong_notes_cracks": [{{"measure": <int>, "time": "<M:SS>", "description": "<what was heard vs. expected>"}}],
+  "dynamics_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<marking expected vs. what was played>"}}],
+  "tone_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<specific description>"}}],
   "posture_issues": ["<specific observation with timestamp if relevant>"],
   "technique_issues": ["<specific observation with timestamp if relevant>"],
   "overall": "<one sentence: the single most important thing to fix>"
 }}"""
+
+    # Build Gemini request parts
+    parts: list = []
+    if has_score:
+        b64_score = base64.b64encode(score_bytes).decode()
+        parts.append({"inlineData": {"mimeType": score_mime, "data": b64_score}})
+    parts.append({"fileData": {"mimeType": mime_type, "fileUri": file_uri}})
+    parts.append({"text": prompt})
 
     last_error = "no models attempted"
     for model in GEMINI_MODELS:
@@ -1373,10 +1396,7 @@ Return JSON only (no markdown fences):
                 resp = client.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
                     json={
-                        "contents": [{"parts": [
-                            {"fileData": {"mimeType": mime_type, "fileUri": file_uri}},
-                            {"text": prompt},
-                        ]}],
+                        "contents": [{"parts": parts}],
                         "generationConfig": {"temperature": 0, "maxOutputTokens": 4096},
                     },
                 )
@@ -1400,17 +1420,25 @@ Return JSON only (no markdown fences):
                 print(f"[evaluate_with_gemini] {last_error}: {text[:200]}")
                 continue
             print(f"[evaluate_with_gemini] success via {model} | overall: {str(parsed.get('overall', ''))[:120]}")
-            # Filter out "not visible" placeholders from visual categories
             def _vis(items) -> list:
-                if not items:
-                    return []
+                if not items: return []
                 return [x for x in items if "not visible" not in str(x).lower()]
+            def _norm(items) -> list:
+                """Normalise to list-of-dicts; accept both old string format and new {measure,time,description}."""
+                if not items: return []
+                out = []
+                for x in items:
+                    if isinstance(x, dict):
+                        out.append(x)
+                    elif isinstance(x, str) and x and "not visible" not in x.lower():
+                        out.append({"measure": start_measure, "time": "", "description": x})
+                return out
             return {
-                "intonation_issues":   parsed.get("intonation_issues", []),
-                "rhythm_issues":       parsed.get("rhythm_issues", []),
-                "wrong_notes_cracks":  parsed.get("wrong_notes_cracks", []),
-                "dynamics_issues":     parsed.get("dynamics_issues", []),
-                "tone_issues":         parsed.get("tone_issues", []),
+                "intonation_issues":   _norm(parsed.get("intonation_issues", [])),
+                "rhythm_issues":       _norm(parsed.get("rhythm_issues", [])),
+                "wrong_notes_cracks":  _norm(parsed.get("wrong_notes_cracks", [])),
+                "dynamics_issues":     _norm(parsed.get("dynamics_issues", [])),
+                "tone_issues":         _norm(parsed.get("tone_issues", [])),
                 "posture_issues":      _vis(parsed.get("posture_issues", [])),
                 "technique_issues":    _vis(parsed.get("technique_issues", [])),
                 "overall":             parsed.get("overall", ""),
@@ -1566,22 +1594,33 @@ def anchor_and_align_py(
 
 
 def build_gemini_block(assessment: dict) -> str:
-    def fmt(items: list) -> str:
-        if not items:
-            return "None reported."
+    def fmt_structured(items: list) -> str:
+        if not items: return "None reported."
+        parts = []
+        for x in items:
+            if isinstance(x, dict):
+                m   = x.get("measure", "?")
+                t   = x.get("time", "")
+                d   = x.get("description", "")
+                loc = f"m.{m}" + (f" ({t})" if t else "")
+                parts.append(f"{loc}: {d}")
+            else:
+                parts.append(str(x))
+        return " | ".join(parts)
+    def fmt_plain(items: list) -> str:
+        if not items: return "None reported."
         return " | ".join(str(x) for x in items)
-    posture   = fmt(assessment.get("posture_issues", []))
-    technique = fmt(assessment.get("technique_issues", []))
     lines = [
-        "GEMINI ANALYSIS (Gemini analyzed the full recording — audio AND video — treat as primary evidence):",
-        f"- Intonation: {fmt(assessment.get('intonation_issues', []))}",
-        f"- Rhythm/Timing: {fmt(assessment.get('rhythm_issues', []))}",
-        f"- Wrong notes / cracks: {fmt(assessment.get('wrong_notes_cracks', []))}",
-        f"- Dynamics: {fmt(assessment.get('dynamics_issues', []))}",
-        f"- Tone quality: {fmt(assessment.get('tone_issues', []))}",
-        f"- Posture (visual): {posture}",
-        f"- Technique (visual): {technique}",
+        "GEMINI ANALYSIS (Gemini compared the sheet music + recording simultaneously — treat measure numbers as primary evidence):",
+        f"- Intonation: {fmt_structured(assessment.get('intonation_issues', []))}",
+        f"- Rhythm/Timing: {fmt_structured(assessment.get('rhythm_issues', []))}",
+        f"- Wrong notes / cracks: {fmt_structured(assessment.get('wrong_notes_cracks', []))}",
+        f"- Dynamics: {fmt_structured(assessment.get('dynamics_issues', []))}",
+        f"- Tone quality: {fmt_structured(assessment.get('tone_issues', []))}",
+        f"- Posture (visual): {fmt_plain(assessment.get('posture_issues', []))}",
+        f"- Technique (visual): {fmt_plain(assessment.get('technique_issues', []))}",
         f"- Overall: {assessment.get('overall') or 'No overall note.'}",
+        "IMPORTANT: Gemini read the measure numbers directly from the printed score. Use those measure numbers exactly as given — do NOT reassign to different measures.",
         "Your flags MUST be grounded in this evidence. Do not invent issues not observed above.",
     ]
     return "\n".join(lines)
@@ -1730,9 +1769,20 @@ def compare_and_coach_claude(
         ]
         alignment_ranges = fallback_ranges
 
-    valid_list = sorted(r["measure"] for r in alignment_ranges)
+    valid_list = sorted(set(r["measure"] for r in alignment_ranges))
     if not valid_list and score.get("measures"):
         valid_list = sorted(m["number"] for m in score["measures"])
+    # Extend valid_list with measure numbers Gemini read from the printed score
+    gemini_measures: set[int] = set()
+    for _cat in ("intonation_issues", "rhythm_issues", "wrong_notes_cracks", "dynamics_issues", "tone_issues"):
+        for _item in gemini_assessment.get(_cat, []):
+            if isinstance(_item, dict):
+                try:
+                    gemini_measures.add(int(_item["measure"]))
+                except (KeyError, ValueError, TypeError):
+                    pass
+    if gemini_measures:
+        valid_list = sorted(set(valid_list) | gemini_measures)
     gemini_block = build_gemini_block(gemini_assessment)
     measure_blocks = []
     for m in played_measures:
@@ -2008,10 +2058,30 @@ def run_full_analysis(payload: dict) -> None:
         def _gemini_pipeline():
             print("[run_full_analysis] uploading video to Gemini Files API")
             uri = upload_video_to_gemini(video_bytes, video_mime, gemini_key)
+            # Download score bytes for simultaneous comparison (visual formats only)
+            sc_bytes: bytes | None = None
+            sc_mime:  str   | None = None
+            if score_url:
+                try:
+                    with httpx.Client(timeout=60) as cl:
+                        sr = cl.get(score_url, follow_redirects=True)
+                        sr.raise_for_status()
+                        sc_bytes = sr.content
+                    kind = sniff_score_kind(sc_bytes, score_mime, score_url)
+                    if kind == "visual":
+                        sc_mime = score_mime or "image/png"
+                        print(f"[_gemini_pipeline] score included ({len(sc_bytes):,}B, {sc_mime})")
+                    else:
+                        sc_bytes = None
+                        print(f"[_gemini_pipeline] score kind={kind} — not visual, skipping inline")
+                except Exception as e:
+                    print(f"[_gemini_pipeline] score download failed (continuing without): {e}")
             return evaluate_with_gemini(
                 uri, video_mime, instrument,
                 piece_title, composer, start_measure, end_measure, gemini_key,
                 user_note=user_note,
+                score_bytes=sc_bytes,
+                score_mime=sc_mime,
             )
 
         def _score_pipeline():

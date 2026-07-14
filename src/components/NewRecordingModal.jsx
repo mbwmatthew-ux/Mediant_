@@ -75,6 +75,7 @@ export default function NewRecordingModal({ open, onClose }) {
   const { user } = useAuth()
 
   const [pieceName, setPieceName] = useState('')
+  const [startMeasure, setStartMeasure] = useState('')
   const [tag, setTag] = useState('Piece')
 
   // Performance: one of video OR audio required
@@ -195,6 +196,7 @@ export default function NewRecordingModal({ open, onClose }) {
             scoreMimeType: scoreFile?.type || undefined,
             pieceTitle:    pieceName.trim() || undefined,
             timeSig:       '4/4',
+            startMeasure:  startMeasure ? parseInt(startMeasure, 10) : 1,
             notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
           }),
         })
@@ -311,13 +313,29 @@ export default function NewRecordingModal({ open, onClose }) {
               )}
 
               {/* Piece name + tags */}
-              <label className={styles.fieldLabel}>Piece name</label>
-              <input
-                className={styles.textInput}
-                value={pieceName}
-                onChange={e => setPieceName(e.target.value)}
-                placeholder="e.g. Clair de lune"
-              />
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <label className={styles.fieldLabel}>Piece name</label>
+                  <input
+                    className={styles.textInput}
+                    value={pieceName}
+                    onChange={e => setPieceName(e.target.value)}
+                    placeholder="e.g. Clair de lune"
+                  />
+                </div>
+                <div style={{ width: 90 }}>
+                  <label className={styles.fieldLabel}>Start measure</label>
+                  <input
+                    className={styles.textInput}
+                    type="number"
+                    min="1"
+                    value={startMeasure}
+                    onChange={e => setStartMeasure(e.target.value)}
+                    placeholder="1"
+                    style={{ textAlign: 'center' }}
+                  />
+                </div>
+              </div>
               <div className={styles.tagRow}>
                 {TAG_OPTIONS.map(t => (
                   <button

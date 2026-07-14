@@ -440,7 +440,7 @@ const videoRef    = useRef(null)
     setTakesLoaded(false)
     supabase
       .from('takes')
-      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, duration_sec, created_at')
+      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, duration_seconds, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
@@ -1380,7 +1380,7 @@ const videoRef    = useRef(null)
     } else {
       dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     }
-    const durSec = take.duration_sec ?? 0
+    const durSec = take.duration_seconds ?? 0
     const durMin = Math.round(durSec / 60)
     return durMin > 0 ? `${dateLabel} · ${durMin}m` : dateLabel
   }, [take])

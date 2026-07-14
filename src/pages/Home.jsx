@@ -105,7 +105,7 @@ export default function Home() {
       const ts = new Date(t.created_at || t.date || '').getTime()
       if (ts >= cutoff) {
         count++
-        totalSec += t.duration_sec ?? t.duration ?? 0
+        totalSec += t.duration_seconds ?? t.duration ?? 0
       }
     }
     return { totalSec, count }

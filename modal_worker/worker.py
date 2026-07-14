@@ -1474,6 +1474,19 @@ Return JSON only (no markdown):
         parsed = extract_json_object(raw)
         if not parsed:
             print(f"[read_score_notes_claude] no JSON: {raw[:300]}")
+            # Regex fallback: extract at least time/key signature even from truncated JSON
+            import re as _re
+            ts_m = _re.search(r'"time_signature"\s*:\s*"([^"]+)"', raw)
+            ks_m = _re.search(r'"key_signature"\s*:\s*"([^"]+)"', raw)
+            if ts_m or ks_m:
+                print(f"[read_score_notes_claude] partial extract: ts={ts_m and ts_m.group(1)} ks={ks_m and ks_m.group(1)}")
+                return {
+                    "key_signature":  ks_m.group(1) if ks_m else None,
+                    "time_signature": ts_m.group(1) if ts_m else None,
+                    "tempo_marking":  None,
+                    "measures":       [],
+                    "source":         "claude_vision_partial",
+                }
             return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
         measures = [
             {**m, "notes": [n for n in m.get("notes", []) if str(n.get("pitch", "")).lower() != "rest"]}
@@ -2057,6 +2070,18 @@ def run_full_analysis(payload: dict) -> None:
                 parsed_score_notes = parsed_score_notes_inner
             total_m = len(score.get("measures", []))
             debug_steps.append(f"score_parse: {total_m} measures")
+
+        # Override bpm_int if the score parser detected a time signature
+        detected_ts = score.get("time_signature")
+        if detected_ts:
+            try:
+                ts_num, ts_denom = map(int, detected_ts.split("/"))
+                is_cpd = ts_num % 3 == 0 and ts_num // 3 >= 2 and ts_denom >= 8
+                bpm_int = ts_num // 3 if is_cpd else ts_num
+                debug_steps.append(f"bpm_int_override: {detected_ts} → bpm_int={bpm_int}")
+                print(f"[run_full_analysis] bpm_int overridden to {bpm_int} from score time_sig={detected_ts}")
+            except Exception:
+                pass
 
         events_with_measures = assign_events_to_measures(raw_events, beats["beat_times"], bpm_int, start_measure)
 

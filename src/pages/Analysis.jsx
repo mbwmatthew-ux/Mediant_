@@ -1446,11 +1446,7 @@ const videoRef    = useRef(null)
 
   return (
     <div className={aStyles.page}>
-      {videoUrl && (
-        <video ref={videoRef} src={videoUrl} preload="metadata"
-          style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
-          onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)} />
-      )}
+      {/* No hidden video — videoRef is wired directly to the active card's video element */}
       <input ref={fileInputRef} type="file" style={{ display: 'none' }} accept="audio/*,video/*" onChange={handleFileUpload} />
 
       {isDemo && (
@@ -1533,30 +1529,34 @@ const videoRef    = useRef(null)
           </div>
           <div className={aStyles.scorePanelBody}>
             {scoreUrl ? (
-              <div className={aStyles.scoreImgWrap}>
+              <div>
                 <img src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
                 {(() => {
                   const flags = take?.flags ?? []
                   if (!flags.length) return null
                   const maxMeasure = Math.max(...flags.map(f => f.measure ?? 1), 1)
-                  return flags.map((f, i) => {
-                    const pct = Math.max(4, Math.min(96, ((f.measure ?? 1) / maxMeasure) * 92 + 4))
-                    const flagId = `flag_${i}`
-                    const isAct = activeFlag === flagId
-                    return (
-                      <button key={flagId} type="button"
-                        className={aStyles.scoreMarker}
-                        style={{
-                          left: `${pct}%`, top: '50%',
-                          background: isAct ? 'var(--accent)' : '#2A2A28',
-                          boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
-                        }}
-                        onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
-                        aria-label={`Flag ${i + 1}, measure ${f.measure}`}>
-                        {i + 1}
-                      </button>
-                    )
-                  })
+                  return (
+                    <div className={aStyles.scoreFlagStrip}>
+                      {flags.map((f, i) => {
+                        const pct = Math.max(2, Math.min(98, ((f.measure ?? 1) / maxMeasure) * 96 + 2))
+                        const flagId = `flag_${i}`
+                        const isAct = activeFlag === flagId
+                        return (
+                          <button key={flagId} type="button"
+                            className={aStyles.scoreMarker}
+                            style={{
+                              left: `${pct}%`,
+                              background: isAct ? 'var(--accent)' : '#2A2A28',
+                              boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
+                            }}
+                            onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
+                            title={`Measure ${f.measure} · ${f.type}`}>
+                            {i + 1}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
                 })()}
               </div>
             ) : (
@@ -1604,21 +1604,32 @@ const videoRef    = useRef(null)
                     {isAct && (
                       <div className={aStyles.issueCardBody}>
                         {videoUrl && (
-                          <div className={aStyles.issueThumbnail}
-                            onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}>
+                          <div className={aStyles.issueThumbnail}>
                             <video
+                              key={flagId}
                               src={videoUrl}
                               className={aStyles.issueThumbnailVideo}
-                              playsInline preload="metadata" muted
-                              ref={el => { if (el && f.timestamp_start != null) el.currentTime = Number(f.timestamp_start) }}
+                              playsInline
+                              preload="metadata"
+                              ref={el => {
+                                videoRef.current = el
+                                if (el) {
+                                  if (f.timestamp_start != null) el.currentTime = Number(f.timestamp_start)
+                                  el.onloadedmetadata = () => {
+                                    setVideoDuration(el.duration || null)
+                                    if (f.timestamp_start != null) el.currentTime = Number(f.timestamp_start)
+                                  }
+                                }
+                              }}
                             />
-                            <div className={aStyles.issueThumbnailOverlay}>
+                            <div className={aStyles.issueThumbnailOverlay}
+                              onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}>
                               {isThisLooping ? (
-                                <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
+                                <svg viewBox="0 0 24 24" width="36" height="36" fill="white">
                                   <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
                                 </svg>
                               ) : (
-                                <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
+                                <svg viewBox="0 0 24 24" width="36" height="36" fill="white">
                                   <polygon points="5 3 19 12 5 21" />
                                 </svg>
                               )}

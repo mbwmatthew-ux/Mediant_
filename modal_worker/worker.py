@@ -413,7 +413,8 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 "time_sec":    float(event_t),
                 "end_sec":     float(next_t),
                 "pitches":     [midi_to_scientific(midi)],
-                "midi":        midi,
+                "midi":        midi,       # C2–C7 clamped (display only)
+                "midi_raw":    midi_raw,   # unclamped — used for wrong-note comparison
                 "pitch_hz":    round(dominant_hz, 2),
                 "cents_offset": cents_offset,
                 "confidence":  confidence,
@@ -1492,7 +1493,7 @@ def read_score_notes_claude(
 
     prompt = f"""You are an expert music engraver reading sheet music for a {instrument} student.
 
-MEASURE NUMBERING — CRITICAL: The recording starts at measure {start_measure}. The FIRST complete measure at the top-left is measure {start_measure}. Number sequentially from there. Do NOT trust printed numbers — count barlines visually.
+MEASURE NUMBERING — CRITICAL: Trust the printed measure numbers you can see on the page (numbers above/below the staff or boxed rehearsal numbers). The first printed number you see is the authoritative start. Do not renumber or recount — use exactly what is printed. If no numbers are printed, count barlines starting from {start_measure}.
 
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
@@ -1796,7 +1797,7 @@ def find_wrong_note_candidates(
     best: dict[int, tuple[int, str]] = {}  # measure → (confidence, evidence_string)
     for ev in aligned:
         m_num   = ev.get("measure")
-        ev_midi = ev.get("midi")
+        ev_midi = ev.get("midi_raw", ev.get("midi"))  # prefer unclamped for accurate comparison
         ev_conf = ev.get("confidence", 0)
         if m_num is None or ev_midi is None or ev_conf < 50:
             continue
@@ -1826,7 +1827,7 @@ def find_wrong_note_candidates(
                 best[m_num] = (ev_conf, desc)
 
     candidates = [v[1] for v in sorted(best.values(), key=lambda x: -x[0])]
-    return candidates[:6]
+    return candidates[:20]
 
 
 # ── Change 2: severity-weighted score formula ─────────────────────────────────
@@ -1875,12 +1876,21 @@ def _flag_penalty(flag: dict) -> float:
     confirm_mult = 1.0 if flag.get("confirmed", True) else _UNCONFIRMED_MULT
 
     if flag.get("grouped") and flag.get("occurrences"):
-        # Per-occurrence: first at full weight, subsequent at 50%; each inherits own confirmation
+        # Per-occurrence: first at full weight, subsequent at 50%; each inherits own
+        # confirmation status AND its own deviation magnitude for scaling.
         total = 0.0
         for i, occ in enumerate(flag["occurrences"]):
             occ_confirm = 1.0 if occ.get("confirmed", flag.get("confirmed", True)) else _UNCONFIRMED_MULT
             weight = 1.0 if i == 0 else 0.5
-            total += base * mult * occ_confirm * weight
+            if mag == "cents_deviation":
+                c = occ.get("cents_deviation")
+                occ_mult = min(2.5, max(0.4, abs(c) / _CENTS_SCALE)) if c is not None else 1.0
+            elif mag == "timing_deviation_ms":
+                ms = occ.get("timing_deviation_ms")
+                occ_mult = min(2.0, max(0.4, ms / _TIMING_MS_SCALE)) if ms is not None else 1.0
+            else:
+                occ_mult = mult
+            total += base * occ_mult * occ_confirm * weight
         return total
 
     return base * mult * confirm_mult
@@ -1978,13 +1988,15 @@ def _group_similar_flags(flags: list) -> list:
         labels = [chr(ord('a') + i) for i in range(min(26, len(group)))]
         occurrences = [
             {
-                'label':           labels[i],
-                'measure':         f['measure'],
-                'title':           f['title'],
-                'detail':          f.get('detail', f.get('body', '')),
-                'timestamp_start': f.get('timestamp_start'),
-                'timestamp_end':   f.get('timestamp_end'),
-                'confirmed':       f.get('confirmed', True),
+                'label':               labels[i],
+                'measure':             f['measure'],
+                'title':               f['title'],
+                'detail':              f.get('detail', f.get('body', '')),
+                'timestamp_start':     f.get('timestamp_start'),
+                'timestamp_end':       f.get('timestamp_end'),
+                'confirmed':           f.get('confirmed', True),
+                'cents_deviation':     f.get('cents_deviation'),
+                'timing_deviation_ms': f.get('timing_deviation_ms'),
             }
             for i, f in enumerate(group)
         ]
@@ -2078,13 +2090,23 @@ def compare_and_coach_claude(
         print("[compare_and_coach_claude] no evidence from CREPE or Gemini; returning no flags")
         return []
 
-    # If alignment produced no ranges, synthesize from start/end measure so Claude
-    # has a valid measure list to work with
+    # If alignment produced no ranges, synthesize from actual event timestamps.
+    # Previously used hardcoded start=0 end=30 for every measure, making all Loop
+    # buttons play the same 30-second clip regardless of which measure was flagged.
     if not alignment_ranges and played_measures:
-        fallback_ranges = [
-            {"measure": m["number"], "start": 0.0, "end": 30.0}
-            for m in played_measures
-        ]
+        fallback_ranges = []
+        total_evs = sorted(aligned, key=lambda e: e["time_sec"]) if aligned else []
+        duration_hint = (total_evs[-1]["time_sec"] + 2.0) if total_evs else 30.0
+        sec_per_measure = duration_hint / max(len(played_measures), 1)
+        for i, m in enumerate(played_measures):
+            evs = sorted(events_by_measure.get(m["number"], []), key=lambda e: e["time_sec"])
+            if evs:
+                start = evs[0]["time_sec"]
+                end   = evs[-1].get("end_sec", evs[-1]["time_sec"] + sec_per_measure)
+            else:
+                start = i * sec_per_measure
+                end   = start + sec_per_measure
+            fallback_ranges.append({"measure": m["number"], "start": start, "end": max(end, start + 0.5)})
         alignment_ranges = fallback_ranges
 
     valid_list = sorted(set(r["measure"] for r in alignment_ranges))
@@ -2222,7 +2244,7 @@ Return JSON only (no markdown):
     flags = []
     for f in parsed.get("flags", []):
         m_num = f.get("measure")
-        if not isinstance(m_num, (int, float)) or int(m_num) not in valid_measures:
+        if not isinstance(m_num, (int, float)) or int(m_num) not in set(valid_list):
             continue
         if f.get("confidence", 100) < 60:
             continue
@@ -2453,21 +2475,14 @@ def run_full_analysis(payload: dict) -> None:
                         sc_bytes = sr.content
                     kind = sniff_score_kind(sc_bytes, score_mime, score_url)
                     if kind == "visual":
+                        # "visual" covers PNG, JPEG, TIFF, and PDF (sniff_score_kind returns
+                        # "visual" for PDFs). Gemini inlineData accepts application/pdf natively.
+                        # score_mime from the browser is the authoritative type (e.g. "application/pdf").
                         sc_mime = score_mime or "image/png"
                         print(f"[_gemini_pipeline] score included ({len(sc_bytes):,}B, {sc_mime})")
-                    elif kind == "pdf":
-                        # Convert first page of PDF to PNG so Gemini can read the score visually
-                        png_bytes = pdf_first_page_to_png(sc_bytes)
-                        if png_bytes:
-                            sc_bytes = png_bytes
-                            sc_mime = "image/png"
-                            print(f"[_gemini_pipeline] PDF converted to PNG ({len(sc_bytes):,}B) for Gemini")
-                        else:
-                            sc_bytes = None
-                            print("[_gemini_pipeline] PDF→PNG conversion failed — Gemini will not have score")
                     else:
                         sc_bytes = None
-                        print(f"[_gemini_pipeline] score kind={kind} — not visual/PDF, skipping inline")
+                        print(f"[_gemini_pipeline] score kind={kind} — not visual, skipping inline")
                 except Exception as e:
                     print(f"[_gemini_pipeline] score download failed (continuing without): {e}")
             return evaluate_with_gemini(

@@ -1593,6 +1593,12 @@ def anchor_and_align_py(
 
 
 def build_gemini_block(assessment: dict) -> str:
+    """
+    Format Gemini's assessment for the Claude coaching prompt.
+    Tier B items (intonation/rhythm/wrong-notes) that were not corroborated
+    by CREPE signal analysis are labelled [UNCONFIRMED] so Claude uses
+    appropriately hedged language for them.
+    """
     def fmt_structured(items: list) -> str:
         if not items: return "None reported."
         parts = []
@@ -1602,7 +1608,12 @@ def build_gemini_block(assessment: dict) -> str:
                 t   = x.get("time", "")
                 d   = x.get("description", "")
                 loc = f"m.{m}" + (f" ({t})" if t else "")
-                parts.append(f"{loc}: {d}")
+                confirmed = x.get("_confirmed", True)  # Tier A items always True
+                if confirmed:
+                    parts.append(f"{loc}: {d}")
+                else:
+                    note = x.get("_crepe_note", "not corroborated by signal analysis")
+                    parts.append(f"[UNCONFIRMED — {note}] {loc}: {d}")
             else:
                 parts.append(str(x))
         return " | ".join(parts)
@@ -1610,7 +1621,7 @@ def build_gemini_block(assessment: dict) -> str:
         if not items: return "None reported."
         return " | ".join(str(x) for x in items)
     lines = [
-        "GEMINI ANALYSIS (Gemini compared the sheet music + recording simultaneously — treat measure numbers as primary evidence):",
+        "GEMINI ANALYSIS (Gemini compared the sheet music + recording simultaneously):",
         f"- Intonation: {fmt_structured(assessment.get('intonation_issues', []))}",
         f"- Rhythm/Timing: {fmt_structured(assessment.get('rhythm_issues', []))}",
         f"- Wrong notes / cracks: {fmt_structured(assessment.get('wrong_notes_cracks', []))}",
@@ -1619,10 +1630,114 @@ def build_gemini_block(assessment: dict) -> str:
         f"- Posture (visual): {fmt_plain(assessment.get('posture_issues', []))}",
         f"- Technique (visual): {fmt_plain(assessment.get('technique_issues', []))}",
         f"- Overall: {assessment.get('overall') or 'No overall note.'}",
-        "IMPORTANT: Gemini read the measure numbers directly from the printed score. Use those measure numbers exactly as given — do NOT reassign to different measures.",
-        "Your flags MUST be grounded in this evidence. Do not invent issues not observed above.",
     ]
     return "\n".join(lines)
+
+
+def _safe_measure_int(val) -> int | None:
+    try: return int(val)
+    except (TypeError, ValueError): return None
+
+
+def _cross_check_gemini_tier_b(
+    assessment: dict,
+    events_by_measure: dict,
+    wrong_note_candidates: list,
+    evidence_candidates: list,
+    cents_threshold: int,
+) -> dict:
+    """
+    Annotate Tier B Gemini items (intonation, rhythm, wrong-notes) with
+    _confirmed=True|False and _crepe_note=<reason string>.
+
+    Tier A items (tone, dynamics, posture, technique) are left unchanged —
+    Gemini is the primary (often only) source for those categories.
+
+    Returns a shallow copy of the assessment with Tier B items annotated.
+    """
+    import re as _re, copy
+
+    annotated = dict(assessment)  # shallow — we'll replace each list
+
+    # Build measure sets from CREPE evidence strings
+    inton_measures: set[int] = set()
+    timing_measures: set[int] = set()
+    for cand in evidence_candidates:
+        m_match = _re.search(r'measure (\d+)', cand)
+        if not m_match: continue
+        m = int(m_match.group(1))
+        if cand.startswith("intonation |"):
+            inton_measures.add(m)
+        elif cand.startswith("timing |"):
+            timing_measures.add(m)
+
+    wrong_note_measures: set[int] = set()
+    for cand in wrong_note_candidates:
+        m_match = _re.search(r'measure (\d+)', cand)
+        if m_match:
+            wrong_note_measures.add(int(m_match.group(1)))
+
+    def _check(item: dict, ftype: str) -> tuple[bool, str]:
+        if not isinstance(item, dict):
+            return True, ""
+        m = _safe_measure_int(item.get("measure"))
+        if m is None:
+            return True, "measure unparseable — keeping"
+        ev_list = events_by_measure.get(m, [])
+        n_events = len(ev_list)
+
+        if ftype == "intonation":
+            if m in inton_measures:
+                return True, f"CREPE detected deviation at m.{m}"
+            # Also check raw event cents directly (catches cases not in evidence_candidates)
+            has_dev = any(
+                ev.get("cents_offset") is not None
+                and abs(ev.get("cents_offset", 0)) >= cents_threshold
+                for ev in ev_list
+            )
+            if has_dev:
+                return True, f"CREPE detected deviation at m.{m}"
+            if not ev_list:
+                return False, f"no CREPE events at m.{m} (coverage gap)"
+            return False, f"CREPE covered m.{m} ({n_events} events) — no deviation ≥{cents_threshold}¢"
+
+        elif ftype in ("timing", "rhythm"):
+            if m in timing_measures:
+                return True, f"CREPE timing anomaly at m.{m}"
+            if not ev_list:
+                return False, f"no CREPE events at m.{m} (coverage gap)"
+            return False, f"CREPE covered m.{m} ({n_events} events) — no timing anomaly"
+
+        elif ftype == "error":
+            if m in wrong_note_measures:
+                return True, f"CREPE pitch mismatch at m.{m}"
+            if not ev_list:
+                return False, f"no CREPE events at m.{m} (coverage gap)"
+            return False, f"CREPE covered m.{m} — no wrong-note candidate"
+
+        return True, ""  # Tier A — always confirmed
+
+    TIER_B = {
+        "intonation_issues": "intonation",
+        "rhythm_issues":     "rhythm",
+        "wrong_notes_cracks": "error",
+    }
+    for cat, ftype in TIER_B.items():
+        items = assessment.get(cat, [])
+        annotated_items = []
+        n_conf = n_unconf = 0
+        for item in items:
+            ok, reason = _check(item, ftype)
+            if isinstance(item, dict):
+                item = {**item, "_confirmed": ok, "_crepe_note": reason}
+                if ok: n_conf += 1
+                else:  n_unconf += 1
+            annotated_items.append(item)
+        annotated[cat] = annotated_items
+        if items:
+            print(f"[tier_b_check] {cat}: {n_conf} confirmed, {n_unconf} unconfirmed")
+
+    return annotated
 
 
 def find_wrong_note_candidates(
@@ -1713,6 +1828,10 @@ _CENTS_SCALE    = 25.0   # 25¢ off → multiplier 1.0; 50¢ → 2.0; 10¢ → 0
 _TIMING_MS_SCALE = 400.0  # 400ms off → multiplier 1.0; 800ms → 2.0; 200ms → 0.5
 
 
+_UNCONFIRMED_MULT = 0.45  # Change 1: penalty multiplier for Tier B flags not backed by CREPE
+                          # Revisit after ~20 analyses accumulate `confirmed` field data
+
+
 def _flag_penalty(flag: dict) -> float:
     """Return the weighted penalty for a single flag (or grouped flag)."""
     ftype = flag.get("type", "")
@@ -1729,12 +1848,20 @@ def _flag_penalty(flag: dict) -> float:
     else:
         mult = 1.0
 
-    if flag.get("grouped") and flag.get("occurrences"):
-        # Recurring pattern: each extra occurrence adds 50% of the first (diminishing returns)
-        n = len(flag["occurrences"])
-        return base * mult * (1 + (n - 1) * 0.5)
+    # confirmed=False → unconfirmed Tier B flag; apply discount
+    # Tier A flags (posture, tone, technique, dynamics) always have confirmed=True
+    confirm_mult = 1.0 if flag.get("confirmed", True) else _UNCONFIRMED_MULT
 
-    return base * mult
+    if flag.get("grouped") and flag.get("occurrences"):
+        # Per-occurrence: first at full weight, subsequent at 50%; each inherits own confirmation
+        total = 0.0
+        for i, occ in enumerate(flag["occurrences"]):
+            occ_confirm = 1.0 if occ.get("confirmed", flag.get("confirmed", True)) else _UNCONFIRMED_MULT
+            weight = 1.0 if i == 0 else 0.5
+            total += base * mult * occ_confirm * weight
+        return total
+
+    return base * mult * confirm_mult
 
 
 def compute_weighted_score(flags: list[dict]) -> int:
@@ -1835,15 +1962,19 @@ def _group_similar_flags(flags: list) -> list:
                 'detail':          f.get('detail', f.get('body', '')),
                 'timestamp_start': f.get('timestamp_start'),
                 'timestamp_end':   f.get('timestamp_end'),
+                'confirmed':       f.get('confirmed', True),
             }
             for i, f in enumerate(group)
         ]
         dir_word = direction if direction != ftype else ftype
+        # Group is confirmed if any occurrence is confirmed (some CREPE backing = use full weight)
+        group_confirmed = any(f.get('confirmed', True) for f in group)
         result.append({
             'type':            ftype,
             'title':           f"Recurring {dir_word} — {len(group)} passages",
             'grouped':         True,
             'occurrences':     occurrences,
+            'confirmed':       group_confirmed,
             'measure':         group[0]['measure'],
             'timestamp_start': group[0].get('timestamp_start'),
             'timestamp_end':   group[0].get('timestamp_end'),
@@ -1948,7 +2079,13 @@ def compare_and_coach_claude(
                     pass
     if gemini_measures:
         valid_list = sorted(set(valid_list) | gemini_measures)
-    gemini_block = build_gemini_block(gemini_assessment)
+
+    # Change 1: cross-check Tier B Gemini items against CREPE signal data
+    annotated_assessment = _cross_check_gemini_tier_b(
+        gemini_assessment, events_by_measure, wrong_note_candidates,
+        evidence_candidates, cents_flag_threshold,
+    )
+    gemini_block = build_gemini_block(annotated_assessment)
     measure_blocks = []
     for m in played_measures:
         sounded = [n for n in m.get("notes", []) if str(n.get("pitch", "")).lower() != "rest"]
@@ -1984,7 +2121,15 @@ Tempo: {tempo.get('bpm', '?')} BPM. Key: {score.get('key_signature', '?')}. Time
 {gemini_block}
 {f'STUDENT NOTE (subjective context — prioritize the evidence above; use only to interpret ambiguous moments, never to invent or excuse issues): "{user_note}"' if user_note else ''}
 
-YOUR TASK: Identify ALL significant, actionable issues grounded in the Gemini evidence above. Report every confirmed issue — do not stop early. Aim to cover every category that Gemini observed a problem in.
+EVIDENCE TIERS — READ BEFORE WRITING FLAGS:
+Items WITHOUT [UNCONFIRMED] are corroborated by CREPE signal analysis. Treat them as facts.
+Items marked [UNCONFIRMED] are Gemini-only — CREPE either had no events there or found no deviation.
+For [UNCONFIRMED] items you MUST:
+  * Use hedged language in body and title: "may have been", "possibly", "appears to", "worth checking" — NEVER "was flat", "was rushing", "played the wrong note"
+  * Do NOT list an [UNCONFIRMED] single-occurrence item as your top 1-3 flags unless it falls in a category where CREPE cannot measure (posture, tone, technique, dynamics)
+  * An [UNCONFIRMED] item may still be a real issue where CREPE simply lacked coverage — you may include it, but always with explicit hedging
+
+YOUR TASK: Identify ALL significant, actionable issues. Report every confirmed issue — do not stop early. Cover every category that Gemini observed a problem in.
 
 PRIORITY ORDER (most important first):
 1. Wrong notes / pitch errors / tone cracks — flag EVERY confirmed one ("error" type)
@@ -2087,28 +2232,37 @@ Return JSON only (no markdown):
         body_text = str(f.get("body", ""))
         ftype_str = str(f["type"])
 
-        # Attach measured deviation for severity-weighted scoring (Change 2)
+        # Derive CREPE-backed deviation values (Change 2) and confirmation status (Change 1)
         cents_deviation:      float | None = None
         timing_deviation_ms:  float | None = None
+        # Tier A types (dynamics, tone, posture, technique, articulation, etc.) are always
+        # treated as confirmed — Gemini is the authoritative source for those.
+        TIER_B_TYPES = {"intonation", "timing", "rhythm", "error"}
+        confirmed: bool = ftype_str not in TIER_B_TYPES  # Tier A defaults True
+
         if ftype_str == "intonation":
-            # Prefer CREPE's measured value; fall back to parsing raw_detail
             m_events = events_by_measure.get(m_num, [])
             cents_vals = [abs(ev.get("cents_offset") or 0) for ev in m_events
                           if ev.get("cents_offset") is not None
                           and abs(ev.get("cents_offset", 0)) >= cents_flag_threshold]
             if cents_vals:
                 cents_deviation = round(max(cents_vals), 1)
+                confirmed = True
             else:
                 cm = re.search(r'([+-]?\d+)\s*¢', raw_detail)
                 if cm:
                     cents_deviation = float(abs(int(cm.group(1))))
+                # confirmed stays False — Gemini flagged it but CREPE didn't find deviation
         elif ftype_str in ("timing", "rhythm"):
             for cand in evidence_candidates:
                 if f"measure {m_num}" in cand and "timing |" in cand:
                     gm = re.search(r'(\d+\.\d+)s gap', cand)
                     if gm:
                         timing_deviation_ms = round(float(gm.group(1)) * 1000, 1)
+                    confirmed = True
                     break
+        elif ftype_str == "error":
+            confirmed = any(f"measure {m_num}" in cand for cand in wrong_note_candidates)
 
         flags.append({
             "measure":              m_num,
@@ -2116,13 +2270,14 @@ Return JSON only (no markdown):
             "type":                 ftype_str,
             "title":                str(f["title"]),
             "raw_detail":           raw_detail,
-            "detail":               body_text,   # frontend uses f.detail ?? f.body
+            "detail":               body_text,
             "body":                 body_text,
             "confidence":           int(f.get("confidence", 100)),
             "timestamp_start":      ts_start,
             "timestamp_end":        ts_end,
             "cents_deviation":      cents_deviation,
             "timing_deviation_ms":  timing_deviation_ms,
+            "confirmed":            confirmed,   # False → unconfirmed Tier B, lower score penalty
         })
     # Deduplicate: allow one flag per (measure, type) but always allow posture/technique
     # regardless of measure (they're typically whole-performance observations).

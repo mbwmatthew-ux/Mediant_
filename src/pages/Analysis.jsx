@@ -1534,24 +1534,38 @@ const videoRef    = useRef(null)
                 {(() => {
                   const flags = take?.flags ?? []
                   if (!flags.length) return null
-                  const maxMeasure = Math.max(...flags.map(f => f.measure ?? 1), 1)
+                  // Collect all marker positions: single flags → one dot; grouped → one dot per occurrence
+                  const allMarkers = []
+                  flags.forEach((f, fi) => {
+                    if (f.grouped && f.occurrences?.length) {
+                      f.occurrences.forEach(occ => {
+                        allMarkers.push({ measure: occ.measure, flagIdx: fi, occLabel: occ.label, flagId: `flag_${fi}` })
+                      })
+                    } else {
+                      allMarkers.push({ measure: f.measure ?? 1, flagIdx: fi, occLabel: null, flagId: `flag_${fi}` })
+                    }
+                  })
+                  const measures = allMarkers.map(m => m.measure)
+                  const minM = Math.min(...measures)
+                  const maxM = Math.max(...measures, minM + 1)
+                  const mRange = maxM - minM || 1
                   return (
                     <div className={aStyles.scoreFlagStrip}>
-                      {flags.map((f, i) => {
-                        const pct = Math.max(2, Math.min(98, ((f.measure ?? 1) / maxMeasure) * 96 + 2))
-                        const flagId = `flag_${i}`
-                        const isAct = activeFlag === flagId
+                      {allMarkers.map((m, mi) => {
+                        const pct = Math.max(3, Math.min(97, ((m.measure - minM) / mRange) * 92 + 4))
+                        const isAct = activeFlag === m.flagId
                         return (
-                          <button key={flagId} type="button"
+                          <button key={`strip_${mi}`} type="button"
                             className={aStyles.scoreMarker}
                             style={{
                               left: `${pct}%`,
                               background: isAct ? 'var(--accent)' : '#2A2A28',
                               boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
+                              fontSize: m.occLabel ? 9 : 11,
                             }}
-                            onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
-                            title={`Measure ${f.measure} · ${f.type}`}>
-                            {i + 1}
+                            onClick={() => { playTick(); setActiveFlag(isAct ? null : m.flagId) }}
+                            title={`M.${m.measure}${m.occLabel ? ` (${m.flagIdx + 1}${m.occLabel})` : ''}`}>
+                            {m.occLabel ? `${m.flagIdx + 1}${m.occLabel}` : m.flagIdx + 1}
                           </button>
                         )
                       })}
@@ -1579,6 +1593,103 @@ const videoRef    = useRef(null)
                 const flagId = `flag_${i}`
                 const isAct = activeFlag === flagId
                 const isThisLooping = isLooping && loopRef.current?.start === Number(f.timestamp_start)
+
+                if (f.grouped && f.occurrences?.length) {
+                  // ── Grouped flag: multiple occurrences of the same issue ──
+                  return (
+                    <div key={flagId} className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
+                      <button className={aStyles.issueCardRow}
+                        onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}>
+                        <span className={aStyles.issueNum}
+                          style={{ background: isAct ? 'var(--accent)' : '#2A2A28' }}>
+                          {i + 1}
+                        </span>
+                        <div className={aStyles.issueInfo}>
+                          <span className={aStyles.issueMeta}>
+                            {(f.type ?? '').toUpperCase()} · {f.occurrences.length} PASSAGES
+                          </span>
+                          <span className={aStyles.issueName}>{f.title}</span>
+                        </div>
+                        <svg className={aStyles.issueChevron}
+                          viewBox="0 0 24 24" width="16" height="16"
+                          fill="none" stroke="currentColor" strokeWidth="2"
+                          strokeLinecap="round" strokeLinejoin="round"
+                          style={{ transform: isAct ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease', flexShrink: 0 }}>
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </button>
+                      {isAct && (
+                        <div className={aStyles.issueCardBody}>
+                          {videoUrl && f.occurrences[0]?.timestamp_start != null && (
+                            <div className={aStyles.issueThumbnail}>
+                              <video
+                                key={flagId}
+                                src={videoUrl}
+                                className={aStyles.issueThumbnailVideo}
+                                playsInline
+                                preload="metadata"
+                                ref={el => {
+                                  videoRef.current = el
+                                  if (el) {
+                                    const t = Number(f.occurrences[0].timestamp_start)
+                                    el.currentTime = t
+                                    el.onloadedmetadata = () => { el.currentTime = t }
+                                  }
+                                }}
+                              />
+                              <div className={aStyles.issueThumbnailOverlay} style={{ pointerEvents: 'none' }}>
+                                <svg viewBox="0 0 24 24" width="24" height="24" fill="rgba(255,255,255,0.5)">
+                                  <polygon points="5 3 19 12 5 21" />
+                                </svg>
+                              </div>
+                            </div>
+                          )}
+                          <p className={aStyles.issueDetailText}>{f.detail ?? f.body}</p>
+                          <div className={aStyles.occurrenceList}>
+                            {f.occurrences.map(occ => {
+                              const occLooping = isLooping && loopRef.current?.start === Number(occ.timestamp_start)
+                              return (
+                                <div key={occ.label} className={aStyles.occurrenceRow}>
+                                  <span className={aStyles.occurrenceLabel}
+                                    style={{ background: occLooping ? 'var(--accent)' : '#2A2A28' }}>
+                                    {i + 1}{occ.label}
+                                  </span>
+                                  <div className={aStyles.occurrenceInfo}>
+                                    <span className={aStyles.issueMeta}>M. {occ.measure}</span>
+                                    <span className={aStyles.occurrenceTitle}>{occ.title}</span>
+                                  </div>
+                                  {occ.timestamp_start != null && videoUrl && (
+                                    <button
+                                      className={`${aStyles.loopBtn} ${occLooping ? aStyles.loopBtnActive : ''}`}
+                                      onClick={() => {
+                                        playTick()
+                                        if (occLooping) {
+                                          stopLoop()
+                                        } else {
+                                          if (videoRef.current) {
+                                            videoRef.current.pause()
+                                            videoRef.current.currentTime = Number(occ.timestamp_start)
+                                          }
+                                          startLoop(occ)
+                                        }
+                                      }}>
+                                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                                      </svg>
+                                      {occLooping ? 'Stop' : 'Loop'}
+                                    </button>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+
+                // ── Single flag (existing rendering) ──
                 return (
                   <div key={flagId} className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
                     <button className={aStyles.issueCardRow}

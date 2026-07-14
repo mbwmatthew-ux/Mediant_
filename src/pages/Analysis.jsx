@@ -851,8 +851,13 @@ const videoRef    = useRef(null)
     const start = Number(flag.timestamp_start)
     const end   = Number(flag.timestamp_end)
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return
-    loopRef.current = { start, end }
-    setIsLooping(true)
+    // Always stop first so the effect re-fires even if isLooping was already true
+    loopRef.current = null
+    setIsLooping(false)
+    requestAnimationFrame(() => {
+      loopRef.current = { start, end }
+      setIsLooping(true)
+    })
   }, [])
 
   const stopLoop = useCallback(() => {
@@ -1442,7 +1447,8 @@ const videoRef    = useRef(null)
   return (
     <div className={aStyles.page}>
       {videoUrl && (
-        <video ref={videoRef} src={videoUrl} style={{ display: 'none' }} preload="metadata"
+        <video ref={videoRef} src={videoUrl} preload="metadata"
+          style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
           onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration || null)} />
       )}
       <input ref={fileInputRef} type="file" style={{ display: 'none' }} accept="audio/*,video/*" onChange={handleFileUpload} />
@@ -1530,18 +1536,21 @@ const videoRef    = useRef(null)
               <div className={aStyles.scoreImgWrap}>
                 <img src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
                 {(() => {
-                  const measures = take?.measure_layout?.measures
-                  return (take?.flags ?? []).map((f, i) => {
-                    const m = Array.isArray(measures) ? measures.find(mm => mm.measure === f.measure) : null
-                    if (!m) return null
-                    const cx = (m.x + (m.width ?? 0) / 2) * 100
-                    const cy = (m.y + (m.height ?? 0) / 2) * 100
+                  const flags = take?.flags ?? []
+                  if (!flags.length) return null
+                  const maxMeasure = Math.max(...flags.map(f => f.measure ?? 1), 1)
+                  return flags.map((f, i) => {
+                    const pct = Math.max(4, Math.min(96, ((f.measure ?? 1) / maxMeasure) * 92 + 4))
                     const flagId = `flag_${i}`
                     const isAct = activeFlag === flagId
                     return (
                       <button key={flagId} type="button"
                         className={aStyles.scoreMarker}
-                        style={{ left: `${cx}%`, top: `${cy}%`, background: isAct ? 'var(--accent)' : '#2A2A28', boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)' }}
+                        style={{
+                          left: `${pct}%`, top: '50%',
+                          background: isAct ? 'var(--accent)' : '#2A2A28',
+                          boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
+                        }}
                         onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}
                         aria-label={`Flag ${i + 1}, measure ${f.measure}`}>
                         {i + 1}
@@ -1595,15 +1604,24 @@ const videoRef    = useRef(null)
                     {isAct && (
                       <div className={aStyles.issueCardBody}>
                         {videoUrl && (
-                          <div className={aStyles.issueThumbnail}>
-                            <video src={videoUrl} className={aStyles.issueThumbnailVideo}
+                          <div className={aStyles.issueThumbnail}
+                            onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}>
+                            <video
+                              src={videoUrl}
+                              className={aStyles.issueThumbnailVideo}
                               playsInline preload="metadata" muted
-                              onClick={() => { playTick(); startLoop(f) }} />
-                            <div className={aStyles.issueThumbnailOverlay}
-                              onClick={() => { playTick(); startLoop(f) }}>
-                              <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
-                                <polygon points="5 3 19 12 5 21" />
-                              </svg>
+                              ref={el => { if (el && f.timestamp_start != null) el.currentTime = Number(f.timestamp_start) }}
+                            />
+                            <div className={aStyles.issueThumbnailOverlay}>
+                              {isThisLooping ? (
+                                <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
+                                  <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                                </svg>
+                              ) : (
+                                <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
+                                  <polygon points="5 3 19 12 5 21" />
+                                </svg>
+                              )}
                             </div>
                           </div>
                         )}

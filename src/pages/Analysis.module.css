@@ -133,12 +133,9 @@
 /* Issues panel */
 .issuesPanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px;
-  overflow: hidden; position: sticky; top: 80px;
+  overflow: hidden;
 }
-.issuesList { max-height: 620px; overflow-y: auto; }
-.issuesList::-webkit-scrollbar { width: 4px; }
-.issuesList::-webkit-scrollbar-track { background: transparent; }
-.issuesList::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.issuesList {}
 .noIssues {
   color: var(--hero-green); font-size: 0.88rem; font-weight: 500; padding: 28px 20px; text-align: center;
 }

@@ -1692,6 +1692,107 @@ def find_wrong_note_candidates(
     return candidates[:6]
 
 
+# ── Change 2: severity-weighted score formula ─────────────────────────────────
+# Base weights by flag type. `magnitude` names the field on the flag dict that
+# holds a numeric deviation value; None means no magnitude scaling.
+# Tune these values without touching the formula — the formula reads from here.
+FLAG_WEIGHTS: dict[str, dict] = {
+    "error":        {"base": 8.0,  "magnitude": None},           # wrong notes — binary, high cost
+    "intonation":   {"base": 3.0,  "magnitude": "cents_deviation"},   # scaled by ¢ off
+    "timing":       {"base": 2.5,  "magnitude": "timing_deviation_ms"},# scaled by ms off
+    "rhythm":       {"base": 2.5,  "magnitude": "timing_deviation_ms"},
+    "dynamics":     {"base": 2.5,  "magnitude": None},
+    "articulation": {"base": 2.0,  "magnitude": None},
+    "phrasing":     {"base": 1.5,  "magnitude": None},
+    "voicing":      {"base": 1.5,  "magnitude": None},
+    "tone":         {"base": 2.0,  "magnitude": None},     # Gemini-only → softer
+    "technique":    {"base": 1.5,  "magnitude": None},     # Gemini visual → softer
+    "posture":      {"base": 1.0,  "magnitude": None},     # global/soft — lowest weight
+}
+_CENTS_SCALE    = 25.0   # 25¢ off → multiplier 1.0; 50¢ → 2.0; 10¢ → 0.4
+_TIMING_MS_SCALE = 400.0  # 400ms off → multiplier 1.0; 800ms → 2.0; 200ms → 0.5
+
+
+def _flag_penalty(flag: dict) -> float:
+    """Return the weighted penalty for a single flag (or grouped flag)."""
+    ftype = flag.get("type", "")
+    w     = FLAG_WEIGHTS.get(ftype, {"base": 2.0, "magnitude": None})
+    base  = w["base"]
+    mag   = w["magnitude"]
+
+    if mag == "cents_deviation":
+        c    = flag.get("cents_deviation")
+        mult = min(2.5, max(0.4, abs(c) / _CENTS_SCALE)) if c is not None else 1.0
+    elif mag == "timing_deviation_ms":
+        ms   = flag.get("timing_deviation_ms")
+        mult = min(2.0, max(0.4, ms / _TIMING_MS_SCALE)) if ms is not None else 1.0
+    else:
+        mult = 1.0
+
+    if flag.get("grouped") and flag.get("occurrences"):
+        # Recurring pattern: each extra occurrence adds 50% of the first (diminishing returns)
+        n = len(flag["occurrences"])
+        return base * mult * (1 + (n - 1) * 0.5)
+
+    return base * mult
+
+
+def compute_weighted_score(flags: list[dict]) -> int:
+    """Replace the flat -6/flag formula with a severity-weighted penalty sum."""
+    total = sum(_flag_penalty(f) for f in flags)
+    return max(45, min(98, round(95 - total)))
+
+
+# ── Change 4: Gemini measure-number cross-validation ─────────────────────────
+def validate_gemini_measures(assessment: dict, score: dict) -> tuple[dict, int]:
+    """
+    Discard Gemini issue items whose reported measure numbers fall outside the
+    range of measures that music21 (or Claude vision) actually parsed.  Only
+    meaningful when `score["measures"]` is non-empty.
+
+    Returns (validated_assessment, n_discarded).
+    """
+    measures = score.get("measures", [])
+    if not measures:
+        return assessment, 0
+
+    known_nums = {int(m["number"]) for m in measures if isinstance(m.get("number"), (int, float))}
+    if not known_nums:
+        return assessment, 0
+
+    min_m, max_m = min(known_nums), max(known_nums)
+    discarded = 0
+    validated: dict = {}
+
+    for cat in ("intonation_issues", "rhythm_issues", "wrong_notes_cracks",
+                "dynamics_issues", "tone_issues"):
+        items = assessment.get(cat, [])
+        clean = []
+        for item in items:
+            if isinstance(item, dict):
+                raw_m = item.get("measure")
+                try:
+                    m = int(raw_m)
+                    if m < min_m or m > max_m:
+                        print(f"[gemini_validate] discarding {cat} m.{m} — outside "
+                              f"parsed score range [{min_m},{max_m}]")
+                        discarded += 1
+                        continue
+                except (ValueError, TypeError, AttributeError):
+                    pass  # keep if measure is unparseable — can't validate
+            clean.append(item)
+        validated[cat] = clean
+
+    # Preserve visual / non-measure categories unchanged
+    for k in ("posture_issues", "technique_issues", "overall"):
+        validated[k] = assessment.get(k, [] if k != "overall" else "")
+
+    if discarded:
+        print(f"[gemini_validate] discarded {discarded} items with out-of-range measure numbers")
+
+    return validated, discarded
+
+
 def _group_similar_flags(flags: list) -> list:
     """
     Group flags of the same type that share a directional theme (e.g., all intonation
@@ -1984,17 +2085,44 @@ Return JSON only (no markdown):
         else:
             beat, ts_start, ts_end = None, r["start"], r["end"]
         body_text = str(f.get("body", ""))
+        ftype_str = str(f["type"])
+
+        # Attach measured deviation for severity-weighted scoring (Change 2)
+        cents_deviation:      float | None = None
+        timing_deviation_ms:  float | None = None
+        if ftype_str == "intonation":
+            # Prefer CREPE's measured value; fall back to parsing raw_detail
+            m_events = events_by_measure.get(m_num, [])
+            cents_vals = [abs(ev.get("cents_offset") or 0) for ev in m_events
+                          if ev.get("cents_offset") is not None
+                          and abs(ev.get("cents_offset", 0)) >= cents_flag_threshold]
+            if cents_vals:
+                cents_deviation = round(max(cents_vals), 1)
+            else:
+                cm = re.search(r'([+-]?\d+)\s*¢', raw_detail)
+                if cm:
+                    cents_deviation = float(abs(int(cm.group(1))))
+        elif ftype_str in ("timing", "rhythm"):
+            for cand in evidence_candidates:
+                if f"measure {m_num}" in cand and "timing |" in cand:
+                    gm = re.search(r'(\d+\.\d+)s gap', cand)
+                    if gm:
+                        timing_deviation_ms = round(float(gm.group(1)) * 1000, 1)
+                    break
+
         flags.append({
-            "measure":         m_num,
-            "beat":            beat,
-            "type":            str(f["type"]),
-            "title":           str(f["title"]),
-            "raw_detail":      raw_detail,
-            "detail":          body_text,   # frontend uses f.detail ?? f.body
-            "body":            body_text,
-            "confidence":      int(f.get("confidence", 100)),
-            "timestamp_start": ts_start,
-            "timestamp_end":   ts_end,
+            "measure":              m_num,
+            "beat":                 beat,
+            "type":                 ftype_str,
+            "title":                str(f["title"]),
+            "raw_detail":           raw_detail,
+            "detail":               body_text,   # frontend uses f.detail ?? f.body
+            "body":                 body_text,
+            "confidence":           int(f.get("confidence", 100)),
+            "timestamp_start":      ts_start,
+            "timestamp_end":        ts_end,
+            "cents_deviation":      cents_deviation,
+            "timing_deviation_ms":  timing_deviation_ms,
         })
     # Deduplicate: allow one flag per (measure, type) but always allow posture/technique
     # regardless of measure (they're typically whole-performance observations).
@@ -2210,6 +2338,11 @@ def run_full_analysis(payload: dict) -> None:
             total_m = len(score.get("measures", []))
             debug_steps.append(f"score_parse: {total_m} measures")
 
+        # Change 4: cross-validate Gemini measure numbers against parsed score range
+        gemini_assessment, n_discarded = validate_gemini_measures(gemini_assessment, score)
+        if n_discarded:
+            debug_steps.append(f"gemini_validate: discarded {n_discarded} out-of-range measure refs")
+
         # Override bpm_int if the score parser detected a time signature
         detected_ts = score.get("time_signature")
         if detected_ts:
@@ -2335,7 +2468,7 @@ def run_full_analysis(payload: dict) -> None:
             else "score_dtw" if (sum(len(m.get("notes", [])) for m in score.get("measures", [])) >= 4)
             else "beat_grid"
         )
-        base_score = max(50, min(98, 95 - len(flags) * 6))
+        base_score = compute_weighted_score(flags)
         backend    = f"modal+gemini+claude ({alignment_method})"
         print(f"[run_full_analysis] done | score={base_score} | flags={len(flags)} | backend={backend}")
 

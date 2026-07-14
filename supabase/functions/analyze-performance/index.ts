@@ -1261,112 +1261,93 @@ serve(async (req: Request) => {
     if (insertError || !take) throw new Error(`DB insert failed: ${insertError?.message}`)
     takeId = take.id
 
-    // Signed URLs
-    const { data: vSigned } = await admin.storage.from('recordings').createSignedUrl(videoPath, 7200)
-    const videoSignedUrl = vSigned?.signedUrl ?? null
-
-    let scoreSignedUrl: string | null = null
-    if (scorePath) {
-      const { data: sSigned } = await admin.storage.from('sheet-music').createSignedUrl(scorePath, 7200)
-      scoreSignedUrl = sSigned?.signedUrl ?? null
-    }
-
-    // ── Score cache lookup (avoid re-parsing the same PDF with Claude) ────────
-    let cachedScoreNotes: unknown = null
-    if (scorePath && scoreMimeType && /pdf|image/i.test(scoreMimeType)) {
-      const { data: cacheRow } = await admin
-        .from('score_cache')
-        .select('parsed_notes')
-        .eq('score_path', scorePath)
-        .maybeSingle()
-      if (cacheRow?.parsed_notes) {
-        cachedScoreNotes = cacheRow.parsed_notes
-        console.log('[analyze-performance] score cache hit for', scorePath)
-      }
-    }
-
-    // ── Look up reference MIDI for this song (if any) ─────────────
-    let referenceMidiUrl: string | null = null
-    if (songId) {
-      const { data: refRow } = await admin
-        .from('reference_performances')
-        .select('file_path, file_type')
-        .eq('song_id', songId)
-        .eq('file_type', 'midi')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (refRow?.file_path) {
-        const { data: refSigned } = await admin.storage
-          .from('reference-midi')
-          .createSignedUrl(refRow.file_path, 7200)
-        referenceMidiUrl = refSigned?.signedUrl ?? null
-        console.log('[analyze-performance] reference MIDI found:', refRow.file_path)
-      }
-    }
-
-    // ── 1. Try Modal (full async video analysis) ──────────────────
-    const modalUrl = Deno.env.get('MODAL_WORKER_URL')
-    if (modalUrl) {
-      const dispatchRes = await fetch(`${modalUrl}/analyze_async`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          take_id:              takeId,
-          webhook_url:          `${Deno.env.get('SUPABASE_URL')}/functions/v1/analysis-webhook`,
-          webhook_secret:       Deno.env.get('MODAL_WEBHOOK_SECRET'),
-          video_url:            videoSignedUrl,
-          video_mime_type:      videoMimeType,
-          score_url:            scoreSignedUrl,
-          score_mime_type:      scoreMimeType      ?? null,
-          reference_midi_url:   referenceMidiUrl   ?? null,
-          user_note:            cleanNote,
-          instrument:           instrument         ?? 'instrument',
-          part:                 part               ?? '',
-          piece_title:          pieceTitle         ?? 'this piece',
-          composer:             composer           ?? 'the composer',
-          time_sig:             timeSig            ?? '4/4',
-          key_signature:        keySignature       ?? '',
-          start_measure:        safeStart,
-          end_measure:          safeEnd,
-          score_facts:          safeScoreFacts,
-          audio_features:       safeAudioFeatures,
-          measure_timeline:     measureTimeline,
-          score_path:           scorePath           ?? null,
-          cached_score_notes:   cachedScoreNotes    ?? null,
-          gemini_api_key:       Deno.env.get('GOOGLE_AI_API_KEY'),
-          anthropic_api_key:    Deno.env.get('ANTHROPIC_API_KEY'),
-        }),
-        signal: AbortSignal.timeout(12000),
-      }).catch((e) => { console.warn('[analyze-performance] Modal dispatch error:', e?.message); return null })
-
-      if (dispatchRes?.ok) {
-        console.log('[analyze-performance] dispatched to Modal:', takeId)
-        return new Response(JSON.stringify({ jobId: takeId, status: 'processing' }), {
-          headers: { 'Content-Type': 'application/json', ...CORS },
-        })
-      }
-      const modalErr = dispatchRes ? await dispatchRes.text().catch(() => '') : 'timeout/network'
-      console.warn(`[analyze-performance] Modal unavailable (${dispatchRes?.status ?? 'timeout'}): ${modalErr.slice(0, 200)}`)
-
-      // Record why Modal failed so the take's debug field shows it
-      await admin.from('takes').update({
-        pipeline_debug: { modal_dispatch_failed: dispatchRes?.status ?? 'timeout', error: modalErr.slice(0, 500) },
-      }).eq('id', takeId).catch(() => {})
-    }
-
-    // ── 2–3. Inline analysis (background task) ───────────────────────────────
-    // When Modal is unavailable the inline paths (Gemini 55s + vision 30s +
-    // coaching 15s) can silently run for up to ~112s before the Response is sent.
-    // Browsers drop TCP connections after 60-90s of silence and surface this as
-    // FunctionsFetchError on the client — same symptom as a network error.
-    // Fix: kick off the analysis as a background promise and return 'processing'
-    // immediately. EdgeRuntime.waitUntil keeps the Deno isolate alive while the
-    // work completes; the existing job-status polling loop catches the result.
+    // ── Background task: signed URLs + Modal dispatch + inline analysis ───────
+    // Everything after the take insert runs in the background so the HTTP
+    // response is returned in <1s. The browser's polling loop picks up results.
+    // Modal dispatch previously ran synchronously (12s timeout) before returning
+    // the response, which caused browsers/proxies to drop the connection.
     const inlineTask = (async () => {
       try {
-        // ── 2. Prior take lookup ────────────────────────────────────────────
+        // ── 1. Signed URLs (fast, moved here so response is sent first) ──────
+        const { data: vSigned } = await admin.storage.from('recordings').createSignedUrl(videoPath, 7200)
+        const videoSignedUrl = vSigned?.signedUrl ?? null
+
+        let scoreSignedUrl: string | null = null
+        if (scorePath) {
+          const { data: sSigned } = await admin.storage.from('sheet-music').createSignedUrl(scorePath, 7200)
+          scoreSignedUrl = sSigned?.signedUrl ?? null
+        }
+
+        let cachedScoreNotes: unknown = null
+        if (scorePath && scoreMimeType && /pdf|image/i.test(scoreMimeType)) {
+          const { data: cacheRow } = await admin
+            .from('score_cache').select('parsed_notes').eq('score_path', scorePath).maybeSingle()
+          if (cacheRow?.parsed_notes) {
+            cachedScoreNotes = cacheRow.parsed_notes
+            console.log('[analyze-performance] score cache hit for', scorePath)
+          }
+        }
+
+        let referenceMidiUrl: string | null = null
+        if (songId) {
+          const { data: refRow } = await admin
+            .from('reference_performances').select('file_path, file_type')
+            .eq('song_id', songId).eq('file_type', 'midi')
+            .order('created_at', { ascending: false }).limit(1).maybeSingle()
+          if (refRow?.file_path) {
+            const { data: refSigned } = await admin.storage
+              .from('reference-midi').createSignedUrl(refRow.file_path, 7200)
+            referenceMidiUrl = refSigned?.signedUrl ?? null
+          }
+        }
+
+        // ── 2. Try Modal (async video analysis) ──────────────────────────────
+        const modalUrl = Deno.env.get('MODAL_WORKER_URL')
+        if (modalUrl) {
+          const dispatchRes = await fetch(`${modalUrl}/analyze_async`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              take_id:              takeId,
+              webhook_url:          `${Deno.env.get('SUPABASE_URL')}/functions/v1/analysis-webhook`,
+              webhook_secret:       Deno.env.get('MODAL_WEBHOOK_SECRET'),
+              video_url:            videoSignedUrl,
+              video_mime_type:      videoMimeType,
+              score_url:            scoreSignedUrl,
+              score_mime_type:      scoreMimeType      ?? null,
+              reference_midi_url:   referenceMidiUrl   ?? null,
+              user_note:            cleanNote,
+              instrument:           instrument         ?? 'instrument',
+              part:                 part               ?? '',
+              piece_title:          pieceTitle         ?? 'this piece',
+              composer:             composer           ?? 'the composer',
+              time_sig:             timeSig            ?? '4/4',
+              key_signature:        keySignature       ?? '',
+              start_measure:        safeStart,
+              end_measure:          safeEnd,
+              score_facts:          safeScoreFacts,
+              audio_features:       safeAudioFeatures,
+              measure_timeline:     measureTimeline,
+              score_path:           scorePath           ?? null,
+              cached_score_notes:   cachedScoreNotes    ?? null,
+              gemini_api_key:       Deno.env.get('GOOGLE_AI_API_KEY'),
+              anthropic_api_key:    Deno.env.get('ANTHROPIC_API_KEY'),
+            }),
+            signal: AbortSignal.timeout(12000),
+          }).catch((e) => { console.warn('[analyze-performance] Modal dispatch error:', e?.message); return null })
+
+          if (dispatchRes?.ok) {
+            console.log('[analyze-performance] dispatched to Modal:', takeId)
+            return  // Modal will call the webhook when done
+          }
+          const modalErr = dispatchRes ? await dispatchRes.text().catch(() => '') : 'timeout/network'
+          console.warn(`[analyze-performance] Modal unavailable (${dispatchRes?.status ?? 'timeout'}): ${modalErr.slice(0, 200)}`)
+          await admin.from('takes').update({
+            pipeline_debug: { modal_dispatch_failed: dispatchRes?.status ?? 'timeout', error: modalErr.slice(0, 500) },
+          }).eq('id', takeId).catch(() => {})
+        }
+
+        // ── 3. Prior take lookup ────────────────────────────────────────────
         type PriorTake = { score: number | null; flags: any[] } | null
         let priorTake: PriorTake = null
         if (pieceTitle) {

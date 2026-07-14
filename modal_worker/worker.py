@@ -1962,7 +1962,9 @@ def run_full_analysis(payload: dict) -> None:
         bpm_int = 4
 
     try:
-        # ── Step 1: Download video + audio analysis ────────────────────────
+        from concurrent.futures import ThreadPoolExecutor
+
+        # ── Step 1: Download video ─────────────────────────────────────────
         print(f"[run_full_analysis] downloading video for take {take_id}")
         with httpx.Client(timeout=120) as client:
             vresp = client.get(video_url, follow_redirects=True)
@@ -1970,57 +1972,89 @@ def run_full_analysis(payload: dict) -> None:
             video_bytes = vresp.content
         print(f"[run_full_analysis] video: {len(video_bytes):,} bytes")
 
-        wav_bytes, video_duration = extract_audio_from_video(video_bytes)
-        debug_steps.append(f"audio_extracted: {len(wav_bytes):,}B duration={video_duration:.1f}s")
+        if not gemini_key:
+            raise RuntimeError("GOOGLE_AI_API_KEY not provided — Gemini audio analysis is required")
 
-        beats      = run_beat_tracking(wav_bytes)
-        debug_steps.append(f"beat_tracking: tempo={beats['tempo_bpm']:.1f}bpm beats={len(beats['beat_times'])}")
+        # ── Steps 2-4 in parallel: CREPE + Gemini upload + score download ─
+        # These three pipelines are fully independent after the video download.
+        # Running them concurrently cuts total time by ~50% (Gemini upload/poll
+        # used to block CREPE for 30-60s on a warm file).
 
-        raw_events = run_pitch_tracking(wav_bytes, guide_times=beats["beat_times"], instrument=instrument)
-        debug_steps.append(f"pitch_tracking: {len(raw_events)} events (CREPE)")
+        def _crepe_pipeline():
+            wav_b, dur = extract_audio_from_video(video_bytes)
+            bts = run_beat_tracking(wav_b)
+            evts = run_pitch_tracking(wav_b, guide_times=bts["beat_times"], instrument=instrument)
+            return wav_b, dur, bts, evts
 
-        events_with_measures = assign_events_to_measures(raw_events, beats["beat_times"], bpm_int, start_measure)
+        def _gemini_pipeline():
+            print("[run_full_analysis] uploading video to Gemini Files API")
+            uri = upload_video_to_gemini(video_bytes, video_mime, gemini_key)
+            return evaluate_with_gemini(
+                uri, video_mime, instrument,
+                piece_title, composer, start_measure, end_measure, gemini_key,
+                user_note=user_note,
+            )
 
-        # ── Step 2: Parse score ────────────────────────────────────────────
-        score: dict = {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
-        if score_url:
+        def _score_pipeline():
+            s: dict = {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+            ps_notes = None
+            if not score_url:
+                return s, ps_notes
             print("[run_full_analysis] downloading score")
             with httpx.Client(timeout=90) as client:
                 sresp = client.get(score_url, follow_redirects=True)
                 sresp.raise_for_status()
-                score_bytes_dl = sresp.content
-            print(f"[run_full_analysis] score: {len(score_bytes_dl):,} bytes, mime={score_mime}")
-            score_kind = sniff_score_kind(score_bytes_dl, score_mime, score_url)
-            print(f"[run_full_analysis] score kind: {score_kind}")
-            if score_kind in ("xml", "mxl"):
-                res = parse_score_document(score_bytes_dl, start_measure)
+                sb = sresp.content
+            print(f"[run_full_analysis] score: {len(sb):,} bytes, mime={score_mime}")
+            kind = sniff_score_kind(sb, score_mime, score_url)
+            print(f"[run_full_analysis] score kind: {kind}")
+            if kind in ("xml", "mxl"):
+                res = parse_score_document(sb, start_measure)
                 if not res.get("error") and res.get("measures"):
-                    score = res
-                    debug_steps.append(f"score_parse: musicxml {len(score['measures'])} measures")
-                else:
-                    debug_steps.append(f"score_parse: musicxml error={res.get('error','unknown')}")
-            elif score_kind == "visual" and anthropic_key:
+                    s = res
+            elif kind == "visual" and anthropic_key:
                 if cached_score_notes and cached_score_notes.get("measures"):
-                    score = cached_score_notes
-                    debug_steps.append(f"score_parse: cache_hit {len(score['measures'])} measures (skipped Claude call)")
-                    print(f"[run_full_analysis] using cached score notes ({len(score['measures'])} measures)")
+                    s = cached_score_notes
                 else:
-                    res = read_score_notes_claude(score_bytes_dl, score_mime, start_measure, instrument, time_sig, anthropic_key)
+                    res = read_score_notes_claude(sb, score_mime, start_measure, instrument, time_sig, anthropic_key)
                     if res.get("measures"):
-                        score = res
-                        parsed_score_notes = res  # will be sent back via webhook to cache
-                        debug_steps.append(f"score_parse: claude_vision {len(score['measures'])} measures")
-                    else:
-                        debug_steps.append("score_parse: claude_vision returned no measures")
-            elif score_kind == "visual":
-                debug_steps.append("score_parse: visual score skipped (no anthropic key)")
-            else:
-                debug_steps.append(f"score_parse: unsupported kind={score_kind}")
+                        s = res
+                        ps_notes = res
+            return s, ps_notes
 
-        # ── Step 2b: Parse reference MIDI (when provided) ─────────────────
-        # A reference MIDI gives ground-truth note timing for this piece.
-        # Reference alignment is more accurate than score DTW because it uses
-        # real timing from a canonical performance, not just pitch sequences.
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            crepe_fut  = pool.submit(_crepe_pipeline)
+            gemini_fut = pool.submit(_gemini_pipeline)
+            score_fut  = pool.submit(_score_pipeline)
+
+            wav_bytes, video_duration, beats, raw_events = crepe_fut.result()
+            debug_steps.append(f"audio_extracted: {len(wav_bytes):,}B duration={video_duration:.1f}s")
+            debug_steps.append(f"beat_tracking: tempo={beats['tempo_bpm']:.1f}bpm beats={len(beats['beat_times'])}")
+            debug_steps.append(f"pitch_tracking: {len(raw_events)} events (CREPE)")
+
+            try:
+                gemini_assessment = gemini_fut.result()
+                debug_steps.append(
+                    f"gemini: intonation={len(gemini_assessment.get('intonation_issues',[]))} "
+                    f"rhythm={len(gemini_assessment.get('rhythm_issues',[]))} "
+                    f"wrong_notes={len(gemini_assessment.get('wrong_notes_cracks',[]))}"
+                )
+                print(f"[run_full_analysis] Gemini assessment complete: "
+                      f"{len(gemini_assessment.get('intonation_issues', []))} intonation, "
+                      f"{len(gemini_assessment.get('rhythm_issues', []))} rhythm")
+            except Exception as gemini_err:
+                debug_steps.append(f"gemini: FAILED {gemini_err}")
+                raise
+
+            score, parsed_score_notes_inner = score_fut.result()
+            if parsed_score_notes_inner:
+                parsed_score_notes = parsed_score_notes_inner
+            total_m = len(score.get("measures", []))
+            debug_steps.append(f"score_parse: {total_m} measures")
+
+        events_with_measures = assign_events_to_measures(raw_events, beats["beat_times"], bpm_int, start_measure)
+
+        # ── Reference MIDI (optional, fast) ───────────────────────────────
         ref_notes: list[dict] = []
         if reference_midi_url:
             try:
@@ -2034,30 +2068,6 @@ def run_full_analysis(payload: dict) -> None:
             except Exception as ref_err:
                 print(f"[run_full_analysis] reference MIDI error (non-fatal): {ref_err}")
                 debug_steps.append(f"reference_midi: error={ref_err}")
-
-        # ── Step 3: Gemini audio evaluation (required — raises if unavailable) ──
-        if not gemini_key:
-            raise RuntimeError("GOOGLE_AI_API_KEY not provided — Gemini audio analysis is required")
-        print("[run_full_analysis] uploading video to Gemini Files API")
-        try:
-            gemini_uri = upload_video_to_gemini(video_bytes, video_mime, gemini_key)
-            gemini_assessment = evaluate_with_gemini(
-                gemini_uri, video_mime, instrument,
-                piece_title, composer, start_measure, end_measure, gemini_key,
-                user_note=user_note,
-            )
-            debug_steps.append(
-                f"gemini: intonation={len(gemini_assessment.get('intonation_issues',[]))} "
-                f"rhythm={len(gemini_assessment.get('rhythm_issues',[]))} "
-                f"wrong_notes={len(gemini_assessment.get('wrong_notes_cracks',[]))}"
-            )
-            print(f"[run_full_analysis] Gemini assessment complete: "
-                  f"{len(gemini_assessment.get('intonation_issues', []))} intonation, "
-                  f"{len(gemini_assessment.get('rhythm_issues', []))} rhythm, "
-                  f"{len(gemini_assessment.get('wrong_notes_cracks', []))} wrong notes")
-        except Exception as gemini_err:
-            debug_steps.append(f"gemini: FAILED {gemini_err}")
-            raise
 
         # ── Step 4: Assign events to measures ─────────────────────────────
         # Priority order for alignment (most → least accurate):

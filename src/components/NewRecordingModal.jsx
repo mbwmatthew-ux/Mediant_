@@ -218,9 +218,9 @@ export default function NewRecordingModal({ open, onClose }) {
 
       let finalResult = null
       const alreadyDone = jobResult?.status === 'done'
-      for (let attempt = 0; attempt < 60; attempt++) {
-        if (!alreadyDone || attempt > 0) await new Promise(r => setTimeout(r, 4000))
-        setProgress(p => Math.min(p + 0.75, 95))
+      for (let attempt = 0; attempt < 120; attempt++) {
+        if (!alreadyDone || attempt > 0) await new Promise(r => setTimeout(r, 5000))
+        setProgress(p => Math.min(p + 0.37, 95))
         try {
           const resp = await fetch(
             `${fnBase}/job-status?takeId=${encodeURIComponent(jobId)}`,
@@ -235,7 +235,7 @@ export default function NewRecordingModal({ open, onClose }) {
         }
       }
 
-      if (!finalResult) throw new Error('Analysis timed out. Please try a shorter recording.')
+      if (!finalResult) throw new Error('Analysis is taking longer than expected. Please check back in a moment — your results will appear in your session history when ready.')
 
       const takeRecord = {
         id:              jobId,

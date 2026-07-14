@@ -2123,11 +2123,21 @@ Tempo: {tempo.get('bpm', '?')} BPM. Key: {score.get('key_signature', '?')}. Time
 
 EVIDENCE TIERS — READ BEFORE WRITING FLAGS:
 Items WITHOUT [UNCONFIRMED] are corroborated by CREPE signal analysis. Treat them as facts.
-Items marked [UNCONFIRMED] are Gemini-only — CREPE either had no events there or found no deviation.
-For [UNCONFIRMED] items you MUST:
+Items marked [UNCONFIRMED — no CREPE events at m.N (coverage gap)] mean CREPE had no data for that measure at all — signal analysis simply couldn't reach it.
+Items marked [UNCONFIRMED — CREPE covered m.N ... no deviation ≥N¢] mean CREPE actively analyzed that measure and found no problem — this is a direct disagreement between Gemini and the signal.
+
+For ALL [UNCONFIRMED] items you MUST:
   * Use hedged language in body and title: "may have been", "possibly", "appears to", "worth checking" — NEVER "was flat", "was rushing", "played the wrong note"
-  * Do NOT list an [UNCONFIRMED] single-occurrence item as your top 1-3 flags unless it falls in a category where CREPE cannot measure (posture, tone, technique, dynamics)
-  * An [UNCONFIRMED] item may still be a real issue where CREPE simply lacked coverage — you may include it, but always with explicit hedging
+
+For [UNCONFIRMED] items where CREPE COVERED the measure but found nothing ("no deviation"):
+  * This is a signal disagreement. Treat with maximum caution.
+  * NEVER elevate to a primary/headline issue even with hedging. Place it only as a minor secondary note.
+  * Do not group these into top flags under any circumstances.
+
+For [UNCONFIRMED] items where CREPE had a COVERAGE GAP ("no CREPE events"):
+  * CREPE simply had no data — Gemini may be the only signal available. It may still be real.
+  * May be promoted to a headline/primary issue ONLY if it is part of a grouped flag (multiple occurrences across measures), OR if the category is one CREPE cannot measure (posture, tone, technique, dynamics).
+  * Single-occurrence coverage-gap flags: include with hedging, but keep secondary unless grouped.
 
 YOUR TASK: Identify ALL significant, actionable issues. Report every confirmed issue — do not stop early. Cover every category that Gemini observed a problem in.
 

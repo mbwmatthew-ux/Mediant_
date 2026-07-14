@@ -52,6 +52,8 @@ image = (
         "scipy>=1.10",
         # Score parsing
         "music21==9.1.0",
+        # PDF → PNG rendering for Gemini (so PDF scores work the same as image scores)
+        "pymupdf==1.24.11",
         # Utilities
         "fastapi[standard]",
         "requests==2.31.0",
@@ -145,6 +147,20 @@ def score_suffix(score_bytes: bytes, score_mime: str, score_url: str) -> str:
     if "tiff" in mime or url.endswith((".tif", ".tiff")):
         return ".tif"
     return ".score"
+
+def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes | None:
+    """Render the first page of a PDF to a PNG image for Gemini vision input."""
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[0]
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        return pix.tobytes("png")
+    except Exception as e:
+        print(f"[pdf_first_page_to_png] failed: {e}")
+        return None
+
 
 # ── Core functions ─────────────────────────────────────────────────────────
 
@@ -381,10 +397,14 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             cents_offset = round((midi_float - midi_raw) * 100)  # -50..+50 ¢
             midi         = max(36, min(96, midi_raw))  # C2–C7 clamp (for display only)
 
-            # RMS-based loudness
+            # RMS-based loudness — also used to gate out breathing / ambient noise
             s   = int(event_t * SR)
             e   = min(len(y), s + SR // 10)
             rms = float(np.sqrt(np.mean(y[s:e] ** 2))) if e > s else 0.0
+            # Discard events below breath-noise floor (~-45 dBFS); real soft notes
+            # hit ~0.02 RMS even on quiet passages; breathing is typically 0.001–0.008
+            if rms < 0.012:
+                continue
             loudness = "loud" if rms > 0.15 else "medium" if rms > 0.04 else "soft"
 
             confidence = int(min(100, float(np.mean(window_conf)) * 100))
@@ -1337,8 +1357,10 @@ def evaluate_with_gemini(
     has_score = bool(score_bytes and score_mime)
     score_block = """
 SHEET MUSIC: You have the score image above. Read the printed measure numbers directly off the page (look for numbers printed above/below the staff, or boxed rehearsal marks which indicate measure numbers). When reporting issues, give the EXACT PRINTED measure number from the score — do not guess or estimate.
+IMPORTANT: Only flag issues during passages where notes are written in the score. Do NOT flag anything heard during rests, between phrases, or in silence — even if there is ambient sound or breathing audible in the recording. If a measure contains only rests, skip it entirely.
 """ if has_score else f"""
 No score image provided. The recording starts at measure {start_measure}. Use timestamps only.
+IMPORTANT: Only flag issues during passages where the student is actively playing. Do NOT flag sounds heard during rests, breaths, or silence between phrases.
 """
 
     prompt = f"""PERFORMANCE ANALYSIS TASK. You are analyzing a student's recording of "{piece_title}" by {composer} on {instrument}.
@@ -2433,9 +2455,19 @@ def run_full_analysis(payload: dict) -> None:
                     if kind == "visual":
                         sc_mime = score_mime or "image/png"
                         print(f"[_gemini_pipeline] score included ({len(sc_bytes):,}B, {sc_mime})")
+                    elif kind == "pdf":
+                        # Convert first page of PDF to PNG so Gemini can read the score visually
+                        png_bytes = pdf_first_page_to_png(sc_bytes)
+                        if png_bytes:
+                            sc_bytes = png_bytes
+                            sc_mime = "image/png"
+                            print(f"[_gemini_pipeline] PDF converted to PNG ({len(sc_bytes):,}B) for Gemini")
+                        else:
+                            sc_bytes = None
+                            print("[_gemini_pipeline] PDF→PNG conversion failed — Gemini will not have score")
                     else:
                         sc_bytes = None
-                        print(f"[_gemini_pipeline] score kind={kind} — not visual, skipping inline")
+                        print(f"[_gemini_pipeline] score kind={kind} — not visual/PDF, skipping inline")
                 except Exception as e:
                     print(f"[_gemini_pipeline] score download failed (continuing without): {e}")
             return evaluate_with_gemini(

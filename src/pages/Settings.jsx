@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useTheme } from '../context/ThemeContext'
 import { supabase } from '../lib/supabase'
 import { playToggle, playSave, playThud, playTick } from '../utils/sounds'
 import { INSTRUMENTS } from '../lib/instruments'
@@ -347,10 +346,8 @@ function DeleteAccountCard() {
 
 /* ── Preferences section ─────────────────────────────────────── */
 function PreferencesSection() {
-  const { theme, toggleTheme } = useTheme()
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem('mediant_sound') !== 'false')
 
-  function handleTheme() { playToggle(theme !== 'dark'); toggleTheme() }
   function handleSound() {
     const next = !soundOn; setSoundOn(next)
     localStorage.setItem('mediant_sound', String(next))
@@ -361,9 +358,6 @@ function PreferencesSection() {
     <div className={styles.section}>
       <SectionHeader id="preferences" />
       <LegacyCard>
-        <SettingRow label="Dark mode" sub="Switch between light and dark interface theme.">
-          <Toggle checked={theme === 'dark'} onChange={handleTheme} />
-        </SettingRow>
         <SettingRow label="Sound effects" sub="Subtle audio cues for interactions and analysis events.">
           <Toggle checked={soundOn} onChange={handleSound} />
         </SettingRow>

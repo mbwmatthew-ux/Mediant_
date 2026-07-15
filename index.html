@@ -5,7 +5,7 @@
     <link rel="icon" type="image/png" href="/Tuffnewlogo.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/Tuffnewlogo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#051821" />
+    <meta name="theme-color" content="#F5F0E8" />
 
     <!-- Preconnect to Supabase origin for faster cold-start API calls -->
     <link rel="preconnect" href="https://supabase.co" />
@@ -34,14 +34,6 @@
 
     <link rel="canonical" href="https://www.mediant-music.com" />
 
-    <!-- Apply theme before first paint to prevent flash of wrong theme -->
-    <script>
-      (function(){
-        var v=localStorage.getItem('mediant_theme_v');
-        var t=v==='3'?localStorage.getItem('mediant_theme'):'dark';
-        document.documentElement.setAttribute('data-theme',t||'dark');
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>

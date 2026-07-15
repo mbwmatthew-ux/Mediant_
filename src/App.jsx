@@ -1,7 +1,6 @@
 import { Component } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
-import { ThemeProvider } from './context/ThemeContext'
 import { RecordModalProvider } from './context/RecordModalContext'
 
 class ErrorBoundary extends Component {
@@ -33,14 +32,12 @@ import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import Contact from './pages/Contact'
 import ResetPassword from './pages/ResetPassword'
-import CookieBanner from './components/CookieBanner'
 import { Analytics } from '@vercel/analytics/react'
 
 export default function App() {
   return (
     <>
     <ErrorBoundary>
-    <ThemeProvider>
     <AuthProvider>
       <HashRouter>
         <Routes>
@@ -65,10 +62,8 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        <CookieBanner />
       </HashRouter>
     </AuthProvider>
-    </ThemeProvider>
     </ErrorBoundary>
     <Analytics />
     </>

@@ -2387,6 +2387,8 @@ Return JSON only (no markdown):
                 deduped.append(flag)
     deduped.sort(key=lambda x: x["measure"])
     grouped = _group_similar_flags(deduped)
+    # Hard cap: never return more than 12 flags (grouped items count as one)
+    grouped = grouped[:12]
     print(f"[compare_and_coach_claude] {len(deduped)} raw flags → {len(grouped)} after grouping: "
           f"{[(g.get('measure'), g.get('type'), g.get('grouped')) for g in grouped]}")
     return grouped

@@ -248,7 +248,7 @@ function dedupeFlags(flags: NormalizedFlag[]): NormalizedFlag[] {
 
   return merged
     .sort((a, b) => (a.timestamp_start || a.measure) - (b.timestamp_start || b.measure))
-    .slice(0, 8)
+    .slice(0, 12)
 }
 
 function finalizeFlags(flags: NormalizedFlag[], evidence: EvidenceKind): NormalizedFlag[] {
@@ -265,7 +265,7 @@ function finalizeFlags(flags: NormalizedFlag[], evidence: EvidenceKind): Normali
       if (title.includes('generic') || title.includes('unclear issue')) return false
       return true
     })
-    .slice(0, 8)
+    .slice(0, 12)
 }
 
 function calibrateScore(rawScore: number, flags: NormalizedFlag[], evidence: EvidenceKind): number {

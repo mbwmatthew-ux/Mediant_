@@ -5,7 +5,7 @@ export default function RequireSubscription({ children }) {
   const { user } = useAuth()
   const location = useLocation()
 
-  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
+  if (!user) return <Navigate to="/" replace />
   if (user.emailConfirmed === false) return <Navigate to="/confirm-email" replace />
 
   return children

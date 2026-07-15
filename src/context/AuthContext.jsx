@@ -112,6 +112,15 @@ export function AuthProvider({ children }) {
     return { ok: true, user: userFromSession(data.session) }
   }
 
+  async function signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+    if (error) return { ok: false, error: error.message }
+    return { ok: true }
+  }
+
   async function logout() {
     await supabase.auth.signOut()
   }
@@ -131,7 +140,7 @@ export function AuthProvider({ children }) {
   )
 
   return (
-    <AuthContext.Provider value={{ user, profile, subscription, login, signup, logout, refreshSubscription, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, subscription, login, signup, signInWithGoogle, logout, refreshSubscription, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

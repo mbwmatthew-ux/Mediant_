@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { PLANS, HIGHLIGHT_PLAN_ID } from '../lib/pricing'
 import LogoMark from '../components/LogoMark'
 import styles from './Landing.module.css'
+import { useAuth } from '../context/AuthContext'
 
 function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(() => {
@@ -163,8 +164,16 @@ const MARQUEE_ITEMS = [
 ]
 
 export default function Landing() {
+  const { user } = useAuth()
+  const nav = useNavigate()
   const [navVisible, setNavVisible] = useState(true)
   const lastScrollY = useRef(0)
+
+  // After Google OAuth, Supabase redirects back to the root URL which renders Landing.
+  // Once AuthContext detects the session, send the user into the app.
+  useEffect(() => {
+    if (user) nav('/home', { replace: true })
+  }, [user, nav])
 
   useEffect(() => {
     function onScroll() {

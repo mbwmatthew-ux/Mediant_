@@ -8,6 +8,8 @@ import LogoMark from './LogoMark'
 import ErrorBoundary from './ErrorBoundary'
 import styles from './AppShell.module.css'
 import { playNav } from '../utils/sounds'
+import { supabase } from '../lib/supabase'
+import { INSTRUMENTS } from '../lib/instruments'
 
 const NAV_ITEMS = [
   { to: '/home',     label: 'Overview',  icon: HomeIcon     },
@@ -16,11 +18,70 @@ const NAV_ITEMS = [
   { to: '/reports',  label: 'Reports',   icon: ReportsIcon  },
 ]
 
+function InstrumentModal({ onSave }) {
+  const [instrument, setInstrument] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!instrument) return
+    setSaving(true)
+    await supabase.auth.updateUser({ data: { instrument } })
+    onSave(instrument)
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.45)', display: 'flex',
+      alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div style={{
+        background: 'var(--bg-card)', borderRadius: 16, padding: '32px 28px',
+        maxWidth: 400, width: '100%', boxShadow: 'var(--shadow-lg)',
+      }}>
+        <p style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--accent)', margin: '0 0 8px' }}>One quick thing</p>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text)', margin: '0 0 8px', letterSpacing: '-0.02em' }}>What instrument do you play?</h2>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', margin: '0 0 24px', lineHeight: 1.55 }}>
+          Mediant uses this to tailor feedback — pitch ranges, technique cues, and more.
+        </p>
+        <select
+          value={instrument}
+          onChange={e => setInstrument(e.target.value)}
+          style={{
+            width: '100%', padding: '10px 13px', borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--bg)',
+            color: instrument ? 'var(--text)' : 'var(--text-muted)',
+            fontFamily: 'inherit', fontSize: '0.9rem', marginBottom: 16,
+            appearance: 'none', outline: 'none',
+          }}
+        >
+          <option value="">Select an instrument…</option>
+          {INSTRUMENTS.map(i => <option key={i} value={i}>{i}</option>)}
+        </select>
+        <button
+          onClick={handleSave}
+          disabled={!instrument || saving}
+          style={{
+            width: '100%', padding: '12px', borderRadius: 9,
+            background: instrument ? 'var(--accent)' : 'var(--border)',
+            color: '#fff', border: 'none', fontFamily: 'inherit',
+            fontSize: '0.92rem', fontWeight: 700, cursor: instrument ? 'pointer' : 'not-allowed',
+            transition: 'background 140ms',
+          }}
+        >
+          {saving ? 'Saving…' : 'Continue'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function AppShell() {
   const { user } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
   const { open: showRecord, setOpen: setShowRecord } = useRecordModal()
+  const [needsInstrument, setNeedsInstrument] = useState(!user?.instrument)
 
   // 'r' opens the recording modal
   useEffect(() => {
@@ -68,6 +129,7 @@ export default function AppShell() {
   return (
     <div className={styles.shell}>
       <NewRecordingModal open={showRecord} onClose={() => setShowRecord(false)} />
+      {needsInstrument && <InstrumentModal onSave={() => setNeedsInstrument(false)} />}
 
       <a className={styles.skipLink} href="#main-content">Skip to content</a>
 

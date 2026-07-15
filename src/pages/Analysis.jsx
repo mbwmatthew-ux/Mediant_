@@ -1530,11 +1530,9 @@ const videoRef    = useRef(null)
           <div className={aStyles.scorePanelBody}>
             {scoreUrl ? (
               <div>
-                <img src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
                 {(() => {
                   const flags = take?.flags ?? []
-                  if (!flags.length) return null
-                  // Collect all marker positions: single flags → one dot; grouped → one dot per occurrence
+                  // Build all marker positions: single flags → one dot; grouped → one per occurrence
                   const allMarkers = []
                   flags.forEach((f, fi) => {
                     if (f.grouped && f.occurrences?.length) {
@@ -1545,20 +1543,35 @@ const videoRef    = useRef(null)
                       allMarkers.push({ measure: f.measure ?? 1, flagIdx: fi, occLabel: null, flagId: `flag_${fi}` })
                     }
                   })
-                  const measures = allMarkers.map(m => m.measure)
-                  const minM = Math.min(...measures)
-                  const maxM = Math.max(...measures, minM + 1)
-                  const mRange = maxM - minM || 1
+
+                  // 2D layout estimation so markers overlay the score image rather than a strip below it.
+                  // Use parsed measure list if available; fall back to flag measure range.
+                  const layoutMeasures = take?.measure_layout?.measures ?? []
+                  const scoreStartM = layoutMeasures.length > 0 ? (layoutMeasures[0]?.number ?? 1) : 1
+                  const totalScoreMeasures = layoutMeasures.length > 0 ? layoutMeasures.length
+                    : (allMarkers.length > 0 ? Math.max(...allMarkers.map(m => m.measure)) - Math.min(...allMarkers.map(m => m.measure)) + 1 : 1)
+                  // Estimate rows: most single-page orchestral/band parts have 6–8 measures per row.
+                  const measuresPerRow = Math.max(1, Math.round(totalScoreMeasures / Math.max(4, Math.min(12, Math.round(totalScoreMeasures / 6)))))
+                  const estimatedRows = Math.max(1, Math.ceil(totalScoreMeasures / measuresPerRow))
+
                   return (
-                    <div className={aStyles.scoreFlagStrip}>
+                    <div className={aStyles.scoreImgWrap}>
+                      <img src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
                       {allMarkers.map((m, mi) => {
-                        const pct = Math.max(3, Math.min(97, ((m.measure - minM) / mRange) * 92 + 4))
+                        const offsetFromStart = Math.max(0, m.measure - scoreStartM)
+                        const row = Math.floor(offsetFromStart / measuresPerRow)
+                        const colFrac = (offsetFromStart % measuresPerRow) / measuresPerRow
+                        // X: offset from left margin (clef/key sig ≈ 8%) to right margin (≈ 94%)
+                        const x = Math.max(6, Math.min(93, colFrac * 80 + 10))
+                        // Y: center of the row's band; top/bottom padding of ~4%
+                        const y = Math.max(3, Math.min(96, ((row + 0.5) / estimatedRows) * 92 + 4))
                         const isAct = activeFlag === m.flagId
                         return (
-                          <button key={`strip_${mi}`} type="button"
+                          <button key={`marker_${mi}`} type="button"
                             className={aStyles.scoreMarker}
                             style={{
-                              left: `${pct}%`,
+                              left: `${x}%`,
+                              top: `${y}%`,
                               background: isAct ? 'var(--accent)' : '#2A2A28',
                               boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
                               fontSize: m.occLabel ? 9 : 11,

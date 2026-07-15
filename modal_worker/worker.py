@@ -423,6 +423,34 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             })
 
         events.sort(key=lambda e: e["time_sec"])
+
+        # Clarinet harmonic suppression: clarinet overblows at the 12th (3× frequency),
+        # so CREPE can track the 3rd harmonic instead of the fundamental. If the instrument
+        # is clarinet and an event is almost exactly a 12th (19 semitones ±2) above
+        # a nearby event within 400ms, discard the higher one — it's almost certainly
+        # a harmonic of the lower note, not an actual clarion-register pitch.
+        if "clarinet" in instrument.lower() and len(events) > 1:
+            TWELFTH = 19  # semitones
+            harmonic_tolerance = 2  # semitones
+            discard = set()
+            for i, ev in enumerate(events):
+                if i in discard:
+                    continue
+                hi = ev["midi_raw"]
+                for j in range(max(0, i - 3), i):
+                    if j in discard:
+                        continue
+                    lo = events[j]["midi_raw"]
+                    diff = hi - lo
+                    if abs(diff - TWELFTH) <= harmonic_tolerance:
+                        gap = abs(ev["time_sec"] - events[j]["time_sec"])
+                        if gap <= 0.40:
+                            discard.add(i)
+                            break
+            if discard:
+                print(f"[pitch_tracking] clarinet: suppressed {len(discard)} likely 12th-harmonic events")
+                events = [e for i, e in enumerate(events) if i not in discard]
+
         print(
             f"[pitch_tracking] {len(onset_times)} onsets, "
             f"{len(voiced_segments)} voiced segments, {len(candidate_times)} candidates "
@@ -1225,7 +1253,15 @@ GEMINI_MODELS = [
 
 def _instrument_guidance(instrument: str) -> str:
     i = instrument.lower()
-    if any(x in i for x in ("clarinet", "flute", "oboe", "bassoon", "saxophone")):
+    if "clarinet" in i:
+        return (f"For {instrument} (clarinet): listen for squeaks and cracks at the register break (throat tones: written G#4–Bb4). "
+                "Flag every register break squeak. Also flag: chalumeau register (below written B4) sounding unfocused or hollow; "
+                "clarion register (written B4–C6) going sharp from over-blowing; weak or breathy tone from insufficient support. "
+                "IMPORTANT: clarinet overblows at the 12th (not the octave). When the player is in the chalumeau register, "
+                "the strong 12th harmonic can sound in the upper register — do NOT flag this as a wrong note or upper-register issue "
+                "unless you are certain the score and the player's embouchure/register key confirm they are in the clarion register. "
+                "Only report upper-register intonation or tone issues when the score clearly shows notes above written Bb4.")
+    if any(x in i for x in ("flute", "oboe", "bassoon", "saxophone")):
         return (f"For {instrument} (woodwind): listen specifically for squeaks, cracks, and register breaks — flag every one. "
                 "Also flag: over-blowing causing pitch to go sharp in the upper register, weak or breathy tone from insufficient air support, "
                 "smeared articulation from poor tongue placement, and octave/register key issues.")

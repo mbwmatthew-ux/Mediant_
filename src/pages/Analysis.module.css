@@ -126,7 +126,7 @@
   align-items: center; border: 2px solid rgba(255,255,255,0.8); border-radius: 50%;
   color: #fff; cursor: pointer; display: flex; font-size: 11px; font-weight: 700;
   height: 26px; justify-content: center; line-height: 1; padding: 0;
-  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  position: absolute; transform: translate(-50%, -50%);
   transition: background 150ms ease, box-shadow 150ms ease; width: 26px; z-index: 2;
 }
 .scoreEmpty {

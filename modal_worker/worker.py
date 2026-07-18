@@ -2132,12 +2132,34 @@ def compare_and_coach_claude(
     events_by_measure: dict[int, list] = {}
     for ev in aligned:
         events_by_measure.setdefault(ev["measure"], []).append(ev)
-    played_measures = [m for m in score.get("measures", []) if m["number"] in events_by_measure]
+
+    valid_measures   = {m["number"] for m in score.get("measures", [])}
+    score_measure_map = {m["number"]: m for m in score.get("measures", [])}
+
+    # Collect all measure numbers Gemini flagged so we include them in the context block
+    # even if CREPE had no events there (coverage gap).
+    gemini_flagged_nums: set[int] = set()
+    for _cat in ("intonation_issues", "rhythm_issues", "wrong_notes_cracks", "dynamics_issues", "tone_issues"):
+        for _item in gemini_assessment.get(_cat, []):
+            if isinstance(_item, dict):
+                try:
+                    gemini_flagged_nums.add(int(_item["measure"]))
+                except (KeyError, ValueError, TypeError):
+                    pass
+
+    # played_measures = CREPE-covered measures ∪ Gemini-flagged measures (both limited to score).
+    # This ensures Claude sees context for every measure either source found a problem in,
+    # not just the 3-5 where CREPE happened to align events.
+    active_nums = (set(events_by_measure.keys()) | (gemini_flagged_nums & valid_measures))
+    played_measures = [score_measure_map[n] for n in sorted(active_nums) if n in score_measure_map]
+    # Fallback: if score has measures but neither source found any, use all score measures
+    if not played_measures and score_measure_map:
+        played_measures = [score_measure_map[n] for n in sorted(score_measure_map)]
+
     if not played_measures and not gemini_assessment:
         return []
     range_map        = {r["measure"]: r for r in alignment_ranges}
     range_start_map  = {r["measure"]: r["start"] for r in alignment_ranges}
-    valid_measures   = {m["number"] for m in score.get("measures", [])}
     bpm              = beats_per_measure_from_time_sig(score.get("time_signature"))
     evidence_candidates: list[str] = []
     for m in played_measures:

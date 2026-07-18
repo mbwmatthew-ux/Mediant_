@@ -1366,6 +1366,60 @@ def _technique_visual_guidance(instrument: str) -> str:
             "and any visible mechanical issues with how the instrument is being held or operated.")
 
 
+def get_measure_positions_gemini(
+    score_bytes: bytes, score_mime: str, api_key: str
+) -> dict[int, tuple[float, float]]:
+    """
+    Send the score image to Gemini and ask for the center (x_pct, y_pct) of each
+    visible measure, where 0,0 = top-left and 100,100 = bottom-right of the image.
+    Returns {measure_number: (x_pct, y_pct)} — empty dict on any failure.
+    """
+    import httpx, base64, json as _json
+    prompt = (
+        "You are looking at a sheet music score image. "
+        "For every measure visible on the page, identify the approximate center point "
+        "as a percentage of the image dimensions (x=0 is the left edge, x=100 is the right; "
+        "y=0 is the top edge, y=100 is the bottom). "
+        "Use the printed measure numbers if visible; otherwise number sequentially from 1. "
+        "Return ONLY valid JSON, no markdown:\n"
+        "{\"measures\": [{\"number\": <int>, \"x_pct\": <float>, \"y_pct\": <float>}]}"
+    )
+    b64 = base64.b64encode(score_bytes).decode()
+    parts = [
+        {"inlineData": {"mimeType": score_mime, "data": b64}},
+        {"text": prompt},
+    ]
+    try:
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
+                json={
+                    "contents": [{"parts": parts}],
+                    "generationConfig": {"temperature": 0, "maxOutputTokens": 2048},
+                },
+            )
+        if not resp.is_success:
+            print(f"[measure_positions] HTTP {resp.status_code}")
+            return {}
+        data = resp.json()
+        resp_parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        text = next((p["text"] for p in resp_parts if "text" in p), "")
+        text = text.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        parsed = _json.loads(text)
+        result = {}
+        for m in parsed.get("measures", []):
+            n = m.get("number")
+            x = m.get("x_pct")
+            y = m.get("y_pct")
+            if n is not None and x is not None and y is not None:
+                result[int(n)] = (float(x), float(y))
+        print(f"[measure_positions] got positions for {len(result)} measures")
+        return result
+    except Exception as e:
+        print(f"[measure_positions] failed: {e}")
+        return {}
+
+
 def evaluate_with_gemini(
     file_uri: str, mime_type: str,
     instrument: str, piece_title: str, composer: str,
@@ -2556,6 +2610,14 @@ def run_full_analysis(payload: dict) -> None:
                     if res.get("measures"):
                         s = res
                         ps_notes = res
+            # For any visual score, get exact measure positions from Gemini
+            if kind == "visual" and gemini_key and s.get("measures"):
+                positions = get_measure_positions_gemini(sb, score_mime, gemini_key)
+                if positions:
+                    for m in s["measures"]:
+                        pos = positions.get(m["number"])
+                        if pos:
+                            m["x_pct"], m["y_pct"] = pos
             return s, ps_notes
 
         with ThreadPoolExecutor(max_workers=3) as pool:

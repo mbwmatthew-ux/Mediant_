@@ -1606,7 +1606,7 @@ Return JSON only (no markdown):
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=8192,
             messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
         )
@@ -2120,7 +2120,7 @@ def compare_and_coach_claude(
     user_note: str = "",
 ) -> list[dict]:
     import anthropic as ac, re
-    CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+    CLAUDE_MODEL = "claude-sonnet-4-6"
     allowed_types = {
         "intonation", "timing", "rhythm", "articulation", "dynamics",
         "voicing", "phrasing", "tone", "error", "posture", "technique",

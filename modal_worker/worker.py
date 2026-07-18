@@ -1395,7 +1395,7 @@ def get_measure_positions_gemini(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
                 json={
                     "contents": [{"parts": parts}],
-                    "generationConfig": {"temperature": 0, "maxOutputTokens": 2048},
+                    "generationConfig": {"temperature": 0, "maxOutputTokens": 2048, "responseMimeType": "application/json"},
                 },
             )
         if not resp.is_success:
@@ -1509,7 +1509,7 @@ Return JSON only (no markdown fences). Each issue MUST be an object with "measur
                     f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": parts}],
-                        "generationConfig": {"temperature": 0, "maxOutputTokens": 4096},
+                        "generationConfig": {"temperature": 0, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
                     },
                 )
             if not resp.is_success:

@@ -1554,31 +1554,53 @@ Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") w
     parts.append({"fileData": {"mimeType": mime_type, "fileUri": file_uri}})
     parts.append({"text": prompt})
 
+    # gemini-2.5 models "think" before answering, and thinking tokens count against
+    # maxOutputTokens. With a heavy prompt they can burn the whole budget thinking and
+    # return an EMPTY response (finishReason MAX_TOKENS, no text). We bound thinking so
+    # tokens are reserved for the actual JSON. Each model is tried with a couple of
+    # configs so that if the API rejects `thinkingConfig` we still fall back cleanly.
+    def _configs_for(model: str) -> list[dict]:
+        think_budget = 0 if "flash" in model else 512
+        return [
+            {"temperature": 0, "maxOutputTokens": 16384, "responseMimeType": "application/json",
+             "thinkingConfig": {"thinkingBudget": think_budget}},
+            # Fallback if thinkingConfig is rejected: no thinking cap, but a much larger
+            # ceiling so thinking + JSON both fit.
+            {"temperature": 0, "maxOutputTokens": 40000, "responseMimeType": "application/json"},
+        ]
+
+    def _extract_text(data: dict) -> tuple[str, str]:
+        cand = (data.get("candidates") or [{}])[0]
+        resp_parts = cand.get("content", {}).get("parts", [])
+        text = next((p.get("text", "") for p in resp_parts if not p.get("thought") and p.get("text", "").strip()), "")
+        if not text:
+            text = next((p.get("text", "") for p in resp_parts if p.get("text", "").strip()), "")
+        return text, str(cand.get("finishReason", "?"))
+
     last_error = "no models attempted"
     for model in GEMINI_MODELS:
         try:
-            with httpx.Client(timeout=120) as client:
-                resp = client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
-                    json={
-                        "contents": [{"parts": parts}],
-                        "generationConfig": {"temperature": 0, "maxOutputTokens": 16384, "responseMimeType": "application/json"},
-                    },
-                )
-            if not resp.is_success:
-                last_error = f"{model} → HTTP {resp.status_code}: {resp.text[:200]}"
-                print(f"[evaluate_with_gemini] {last_error}")
-                if resp.status_code in (401, 403):
-                    raise RuntimeError(f"Gemini auth error ({resp.status_code}) — check GOOGLE_AI_API_KEY")
-                continue
-            data = resp.json()
-            # Skip thinking parts (gemini-2.5 series); use resp_parts to avoid shadowing request parts
-            resp_parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-            text = next((p.get("text", "") for p in resp_parts if not p.get("thought") and p.get("text", "").strip()), "")
+            text = ""
+            for gen_config in _configs_for(model):
+                with httpx.Client(timeout=150) as client:
+                    resp = client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
+                        json={"contents": [{"parts": parts}], "generationConfig": gen_config},
+                    )
+                if not resp.is_success:
+                    last_error = f"{model} → HTTP {resp.status_code}: {resp.text[:200]}"
+                    print(f"[evaluate_with_gemini] {last_error}")
+                    if resp.status_code in (401, 403):
+                        raise RuntimeError(f"Gemini auth error ({resp.status_code}) — check GOOGLE_AI_API_KEY")
+                    continue  # try next config for this model
+                data = resp.json()
+                text, finish = _extract_text(data)
+                if text:
+                    break  # got a usable response
+                last_error = f"{model} → empty response (finishReason={finish})"
+                print(f"[evaluate_with_gemini] {last_error} | usage={data.get('usageMetadata')}")
             if not text:
-                last_error = f"{model} → empty response"
-                print(f"[evaluate_with_gemini] {last_error}")
-                continue
+                continue  # all configs for this model failed → next model
             parsed = extract_json_object(text)
             if not parsed:
                 last_error = f"{model} → JSON parse failed"

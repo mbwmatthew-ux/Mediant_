@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-20g — Fix "All Gemini models failed: empty response"
+
+gemini-2.5 flash/pro are thinking models; thinking tokens count against maxOutputTokens. The heavy "examine every measure" prompt made them spend the entire 16384-token budget thinking and return an empty response (finishReason MAX_TOKENS) — both models failed → analysis failed.
+
+- `generationConfig.thinkingConfig.thinkingBudget`: 0 for flash (disable thinking), 512 for pro (its minimum). Reserves the token budget for the actual JSON, and speeds up generation.
+- Per-model fallback config: if `thinkingConfig` is rejected (400), retry that model without it at maxOutputTokens=40000 so thinking + JSON both fit.
+- Empty-response handling: also accept a text part even if flagged as thought, and log `finishReason` + `usageMetadata` for diagnosis. Timeout 120s → 150s.
+
 ## 2026-07-20f — Measure numbers from the beat grid (stop trusting Gemini's photo reading)
 
 Measure numbers were still wrong because we trusted Gemini's reading of printed numbers off a phone photo — fundamentally unreliable. Switched to a deterministic source.

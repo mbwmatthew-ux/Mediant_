@@ -1,5 +1,12 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-20e — Start-measure offset (analysis labeled measures too low)
+
+Student set start measure = 20, but every flag came out ~8 measures too low (m.12 etc.). Cause: when a score image is provided, the Gemini prompt told it to read printed measure numbers but never said WHERE the recording starts — so Gemini assumed the top of the page and counted from there.
+
+- Gemini prompt (has_score branch, now an f-string): explicitly states the recording BEGINS at measure `{start_measure}`, the first heard note is that measure, and no reported measure may be below it.
+- Worker safety net: `compare_and_coach_claude` now takes `start_measure`; if Gemini's minimum reported measure is below it, shift ALL Gemini measures up by the offset (its relative spacing is right, only the base is wrong). Verified: start=20 + Gemini m.12/12-19/16 → m.20/20-27/24.
+
 ## 2026-07-20d — THE loop bug: inline ref callback re-seeking every render
 
 The real cause of "loop is cut / very short / just wrong." Each flag's `<video>` used an **inline** `ref={el => { videoRef.current = el; el.currentTime = f.timestamp_start }}`. React re-invokes inline ref callbacks on **every render** (null, then the node). The loop effect called `setCurrentTime(t)` on every `timeupdate` (~4x/sec) → a render each time → the ref callback re-ran → `el.currentTime = timestamp_start` **yanked the video back to the flag start ~4x/sec**. The video never played more than a fraction of a second — and passages never progressed.

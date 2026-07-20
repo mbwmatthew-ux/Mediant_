@@ -1476,11 +1476,15 @@ def evaluate_with_gemini(
     )
 
     has_score = bool(score_bytes and score_mime)
-    score_block = """
-SHEET MUSIC: You have the score image above. Read the printed measure numbers directly off the page (look for numbers printed above/below the staff, or boxed rehearsal marks which indicate measure numbers). When reporting issues, give the EXACT PRINTED measure number from the score — do not guess or estimate.
+    score_block = f"""
+SHEET MUSIC: You have the score image above. Read the printed measure numbers directly off the page (look for numbers printed above/below the staff, or boxed rehearsal marks which indicate measure numbers).
+
+WHERE THE RECORDING STARTS — CRITICAL: The student's recording BEGINS at printed measure {start_measure}. The very FIRST note you hear (at 0:00) is measure {start_measure} in the score — NOT the first measure printed at the top of the page. The student did NOT play any measures before {start_measure}; ignore everything printed before measure {start_measure}. Align every note you hear to the score starting from measure {start_measure} and count forward from there.
+
+When reporting issues, give the EXACT PRINTED measure number from the score. Every measure number you report MUST be {start_measure} or higher — never report a measure below {start_measure}, because the student did not play those.
 IMPORTANT: Only flag issues during passages where notes are written in the score. Do NOT flag anything heard during rests, between phrases, or in silence — even if there is ambient sound or breathing audible in the recording. If a measure contains only rests, skip it entirely.
 """ if has_score else f"""
-No score image provided. The recording starts at measure {start_measure}. Use timestamps only.
+No score image provided. The recording starts at measure {start_measure}. Use timestamps only. Every measure number you report MUST be {start_measure} or higher.
 IMPORTANT: Only flag issues during passages where the student is actively playing. Do NOT flag sounds heard during rests, breaths, or silence between phrases.
 """
 
@@ -2184,6 +2188,7 @@ def compare_and_coach_claude(
     gemini_assessment: dict, anthropic_api_key: str,
     user_note: str = "",
     video_duration: float = 0.0,
+    start_measure: int = 1,
 ) -> list[dict]:
     import anthropic as ac, re
     CLAUDE_MODEL = "claude-sonnet-4-6"
@@ -2492,6 +2497,29 @@ def compare_and_coach_claude(
                 _safe_measure_int(item.get("measure_end")),
                 parse_mmss_to_seconds(item.get("time_end")),
             ))
+
+    # Safety net for the recording start offset. The student began at measure
+    # start_measure, so no issue can be below it. If Gemini ignored that (it read the
+    # measure numbers off the top of the page instead of where the recording begins),
+    # its measures come out uniformly too low. Detect that (min reported measure below
+    # start) and shift ALL Gemini measures up by the offset so they anchor to the real
+    # start — Gemini's relative spacing is usually right, only its base is wrong.
+    if start_measure > 1:
+        gm_nums = [it[1] for it in gemini_items if it[1] is not None and it[1] > 0]
+        if gm_nums:
+            gm_min = min(gm_nums)
+            if gm_min < start_measure:
+                offset = start_measure - gm_min
+                print(f"[compare_and_coach_claude] Gemini measures start at {gm_min} but "
+                      f"recording starts at {start_measure} — shifting all by +{offset}")
+                gemini_items = [
+                    (ft,
+                     (gm + offset if gm is not None else None),
+                     ts, d,
+                     (gme + offset if gme is not None else None),
+                     te)
+                    for (ft, gm, ts, d, gme, te) in gemini_items
+                ]
 
     # Rescale Gemini timestamps if its clock overran the real recording. Gemini
     # sometimes reports times past the actual end (its internal sense of tempo drifts),
@@ -3058,6 +3086,7 @@ def run_full_analysis(payload: dict) -> None:
                 gemini_assessment=gemini_assessment, anthropic_api_key=anthropic_key,
                 user_note=user_note,
                 video_duration=beats.get("duration_sec") or video_duration,
+                start_measure=start_measure,
             )
             debug_steps.append(f"claude_coaching: {len(flags)} flags")
         else:

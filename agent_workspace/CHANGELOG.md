@@ -1,5 +1,15 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-20f — Measure numbers from the beat grid (stop trusting Gemini's photo reading)
+
+Measure numbers were still wrong because we trusted Gemini's reading of printed numbers off a phone photo — fundamentally unreliable. Switched to a deterministic source.
+
+- `compare_and_coach_claude` now derives every measure from the **beat grid**: `time_to_measure(t)` = `start_measure + (beats elapsed by t) // beats_per_measure`, using the CREPE `beat_times` and the same `bpm_int` CREPE uses. Deterministic, monotonic, anchored at the student's real start measure, and consistent with CREPE-numbered intonation flags. Gemini's own measure number is now only a fallback when an issue has no timestamp.
+- Passage `measure_end` likewise derived from the end timestamp.
+- Gemini's timestamp remains the trusted signal (it watched the video); its measure reading is no longer relied upon.
+- Speed: removed the heavy "re-verify each measure number against the score" instructions from the Gemini prompt (no longer needed since we compute measures ourselves) — less model thinking, faster analysis.
+- Verified: start=20, Gemini reports m.12/99/5 with correct timestamps → beat grid yields m.20/24/30.
+
 ## 2026-07-20e — Start-measure offset (analysis labeled measures too low)
 
 Student set start measure = 20, but every flag came out ~8 measures too low (m.12 etc.). Cause: when a score image is provided, the Gemini prompt told it to read printed measure numbers but never said WHERE the recording starts — so Gemini assumed the top of the page and counted from there.

@@ -1528,10 +1528,10 @@ Be specific. For each issue include:
 - The timestamp in the recording (e.g. "0:08")
 - Direction (sharp/flat), magnitude, specific note or passage
 
-TIMESTAMP ACCURACY IS CRITICAL — the timestamp is used to locate each issue in the recording:
-- Give the REAL elapsed time in the recording when each issue occurs ("M:SS"), measured from the start of the audio.
+TIMESTAMP ACCURACY IS THE MOST IMPORTANT FIELD — the exact location of each issue is computed from its timestamp, so get the time right:
+- Give the REAL elapsed time in the recording when each issue occurs ("M:SS"), measured from the start of the audio (0:00 = the first note).
 - Different issues happen at DIFFERENT times — never reuse the same timestamp for multiple issues. An issue near the end of a 2-minute recording must have a timestamp near 2:00, not 0:20.
-- Do NOT put every issue on the same measure number. If you are unsure of the printed measure number, still give the correct timestamp — that is what matters most.
+- For the "measure" field, give your best reading of the printed measure number, but do NOT agonize over it or re-count repeatedly — the timestamp is what we rely on. Just make sure a later timestamp never gets an earlier measure.
 
 Return JSON only (no markdown fences). Each issue MUST be an object with "measure" (int — the printed number from the score, or {start_measure} if no score), "time" (string "M:SS"), and "description" (string):
 Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") when the issue spans a passage of several measures — omit both for a single-measure issue.
@@ -2189,6 +2189,8 @@ def compare_and_coach_claude(
     user_note: str = "",
     video_duration: float = 0.0,
     start_measure: int = 1,
+    beat_times: list | None = None,
+    beats_per_measure: int | None = None,
 ) -> list[dict]:
     import anthropic as ac, re
     CLAUDE_MODEL = "claude-sonnet-4-6"
@@ -2290,16 +2292,29 @@ def compare_and_coach_claude(
         measure_lo = 1
         measure_hi = max(span_max, len(score.get("measures", [])) or 1, 1)
 
+    import bisect as _bisect
+
     def time_to_measure(tsec: float | None) -> int | None:
         """
         Map a recording timestamp to a measure number. Gemini reliably reports WHEN
         an issue happens (it watched the video) but often misreads the printed measure
         number off the score photo — so we trust the timestamp and derive the measure.
-        Uses CREPE alignment ranges where they contain the timestamp (accurate), else
-        distributes proportionally across the piece.
+
+        Primary method: the BEAT GRID. beat_times[] are the detected beat onsets;
+        beat 0 corresponds to measure `start_measure`. So the measure at time t is
+        start_measure + (beats elapsed by t) // beats_per_measure. This is deterministic,
+        monotonic, anchored at the student's real start measure, and consistent with how
+        CREPE events are numbered — the most reliable measure signal we have.
+        Falls back to CREPE alignment ranges, then a proportional estimate.
         """
         if tsec is None:
             return None
+        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+        if beat_times and len(beat_times) >= 2 and bpm_grid >= 1:
+            idx = _bisect.bisect_right(beat_times, tsec) - 1
+            if idx < 0:
+                idx = 0
+            return start_measure + idx // bpm_grid
         for r in alignment_ranges:
             if r["start"] <= tsec <= r["end"]:
                 return r["measure"]
@@ -2546,43 +2561,48 @@ def compare_and_coach_claude(
           f"{len(distinct_gm)} distinct measures {sorted(distinct_gm)}, "
           f"{len(distinct_ts)} distinct timestamps")
 
-    # Are Gemini's measure numbers trustworthy? They are when it reports a healthy
-    # spread of distinct measures. When it collapses most issues onto one measure,
-    # its printed-number reading failed and we fall back to the timestamps instead.
-    measures_reliable = len(distinct_gm) >= 2 and len(distinct_gm) >= len(gemini_items) * 0.5
+    # Measure numbers come from the BEAT GRID (time_to_measure), not Gemini's photo
+    # reading — Gemini watches the video so its TIMESTAMP is reliable, but reading the
+    # printed measure number off a phone photo is not (it drifts, offsets, misreads).
+    # The beat grid is deterministic, monotonic, and anchored at the student's real
+    # start_measure, so measures stay in sync with what was actually played.
+    have_beat_grid = bool(beat_times and len(beat_times) >= 2)
+    if have_beat_grid:
+        print("[compare_and_coach_claude] deriving measure numbers from the beat grid "
+              f"(anchored at m.{start_measure})")
 
     # Degenerate-response repair: if Gemini collapsed everything onto ~one location
-    # (one measure AND no timestamp spread), distribute the issues evenly across the
-    # recording by their order so they don't all pile onto a single measure + loop.
-    need_spread = len(gemini_items) >= 3 and len(distinct_ts) <= 1 and len(distinct_gm) <= 1
+    # (one measure AND no timestamp spread) AND we have no beat grid, distribute the
+    # issues evenly across the recording by their order.
+    need_spread = (not have_beat_grid) and len(gemini_items) >= 3 \
+        and len(distinct_ts) <= 1 and len(distinct_gm) <= 1
     if need_spread:
         print("[compare_and_coach_claude] degenerate Gemini measures/timestamps — "
               "spreading issues across the recording by order")
-    elif not measures_reliable:
-        print("[compare_and_coach_claude] Gemini measures clustered — deriving measure "
-              "from each issue's timestamp instead")
 
     for idx, (ftype, gm_measure, tsec, desc, gm_measure_end, tsec_end) in enumerate(gemini_items):
         if need_spread and piece_len > 0:
             tsec = piece_len * (idx + 0.5) / len(gemini_items)
             gm_measure_end, tsec_end = None, None   # ranges are meaningless when spreading
-        # Trust Gemini's measure when its numbering is reliable; otherwise derive the
-        # measure from the (reliable) timestamp of when the issue actually occurred.
-        if measures_reliable and gm_measure:
+        # Beat-grid measure from the timestamp is primary; Gemini's own number is only a
+        # fallback when there is no timestamp to place the issue.
+        m = time_to_measure(tsec)
+        if m is None:
             m = gm_measure
-        else:
-            m = time_to_measure(tsec) or gm_measure
         if m is None or m <= 0:
             continue
-        # Resolve the passage end (measure_end) the same way — trust Gemini's number
-        # when reliable, else derive from the end timestamp.
+        # Passage end: derive from the end timestamp via the beat grid; fall back to
+        # Gemini's measure_end only if there is no end timestamp.
         m_end = None
-        if measures_reliable and gm_measure_end and gm_measure_end > m:
-            m_end = gm_measure_end
-        elif tsec_end is not None:
+        if tsec_end is not None:
             derived = time_to_measure(tsec_end)
             if derived and derived > m:
                 m_end = derived
+        elif gm_measure_end and gm_measure_end > (gm_measure or 0) and m is not None:
+            # keep Gemini's relative span length when we only have its measures
+            span = gm_measure_end - gm_measure
+            if span > 0:
+                m_end = m + span
         if ftype == "error":
             conf = m in wrongnote_conf_measures  # Tier B — CREPE must corroborate
         elif ftype == "timing":
@@ -3087,6 +3107,8 @@ def run_full_analysis(payload: dict) -> None:
                 user_note=user_note,
                 video_duration=beats.get("duration_sec") or video_duration,
                 start_measure=start_measure,
+                beat_times=beats.get("beat_times"),
+                beats_per_measure=bpm_int,
             )
             debug_steps.append(f"claude_coaching: {len(flags)} flags")
         else:

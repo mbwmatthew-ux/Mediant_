@@ -776,11 +776,32 @@ const videoRef    = useRef(null)
         .then(({ data }) => { if (data?.signedUrl) setScoreUrl(data.signedUrl) })
     }
 
+    // Download the recording as a Blob and play from an object URL. Streaming a
+    // remote signed URL makes seeking unreliable (range requests, and webm/mov
+    // recordings often lack a seek index) — which broke the Loop feature. With the
+    // whole file local, `currentTime = x` seeks accurately.
+    let cancelled = false
+    let objectUrl = null
     if (take.video_path) {
       supabase.storage
         .from('recordings')
         .createSignedUrl(take.video_path, 7200)
-        .then(({ data }) => { if (data?.signedUrl) setVideoUrl(data.signedUrl) })
+        .then(async ({ data }) => {
+          if (cancelled || !data?.signedUrl) return
+          try {
+            const resp = await fetch(data.signedUrl)
+            const blob = await resp.blob()
+            if (cancelled) return
+            objectUrl = URL.createObjectURL(blob)
+            setVideoUrl(objectUrl)
+          } catch {
+            if (!cancelled) setVideoUrl(data.signedUrl)   // fall back to streaming
+          }
+        })
+    }
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [take])
 
@@ -811,11 +832,58 @@ const videoRef    = useRef(null)
   useEffect(() => {
     const video = videoRef.current
     if (!video || !isLooping || !loopRef.current) return
-    const { start, end } = loopRef.current
+    let { start, end } = loopRef.current
+
+    // The true recording length: prefer the browser's decoded duration, fall back
+    // to the value stored at record time. MediaRecorder webm files sometimes report
+    // duration as Infinity/NaN until fully buffered, so we keep a stored fallback.
+    function knownDuration() {
+      const d = video.duration
+      if (Number.isFinite(d) && d > 0) return d
+      const stored = Number(take?.duration_seconds)
+      return Number.isFinite(stored) && stored > 0 ? stored : null
+    }
+
+    // Clamp the loop window inside the real recording and guarantee it is long
+    // enough to actually hear (>= ~3s), preserving the requested length otherwise.
+    function resolveWindow() {
+      let s = Math.max(0, Number(start) || 0)
+      let e = Number(end) || (s + 3)
+      const dur = knownDuration()
+      const MIN_LEN = 3
+      if (dur) {
+        if (e > dur) e = dur
+        if (s > dur - 0.5) s = Math.max(0, dur - Math.max(MIN_LEN, e - s))
+      }
+      if (e - s < MIN_LEN) {
+        // extend forward if room, else backward
+        if (dur && s + MIN_LEN <= dur) e = s + MIN_LEN
+        else if (dur) { e = dur; s = Math.max(0, dur - MIN_LEN) }
+        else e = s + MIN_LEN
+      }
+      return { s, e }
+    }
+
+    // webm files from MediaRecorder report duration=Infinity until the browser has
+    // seeked to the end once. Without a real duration, seeking to a timestamp is
+    // unreliable. Force it by seeking far past the end, then run the callback.
+    function withRealDuration(cb) {
+      if (Number.isFinite(video.duration) && video.duration > 0) { cb(); return }
+      const onSeeked = () => {
+        video.removeEventListener('seeked', onSeeked)
+        cb()
+      }
+      video.addEventListener('seeked', onSeeked)
+      try { video.currentTime = 1e7 } catch { video.removeEventListener('seeked', onSeeked); cb() }
+    }
 
     function seekAndPlay() {
-      try { video.currentTime = start } catch {}
-      video.play().catch(() => {})
+      withRealDuration(() => {
+        const { s, e } = resolveWindow()
+        start = s; end = e
+        try { video.currentTime = s } catch {}
+        video.play().catch(() => {})
+      })
     }
 
     if (video.readyState >= 1) {
@@ -824,16 +892,26 @@ const videoRef    = useRef(null)
       video.addEventListener('loadedmetadata', seekAndPlay, { once: true })
     }
 
-    function onTimeUpdate() {
-      const t = videoRef.current?.currentTime ?? start
-      setCurrentTime(t)
-      if (t >= end) {
-        try { videoRef.current.currentTime = start } catch {}
-      }
+    function loopBack() {
+      try { video.currentTime = start } catch {}
+      video.play().catch(() => {})
     }
+    function onTimeUpdate() {
+      // NOTE: do not setState here — it re-renders the flag list every ~250ms, which
+      // re-invokes the video's inline ref callback and can disrupt playback.
+      const t = video.currentTime ?? start
+      // small epsilon so we catch the boundary before the browser fires 'ended'
+      if (t >= end - 0.05) loopBack()
+    }
+    // If a long loop reaches the very end of the file, 'ended' fires instead of a
+    // final timeupdate — without this the loop would just stop (passages "not working").
+    function onEnded() { loopBack() }
+
     video.addEventListener('timeupdate', onTimeUpdate)
+    video.addEventListener('ended', onEnded)
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate)
+      video.removeEventListener('ended', onEnded)
       video.removeEventListener('loadedmetadata', seekAndPlay)
       video.pause()
     }
@@ -1647,12 +1725,16 @@ const videoRef    = useRef(null)
                                 playsInline
                                 preload="metadata"
                                 ref={el => {
+                                  // React re-invokes inline ref callbacks on EVERY render
+                                  // (null then node). Only act on a genuinely new node, or
+                                  // the per-render re-seek yanks the video back to the start
+                                  // ~4x/sec during looping ("cut / very short" bug).
+                                  if (!el || el === videoRef.current) return
                                   videoRef.current = el
-                                  if (el) {
-                                    const t = Number(f.occurrences[0].timestamp_start)
-                                    el.currentTime = t
-                                    el.onloadedmetadata = () => { el.currentTime = t }
-                                  }
+                                  const t = Number(f.occurrences[0].timestamp_start)
+                                  const seek = () => { try { el.currentTime = t } catch {} }
+                                  if (el.readyState >= 1) seek()
+                                  else el.addEventListener('loadedmetadata', seek, { once: true })
                                 }}
                               />
                               <div className={aStyles.issueThumbnailOverlay} style={{ pointerEvents: 'none' }}>
@@ -1741,14 +1823,19 @@ const videoRef    = useRef(null)
                               playsInline
                               preload="metadata"
                               ref={el => {
+                                // Only act on a genuinely new node — inline ref callbacks
+                                // re-run every render, and re-seeking here mid-loop yanks the
+                                // video back to the start ~4x/sec ("cut / very short" bug).
+                                if (!el || el === videoRef.current) return
                                 videoRef.current = el
-                                if (el) {
-                                  if (f.timestamp_start != null) el.currentTime = Number(f.timestamp_start)
-                                  el.onloadedmetadata = () => {
-                                    setVideoDuration(el.duration || null)
-                                    if (f.timestamp_start != null) el.currentTime = Number(f.timestamp_start)
+                                const seek = () => {
+                                  setVideoDuration(el.duration || null)
+                                  if (f.timestamp_start != null) {
+                                    try { el.currentTime = Number(f.timestamp_start) } catch {}
                                   }
                                 }
+                                if (el.readyState >= 1) seek()
+                                else el.addEventListener('loadedmetadata', seek, { once: true })
                               }}
                             />
                             <div className={aStyles.issueThumbnailOverlay}

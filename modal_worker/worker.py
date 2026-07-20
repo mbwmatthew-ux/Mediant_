@@ -1197,6 +1197,36 @@ def analyze(body: dict) -> dict:
 
 # ── Helpers for the async full-pipeline ───────────────────────────────────
 
+def parse_mmss_to_seconds(t) -> float | None:
+    """
+    Parse a Gemini timestamp into seconds. Accepts "M:SS", "MM:SS", "H:MM:SS",
+    plain seconds ("12", "12.5"), or numbers. Returns None if unparseable.
+    """
+    if t is None:
+        return None
+    if isinstance(t, (int, float)):
+        return float(t) if t >= 0 else None
+    s = str(t).strip()
+    if not s:
+        return None
+    # Strip a leading "0:" hour field is handled by splitting on ":"
+    if ":" in s:
+        parts = s.split(":")
+        try:
+            parts_f = [float(p) for p in parts]
+        except ValueError:
+            return None
+        total = 0.0
+        for p in parts_f:
+            total = total * 60 + p
+        return total if total >= 0 else None
+    try:
+        v = float(s)
+        return v if v >= 0 else None
+    except ValueError:
+        return None
+
+
 def extract_json_object(raw: str) -> dict | None:
     import json, re
     # Strip all markdown code fences regardless of position or leading whitespace
@@ -1458,6 +1488,19 @@ IMPORTANT: Only flag issues during passages where the student is actively playin
 {score_block}
 You have access to BOTH the audio AND the video. Listen carefully to the sound for categories 1–5. Observe the player visually for categories 6–7.
 
+CRITICAL — EXAMINE EVERY MEASURE THAT WAS PLAYED, ONE BY ONE:
+- Go through the recording measure by measure, from the FIRST measure the student plays to the LAST. Do not sample or summarize — actually inspect each measure in order.
+- For EACH played measure, check all seven categories below. If that measure has any issue (even a small one), report it with the measure's timestamp. If a measure is genuinely clean, move on — but you must have considered it.
+- The recording may be several minutes long. A typical performance has issues in MANY measures, not just 3-5. It is normal and expected to return 10, 20, or more issues spread across the whole piece. Do NOT stop early or condense the whole piece into a few findings.
+- Each issue must carry the correct timestamp for WHERE it occurs in the recording (measured from the start). Issues late in the piece get late timestamps.
+- You may report multiple issues in the same measure (e.g. a wrong note AND a dynamics problem). Report each separately.
+- Report single-note problems (a crack, one wrong pitch) individually; report sustained problems across a phrase once for that passage.
+
+PASSAGES / MEASURE RANGES — when an issue spans several measures, mark the whole range:
+- If a problem continues across multiple measures (a phrase that rushes throughout, a long crescendo that never arrives, the whole piece playing flat), set "measure" to the FIRST measure and "measure_end" to the LAST measure of that passage, and set "time" / "time_end" to the start/end timestamps of the passage.
+- Use a range when the issue is genuinely sustained. For a problem confined to one measure, omit "measure_end" (or set it equal to "measure").
+- It is fine to mark the entire piece (e.g. "measure": 1, "measure_end": 40) if a single issue truly persists throughout.
+
 {instrument_guidance}
 {note_block}
 MANDATORY — address all seven categories. Do not skip any:
@@ -1481,13 +1524,19 @@ Be specific. For each issue include:
 - The timestamp in the recording (e.g. "0:08")
 - Direction (sharp/flat), magnitude, specific note or passage
 
+TIMESTAMP ACCURACY IS CRITICAL — the timestamp is used to locate each issue in the recording:
+- Give the REAL elapsed time in the recording when each issue occurs ("M:SS"), measured from the start of the audio.
+- Different issues happen at DIFFERENT times — never reuse the same timestamp for multiple issues. An issue near the end of a 2-minute recording must have a timestamp near 2:00, not 0:20.
+- Do NOT put every issue on the same measure number. If you are unsure of the printed measure number, still give the correct timestamp — that is what matters most.
+
 Return JSON only (no markdown fences). Each issue MUST be an object with "measure" (int — the printed number from the score, or {start_measure} if no score), "time" (string "M:SS"), and "description" (string):
+Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") when the issue spans a passage of several measures — omit both for a single-measure issue.
 {{
-  "intonation_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<note/passage> sounds <sharp|flat> by <magnitude>"}}],
-  "rhythm_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<specific observation>"}}],
-  "wrong_notes_cracks": [{{"measure": <int>, "time": "<M:SS>", "description": "<what was heard vs. expected>"}}],
-  "dynamics_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<marking expected vs. what was played>"}}],
-  "tone_issues": [{{"measure": <int>, "time": "<M:SS>", "description": "<specific description>"}}],
+  "intonation_issues": [{{"measure": <int>, "measure_end": <int|omit>, "time": "<M:SS>", "time_end": "<M:SS|omit>", "description": "<note/passage> sounds <sharp|flat> by <magnitude>"}}],
+  "rhythm_issues": [{{"measure": <int>, "measure_end": <int|omit>, "time": "<M:SS>", "time_end": "<M:SS|omit>", "description": "<specific observation>"}}],
+  "wrong_notes_cracks": [{{"measure": <int>, "measure_end": <int|omit>, "time": "<M:SS>", "time_end": "<M:SS|omit>", "description": "<what was heard vs. expected>"}}],
+  "dynamics_issues": [{{"measure": <int>, "measure_end": <int|omit>, "time": "<M:SS>", "time_end": "<M:SS|omit>", "description": "<marking expected vs. what was played>"}}],
+  "tone_issues": [{{"measure": <int>, "measure_end": <int|omit>, "time": "<M:SS>", "time_end": "<M:SS|omit>", "description": "<specific description>"}}],
   "posture_issues": ["<specific observation with timestamp if relevant>"],
   "technique_issues": ["<specific observation with timestamp if relevant>"],
   "overall": "<one sentence: the single most important thing to fix>"
@@ -1509,7 +1558,7 @@ Return JSON only (no markdown fences). Each issue MUST be an object with "measur
                     f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": parts}],
-                        "generationConfig": {"temperature": 0, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
+                        "generationConfig": {"temperature": 0, "maxOutputTokens": 16384, "responseMimeType": "application/json"},
                     },
                 )
             if not resp.is_success:
@@ -1587,20 +1636,19 @@ MEASURE NUMBERING — CRITICAL: Trust the printed measure numbers you can see on
 
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
-Return EVERY measure bar-to-bar. For each sounded note you can read:
-- pitch: scientific pitch notation ("D3", "F#4"). null only when note-head is present but pitch unreadable.
-- Do NOT include rests.
-- beat: position in measure (1.0 = downbeat).
-- duration_beats: how many beats this note lasts.
-- articulation: "staccato", "tenuto", "accent", or null.
-- dynamic: "pp", "p", "mp", "mf", "f", "ff", "cresc", "dim", or null.
+Return EVERY measure from the first barline to the last. For each sounded note (skip rests):
+- "p": pitch in scientific notation ("D3", "F#4") — null only if notehead present but pitch unreadable
+- "b": beat position in measure (1.0 = downbeat)
+- "d": duration in beats
+- "a": articulation — "staccato", "tenuto", "accent", or null
+- "dyn": dynamic marking at this note — "pp","p","mp","mf","f","ff","cresc","dim", or null
 
-Return JSON only (no markdown):
+Use short field names to keep the JSON compact. Return JSON only (no markdown):
 {{
   "key_signature": "...",
   "time_signature": "...",
   "tempo_marking": "...",
-  "measures": [{{"number": {start_measure}, "notes": [{{"pitch": "D3", "beat": 1.0, "duration_beats": 1.5, "articulation": null, "dynamic": "p"}}]}}]
+  "measures": [{{"number": {start_measure}, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}]}}]
 }}"""
 
     try:
@@ -1628,8 +1676,21 @@ Return JSON only (no markdown):
                     "source":         "claude_vision_partial",
                 }
             return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+        def _norm_note(n: dict) -> dict:
+            # Accept both old long names (pitch/beat/duration_beats/articulation/dynamic)
+            # and new compact names (p/b/d/a/dyn) — normalize to long form.
+            return {
+                "pitch":          n.get("pitch") or n.get("p"),
+                "beat":           n.get("beat")  if n.get("beat")  is not None else n.get("b"),
+                "duration_beats": n.get("duration_beats") if n.get("duration_beats") is not None else n.get("d"),
+                "articulation":   n.get("articulation") or n.get("a"),
+                "dynamic":        n.get("dynamic") or n.get("dyn"),
+            }
         measures = [
-            {**m, "notes": [n for n in m.get("notes", []) if str(n.get("pitch", "")).lower() != "rest"]}
+            {**m, "notes": [
+                _norm_note(n) for n in m.get("notes", [])
+                if str(n.get("pitch") or n.get("p", "")).lower() != "rest"
+            ]}
             for m in (parsed.get("measures") or [])
             if isinstance(m.get("notes"), list)
         ]
@@ -1995,21 +2056,15 @@ def compute_weighted_score(flags: list[dict]) -> int:
 # ── Change 4: Gemini measure-number cross-validation ─────────────────────────
 def validate_gemini_measures(assessment: dict, score: dict) -> tuple[dict, int]:
     """
-    Discard Gemini issue items whose reported measure numbers fall outside the
-    range of measures that music21 (or Claude vision) actually parsed.  Only
-    meaningful when `score["measures"]` is non-empty.
+    Remove Gemini items with impossible measure numbers (≤ 0).
+
+    We intentionally do NOT discard based on the parsed score range because
+    read_score_notes_claude may only return a partial parse (e.g. 8 of 20
+    measures) — discarding Gemini flags for the unparsed tail would silently
+    drop real feedback for the second half of the performance.
 
     Returns (validated_assessment, n_discarded).
     """
-    measures = score.get("measures", [])
-    if not measures:
-        return assessment, 0
-
-    known_nums = {int(m["number"]) for m in measures if isinstance(m.get("number"), (int, float))}
-    if not known_nums:
-        return assessment, 0
-
-    min_m, max_m = min(known_nums), max(known_nums)
     discarded = 0
     validated: dict = {}
 
@@ -2022,9 +2077,8 @@ def validate_gemini_measures(assessment: dict, score: dict) -> tuple[dict, int]:
                 raw_m = item.get("measure")
                 try:
                     m = int(raw_m)
-                    if m < min_m or m > max_m:
-                        print(f"[gemini_validate] discarding {cat} m.{m} — outside "
-                              f"parsed score range [{min_m},{max_m}]")
+                    if m <= 0:
+                        print(f"[gemini_validate] discarding {cat} m.{m} — impossible measure number")
                         discarded += 1
                         continue
                 except (ValueError, TypeError, AttributeError):
@@ -2037,7 +2091,7 @@ def validate_gemini_measures(assessment: dict, score: dict) -> tuple[dict, int]:
         validated[k] = assessment.get(k, [] if k != "overall" else "")
 
     if discarded:
-        print(f"[gemini_validate] discarded {discarded} items with out-of-range measure numbers")
+        print(f"[gemini_validate] discarded {discarded} items with impossible measure numbers")
 
     return validated, discarded
 
@@ -2053,6 +2107,12 @@ def _group_similar_flags(flags: list) -> list:
     _RUSH  = {'rush', 'hurr', 'early', 'ahead'}
     _DRAG  = {'drag', 'late', 'behind', 'slow', 'delay'}
 
+    # Only intonation and timing/rhythm carry a meaningful recurring "direction"
+    # (all-sharp, all-dragging, etc.) that is worth collapsing into one grouped flag.
+    # Everything else — wrong notes, dynamics, tone, posture, technique — stays as
+    # distinct flags so the student sees each issue across the piece individually.
+    GROUPABLE = {'intonation', 'timing', 'rhythm'}
+
     def _direction(flag) -> str | None:
         text = f"{flag.get('title','')} {flag.get('raw_detail','')} {flag.get('detail','')}".lower()
         ftype = flag.get('type', '')
@@ -2064,10 +2124,15 @@ def _group_similar_flags(flags: list) -> list:
             if any(w in text for w in _DRAG): return 'dragging'
         return ftype  # use type itself as direction key for others
 
-    # Cluster by (type, direction)
+    # Cluster by (type, direction). Non-groupable types get a unique key per flag
+    # (keyed by measure) so they are never merged.
     clusters: dict = {}
-    for flag in flags:
-        key = (flag.get('type'), _direction(flag))
+    for idx, flag in enumerate(flags):
+        ftype = flag.get('type', '')
+        if ftype in GROUPABLE:
+            key = (ftype, _direction(flag))
+        else:
+            key = (ftype, f"__solo_{flag.get('measure')}_{idx}")
         clusters.setdefault(key, []).append(flag)
 
     result = []
@@ -2118,6 +2183,7 @@ def compare_and_coach_claude(
     tempo: dict, piece_title: str, composer: str, instrument: str,
     gemini_assessment: dict, anthropic_api_key: str,
     user_note: str = "",
+    video_duration: float = 0.0,
 ) -> list[dict]:
     import anthropic as ac, re
     CLAUDE_MODEL = "claude-sonnet-4-6"
@@ -2136,21 +2202,38 @@ def compare_and_coach_claude(
     valid_measures   = {m["number"] for m in score.get("measures", [])}
     score_measure_map = {m["number"]: m for m in score.get("measures", [])}
 
-    # Collect all measure numbers Gemini flagged so we include them in the context block
-    # even if CREPE had no events there (coverage gap).
+    # Collect all measure numbers Gemini flagged AND the earliest timestamp Gemini
+    # gave for each measure. Gemini watches the whole video + reads the score, so its
+    # "time" field is the most reliable clock anchor we have — we use it to build loop
+    # ranges when CREPE alignment didn't cover that measure (the common case for
+    # visual/PDF scores). Without this, flags collapse onto the few measures CREPE
+    # aligned, and loops play a fraction of a second instead of the passage.
     gemini_flagged_nums: set[int] = set()
+    gemini_measure_time: dict[int, float] = {}   # measure → earliest seconds seen
     for _cat in ("intonation_issues", "rhythm_issues", "wrong_notes_cracks", "dynamics_issues", "tone_issues"):
         for _item in gemini_assessment.get(_cat, []):
             if isinstance(_item, dict):
                 try:
-                    gemini_flagged_nums.add(int(_item["measure"]))
+                    _m = int(_item["measure"])
                 except (KeyError, ValueError, TypeError):
-                    pass
+                    continue
+                gemini_flagged_nums.add(_m)
+                _t = parse_mmss_to_seconds(_item.get("time"))
+                if _t is not None:
+                    prev = gemini_measure_time.get(_m)
+                    if prev is None or _t < prev:
+                        gemini_measure_time[_m] = _t
 
-    # played_measures = CREPE-covered measures ∪ Gemini-flagged measures (both limited to score).
-    # This ensures Claude sees context for every measure either source found a problem in,
-    # not just the 3-5 where CREPE happened to align events.
-    active_nums = (set(events_by_measure.keys()) | (gemini_flagged_nums & valid_measures))
+    # Synthesize skeleton entries for Gemini-flagged measures not in the parsed score.
+    # This handles the case where read_score_notes_claude only returned a partial parse
+    # (e.g. the first 8 of 20 measures) — without this, the second-half feedback is lost.
+    for _n in gemini_flagged_nums:
+        if _n > 0 and _n not in score_measure_map:
+            score_measure_map[_n] = {"number": _n, "notes": []}
+
+    # played_measures = CREPE-covered measures ∪ ALL Gemini-flagged measures.
+    # Do NOT intersect with valid_measures — the score parse may be incomplete.
+    active_nums = (set(events_by_measure.keys()) | gemini_flagged_nums)
     played_measures = [score_measure_map[n] for n in sorted(active_nums) if n in score_measure_map]
     # Fallback: if score has measures but neither source found any, use all score measures
     if not played_measures and score_measure_map:
@@ -2161,6 +2244,104 @@ def compare_and_coach_claude(
     range_map        = {r["measure"]: r for r in alignment_ranges}
     range_start_map  = {r["measure"]: r["start"] for r in alignment_ranges}
     bpm              = beats_per_measure_from_time_sig(score.get("time_signature"))
+
+    # Estimate a typical measure duration (seconds) for building loop windows when
+    # neither CREPE nor Gemini give an explicit range. Prefer the median of measured
+    # CREPE ranges; fall back to a musically sane default.
+    _rng_durs = sorted(
+        max(0.3, r["end"] - r["start"]) for r in alignment_ranges if r["end"] > r["start"]
+    )
+    if _rng_durs:
+        est_measure_sec = _rng_durs[len(_rng_durs) // 2]
+    elif tempo.get("bpm") and bpm:
+        est_measure_sec = (60.0 / max(30.0, float(tempo["bpm"]))) * bpm
+    else:
+        est_measure_sec = 2.5
+    est_measure_sec = max(1.2, min(8.0, est_measure_sec))
+
+    # Full measure span, used to place a flag proportionally along the recording when
+    # we have no explicit time anchor at all.
+    _span_nums = (
+        set(valid_measures)
+        | set(gemini_flagged_nums)
+        | {r["measure"] for r in alignment_ranges}
+        | set(events_by_measure.keys())
+    )
+    _span_nums = {n for n in _span_nums if isinstance(n, int) and n > 0}
+    span_min = min(_span_nums) if _span_nums else 1
+    span_max = max(_span_nums) if _span_nums else 1
+    piece_len = video_duration if video_duration and video_duration > 0 else (
+        max((r["end"] for r in alignment_ranges), default=0.0) or (len(_span_nums) * est_measure_sec)
+    )
+
+    # Bounds for mapping a timestamp → measure. The LOW end must be the true first
+    # measure of the piece (1, or the parsed minimum) — NOT span_min, because when
+    # Gemini mislabels every issue as the last measure, span_min would collapse to
+    # that same number and defeat the spread. Assuming the piece starts at measure 1
+    # lets us distribute issues across the whole recording by their real timestamps.
+    measure_lo = min(valid_measures) if valid_measures else 1
+    measure_hi = span_max
+    if measure_hi <= measure_lo:
+        measure_lo = 1
+        measure_hi = max(span_max, len(score.get("measures", [])) or 1, 1)
+
+    def time_to_measure(tsec: float | None) -> int | None:
+        """
+        Map a recording timestamp to a measure number. Gemini reliably reports WHEN
+        an issue happens (it watched the video) but often misreads the printed measure
+        number off the score photo — so we trust the timestamp and derive the measure.
+        Uses CREPE alignment ranges where they contain the timestamp (accurate), else
+        distributes proportionally across the piece.
+        """
+        if tsec is None:
+            return None
+        for r in alignment_ranges:
+            if r["start"] <= tsec <= r["end"]:
+                return r["measure"]
+        if piece_len > 0 and measure_hi > measure_lo:
+            frac = min(1.0, max(0.0, tsec / piece_len))
+            return int(round(measure_lo + frac * (measure_hi - measure_lo)))
+        return None
+
+    def resolve_loop_range(m_num: int, beat=None, time_hint: float | None = None) -> tuple[float, float]:
+        """
+        Produce a passage-length loop window [start, end] for a flagged measure.
+        Priority: CREPE alignment range → explicit time hint (this issue's own
+        Gemini timestamp) → Gemini's earliest timestamp for the measure →
+        proportional estimate. Always spans a musical passage (>= ~one measure).
+        """
+        r = range_map.get(m_num)
+        if r:
+            start = r["start"]
+            end   = r["end"]
+        elif time_hint is not None:
+            start = max(0.0, time_hint)
+            end   = start + est_measure_sec
+        elif m_num in gemini_measure_time:
+            start = gemini_measure_time[m_num]
+            end   = start + est_measure_sec
+        else:
+            # Proportional placement along the recording by measure position.
+            frac  = (m_num - span_min) / max(1, (span_max - span_min))
+            frac  = min(1.0, max(0.0, frac))
+            start = frac * max(0.0, piece_len - est_measure_sec)
+            end   = start + est_measure_sec
+        # Nudge start toward the flagged beat within the measure, but keep the window
+        # passage-length (the user wants to hear the phrase, not one note).
+        if isinstance(beat, (int, float)) and beat and end > start:
+            spb    = (end - start) / max(1, bpm)
+            offset = max(0.0, (beat - 1)) * spb
+            start  = start + min(offset, max(0.0, (end - start) - est_measure_sec * 0.5))
+        # Enforce a minimum passage length of ~one measure (min 3.5s), clamp to piece.
+        min_len = max(3.5, est_measure_sec)
+        if end - start < min_len:
+            end = start + min_len
+        if piece_len > 0:
+            end = min(end, piece_len)
+            if end - start < min_len:
+                start = max(0.0, end - min_len)
+        return round(start, 3), round(end, 3)
+
     evidence_candidates: list[str] = []
     for m in played_measures:
         events  = sorted(events_by_measure.get(m["number"], []), key=lambda e: e["time_sec"])
@@ -2220,252 +2401,336 @@ def compare_and_coach_claude(
                 end   = start + sec_per_measure
             fallback_ranges.append({"measure": m["number"], "start": start, "end": max(end, start + 0.5)})
         alignment_ranges = fallback_ranges
+        # Refresh the range lookups so resolve_loop_range (called later) can use these.
+        range_map.clear()
+        range_map.update({r["measure"]: r for r in alignment_ranges})
+        range_start_map.clear()
+        range_start_map.update({r["measure"]: r["start"] for r in alignment_ranges})
 
-    valid_list = sorted(set(r["measure"] for r in alignment_ranges))
-    if not valid_list and score.get("measures"):
-        valid_list = sorted(m["number"] for m in score["measures"])
-    # Extend valid_list with measure numbers Gemini read from the printed score
-    gemini_measures: set[int] = set()
-    for _cat in ("intonation_issues", "rhythm_issues", "wrong_notes_cracks", "dynamics_issues", "tone_issues"):
-        for _item in gemini_assessment.get(_cat, []):
-            if isinstance(_item, dict):
-                try:
-                    gemini_measures.add(int(_item["measure"]))
-                except (KeyError, ValueError, TypeError):
-                    pass
-    if gemini_measures:
-        valid_list = sorted(set(valid_list) | gemini_measures)
+    # valid_list = every measure Claude is allowed to flag. It must cover everything
+    # we actually show Claude (played_measures) plus every measure Gemini flagged and
+    # every aligned measure — otherwise Claude's flag is silently dropped at validation
+    # and whole sections of the piece disappear from the report.
+    valid_list_set: set[int] = set(r["measure"] for r in alignment_ranges)
+    valid_list_set |= {m["number"] for m in played_measures}
+    valid_list_set |= set(gemini_flagged_nums)
+    if not valid_list_set and score.get("measures"):
+        valid_list_set = {m["number"] for m in score["measures"]}
+    gemini_measures = set(gemini_flagged_nums)
+    valid_list = sorted(n for n in valid_list_set if isinstance(n, int) and n > 0)
 
-    # Change 1: cross-check Tier B Gemini items against CREPE signal data
-    annotated_assessment = _cross_check_gemini_tier_b(
-        gemini_assessment, events_by_measure, wrong_note_candidates,
-        evidence_candidates, cents_flag_threshold,
-    )
-    gemini_block = build_gemini_block(annotated_assessment)
-    measure_blocks = []
-    for m in played_measures:
-        sounded = [n for n in m.get("notes", []) if str(n.get("pitch", "")).lower() != "rest"]
-        written = (
-            "(score notation not parsed — analyze event spacing for rhythm/timing issues)"
-            if not sounded else
-            ", ".join(f"{n.get('pitch') or '(unreadable)'} @ beat {n.get('beat','?')} ({n.get('duration_beats','?')}b)" for n in sounded)
-        )
-        m_start = range_start_map.get(m["number"], 0)
-        events  = sorted(events_by_measure.get(m["number"], []), key=lambda e: e["time_sec"])
-        heard_parts = []
-        for ev in events:
-            cents = ev.get("cents_offset")
-            cents_str = f" ({'+' if (cents or 0) > 0 else ''}{cents}¢)" if cents is not None and abs(cents) >= 5 else ""
-            loudness  = f" [{ev.get('loudness')}]" if ev.get("loudness") else ""
-            heard_parts.append(f"{'/'.join(ev['pitches'])}{cents_str} @ +{ev['time_sec'] - m_start:.2f}s{loudness}")
-        heard = ", ".join(heard_parts) if heard_parts else "(no events)"
-        measure_blocks.append(f"Measure {m['number']}:\n  WRITTEN: {written}\n  HEARD:   {heard}")
-    all_candidates = strongest + wrong_note_candidates
-    if all_candidates:
-        cand_block = "MEASURABLE ISSUE CANDIDATES (from CREPE pitch analysis):\n" + "\n".join(
-            f"{i+1}. {e}" for i, e in enumerate(all_candidates)
-        )
-    else:
-        cand_block = "MEASURABLE ISSUE CANDIDATES: (pitch analysis did not produce specific candidates — rely on Gemini evidence below)"
-    prompt = f"""You are a master {instrument} teacher giving targeted, evidence-based feedback on "{piece_title}" by {composer}.
+    # ── Gemini-first canonical issue set ──────────────────────────────────
+    # Gemini watched the full video AND read the score, so it is the PRIMARY author
+    # of flags for note errors, timing, dynamics, tone, posture, and technique. CREPE
+    # owns intonation (precise cents) and corroborates note/timing issues. Claude is
+    # used ONLY to write the coaching text for this fixed list — it can no longer drop
+    # issues, which is exactly what previously capped coverage at a handful of flags.
 
-{chr(10).join(measure_blocks)}
+    # CREPE corroboration sets (which measures the signal independently supports)
+    timing_conf_measures: set[int] = set()
+    timing_gap_ms: dict[int, float] = {}
+    for cand in evidence_candidates:
+        if cand.startswith("timing |"):
+            mm = re.search(r'measure (\d+)', cand)
+            gm = re.search(r'(\d+\.\d+)s gap', cand)
+            if mm:
+                _m = int(mm.group(1))
+                timing_conf_measures.add(_m)
+                if gm:
+                    timing_gap_ms[_m] = round(float(gm.group(1)) * 1000, 1)
+    wrongnote_conf_measures: set[int] = set()
+    for cand in wrong_note_candidates:
+        mm = re.search(r'measure (\d+)', cand)
+        if mm:
+            wrongnote_conf_measures.add(int(mm.group(1)))
 
-{cand_block}
+    canonical: list[dict] = []
 
-Tempo: {tempo.get('bpm', '?')} BPM. Key: {score.get('key_signature', '?')}. Time signature: {score.get('time_signature', '?')}.
-{gemini_block}
-{f'STUDENT NOTE (subjective context — prioritize the evidence above; use only to interpret ambiguous moments, never to invent or excuse issues): "{user_note}"' if user_note else ''}
+    def _add(measure, ftype, observed, time_sec, confirmed,
+             cents=None, timing=None, is_global=False,
+             measure_end=None, time_end_sec=None):
+        observed = str(observed or "").strip()
+        if not observed or "not visible" in observed.lower():
+            return
+        m0 = int(measure)
+        m1 = int(measure_end) if isinstance(measure_end, (int, float)) and measure_end > m0 else None
+        canonical.append({
+            "measure":      m0,
+            "measure_end":  m1,
+            "type":         ftype,
+            "observed":     observed,
+            "time_sec":     time_sec,
+            "time_end_sec": time_end_sec,
+            "confirmed":    bool(confirmed),
+            "cents":        cents,
+            "timing":       timing,
+            "global":       is_global,
+        })
 
-EVIDENCE TIERS — READ BEFORE WRITING FLAGS:
-Items WITHOUT [UNCONFIRMED] are corroborated by CREPE signal analysis. Treat them as facts.
-Items marked [UNCONFIRMED — no CREPE events at m.N (coverage gap)] mean CREPE had no data for that measure at all — signal analysis simply couldn't reach it.
-Items marked [UNCONFIRMED — CREPE covered m.N ... no deviation ≥N¢] mean CREPE actively analyzed that measure and found no problem — this is a direct disagreement between Gemini and the signal.
+    # 1. Gemini-authored issues (note errors, timing, dynamics, tone) — one flag each.
+    GEMINI_DIRECT = [
+        ("wrong_notes_cracks", "error"),
+        ("rhythm_issues",      "timing"),
+        ("dynamics_issues",    "dynamics"),
+        ("tone_issues",        "tone"),
+    ]
+    # First pass: collect Gemini's direct issues so we can detect + repair a
+    # degenerate response (every issue stamped with the same measure/timestamp).
+    gemini_items: list = []   # (ftype, gm_measure, tsec, desc, gm_measure_end, tsec_end)
+    for cat, ftype in GEMINI_DIRECT:
+        for item in gemini_assessment.get(cat, []):
+            if not isinstance(item, dict):
+                continue
+            desc = str(item.get("description") or "").strip()
+            if not desc or "not visible" in desc.lower():
+                continue
+            gemini_items.append((
+                ftype,
+                _safe_measure_int(item.get("measure")),
+                parse_mmss_to_seconds(item.get("time")),
+                desc,
+                _safe_measure_int(item.get("measure_end")),
+                parse_mmss_to_seconds(item.get("time_end")),
+            ))
 
-For ALL [UNCONFIRMED] items you MUST:
-  * Use hedged language in body and title: "may have been", "possibly", "appears to", "worth checking" — NEVER "was flat", "was rushing", "played the wrong note"
+    # Rescale Gemini timestamps if its clock overran the real recording. Gemini
+    # sometimes reports times past the actual end (its internal sense of tempo drifts),
+    # which would push late issues + passages past the end of the video where they get
+    # clamped to a broken 2s sliver. If the max timestamp exceeds the true duration,
+    # map Gemini's whole timeline proportionally back onto the real recording.
+    if piece_len and piece_len > 0:
+        all_ts = [t for it in gemini_items for t in (it[2], it[5]) if t is not None]
+        max_ts = max(all_ts) if all_ts else 0.0
+        if max_ts > piece_len * 1.05:
+            scale = piece_len / max_ts
+            print(f"[compare_and_coach_claude] Gemini timeline overran ({max_ts:.0f}s > "
+                  f"{piece_len:.0f}s) — rescaling timestamps by {scale:.3f}")
+            gemini_items = [
+                (ft, gm,
+                 (ts * scale if ts is not None else None), d, gme,
+                 (te * scale if te is not None else None))
+                for (ft, gm, ts, d, gme, te) in gemini_items
+            ]
 
-For [UNCONFIRMED] items where CREPE COVERED the measure but found nothing ("no deviation"):
-  * This is a signal disagreement. Treat with maximum caution.
-  * NEVER elevate to a primary/headline issue even with hedging. Place it only as a minor secondary note.
-  * Do not group these into top flags under any circumstances.
+    distinct_ts = {it[2] for it in gemini_items if it[2] is not None}
+    distinct_gm = {it[1] for it in gemini_items if it[1]}
+    print(f"[compare_and_coach_claude] Gemini raw: {len(gemini_items)} issues, "
+          f"{len(distinct_gm)} distinct measures {sorted(distinct_gm)}, "
+          f"{len(distinct_ts)} distinct timestamps")
 
-For [UNCONFIRMED] items where CREPE had a COVERAGE GAP ("no CREPE events"):
-  * CREPE simply had no data — Gemini may be the only signal available. It may still be real.
-  * May be promoted to a headline/primary issue ONLY if it is part of a grouped flag (multiple occurrences across measures), OR if the category is one CREPE cannot measure (posture, tone, technique, dynamics).
-  * Single-occurrence coverage-gap flags: include with hedging, but keep secondary unless grouped.
+    # Are Gemini's measure numbers trustworthy? They are when it reports a healthy
+    # spread of distinct measures. When it collapses most issues onto one measure,
+    # its printed-number reading failed and we fall back to the timestamps instead.
+    measures_reliable = len(distinct_gm) >= 2 and len(distinct_gm) >= len(gemini_items) * 0.5
 
-YOUR TASK: Identify ALL significant, actionable issues. Report every confirmed issue — do not stop early. Cover every category that Gemini observed a problem in.
+    # Degenerate-response repair: if Gemini collapsed everything onto ~one location
+    # (one measure AND no timestamp spread), distribute the issues evenly across the
+    # recording by their order so they don't all pile onto a single measure + loop.
+    need_spread = len(gemini_items) >= 3 and len(distinct_ts) <= 1 and len(distinct_gm) <= 1
+    if need_spread:
+        print("[compare_and_coach_claude] degenerate Gemini measures/timestamps — "
+              "spreading issues across the recording by order")
+    elif not measures_reliable:
+        print("[compare_and_coach_claude] Gemini measures clustered — deriving measure "
+              "from each issue's timestamp instead")
 
-PRIORITY ORDER (most important first):
-1. Wrong notes / pitch errors / tone cracks — flag EVERY confirmed one ("error" type)
-2. Intonation with specific direction: sharp or flat, magnitude, which note or passage ("intonation" type)
-3. Rhythm/timing issues — flag every distinct rhythmic problem ("rhythm" or "timing" type)
-4. Dynamics — every place a dynamic marking was missed or ignored
-5. Tone quality issues
-6. Posture problems if Gemini observed them visually ("posture" type)
-7. Technique issues if Gemini observed them visually ("technique" type)
-If Gemini reported issues in a category, you MUST include at least one flag for that category.
+    for idx, (ftype, gm_measure, tsec, desc, gm_measure_end, tsec_end) in enumerate(gemini_items):
+        if need_spread and piece_len > 0:
+            tsec = piece_len * (idx + 0.5) / len(gemini_items)
+            gm_measure_end, tsec_end = None, None   # ranges are meaningless when spreading
+        # Trust Gemini's measure when its numbering is reliable; otherwise derive the
+        # measure from the (reliable) timestamp of when the issue actually occurred.
+        if measures_reliable and gm_measure:
+            m = gm_measure
+        else:
+            m = time_to_measure(tsec) or gm_measure
+        if m is None or m <= 0:
+            continue
+        # Resolve the passage end (measure_end) the same way — trust Gemini's number
+        # when reliable, else derive from the end timestamp.
+        m_end = None
+        if measures_reliable and gm_measure_end and gm_measure_end > m:
+            m_end = gm_measure_end
+        elif tsec_end is not None:
+            derived = time_to_measure(tsec_end)
+            if derived and derived > m:
+                m_end = derived
+        if ftype == "error":
+            conf = m in wrongnote_conf_measures  # Tier B — CREPE must corroborate
+        elif ftype == "timing":
+            conf = m in timing_conf_measures
+        else:
+            conf = True                          # Tier A — Gemini authoritative
+        _add(m, ftype, desc, tsec, conf, timing=timing_gap_ms.get(m),
+             measure_end=m_end, time_end_sec=tsec_end)
 
-HARD RULES:
-- Every "measure" field MUST be one of: [{', '.join(str(m) for m in valid_list)}].
-- Do NOT flag rests, silence, missing notes, or coverage gaps.
-- For "intonation" flags: raw_detail MUST cite cents ("+22¢") OR a timestamp (e.g. "0:08") OR a measure reference (e.g. "m.5").
-- "type" must be exactly one of: intonation, timing, rhythm, articulation, dynamics, tone, error, voicing, phrasing, posture, technique.
-  - "error" → wrong notes, squeaks, cracks, or any pitch that doesn't belong
-  - "intonation" → audibly flat or sharp pitch (not a wrong note, just out of tune)
-  - "tone" → breathy, unfocused, or over-pressured sound quality
-  - "dynamics" → missed dynamic markings (too loud, too soft)
-  - "articulation" → staccato/tenuto/accent execution failures
-  - "phrasing" → musical shape, line, or expression issues
-  - "posture" → body alignment, shoulder tension, instrument hold issues (observed visually by Gemini)
-  - "technique" → mechanical execution issues: bow technique (string players), finger position, embouchure (observed visually)
-  - For string instruments: bow scratches, sounding point, bow distribution, and left-hand frame issues go under "technique"; intonation on shifts goes under "intonation"
-- Do NOT invent issues not supported by the Gemini evidence or CREPE candidates.
-- If the Gemini evidence says something is clean in a category, do not flag it.
-- Use "posture" or "technique" ONLY when Gemini's posture_issues or technique_issues explicitly mention an observation.
+    # 2. Intonation — CREPE owns it. One flag per measure with a real deviation.
+    inton_by_measure: dict[int, float] = {}
+    for ev in aligned:
+        c = ev.get("cents_offset")
+        if c is not None and abs(c) >= cents_flag_threshold and ev.get("confidence", 100) >= 25:
+            m = ev["measure"]
+            inton_by_measure[m] = max(inton_by_measure.get(m, 0.0), abs(c))
+    for m, cents in inton_by_measure.items():
+        direction = "sharp" if any(
+            (ev.get("cents_offset") or 0) > 0 for ev in events_by_measure.get(m, [])
+            if abs(ev.get("cents_offset") or 0) >= cents_flag_threshold
+        ) else "flat"
+        # time_sec=None → loop uses the accurate CREPE range for this measure.
+        _add(m, "intonation",
+             f"pitch runs {round(cents)}¢ {direction} in this measure",
+             None, confirmed=True, cents=round(cents, 1))
+
+    # 3. CREPE-detected wrong notes not already flagged by Gemini.
+    for cand in wrong_note_candidates:
+        mm = re.search(r'measure (\d+)', cand)
+        if mm:
+            _add(int(mm.group(1)), "error", cand, None, confirmed=True)
+
+    # 4. Posture & technique — global visual observations from Gemini.
+    # Derive a measure from any timestamp in the text so the flag lands somewhere
+    # sensible; posture/technique are whole-performance notes so the exact spot is
+    # not critical, but we avoid dumping them all on one measure.
+    def _first_ts(text: str) -> float | None:
+        mt = re.search(r'(\d+:\d{2})', text)
+        return parse_mmss_to_seconds(mt.group(1)) if mt else None
+    for obs in gemini_assessment.get("posture_issues", []):
+        ts = _first_ts(str(obs))
+        _add(time_to_measure(ts) or measure_lo, "posture", str(obs), ts, confirmed=True, is_global=True)
+    for obs in gemini_assessment.get("technique_issues", []):
+        ts = _first_ts(str(obs))
+        _add(time_to_measure(ts) or measure_lo, "technique", str(obs), ts, confirmed=True, is_global=True)
+
+    if not canonical:
+        print("[compare_and_coach_claude] no canonical issues from Gemini or CREPE")
+        return []
+
+    # Dedup: one issue per (measure, type); posture/technique collapse to one each.
+    seen_keys: set = set()
+    deduped_issues: list[dict] = []
+    # Prefer confirmed, then larger deviation, so the strongest survives a dedup.
+    for iss in sorted(canonical, key=lambda x: (not x["confirmed"], -(x["cents"] or 0))):
+        if iss["type"] in ("posture", "technique"):
+            key = iss["type"]
+        else:
+            key = (iss["measure"], iss["type"])
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped_issues.append(iss)
+    deduped_issues.sort(key=lambda x: (x["measure"], x["type"]))
+    # Cover the whole piece: coach up to 40 distinct issues (was 16). The user wants
+    # every played measure examined, so we do not throttle coverage here.
+    deduped_issues = deduped_issues[:40]
+
+    # ── Claude writes coaching text for EACH canonical issue (no selection) ──
+    coaching_by_index: dict[int, dict] = {}
+    issue_lines = []
+    for i, iss in enumerate(deduped_issues):
+        loc = f"m.{iss['measure']}"
+        if iss["time_sec"] is not None:
+            loc += f" ({int(iss['time_sec']) // 60}:{int(iss['time_sec']) % 60:02d})"
+        tag = "" if iss["confirmed"] else " (UNCONFIRMED — hedge: 'may have', 'appears to')"
+        issue_lines.append(f"[{i}] type={iss['type']} | {loc}{tag} | observed: {iss['observed']}")
+    coach_prompt = f"""You are a master {instrument} teacher writing feedback on a student's performance of "{piece_title}" by {composer}.
+
+Below is the VERIFIED list of issues found in the performance. Write specific coaching for EACH issue. Do NOT add, remove, merge, reorder, or skip any — return exactly one coaching entry per issue, matched by its index "i".
+
+For issues marked (UNCONFIRMED), use hedged language ("may have", "appears to", "worth checking") — do not assert them as certain fact.
+{f'Student note about this take (context only, do not excuse issues): "{user_note}"' if user_note else ''}
+
+ISSUES:
+{chr(10).join(issue_lines)}
 
 Return JSON only (no markdown):
-{{
-  "flags": [
-    {{
-      "measure": <int from the allowed list>,
-      "beat": <number 1-based or null>,
-      "type": "<type from the list above>",
-      "confidence": <70-100>,
-      "title": "<6-10 word specific title naming the exact issue>",
-      "raw_detail": "<one sentence: the specific evidence — cite a timestamp, measure, or Gemini observation>",
-      "body": "<3-sentence coaching paragraph: (1) what happened and when, (2) why it matters musically, (3) a specific daily practice fix>"
-    }}
-  ]
-}}"""
+{{"coaching": [{{"i": <index>, "title": "<6-10 word specific title naming the exact issue>", "body": "<3 sentences: (1) what happened and where, (2) why it matters musically, (3) a specific practice fix the student can do today>"}}]}}"""
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg    = client.messages.create(
-            model=CLAUDE_MODEL, max_tokens=6000,
-            messages=[{"role": "user", "content": prompt}],
+            model=CLAUDE_MODEL, max_tokens=16000,
+            messages=[{"role": "user", "content": coach_prompt}],
         )
-        raw    = msg.content[0].text
-        parsed = extract_json_object(raw)
-        if not parsed:
-            print(f"[compare_and_coach_claude] no JSON: {raw[:300]}")
-            return []
+        parsed = extract_json_object(msg.content[0].text)
+        for c in (parsed or {}).get("coaching", []):
+            if isinstance(c, dict) and isinstance(c.get("i"), (int, float)):
+                coaching_by_index[int(c["i"])] = {
+                    "title": str(c.get("title", "")).strip(),
+                    "body":  str(c.get("body", "")).strip(),
+                }
     except Exception as e:
-        print(f"[compare_and_coach_claude] Claude API error: {e}")
-        return []
-    flags = []
-    for f in parsed.get("flags", []):
-        m_num = f.get("measure")
-        if not isinstance(m_num, (int, float)) or int(m_num) not in set(valid_list):
-            continue
-        if f.get("confidence", 100) < 60:
-            continue
-        if not all(f.get(k) for k in ("type", "title", "raw_detail", "body")):
-            continue
-        if str(f.get("type")) not in allowed_types:
-            continue
-        raw_detail = str(f.get("raw_detail", ""))
-        if str(f.get("type")) == "intonation":
-            # Accept: cents offset (+22¢), timestamp (0:08 or 1:23), or measure reference (m.5 / measure 5)
-            has_evidence = (
-                re.search(r'[+-]\d+¢', raw_detail)
-                or re.search(r'\d+:\d{2}', raw_detail)
-                or re.search(r'\bm\.?\s*\d+\b', raw_detail, re.IGNORECASE)
-                or re.search(r'\bmeasure\s+\d+\b', raw_detail, re.IGNORECASE)
-            )
-            if not has_evidence:
-                continue
-        if re.search(r'(rest|silence|missing note|skipped measure|dropped note|coverage gap|no events)', raw_detail, re.IGNORECASE):
-            continue
-        m_num = int(m_num)
-        r     = range_map.get(m_num)
-        if not r and alignment_ranges:
-            r     = min(alignment_ranges, key=lambda x: abs(x["measure"] - m_num))
-            m_num = r["measure"]
-        if not r:
-            continue
-        beat = f.get("beat")
-        if isinstance(beat, (int, float)):
-            m_dur = max(0.5, r["end"] - r["start"])
-            spb   = m_dur / max(1, bpm)
-            center  = r["start"] + max(0, beat - 1) * spb
-            ts_start = max(r["start"], center - 0.45)
-            ts_end   = min(r["end"], center + max(1.0, spb * 1.25))
-            if ts_end <= ts_start:
-                ts_end = min(r["end"], ts_start + 1.0)
-        else:
-            beat, ts_start, ts_end = None, r["start"], r["end"]
-        body_text = str(f.get("body", ""))
-        ftype_str = str(f["type"])
+        print(f"[compare_and_coach_claude] coaching call failed, using templates: {e}")
 
-        # Derive CREPE-backed deviation values (Change 2) and confirmation status (Change 1)
-        cents_deviation:      float | None = None
-        timing_deviation_ms:  float | None = None
-        # Tier A types (dynamics, tone, posture, technique, articulation, etc.) are always
-        # treated as confirmed — Gemini is the authoritative source for those.
-        TIER_B_TYPES = {"intonation", "timing", "rhythm", "error"}
-        confirmed: bool = ftype_str not in TIER_B_TYPES  # Tier A defaults True
-
-        if ftype_str == "intonation":
-            m_events = events_by_measure.get(m_num, [])
-            cents_vals = [abs(ev.get("cents_offset") or 0) for ev in m_events
-                          if ev.get("cents_offset") is not None
-                          and abs(ev.get("cents_offset", 0)) >= cents_flag_threshold]
-            if cents_vals:
-                cents_deviation = round(max(cents_vals), 1)
-                confirmed = True
+    # ── Assemble final flags (Gemini/CREPE issue set is the floor) ──────────
+    TYPE_LABEL = {
+        "error": "Note accuracy", "intonation": "Intonation", "timing": "Timing",
+        "rhythm": "Rhythm", "dynamics": "Dynamics", "tone": "Tone quality",
+        "posture": "Posture", "technique": "Technique", "articulation": "Articulation",
+        "phrasing": "Phrasing", "voicing": "Voicing",
+    }
+    flags: list[dict] = []
+    for i, iss in enumerate(deduped_issues):
+        coach = coaching_by_index.get(i) or {}
+        title = coach.get("title") or f"{TYPE_LABEL.get(iss['type'], iss['type'].title())} — m.{iss['measure']}"
+        body  = coach.get("body") or (
+            f"{iss['observed']}. Focus a few slow, careful repetitions on this spot, "
+            f"listening closely, before playing it back up to tempo."
+        )
+        # Build the loop window. When the issue carries its own Gemini timestamp,
+        # anchor the loop directly on it (distinct spot per issue). Otherwise (CREPE
+        # intonation / wrong notes) use the measure's accurate alignment range. For a
+        # multi-measure passage, the loop spans the whole range so you hear it all.
+        m_end = iss.get("measure_end")
+        t_end = iss.get("time_end_sec")
+        span_measures = (m_end - iss["measure"] + 1) if (m_end and m_end > iss["measure"]) else 1
+        # Loops should be long enough to actually hear the passage — at least ~3.5s
+        # (a full measure of musical context), longer for multi-measure passages.
+        MIN_LOOP = 3.5
+        tsec = iss["time_sec"]
+        if tsec is not None:
+            start = max(0.0, tsec)
+            if t_end is not None and t_end > start:
+                end = t_end
             else:
-                cm = re.search(r'([+-]?\d+)\s*¢', raw_detail)
-                if cm:
-                    cents_deviation = float(abs(int(cm.group(1))))
-                # confirmed stays False — Gemini flagged it but CREPE didn't find deviation
-        elif ftype_str in ("timing", "rhythm"):
-            for cand in evidence_candidates:
-                if f"measure {m_num}" in cand and "timing |" in cand:
-                    gm = re.search(r'(\d+\.\d+)s gap', cand)
-                    if gm:
-                        timing_deviation_ms = round(float(gm.group(1)) * 1000, 1)
-                    confirmed = True
-                    break
-        elif ftype_str == "error":
-            confirmed = any(f"measure {m_num}" in cand for cand in wrong_note_candidates)
-
+                end = start + max(MIN_LOOP, est_measure_sec * span_measures)
+            if piece_len > 0:
+                end = min(end, piece_len)
+            if end - start < MIN_LOOP:
+                start = max(0.0, end - MIN_LOOP)
+            ts_start, ts_end = round(start, 3), round(end, 3)
+        else:
+            ts_start, ts_end = resolve_loop_range(iss["measure"], None, None)
+            desired = est_measure_sec * span_measures
+            if ts_end - ts_start < max(MIN_LOOP, desired):
+                extended = ts_start + max(MIN_LOOP, desired)
+                if piece_len > 0:
+                    extended = min(extended, piece_len)
+                ts_end = round(max(ts_end, extended), 3)
+                if ts_end - ts_start < MIN_LOOP:
+                    ts_start = round(max(0.0, ts_end - MIN_LOOP), 3)
         flags.append({
-            "measure":              m_num,
-            "beat":                 beat,
-            "type":                 ftype_str,
-            "title":                str(f["title"]),
-            "raw_detail":           raw_detail,
-            "detail":               body_text,
-            "body":                 body_text,
-            "confidence":           int(f.get("confidence", 100)),
+            "measure":              iss["measure"],
+            "measure_end":          m_end,
+            "beat":                 None,
+            "type":                 iss["type"],
+            "title":                title,
+            "raw_detail":           iss["observed"],
+            "detail":               body,
+            "body":                 body,
+            "confidence":           92 if iss["confirmed"] else 74,
             "timestamp_start":      ts_start,
             "timestamp_end":        ts_end,
-            "cents_deviation":      cents_deviation,
-            "timing_deviation_ms":  timing_deviation_ms,
-            "confirmed":            confirmed,   # False → unconfirmed Tier B, lower score penalty
+            "cents_deviation":      iss["cents"],
+            "timing_deviation_ms":  iss["timing"],
+            "confirmed":            iss["confirmed"],
         })
-    # Deduplicate: allow one flag per (measure, type) but always allow posture/technique
-    # regardless of measure (they're typically whole-performance observations).
-    seen: set = set()
-    deduped = []
-    for flag in sorted(flags, key=lambda x: -x["confidence"]):
-        ftype = flag["type"]
-        if ftype in ("posture", "technique"):
-            # Only one posture and one technique flag total (they're global observations)
-            if ftype not in seen:
-                seen.add(ftype)
-                deduped.append(flag)
-        else:
-            key = (flag["measure"], ftype)
-            if key not in seen:
-                seen.add(key)
-                deduped.append(flag)
-    deduped.sort(key=lambda x: x["measure"])
-    grouped = _group_similar_flags(deduped)
-    # Hard cap: never return more than 12 flags (grouped items count as one)
-    grouped = grouped[:12]
-    print(f"[compare_and_coach_claude] {len(deduped)} raw flags → {len(grouped)} after grouping: "
+
+    flags.sort(key=lambda x: x["measure"])
+    # Do NOT group: the user wants to see EVERY played measure with an issue as its own
+    # row, not collapsed into "Recurring intonation — N passages" headers. Each issue
+    # stays a distinct flag. Cap at 40 to cover the whole piece without runaway.
+    grouped = flags[:40]
+    print(f"[compare_and_coach_claude] {len(deduped_issues)} canonical issues → "
+          f"{len(flags)} flags → {len(grouped)} individual (ungrouped): "
           f"{[(g.get('measure'), g.get('type'), g.get('grouped')) for g in grouped]}")
     return grouped
 
@@ -2792,6 +3057,7 @@ def run_full_analysis(payload: dict) -> None:
                 piece_title=piece_title, composer=composer, instrument=instrument,
                 gemini_assessment=gemini_assessment, anthropic_api_key=anthropic_key,
                 user_note=user_note,
+                video_duration=beats.get("duration_sec") or video_duration,
             )
             debug_steps.append(f"claude_coaching: {len(flags)} flags")
         else:

@@ -1,5 +1,88 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-20d — THE loop bug: inline ref callback re-seeking every render
+
+The real cause of "loop is cut / very short / just wrong." Each flag's `<video>` used an **inline** `ref={el => { videoRef.current = el; el.currentTime = f.timestamp_start }}`. React re-invokes inline ref callbacks on **every render** (null, then the node). The loop effect called `setCurrentTime(t)` on every `timeupdate` (~4x/sec) → a render each time → the ref callback re-ran → `el.currentTime = timestamp_start` **yanked the video back to the flag start ~4x/sec**. The video never played more than a fraction of a second — and passages never progressed.
+
+Fixes (`src/pages/Analysis.jsx`):
+- Both `<video>` ref callbacks now **guard on node identity** (`if (!el || el === videoRef.current) return`) and seek only on a genuinely new node, via `loadedmetadata` — so re-renders no longer reset playback.
+- Removed the `setCurrentTime(t)` call in the loop's `timeupdate` handler (the state was never read anywhere — pure render churn that drove the ref re-fire).
+- Kept the earlier `ended`-handler + duration-clamp loop hardening.
+
+**Gotcha:** never do side effects (especially `currentTime =`) in an inline ref callback that lives in a frequently-re-rendering subtree — it runs every render. Guard on node identity or use a stable/`useCallback` ref.
+
+## 2026-07-20c — Loop fixes (too short + passages broken)
+
+Loops were "very short" and passage loops didn't work at all. Two causes:
+1. **Gemini timeline overrun** — Gemini sometimes reports timestamps past the real end of the recording (its tempo sense drifts). Late issues + passages got clamped to a broken ~2s sliver at the end.
+2. Loops were too short (2s min < one measure) and the frontend player didn't handle a loop that reaches the end of the file.
+
+Fixes:
+- **Worker:** if Gemini's max timestamp exceeds the true duration, rescale its whole timeline proportionally back onto the recording (`piece_len / max_ts`). Min loop length 2.0 → **3.5s**; passages span their full range; `resolve_loop_range` min also 3.5s.
+- **Frontend (`Analysis.jsx` loop effect):** clamp the loop window to the real duration (`video.duration`, falling back to stored `duration_seconds` for webm files that report `Infinity`), enforce a ≥3s window, and add an `ended` handler so a loop that reaches the end of the file seeks back instead of stopping (fixes passage loops).
+- Verified: a 60s recording with a Gemini timeline running to 2:40 rescales correctly — all loops land inside the recording, ≥3.5s, ending passage at 53–60s.
+
+## 2026-07-20b — Measure-range flags (mark whole passages)
+
+Flags can now span a range of measures (e.g. "Measures 23–27") or the entire piece, not just one measure.
+- Gemini schema/prompt: each issue may include optional `measure_end` + `time_end` for sustained passages; instructed to use a range when a problem persists across measures (up to the whole piece).
+- Worker carries `measure_end`/`time_end_sec` through the canonical issue → flag, resolving the end measure the same way as the start (trust Gemini when reliable, else derive from the end timestamp).
+- Loop window spans the whole passage: uses `time_end` when present, else extends by `est_measure_sec × span`. Single-measure issues unchanged (~2s).
+- Frontend already supported `measure_end` (renders "Measures 23–27" in flag tag, list, and chat summary) — no UI change needed.
+- Verified: passage m.23–27 → 20s loop; whole-piece m.1–40 dynamics → 160s loop; single measure → 2s, no range.
+
+## 2026-07-20 — Whole-piece coverage (examine every played measure)
+
+User wants every played measure examined and ALL issues surfaced (issue-only list, no "clean" rows).
+- Gemini prompt rewritten to walk the recording **measure by measure** from first to last played measure, checking all 7 categories per measure, and to expect 10-20+ issues (not condense to a few).
+- Gemini `maxOutputTokens` 8192 → **16384** so it can return many issues.
+- Coaching call: coach up to **40** issues (was 16), `max_tokens` 8000 → 16000.
+- Flag cap 14 → **40**.
+- **Grouping disabled** — every measure with an issue is its own row (was collapsing recurring intonation/timing into "Recurring — N passages" headers, which hid coverage). Matches the per-measure list the user asked for.
+- Verified: a 30-measure scenario yields 32 individual flags spanning m.1–29 with distinct loops across the whole recording, multiple issues per measure.
+
+## 2026-07-18b — Timestamp-anchored placement (fix "everything on m.20")
+
+Symptom after the Gemini-first rewrite: every flag showed on measure 20 and all loops played the same spot. Cause: Gemini frequently misreads printed measure numbers off the score photo and stamps every issue with the same (usually last) measure — then dedup by (measure, type) collapsed each category to one flag and every loop resolved to the same measure.
+
+- **Placement now anchors on Gemini's timestamp, not its measure number.** New `time_to_measure()` maps each issue's "M:SS" to a measure via CREPE ranges (where accurate) or proportional distribution across the recording. Loops are built directly from the timestamp, so each issue gets a distinct, correct clip.
+- **Reliability gate:** if Gemini reports a healthy spread of distinct measures, those are trusted as-is; only when its measures are clustered/degenerate do we derive the measure from the timestamp.
+- **Degenerate-response repair:** if Gemini collapses everything onto one measure AND one timestamp, issues are distributed evenly across the recording by order.
+- `time_to_measure` assumes the piece starts at measure 1 when the score parse is incomplete, so the "all last-measure" case still spreads.
+- Stronger Gemini prompt: timestamps must be real, distinct, and span the whole recording; don't pile issues on one measure.
+- Added diagnostic logging of Gemini's raw distinct-measure / distinct-timestamp counts.
+- Verified with 3 scenarios (all-m20+varied-ts, fully degenerate, healthy-varied): issues spread across the piece with distinct loops; reliable measures preserved.
+
+## 2026-07-18 — Analysis Coverage Rewrite (Gemini-first flags)
+
+### Root problem
+Analysis only surfaced ~5 issues clustered on 2-3 spots, loops played a single note, and second-half feedback vanished. Cause: the whole flag pipeline was gated on sparse CREPE alignment, and Claude acted as a funnel that dropped most of Gemini's findings.
+
+### Fix — `modal_worker/worker.py` `compare_and_coach_claude` restructured
+- **Gemini is now the primary flag author.** Note errors, timing, dynamics, tone, posture, and technique become flags **directly** from Gemini's structured output — one flag per reported issue. CREPE owns **intonation** (precise cents) and corroborates note/timing.
+- **Claude no longer selects issues** — it only writes the coaching title + body for the fixed canonical list (indexed round-trip, template fallback if it drops any). It can't shrink coverage anymore.
+- **Loops are passage-length**, anchored to Gemini's per-issue timestamp (new `parse_mmss_to_seconds` + `resolve_loop_range` with CREPE-range → Gemini-time → proportional fallback). No more single-note loops, no more snapping flags onto the few CREPE-aligned measures.
+- **Partial score parses no longer drop second-half feedback** — Gemini flags beyond the parsed range are kept; `validate_gemini_measures` only rejects measure ≤ 0.
+- **Grouping restricted** to intonation/timing (directional themes); wrong notes, dynamics, tone, posture, technique stay as distinct flags so each shows individually. Cap raised 12 → 14.
+- `read_score_notes_claude` uses compact note field names so long scores fit the 8192-token budget.
+- Verified with a synthetic 20-measure scenario (partial parse + cross-piece Gemini issues): flags now span m.1/3/9/14/18, all loops ≥2s, posture kept, "not visible" technique dropped.
+
+## 2026-07-13 — Analysis Speed + Reliability Fixes
+
+### Analysis pipeline parallelization
+- CREPE audio analysis, Gemini video upload/eval, and score download now run **concurrently** with `ThreadPoolExecutor(max_workers=3)` in Modal worker
+- Saves ~30-60 seconds per analysis by overlapping CREPE (~30-40s) with Gemini upload+poll (~60-90s) instead of running sequentially
+- Deployed as Modal app version bump
+
+### Analysis reliability fixes
+- Fixed `FunctionsFetchError: Failed to send a request to the Edge Function` — switched all `supabase.functions.invoke()` calls to raw `fetch()` in `NewRecordingModal.jsx` and `Analysis.jsx`
+- Fixed `Failed to fetch` / connection drop — edge function now returns in <1s after DB insert; all heavy work moved to `EdgeRuntime.waitUntil()` background task
+- Fixed **Modal dispatch 404** — URL was `${modalUrl}/analyze_async` (wrong); changed to `${modalUrl}` (root path per `fastapi_endpoint`)
+- Extended frontend polling from 60×4s (4 min) to 120×5s (10 min) — allows `job-status` self-heal to trigger and Modal to finish
+- Improved error messages: upload failures show `Upload failed: <reason>` instead of generic error; timeout message now says "check back in a moment" rather than "try a shorter recording"
+
+---
+
 ## 2026-07-01 — $7 Unlimited Plan, Score Caching, AI Practice Calendar
 
 ### Pricing

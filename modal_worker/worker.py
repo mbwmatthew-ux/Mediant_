@@ -2213,6 +2213,7 @@ def compare_and_coach_claude(
     start_measure: int = 1,
     beat_times: list | None = None,
     beats_per_measure: int | None = None,
+    end_measure: int | None = None,
 ) -> list[dict]:
     import anthropic as ac, re
     CLAUDE_MODEL = "claude-sonnet-4-6"
@@ -2316,6 +2317,10 @@ def compare_and_coach_claude(
 
     import bisect as _bisect
 
+    # End-measure anchor for an EXACT two-point time->measure map. Set below once we
+    # know either the user's end_measure or an estimate from Gemini's relative span.
+    anchor_end: int | None = None
+
     def time_to_measure(tsec: float | None) -> int | None:
         """
         Map a recording timestamp to a measure number. Gemini reliably reports WHEN
@@ -2331,12 +2336,20 @@ def compare_and_coach_claude(
         """
         if tsec is None:
             return None
+        # BEST: two-point linear anchor. When we know the last measure (from the user or
+        # a reliable estimate), map [0, duration] -> [start_measure, anchor_end] linearly.
+        # This is exact at both ends and immune to tempo/meter estimation error — which
+        # is what made the beat/tempo grid under- or over-count toward the end.
+        if anchor_end and anchor_end > start_measure and piece_len > 0:
+            frac = min(1.0, max(0.0, tsec / piece_len))
+            m = start_measure + int(round(frac * (anchor_end - start_measure)))
+            return max(start_measure, min(anchor_end, m))
         bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
         try:
             tempo_bpm = float((tempo or {}).get("bpm") or 0)
         except (TypeError, ValueError):
             tempo_bpm = 0.0
-        # Primary: a UNIFORM grid from the global tempo. A raw beat-count (below) drifts
+        # Next: a UNIFORM grid from the global tempo. A raw beat-count (below) drifts
         # high over the piece because beat trackers detect spurious beats in fast
         # passages (e.g. sixteenth-note runs) — that over-count accumulates so the END
         # measure comes out too high. A steady tempo grid does not accumulate that error.
@@ -2595,6 +2608,24 @@ def compare_and_coach_claude(
     print(f"[compare_and_coach_claude] Gemini raw: {len(gemini_items)} issues, "
           f"{len(distinct_gm)} distinct measures {sorted(distinct_gm)}, "
           f"{len(distinct_ts)} distinct timestamps")
+
+    # Set the end-measure anchor used by time_to_measure for exact two-point mapping.
+    # Priority: the user's stated end_measure; otherwise estimate the piece length from
+    # Gemini's RELATIVE span — its absolute numbers may be offset (it reads from the top
+    # of the page) but the gap between its first and last reported measure matches the
+    # true number of measures played, so end ≈ start_measure + (gemini_max - gemini_min).
+    if end_measure and end_measure > start_measure:
+        anchor_end = int(end_measure)
+        print(f"[compare_and_coach_claude] using user end_measure={anchor_end} — exact "
+              f"two-point map m.{start_measure}..m.{anchor_end}")
+    else:
+        gm_vals = [it[1] for it in gemini_items if it[1]] + [it[4] for it in gemini_items if it[4]]
+        if gm_vals:
+            span = max(gm_vals) - min(gm_vals)
+            if span >= 2:
+                anchor_end = start_measure + span
+                print(f"[compare_and_coach_claude] estimated end_measure={anchor_end} from "
+                      f"Gemini span ({min(gm_vals)}..{max(gm_vals)} = {span} measures)")
 
     # Measure numbers come from the BEAT GRID (time_to_measure), not Gemini's photo
     # reading — Gemini watches the video so its TIMESTAMP is reliable, but reading the
@@ -3154,6 +3185,7 @@ def run_full_analysis(payload: dict) -> None:
                 start_measure=start_measure,
                 beat_times=beats.get("beat_times"),
                 beats_per_measure=bpm_int,
+                end_measure=end_measure,
             )
             debug_steps.append(f"claude_coaching: {len(flags)} flags")
         else:

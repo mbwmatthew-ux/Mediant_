@@ -1,5 +1,14 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-20i — Two-point measure anchoring (end measure was too low)
+
+Piece ended at m.37 but analysis said m.32 — the tempo/beat grid under-counted because the estimated tempo was a bit low, stretching measures. Any single-anchor mapping (start only + tempo) is vulnerable to tempo/meter error.
+
+- `time_to_measure` now prefers an EXACT two-point linear map: `[0, duration] → [start_measure, end_measure]`. Immune to tempo/meter estimation error; exact at both ends.
+- End anchor priority: (1) user-provided `end_measure`; (2) estimate from Gemini's relative span — its absolute numbers may be offset but the gap between its first and last reported measure equals the true measure count, so `end ≈ start + (gemini_max − gemini_min)`; (3) fall back to tempo grid / beat count.
+- Frontend: added an "End measure" field to `NewRecordingModal` (Record.jsx already had one). Edge function already mapped `endMeasure → end_measure`, so no edge change.
+- Verified: start=20, last note at end → m.37 both with user end=37 and via Gemini-span estimate.
+
 ## 2026-07-20h — Fix measure drift toward the end (m.32 shown as m.37)
 
 Measures were right early but ran too high by the end. The beat-grid mapping counted individual detected beats, and beat trackers over-detect in fast passages (sixteenth-note runs) — the extra beats accumulate, so late measures inflate.

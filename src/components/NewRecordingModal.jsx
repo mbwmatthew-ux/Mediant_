@@ -76,6 +76,7 @@ export default function NewRecordingModal({ open, onClose }) {
 
   const [pieceName, setPieceName] = useState('')
   const [startMeasure, setStartMeasure] = useState('')
+  const [endMeasure, setEndMeasure] = useState('')
   const [tag, setTag] = useState('Piece')
 
   // Performance: one of video OR audio required
@@ -197,6 +198,7 @@ export default function NewRecordingModal({ open, onClose }) {
             pieceTitle:    pieceName.trim() || undefined,
             timeSig:       '4/4',
             startMeasure:  startMeasure ? parseInt(startMeasure, 10) : 1,
+            endMeasure:    endMeasure ? parseInt(endMeasure, 10) : undefined,
             notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
           }),
         })
@@ -332,6 +334,18 @@ export default function NewRecordingModal({ open, onClose }) {
                     value={startMeasure}
                     onChange={e => setStartMeasure(e.target.value)}
                     placeholder="1"
+                    style={{ textAlign: 'center' }}
+                  />
+                </div>
+                <div style={{ width: 90 }}>
+                  <label className={styles.fieldLabel}>End measure</label>
+                  <input
+                    className={styles.textInput}
+                    type="number"
+                    min="1"
+                    value={endMeasure}
+                    onChange={e => setEndMeasure(e.target.value)}
+                    placeholder="last"
                     style={{ textAlign: 'center' }}
                   />
                 </div>

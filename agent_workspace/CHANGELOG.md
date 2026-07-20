@@ -1,5 +1,11 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-20j — Reactive end-measure correction + trailing-silence anchor
+
+- Self-corrects a small end-measure slip (e.g. user types 23 when they played to 24). Compares the user's `end_measure` against two independent estimates — the beat grid at the last playing moment, and Gemini's relative span. Overrides ONLY when both estimates agree with each other (within 1) and differ from the user by 1-2 measures. Large disagreements (e.g. beat-grid drift) never override the user.
+- Two-point map now anchors the end to the last PLAYING moment (`anchor_time`), not the full recording duration — trailing silence no longer pulls the final note short of the end measure.
+- Verified: user=23 → corrected to 24 (grid & Gemini agree); user=24 kept; user=37 kept even when the beat grid drifts to ~32; final note lands exactly on the end measure despite 2s of trailing silence.
+
 ## 2026-07-20i — Two-point measure anchoring (end measure was too low)
 
 Piece ended at m.37 but analysis said m.32 — the tempo/beat grid under-counted because the estimated tempo was a bit low, stretching measures. Any single-anchor mapping (start only + tempo) is vulnerable to tempo/meter error.

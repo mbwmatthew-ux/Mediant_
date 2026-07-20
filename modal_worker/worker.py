@@ -2317,9 +2317,11 @@ def compare_and_coach_claude(
 
     import bisect as _bisect
 
-    # End-measure anchor for an EXACT two-point time->measure map. Set below once we
-    # know either the user's end_measure or an estimate from Gemini's relative span.
+    # End-measure anchor for an EXACT two-point time->measure map, plus the time that
+    # anchor corresponds to (the last playing moment — NOT the full duration, which may
+    # include trailing silence). Both are set below.
     anchor_end: int | None = None
+    anchor_time: float | None = None
 
     def time_to_measure(tsec: float | None) -> int | None:
         """
@@ -2340,10 +2342,12 @@ def compare_and_coach_claude(
         # a reliable estimate), map [0, duration] -> [start_measure, anchor_end] linearly.
         # This is exact at both ends and immune to tempo/meter estimation error — which
         # is what made the beat/tempo grid under- or over-count toward the end.
-        if anchor_end and anchor_end > start_measure and piece_len > 0:
-            frac = min(1.0, max(0.0, tsec / piece_len))
-            m = start_measure + int(round(frac * (anchor_end - start_measure)))
-            return max(start_measure, min(anchor_end, m))
+        if anchor_end and anchor_end > start_measure:
+            denom = anchor_time if (anchor_time and anchor_time > 0) else piece_len
+            if denom and denom > 0:
+                frac = min(1.0, max(0.0, tsec / denom))
+                m = start_measure + int(round(frac * (anchor_end - start_measure)))
+                return max(start_measure, min(anchor_end, m))
         bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
         try:
             tempo_bpm = float((tempo or {}).get("bpm") or 0)
@@ -2610,22 +2614,66 @@ def compare_and_coach_claude(
           f"{len(distinct_ts)} distinct timestamps")
 
     # Set the end-measure anchor used by time_to_measure for exact two-point mapping.
-    # Priority: the user's stated end_measure; otherwise estimate the piece length from
-    # Gemini's RELATIVE span — its absolute numbers may be offset (it reads from the top
-    # of the page) but the gap between its first and last reported measure matches the
-    # true number of measures played, so end ≈ start_measure + (gemini_max - gemini_min).
+    # We compute TWO independent estimates of the last played measure and reconcile them
+    # with the user's stated end_measure so a small typing slip (e.g. 23 instead of 24)
+    # can be caught and corrected:
+    #   • grid_end   — from the beat grid at the last playing moment (reliable over a
+    #                  short span; drifts over long ones).
+    #   • gemini_end — from Gemini's RELATIVE span. Its absolute numbers may be offset,
+    #                  but the gap between its first and last reported measure matches
+    #                  the true number of measures played.
+    _bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+    _last_play_t = 0.0
+    for _it in gemini_items:
+        for _t in (_it[2], _it[5]):
+            if _t is not None:
+                _last_play_t = max(_last_play_t, _t)
+    if aligned:
+        _last_play_t = max([_last_play_t] + [(_e.get("time_sec") or 0.0) for _e in aligned])
+    # Anchor the end of the two-point map to the last playing moment so the final note
+    # lands exactly on anchor_end (trailing silence in the recording is ignored).
+    if _last_play_t > 0:
+        anchor_time = _last_play_t
+    grid_end_est = None
+    if beat_times and len(beat_times) >= 2 and _bpm_grid >= 1 and _last_play_t > 0:
+        _idx = _bisect.bisect_right(beat_times, _last_play_t) - 1
+        if _idx < 0:
+            _idx = 0
+        grid_end_est = start_measure + _idx // _bpm_grid
+    _gm_vals = [it[1] for it in gemini_items if it[1]] + [it[4] for it in gemini_items if it[4]]
+    gemini_end_est = None
+    if _gm_vals and (max(_gm_vals) - min(_gm_vals)) >= 2:
+        gemini_end_est = start_measure + (max(_gm_vals) - min(_gm_vals))
+
     if end_measure and end_measure > start_measure:
         anchor_end = int(end_measure)
-        print(f"[compare_and_coach_claude] using user end_measure={anchor_end} — exact "
-              f"two-point map m.{start_measure}..m.{anchor_end}")
+        # Reactive correction: only override the user's value when BOTH independent
+        # estimates agree with each other (within 1) and differ from the user's value by
+        # a small amount (1-2 measures) — a genuine slip. Never override on a big
+        # disagreement (that means an estimate is unreliable, e.g. beat-grid drift).
+        _ests = [e for e in (grid_end_est, gemini_end_est) if e and e > start_measure]
+        if len(_ests) == 2 and abs(_ests[0] - _ests[1]) <= 1:
+            _agreed = int(round(sum(_ests) / 2))
+            if 1 <= abs(_agreed - anchor_end) <= 2:
+                print(f"[compare_and_coach_claude] user end_measure={anchor_end} looks off — "
+                      f"beat grid ({grid_end_est}) and Gemini span ({gemini_end_est}) agree on "
+                      f"~{_agreed}; correcting to {_agreed}")
+                anchor_end = _agreed
+        if anchor_end == int(end_measure):
+            print(f"[compare_and_coach_claude] using user end_measure={anchor_end} — "
+                  f"two-point map m.{start_measure}..m.{anchor_end}")
     else:
-        gm_vals = [it[1] for it in gemini_items if it[1]] + [it[4] for it in gemini_items if it[4]]
-        if gm_vals:
-            span = max(gm_vals) - min(gm_vals)
-            if span >= 2:
-                anchor_end = start_measure + span
-                print(f"[compare_and_coach_claude] estimated end_measure={anchor_end} from "
-                      f"Gemini span ({min(gm_vals)}..{max(gm_vals)} = {span} measures)")
+        # No user end — reconcile the two estimates (average if they agree, else prefer
+        # Gemini's span, else the grid).
+        if gemini_end_est and grid_end_est and abs(gemini_end_est - grid_end_est) <= 1:
+            anchor_end = int(round((gemini_end_est + grid_end_est) / 2))
+        elif gemini_end_est:
+            anchor_end = gemini_end_est
+        elif grid_end_est:
+            anchor_end = grid_end_est
+        if anchor_end:
+            print(f"[compare_and_coach_claude] estimated end_measure={anchor_end} "
+                  f"(beat grid={grid_end_est}, Gemini span={gemini_end_est})")
 
     # Measure numbers come from the BEAT GRID (time_to_measure), not Gemini's photo
     # reading — Gemini watches the video so its TIMESTAMP is reliable, but reading the

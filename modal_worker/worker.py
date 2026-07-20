@@ -2332,6 +2332,19 @@ def compare_and_coach_claude(
         if tsec is None:
             return None
         bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+        try:
+            tempo_bpm = float((tempo or {}).get("bpm") or 0)
+        except (TypeError, ValueError):
+            tempo_bpm = 0.0
+        # Primary: a UNIFORM grid from the global tempo. A raw beat-count (below) drifts
+        # high over the piece because beat trackers detect spurious beats in fast
+        # passages (e.g. sixteenth-note runs) — that over-count accumulates so the END
+        # measure comes out too high. A steady tempo grid does not accumulate that error.
+        if tempo_bpm > 20 and bpm_grid >= 1:
+            sec_per_measure = bpm_grid * 60.0 / tempo_bpm
+            if sec_per_measure > 0.2:
+                return start_measure + int(max(0.0, tsec) // sec_per_measure)
+        # Fallback: count detected beats.
         if beat_times and len(beat_times) >= 2 and bpm_grid >= 1:
             idx = _bisect.bisect_right(beat_times, tsec) - 1
             if idx < 0:
@@ -2588,10 +2601,11 @@ def compare_and_coach_claude(
     # printed measure number off a phone photo is not (it drifts, offsets, misreads).
     # The beat grid is deterministic, monotonic, and anchored at the student's real
     # start_measure, so measures stay in sync with what was actually played.
-    have_beat_grid = bool(beat_times and len(beat_times) >= 2)
+    # We can map time->measure if we have either a tempo or detected beats.
+    have_beat_grid = time_to_measure(0.0) is not None
     if have_beat_grid:
-        print("[compare_and_coach_claude] deriving measure numbers from the beat grid "
-              f"(anchored at m.{start_measure})")
+        print("[compare_and_coach_claude] deriving measure numbers from the tempo/beat "
+              f"grid (anchored at m.{start_measure})")
 
     # Degenerate-response repair: if Gemini collapsed everything onto ~one location
     # (one measure AND no timestamp spread) AND we have no beat grid, distribute the
@@ -2635,21 +2649,30 @@ def compare_and_coach_claude(
              measure_end=m_end, time_end_sec=tsec_end)
 
     # 2. Intonation — CREPE owns it. One flag per measure with a real deviation.
-    inton_by_measure: dict[int, float] = {}
+    # Number these measures with the SAME time->measure mapping used for Gemini flags
+    # (from the event's timestamp), so intonation and everything else stay consistent
+    # and don't drift apart. The loop is anchored on the event timestamp too.
+    inton: dict[int, dict] = {}   # measure -> {cents, time, sharp}
     for ev in aligned:
         c = ev.get("cents_offset")
         if c is not None and abs(c) >= cents_flag_threshold and ev.get("confidence", 100) >= 25:
-            m = ev["measure"]
-            inton_by_measure[m] = max(inton_by_measure.get(m, 0.0), abs(c))
-    for m, cents in inton_by_measure.items():
-        direction = "sharp" if any(
-            (ev.get("cents_offset") or 0) > 0 for ev in events_by_measure.get(m, [])
-            if abs(ev.get("cents_offset") or 0) >= cents_flag_threshold
-        ) else "flat"
-        # time_sec=None → loop uses the accurate CREPE range for this measure.
+            t  = ev.get("time_sec")
+            mm = time_to_measure(t)
+            if mm is None:
+                mm = ev.get("measure")
+            if mm is None:
+                continue
+            d = inton.setdefault(mm, {"cents": 0.0, "time": None, "sharp": False})
+            if abs(c) > d["cents"]:
+                d["cents"] = abs(c)
+                d["sharp"] = c > 0
+            if t is not None and (d["time"] is None or t < d["time"]):
+                d["time"] = t
+    for m, d in inton.items():
+        direction = "sharp" if d["sharp"] else "flat"
         _add(m, "intonation",
-             f"pitch runs {round(cents)}¢ {direction} in this measure",
-             None, confirmed=True, cents=round(cents, 1))
+             f"pitch runs {round(d['cents'])}¢ {direction} in this measure",
+             d["time"], confirmed=True, cents=round(d["cents"], 1))
 
     # 3. CREPE-detected wrong notes not already flagged by Gemini.
     for cand in wrong_note_candidates:

@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-20h — Fix measure drift toward the end (m.32 shown as m.37)
+
+Measures were right early but ran too high by the end. The beat-grid mapping counted individual detected beats, and beat trackers over-detect in fast passages (sixteenth-note runs) — the extra beats accumulate, so late measures inflate.
+
+- `time_to_measure` now uses a UNIFORM grid from the global tempo: `measure = start_measure + floor(t / (beats_per_measure * 60 / tempo_bpm))`. No spurious-beat accumulation, so the end measure stays correct. Falls back to beat-count, then alignment ranges, then proportional.
+- Intonation flags now use the SAME mapping (from each event's timestamp) and anchor their loop on that timestamp — keeps CREPE and Gemini flags from drifting apart.
+- Verified: start=20, 120bpm/(4/4), issue at 0:24 → m.32 (correct); raw beat-count would have drifted to ~35.
+
 ## 2026-07-20g — Fix "All Gemini models failed: empty response"
 
 gemini-2.5 flash/pro are thinking models; thinking tokens count against maxOutputTokens. The heavy "examine every measure" prompt made them spend the entire 16384-token budget thinking and return an empty response (finishReason MAX_TOKENS) — both models failed → analysis failed.

@@ -1610,45 +1610,158 @@ const videoRef    = useRef(null)
               <div>
                 {(() => {
                   const flags = take?.flags ?? []
-                  // Build all marker positions: single flags → one dot; grouped → one per occurrence
-                  const allMarkers = []
+
+                  // ---- Build a measure -> {x, y, left, right, rowIndex} box for every
+                  // measure referenced by a flag, plus per-row full-width bounds. This
+                  // lets a multi-measure issue draw a bar across exactly the measures it
+                  // spans (even across a line wrap) instead of one point per issue. ----
+                  const layoutMeasures = take?.measure_layout?.measures ?? []
+                  const hasExactPositions = layoutMeasures.some(lm => lm.x_pct != null && lm.y_pct != null)
+
+                  const boxByMeasure = {}   // number -> {x, y, left, right, rowIndex}
+                  const rowBoundsList = []  // rowIndex -> {left, right, y}
+
+                  if (hasExactPositions) {
+                    const known = [...layoutMeasures]
+                      .filter(lm => lm.number != null && lm.x_pct != null && lm.y_pct != null)
+                      .sort((a, b) => a.number - b.number)
+
+                    // A new printed row starts when x wraps back to the left (or y jumps
+                    // down) relative to the previous measure — matches reading order.
+                    const rowsOfMeasures = []
+                    let cur = []
+                    known.forEach((lm, idx) => {
+                      const prev = known[idx - 1]
+                      const wrapped = prev && (lm.x_pct < prev.x_pct - 8 || lm.y_pct > prev.y_pct + 4)
+                      if (wrapped && cur.length) { rowsOfMeasures.push(cur); cur = [] }
+                      cur.push(lm)
+                    })
+                    if (cur.length) rowsOfMeasures.push(cur)
+
+                    rowsOfMeasures.forEach((row, rowIndex) => {
+                      const rowY = row.reduce((s, m) => s + m.y_pct, 0) / row.length
+                      row.forEach((lm, i) => {
+                        const left  = i > 0 ? (row[i - 1].x_pct + lm.x_pct) / 2 : Math.max(2, lm.x_pct - 6)
+                        const right = i < row.length - 1 ? (lm.x_pct + row[i + 1].x_pct) / 2 : Math.min(98, lm.x_pct + 6)
+                        boxByMeasure[lm.number] = { x: lm.x_pct, y: rowY, left, right, rowIndex }
+                      })
+                      rowBoundsList[rowIndex] = {
+                        left:  boxByMeasure[row[0].number].left,
+                        right: boxByMeasure[row[row.length - 1].number].right,
+                        y: rowY,
+                      }
+                    })
+                  } else {
+                    // Heuristic fallback: distribute every measure referenced by a flag
+                    // (including intermediate measures in a span) evenly across an
+                    // estimated grid.
+                    const allNums = new Set()
+                    flags.forEach(f => {
+                      const m0 = f.measure ?? 1
+                      const m1 = (f.measure_end && f.measure_end > m0) ? f.measure_end : m0
+                      for (let n = m0; n <= m1; n++) allNums.add(n)
+                      if (f.grouped && f.occurrences) f.occurrences.forEach(o => allNums.add(o.measure))
+                    })
+                    const numsArr = allNums.size ? [...allNums] : [1]
+                    const scoreStartM = Math.min(...numsArr)
+                    const scoreEndM   = Math.max(...numsArr)
+                    const totalScoreMeasures = scoreEndM - scoreStartM + 1
+                    const measuresPerRow = Math.max(1, Math.round(totalScoreMeasures / Math.max(4, Math.min(12, Math.round(totalScoreMeasures / 6)))))
+                    const estimatedRows = Math.max(1, Math.ceil(totalScoreMeasures / measuresPerRow))
+                    const slotWidth = 80 / measuresPerRow
+
+                    for (let n = scoreStartM; n <= scoreEndM; n++) {
+                      const offset = n - scoreStartM
+                      const rowIndex = Math.floor(offset / measuresPerRow)
+                      const col = offset % measuresPerRow
+                      const left  = Math.max(4, col * slotWidth + 10)
+                      const right = Math.min(96, left + slotWidth)
+                      const y = Math.max(3, Math.min(96, ((rowIndex + 0.5) / estimatedRows) * 92 + 4))
+                      boxByMeasure[n] = { x: Math.max(6, Math.min(93, (left + right) / 2)), y, left, right, rowIndex }
+                    }
+                    for (let r = 0; r < estimatedRows; r++) {
+                      const rowNums = Object.keys(boxByMeasure).map(Number).filter(n => boxByMeasure[n].rowIndex === r)
+                      if (!rowNums.length) continue
+                      rowBoundsList[r] = { left: 10, right: 90, y: boxByMeasure[rowNums[0]].y }
+                    }
+                  }
+
+                  const getBox = (n) => {
+                    if (boxByMeasure[n]) return boxByMeasure[n]
+                    const known = Object.keys(boxByMeasure).map(Number)
+                    if (!known.length) return { x: 50, y: 50, left: 40, right: 60, rowIndex: 0 }
+                    const nearest = known.reduce((a, b) => Math.abs(b - n) < Math.abs(a - n) ? b : a)
+                    return boxByMeasure[nearest]
+                  }
+
+                  // One spec per marker: single flags → their measure span (measure to
+                  // measure_end); grouped occurrences → a single-measure point each.
+                  const markerSpecs = []
                   flags.forEach((f, fi) => {
                     if (f.grouped && f.occurrences?.length) {
                       f.occurrences.forEach(occ => {
-                        allMarkers.push({ measure: occ.measure, flagIdx: fi, occLabel: occ.label, flagId: `flag_${fi}` })
+                        markerSpecs.push({ flagIdx: fi, flagId: `flag_${fi}`, label: occ.label, measureStart: occ.measure, measureEnd: occ.measure })
                       })
                     } else {
-                      allMarkers.push({ measure: f.measure ?? 1, flagIdx: fi, occLabel: null, flagId: `flag_${fi}` })
+                      const m0 = f.measure ?? 1
+                      const m1 = (f.measure_end && f.measure_end > m0) ? f.measure_end : m0
+                      markerSpecs.push({ flagIdx: fi, flagId: `flag_${fi}`, label: null, measureStart: m0, measureEnd: m1 })
                     }
                   })
 
-                  // Use Gemini-derived x_pct/y_pct when available; fall back to heuristic.
-                  const layoutMeasures = take?.measure_layout?.measures ?? []
-                  const hasExactPositions = layoutMeasures.some(lm => lm.x_pct != null)
-                  // Heuristic fallback vars (only used when exact positions aren't available)
-                  const scoreStartM = layoutMeasures.length > 0 ? (layoutMeasures[0]?.number ?? 1) : 1
-                  const totalScoreMeasures = layoutMeasures.length > 0 ? layoutMeasures.length
-                    : (allMarkers.length > 0 ? Math.max(...allMarkers.map(m => m.measure)) - Math.min(...allMarkers.map(m => m.measure)) + 1 : 1)
-                  const measuresPerRow = Math.max(1, Math.round(totalScoreMeasures / Math.max(4, Math.min(12, Math.round(totalScoreMeasures / 6)))))
-                  const estimatedRows = Math.max(1, Math.ceil(totalScoreMeasures / measuresPerRow))
+                  // Row segments a span covers, in visual order (handles line wraps).
+                  function spanSegments(m0, m1) {
+                    const startBox = getBox(m0)
+                    const endBox   = getBox(m1)
+                    if (startBox.rowIndex === endBox.rowIndex) {
+                      return [{ left: startBox.left, right: endBox.right, y: startBox.y }]
+                    }
+                    const segs = []
+                    for (let r = startBox.rowIndex; r <= endBox.rowIndex; r++) {
+                      const bounds = rowBoundsList[r]
+                      if (!bounds) continue
+                      if (r === startBox.rowIndex)      segs.push({ left: startBox.left, right: bounds.right, y: bounds.y })
+                      else if (r === endBox.rowIndex)   segs.push({ left: bounds.left, right: endBox.right, y: bounds.y })
+                      else                               segs.push({ left: bounds.left, right: bounds.right, y: bounds.y })
+                    }
+                    return segs
+                  }
 
                   return (
                     <div className={aStyles.scoreImgWrap}>
                       <img src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
-                      {allMarkers.map((m, mi) => {
-                        let x, y
-                        const lm = layoutMeasures.find(l => l.number === m.measure)
-                        if (hasExactPositions && lm?.x_pct != null && lm?.y_pct != null) {
-                          x = lm.x_pct
-                          y = lm.y_pct
-                        } else {
-                          const offsetFromStart = Math.max(0, m.measure - scoreStartM)
-                          const row = Math.floor(offsetFromStart / measuresPerRow)
-                          const colFrac = (offsetFromStart % measuresPerRow) / measuresPerRow
-                          x = Math.max(6, Math.min(93, colFrac * 80 + 10))
-                          y = Math.max(3, Math.min(96, ((row + 0.5) / estimatedRows) * 92 + 4))
-                        }
+
+                      {/* Span bars for multi-measure issues, one segment per printed row crossed */}
+                      {markerSpecs.filter(m => m.measureEnd > m.measureStart).map((m, mi) => {
                         const isAct = activeFlag === m.flagId
+                        const segments = spanSegments(m.measureStart, m.measureEnd)
+                        return segments.map((seg, si) => (
+                          <div key={`bar_${mi}_${si}`}
+                            className={aStyles.scoreSpanBar}
+                            style={{
+                              left: `${seg.left}%`,
+                              top: `${seg.y}%`,
+                              width: `${Math.max(1, seg.right - seg.left)}%`,
+                              background: isAct ? 'var(--accent)' : '#2A2A28',
+                            }}
+                          />
+                        ))
+                      })}
+
+                      {/* Circle markers — centered on the span's middle row for multi-measure issues */}
+                      {markerSpecs.map((m, mi) => {
+                        const isAct = activeFlag === m.flagId
+                        let x, y
+                        if (m.measureEnd > m.measureStart) {
+                          const segments = spanSegments(m.measureStart, m.measureEnd)
+                          const midSeg = segments[Math.floor((segments.length - 1) / 2)]
+                          x = (midSeg.left + midSeg.right) / 2
+                          y = midSeg.y
+                        } else {
+                          const box = getBox(m.measureStart)
+                          x = box.x
+                          y = box.y
+                        }
                         return (
                           <button key={`marker_${mi}`} type="button"
                             className={aStyles.scoreMarker}
@@ -1657,11 +1770,11 @@ const videoRef    = useRef(null)
                               top: `${y}%`,
                               background: isAct ? 'var(--accent)' : '#2A2A28',
                               boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
-                              fontSize: m.occLabel ? 9 : 11,
+                              fontSize: m.label ? 9 : 11,
                             }}
                             onClick={() => { playTick(); setActiveFlag(isAct ? null : m.flagId) }}
-                            title={`M.${m.measure}${m.occLabel ? ` (${m.flagIdx + 1}${m.occLabel})` : ''}`}>
-                            {m.occLabel ? `${m.flagIdx + 1}${m.occLabel}` : m.flagIdx + 1}
+                            title={`M.${m.measureStart}${m.measureEnd > m.measureStart ? `–${m.measureEnd}` : ''}${m.label ? ` (${m.flagIdx + 1}${m.label})` : ''}`}>
+                            {m.label ? `${m.flagIdx + 1}${m.label}` : m.flagIdx + 1}
                           </button>
                         )
                       })}

@@ -129,6 +129,11 @@
   position: absolute; transform: translate(-50%, -50%);
   transition: background 150ms ease, box-shadow 150ms ease; width: 26px; z-index: 2;
 }
+.scoreSpanBar {
+  position: absolute; height: 8px; border-radius: 4px;
+  transform: translateY(-50%); z-index: 1; pointer-events: none;
+  opacity: 0.55;
+}
 .scoreEmpty {
   color: var(--text-faint); font-size: 0.88rem; padding: 48px 0; text-align: center;
 }

@@ -81,7 +81,10 @@ function computeAspectScores(take) {
     })
     const flagWeight = related.reduce((sum, f) => sum + (f.confidence ?? 80) / 100, 0)
     const deduction = Math.round(flagWeight * 9)
-    const bonus = related.length === 0 ? Math.round(Math.random() * 4 + 2) : 0
+    // Small fixed bonus (not random) when nothing was flagged for this aspect — a
+    // clean aspect should score a bit above the overall, but must stay stable across
+    // re-renders/refreshes rather than visibly changing the number each time.
+    const bonus = related.length === 0 ? 3 : 0
     result[aspect] = Math.max(18, Math.min(100, base - deduction + bonus))
   })
   return result
@@ -1360,8 +1363,14 @@ const videoRef    = useRef(null)
     return 85; // Default fallback
   }, [take]);
 
+  // Only the app's own scripted demo takes (?demo=true route, or a mock/demo take id)
+  // get canned copy — matching on piece TITLE was wrong: a real user's take of
+  // "Procession of the Nobles" (a real, common piece) silently got fake analysis
+  // text instead of their actual AI-generated summary.
+  const isDemoTake = isDemo || take?._demo === true || String(take?.id ?? '').startsWith('mock') || String(take?.id ?? '') === 'demo'
+
   const activeSummary = useMemo(() => {
-    if (take?.piece_title === 'Procession of the Nobles' || activeThreadTitle === 'Procession of the Nobles') {
+    if (isDemoTake) {
       return {
         headline: "Solid fundamentals with posture and hand position refinements needed.",
         overview: "You're playing with musicality and making real progress at 72/100—the core technique is solid. What's holding you back are several interconnected postural and hand-positioning habits that are adding unnecessary friction to your playing.",
@@ -1382,45 +1391,26 @@ const videoRef    = useRef(null)
         ]
       };
     }
-    if (summary) {
-      const strengths = summary.strengths ?? [];
-      const improvements = summary.improvements ?? [];
-      return {
-        headline: summary.headline ?? "Performance Analysis Complete",
-        overview: summary.overview ?? "Review your score breakdown, key strengths, and recommended focus areas below.",
-        strengths: strengths.map(s => typeof s === 'string' ? s : `${s.title ?? s.area}: ${s.detail ?? s.guidance}`),
-        improvements: improvements.map(imp => ({
-          area: imp.area ?? "Focus Area",
-          guidance: imp.guidance ?? imp.detail ?? imp
-        })),
-        drills: (take?.flags ?? []).slice(0, 3).map((f, i) => ({
-          name: `${capitalize(f.type)} m.${f.measure} Isolation`,
-          duration: "5 min",
-          frequency: "Daily",
-          type: i % 2 === 0 ? "spinner" : "key"
-        }))
-      };
-    }
+    if (!summary) return null   // real take, no AI summary yet — render loading/error/empty state instead
+    const strengths = summary.strengths ?? [];
+    const improvements = summary.improvements ?? [];
     return {
-      headline: "Great control of phrasing and dynamics.",
-      overview: "Your performance shows a strong emotional connection. Focus on smoothing out triplets and stabilizing hand shifts.",
-      strengths: [
-        "Tone & Touch: Weight-based control over soft dynamics in the opening theme.",
-        "Rubato Control: Tasteful pacing variations that enhance the emotional shape.",
-        "Pedaling Flow: Dampers are used effectively to blend register changes."
-      ],
-      improvements: [
-        { area: "Triplet Run Evenness", guidance: "Rushing in m.5. Practice slowly with subdivisions to align the notes." },
-        { area: "Subito Forte Weight", guidance: "Chords in m.14 are struck too percussively. Use arm weight from the shoulder." },
-        { area: "Pedal Clearness", guidance: "Dampers slightly blur the lower octave in m.21. Clear the pedal before key contact." }
-      ],
-      drills: [
-        { name: "Slow Triplet Subdivisions", duration: "5 min", frequency: "Daily", type: "spinner" },
-        { name: "Arm-Weight Chord Placement", duration: "5 min", frequency: "Daily", type: "key" },
-        { name: "Damper Release Timing", duration: "10 min", frequency: "Daily", type: "mirror" }
-      ]
+      headline: summary.headline ?? "Performance Analysis Complete",
+      overview: summary.overview ?? "Review your score breakdown, key strengths, and recommended focus areas below.",
+      strengths: strengths.map(s => typeof s === 'string' ? s : `${s.title ?? s.area}: ${s.detail ?? s.guidance}`),
+      improvements: improvements.map(imp => ({
+        area: imp.area ?? "Focus Area",
+        guidance: imp.guidance ?? imp.detail ?? imp
+      })),
+      drills: (take?.flags ?? []).slice(0, 3).map((f, i) => ({
+        name: `${capitalize(f.type)} m.${f.measure}${f.measure_end ? `–${f.measure_end}` : ''} Isolation`,
+        duration: "5 min",
+        frequency: "Daily",
+        type: i % 2 === 0 ? "spinner" : "key",
+        flagIndex: (take?.flags ?? []).indexOf(f),
+      })),
     };
-  }, [summary, take, activeThreadTitle]);
+  }, [summary, take, isDemoTake]);
 
   const pieceTitle = activeThreadTitle
   const pieceComposer = activeThread?.piece_composer ?? ''
@@ -2017,39 +2007,99 @@ const videoRef    = useRef(null)
           })}
         </div>
 
-        <div className={aStyles.strWeakRow}>
+        {!isDemoTake && !take?.flags?.length ? (
           <div className={aStyles.strWeakCard}>
-            <h3 className={aStyles.strWeakTitle}>Strengths</h3>
-            <ul className={aStyles.strWeakList}>
-              {activeSummary.strengths.map((s, i) => (
-                <li key={i} className={aStyles.strWeakItem}>{s}</li>
-              ))}
-            </ul>
+            <h3 className={aStyles.strWeakTitle}>✓ Clean performance</h3>
+            <p className={aStyles.howToGuidance}>No issues were flagged in this take — nothing to summarize. Keep it up!</p>
           </div>
+        ) : !isDemoTake && summaryLoading ? (
+          <div className={aStyles.strWeakCard} aria-live="polite">
+            <h3 className={aStyles.strWeakTitle}>Writing your session review…</h3>
+            <div className={aStyles.summarySkeleton}>
+              <div className={aStyles.summarySkeletonLine} style={{ width: '92%' }} />
+              <div className={aStyles.summarySkeletonLine} style={{ width: '78%' }} />
+              <div className={aStyles.summarySkeletonLine} style={{ width: '85%' }} />
+            </div>
+          </div>
+        ) : !isDemoTake && summaryError ? (
           <div className={aStyles.strWeakCard}>
-            <h3 className={aStyles.strWeakTitle}>Weaknesses</h3>
-            <ul className={aStyles.strWeakList}>
-              {activeSummary.improvements.map((imp, i) => (
-                <li key={i} className={aStyles.strWeakItem}>{imp.area}</li>
-              ))}
-            </ul>
+            <h3 className={aStyles.strWeakTitle}>Couldn't generate summary</h3>
+            <p className={aStyles.howToGuidance} style={{ marginBottom: 14 }}>{summaryError}</p>
+            <button className={aStyles.analysisNewSessionBtn} onClick={generateSummary}>Try again</button>
           </div>
-        </div>
+        ) : activeSummary ? (
+          <>
+            <div className={aStyles.strWeakCard} style={{ marginBottom: 16 }}>
+              <p className={aStyles.summaryHeadline}>{activeSummary.headline}</p>
+              <p className={aStyles.howToGuidance}>{activeSummary.overview}</p>
+            </div>
 
-        <div className={aStyles.howToCard}>
-          <h3 className={aStyles.howToTitle}>How to improve</h3>
-          <div className={aStyles.howToList}>
-            {activeSummary.improvements.map((imp, i) => (
-              <div key={i} className={aStyles.howToItem}>
-                <span className={aStyles.howToNum}>{i + 1}</span>
-                <div className={aStyles.howToContent}>
-                  <span className={aStyles.howToArea}>{imp.area}</span>
-                  <p className={aStyles.howToGuidance}>{imp.guidance}</p>
+            <div className={aStyles.strWeakRow}>
+              <div className={aStyles.strWeakCard}>
+                <h3 className={aStyles.strWeakTitle}>Strengths</h3>
+                <ul className={aStyles.strWeakList}>
+                  {activeSummary.strengths.map((s, i) => (
+                    <li key={i} className={aStyles.strWeakItem}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className={aStyles.strWeakCard}>
+                <h3 className={aStyles.strWeakTitle}>Weaknesses</h3>
+                <ul className={aStyles.strWeakList}>
+                  {activeSummary.improvements.map((imp, i) => (
+                    <li key={i} className={aStyles.strWeakItem}>{imp.area}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className={aStyles.howToCard} style={{ marginBottom: 16 }}>
+              <h3 className={aStyles.howToTitle}>How to improve</h3>
+              <div className={aStyles.howToList}>
+                {activeSummary.improvements.map((imp, i) => (
+                  <div key={i} className={aStyles.howToItem}>
+                    <span className={aStyles.howToNum}>{i + 1}</span>
+                    <div className={aStyles.howToContent}>
+                      <span className={aStyles.howToArea}>{imp.area}</span>
+                      <p className={aStyles.howToGuidance}>{imp.guidance}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {activeSummary.drills?.length > 0 && (
+              <div className={aStyles.howToCard}>
+                <h3 className={aStyles.howToTitle}>Recommended practice</h3>
+                <div className={aStyles.howToList}>
+                  {activeSummary.drills.map((d, i) => {
+                    const flag = d.flagIndex != null ? take?.flags?.[d.flagIndex] : null
+                    const hasTs = flag?.timestamp_start != null && flag?.timestamp_end != null
+                    const drillLooping = isLooping && hasTs && loopRef.current?.start === Number(flag.timestamp_start)
+                    return (
+                      <div key={i} className={aStyles.howToItem}>
+                        <span className={aStyles.howToNum}>{i + 1}</span>
+                        <div className={aStyles.howToContent}>
+                          <span className={aStyles.howToArea}>{d.name}</span>
+                          <p className={aStyles.howToGuidance}>{d.duration} · {d.frequency}</p>
+                        </div>
+                        {hasTs && (
+                          <button className={`${aStyles.loopBtn} ${drillLooping ? aStyles.loopBtnActive : ''}`}
+                            onClick={() => { playTick(); drillLooping ? stopLoop() : startLoop(flag) }}>
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                            </svg>
+                            {drillLooping ? 'Stop' : 'Loop'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+            )}
+          </>
+        ) : null}
       </div>
 
       {showAnalysisIntro && (

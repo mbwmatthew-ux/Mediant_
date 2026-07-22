@@ -270,6 +270,21 @@
 .howToArea { font-size: 0.92rem; font-weight: 700; color: var(--text); display: block; margin-bottom: 4px; }
 .howToGuidance { color: var(--text-muted); font-size: 0.88rem; line-height: 1.55; margin: 0; }
 
+/* Summary headline/overview card */
+.summaryHeadline { font-size: 1.05rem; font-weight: 700; color: var(--text); margin: 0 0 8px; line-height: 1.4; }
+
+/* Loading skeleton */
+.summarySkeleton { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.summarySkeletonLine {
+  height: 12px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--border) 25%, rgba(0,0,0,0.06) 50%, var(--border) 75%);
+  background-size: 200% 100%; animation: summaryShimmer 1.4s ease-in-out infinite;
+}
+@keyframes summaryShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* Empty state / legacy */
 .analysisNewSessionBtn {
   align-items: center; background: var(--accent); border: none; border-radius: 10px;

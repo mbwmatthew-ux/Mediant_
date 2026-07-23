@@ -2534,6 +2534,29 @@ def compare_and_coach_claude(
 
     canonical: list[dict] = []
 
+    def _canonicalize_measure_refs(text: str, m0: int, m1: int | None) -> str:
+        """
+        Gemini's free-text description sometimes cites ITS OWN (unreliable) measure
+        number — which can differ from the corrected canonical measure derived from
+        the timestamp. Left alone, Claude's coaching text picks up Gemini's wrong
+        number from the "observed" text it's shown, so a flag could be labeled
+        "m.25" while its own body talks about "measure 28". Rewrite every measure
+        reference in the text to the canonical measure(s) so the label and the
+        coaching text can never disagree — this is a no-op for text that already
+        cites the right number (e.g. our own CREPE-generated strings).
+        """
+        range_label  = f"measures {m0}-{m1}" if m1 else f"measure {m0}"
+        single_label = f"measure {m0}"
+        text = re.sub(
+            r'\b(?:measures|mm\.?)\s*\d+\s*(?:-|–|—|to|through)\s*\d+\b',
+            range_label, text, flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r'\b(?:measure|m\.)\s*\d+\b',
+            single_label, text, flags=re.IGNORECASE,
+        )
+        return text
+
     def _add(measure, ftype, observed, time_sec, confirmed,
              cents=None, timing=None, is_global=False,
              measure_end=None, time_end_sec=None):
@@ -2542,6 +2565,7 @@ def compare_and_coach_claude(
             return
         m0 = int(measure)
         m1 = int(measure_end) if isinstance(measure_end, (int, float)) and measure_end > m0 else None
+        observed = _canonicalize_measure_refs(observed, m0, m1)
         canonical.append({
             "measure":      m0,
             "measure_end":  m1,
@@ -2815,7 +2839,8 @@ def compare_and_coach_claude(
     coaching_by_index: dict[int, dict] = {}
     issue_lines = []
     for i, iss in enumerate(deduped_issues):
-        loc = f"m.{iss['measure']}"
+        m_end = iss.get("measure_end")
+        loc = f"m.{iss['measure']}-{m_end}" if m_end else f"m.{iss['measure']}"
         if iss["time_sec"] is not None:
             loc += f" ({int(iss['time_sec']) // 60}:{int(iss['time_sec']) % 60:02d})"
         tag = "" if iss["confirmed"] else " (UNCONFIRMED — hedge: 'may have', 'appears to')"
@@ -2823,6 +2848,8 @@ def compare_and_coach_claude(
     coach_prompt = f"""You are a master {instrument} teacher writing feedback on a student's performance of "{piece_title}" by {composer}.
 
 Below is the VERIFIED list of issues found in the performance. Write specific coaching for EACH issue. Do NOT add, remove, merge, reorder, or skip any — return exactly one coaching entry per issue, matched by its index "i".
+
+The location given for each issue (e.g. "m.25" or "m.25-27") is the VERIFIED, authoritative measure — it was computed from the recording's timing, not read off the page, so trust it completely. If the "observed" text for an issue mentions a different measure number, that is a stale/incorrect reference — ignore it and use ONLY the given location in your title and body. Never cite a measure number in your response other than the one given for that issue.
 
 For issues marked (UNCONFIRMED), use hedged language ("may have", "appears to", "worth checking") — do not assert them as certain fact.
 {f'Student note about this take (context only, do not excuse issues): "{user_note}"' if user_note else ''}

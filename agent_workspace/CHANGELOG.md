@@ -1,5 +1,14 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-21c — Flag title and coaching body no longer cite different measures
+
+Bug: a flag's title said "M.25" but its coaching body talked about "measure 28" and told the student to practice "measures 27 through 29". Cause: Claude writes the coaching title/body from Gemini's raw free-text `description`, and that text can contain GEMINI'S OWN (uncorrected) measure number — separate from the canonical measure we compute from the timestamp for the label/loop. The label was right; the body was quoting Gemini's wrong number straight out of the source text.
+
+- Added `_canonicalize_measure_refs()`: rewrites every "measure N" / "m.N" / "measures N-M" / "measures N through M" reference inside an issue's `observed` text to the canonical measure(s) actually assigned to that flag, before it's ever shown to Claude. No-op for text that already cites the right number (e.g. our own CREPE-generated strings).
+- Coaching prompt also now states explicitly that the given location is verified/authoritative and instructs Claude to ignore any differing number in the observed text.
+- The issue location shown to Claude now includes the measure_end range (was single-measure only), so it can't lose track of a passage's span either.
+- Verified: an issue whose Gemini description says "measure 28" / "measures 27 through 29" but whose canonical measure is 43 (or any other value) now has 100% of measure references in the coaching body rewritten to the canonical number — reproduced the exact screenshot scenario and confirmed the wrong numbers no longer appear.
+
 ## 2026-07-21b — Loop audio no longer disagrees with the measure label
 
 Bug: the measure number shown on a flag could differ from what actually played when you hit Loop. Root cause: the loop's time window was built from the raw Gemini event timestamp plus a fixed 3.5s pad (and, for the no-timestamp path, could pad BACKWARD past the measure's start) — completely independent of the same-named measure boundaries used to derive the label. At normal/fast tempos (measures well under 3.5s) the loop routinely spilled into neighboring measures.

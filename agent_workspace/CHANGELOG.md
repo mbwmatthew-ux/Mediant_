@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-23c — Loop shrinks inward from the beat estimate to stop bleeding into neighbors
+
+User report: loop for "measure 24" captured the last two notes of measure 23; occasionally the loop also ran one measure past what the flag described. This is a real limit of beat-tracking on a monophonic, non-percussive instrument (clarinet) — no beat detector is perfect, and any single missed/extra detected beat earlier in the piece shifts every later index-based boundary by that much (an index-based mapping has no way to self-correct that). No further math on top of a slightly-off beat estimate can make it exactly right.
+
+- `measure_to_time_range` now shrinks its computed window inward by up to 15% of one beat (capped at 250ms) on both the start and end — delays the loop's start slightly and pulls its end in slightly, so a small beat-estimation error can no longer include a neighboring measure's notes. Skipped if it would collapse an already-short window below 0.5s.
+- This only affects the LOOP's playback window — `time_to_measure` (used for the measure label) is unchanged, so labels stay exact; only the audio played is conservatively narrowed.
+- Verified: for a 120bpm/3/4 tempo-grid case, a single-measure window of [6.0,7.5]s trims to [6.075,7.425]s (75ms = 15% of the 0.5s beat) — exact match to hand calculation.
+
 ## 2026-07-23b — Fixed a hardcoded '4/4' that could silently override the real time signature
 
 Found while investigating remaining loop-boundary imprecision: `NewRecordingModal.jsx` (the "Record & Analyze" modal, the actual submission flow used throughout this project) hardcoded `timeSig: '4/4'` with no way to change it — unlike `Record.jsx`, which already had a real, editable field. The worker DOES correct this later if it successfully reads the time signature off the score image (`bpm_int` override in `run_full_analysis`), but if that score-parsing step ever misses (image quality, an unusual layout, a partial parse), it silently falls back to the WRONG hardcoded 4/4 — beats-per-measure would be off by a third for a 3/4 piece like Procession of the Nobles, which throws every measure boundary off by the same proportion (a systematic error, not just estimation noise).

@@ -2387,15 +2387,9 @@ def compare_and_coach_claude(
             return int(round(measure_lo + frac * (measure_hi - measure_lo)))
         return None
 
-    def measure_to_time_range(m0: int, m1: int | None = None) -> tuple[float, float]:
-        """
-        EXACT inverse of time_to_measure: returns the [start_sec, end_sec) time window
-        occupied by measures m0..m1 (inclusive), using the SAME priority tiers in the
-        SAME order. This is what guarantees the Loop button always plays exactly the
-        measure(s) printed on the flag — the label and the audio are two views of one
-        mapping, not two independently-computed values that can silently disagree.
-        """
-        m1 = m1 if (isinstance(m1, int) and m1 >= m0) else m0
+    def _raw_measure_time_range(m0: int, m1: int) -> tuple[float, float]:
+        """Same priority tiers as before — see measure_to_time_range for the margin
+        applied on top of this raw result."""
         bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
 
         # BEST: real detected beats, anchor-corrected — same tier and array
@@ -2450,6 +2444,40 @@ def compare_and_coach_claude(
             return (f0 * piece_len, max(f0 * piece_len, f1 * piece_len))
 
         return (0.0, max(1.2, est_measure_sec))
+
+    def measure_to_time_range(m0: int, m1: int | None = None) -> tuple[float, float]:
+        """
+        EXACT inverse of time_to_measure: returns the [start_sec, end_sec) time window
+        occupied by measures m0..m1 (inclusive), using the SAME priority tiers in the
+        SAME order as time_to_measure. This is what guarantees the Loop button always
+        plays exactly the measure(s) printed on the flag — the label and the audio are
+        two views of one mapping, not two independently-computed values that can
+        silently disagree.
+
+        Beat detection on a real (monophonic, non-percussive) performance is never
+        perfect — a beat tracker can anchor a beat's estimated time slightly ahead of
+        the true acoustic onset, and any single missed/extra detected beat anywhere
+        earlier in the piece shifts every later index-based boundary by that much. No
+        amount of downstream math can fully undo that; instead we shrink the window
+        slightly INWARD from each raw computed boundary (delay the start, pull in the
+        end by a small fraction of a beat) so a small estimation error can no longer
+        pull in a neighboring measure's notes. This trades a sliver of the true first/
+        last note for eliminating audibly wrong content from the next/previous measure
+        — the better trade-off for a practice loop.
+        """
+        m1 = m1 if (isinstance(m1, int) and m1 >= m0) else m0
+        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+        t0, t1 = _raw_measure_time_range(m0, m1)
+
+        n_beats = max(1, (m1 + 1 - m0) * bpm_grid)
+        spb = max(0.05, (t1 - t0) / n_beats)   # seconds per beat, estimated locally
+        margin = min(0.25, spb * 0.15)         # up to 15% of one beat, capped at 250ms
+        t0_adj, t1_adj = t0 + margin, t1 - margin
+        if t1_adj - t0_adj < 0.5:
+            # Margin would collapse an already-short window — better to risk a sliver
+            # of bleed than to under-play the labeled measure(s) entirely.
+            return (t0, t1)
+        return (t0_adj, t1_adj)
 
     evidence_candidates: list[str] = []
     for m in played_measures:

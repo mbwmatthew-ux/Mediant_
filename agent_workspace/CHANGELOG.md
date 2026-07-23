@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-21d — Loop no longer bleeds into measures not mentioned in the flag
+
+Regression from the previous loop fix (a2567cb): after switching the loop window to `measure_to_time_range()` (the exact inverse of the measure-label math), I still padded it with `max(est_measure_sec * span_measures, natural_len)`. `est_measure_sec` is a coarse GLOBAL estimate (median CREPE range duration, or a generic tempo fallback, clamped [1.2, 8.0]) — whenever it was larger than the true, precise duration of the specific labeled measure(s) (which `measure_to_time_range` already computes correctly), the loop got stretched past the measure's real end into neighboring measures the flag never mentions. This is exactly what "loop plays the wrong section" / "includes other measures not marked in the issue" was.
+
+- Removed the `est_measure_sec`-based padding entirely. `measure_to_time_range`'s own output is now trusted as authoritative — it's already derived from the same tempo/anchor math as the label, so it's already correct.
+- Replaced it with a tiny 1.0s absolute audibility floor (only extends a window that's pathologically short, e.g. a single measure at a very fast tempo) — this can add at most ~1s, never several seconds like before.
+- Verified: a single measure at 180bpm (true duration 1.0s) now loops for exactly 1.0s with zero overrun (previously would've padded up toward the global estimate). A realistic 21-flag multi-issue scenario at 120bpm shows every single-measure loop at ~2.1s (matching the true ~2.0s/measure), none inflated.
+
 ## 2026-07-21c — Flag title and coaching body no longer cite different measures
 
 Bug: a flag's title said "M.25" but its coaching body talked about "measure 28" and told the student to practice "measures 27 through 29". Cause: Claude writes the coaching title/body from Gemini's raw free-text `description`, and that text can contain GEMINI'S OWN (uncorrected) measure number — separate from the canonical measure we compute from the timestamp for the label/loop. The label was right; the body was quoting Gemini's wrong number straight out of the source text.

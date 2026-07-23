@@ -2897,12 +2897,16 @@ Return JSON only (no markdown):
         # 3.5s pad, which routinely overran (or, when padding backward, preceded) the
         # labeled measure's real boundaries, so what played didn't match what was shown.
         m_end = iss.get("measure_end")
-        span_measures = (m_end - iss["measure"] + 1) if (m_end and m_end > iss["measure"]) else 1
         ts_start, ts_end = measure_to_time_range(iss["measure"], m_end)
-        # Only pad FORWARD, never before the measure's true start, so the loop always
-        # begins on the correct measure even if that measure is naturally short.
-        target_len = max(est_measure_sec * span_measures, ts_end - ts_start)
-        ts_end = ts_start + target_len
+        # measure_to_time_range already gives the EXACT duration of the labeled
+        # measure(s) — do NOT pad it up to est_measure_sec (a coarse GLOBAL average
+        # across the whole piece). That was the bug: whenever the global average was
+        # longer than this specific measure's real duration, the loop got stretched
+        # past the measure's true end into neighboring measures never mentioned in the
+        # flag. Only guard against a pathologically short (near-inaudible) window.
+        MIN_AUDIBLE = 1.0
+        if ts_end - ts_start < MIN_AUDIBLE:
+            ts_end = ts_start + MIN_AUDIBLE
         if piece_len > 0:
             ts_end = min(ts_end, piece_len)
         ts_start, ts_end = round(max(0.0, ts_start), 3), round(max(ts_start, ts_end), 3)

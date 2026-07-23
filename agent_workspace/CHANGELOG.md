@@ -1,5 +1,16 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-23d — Note-content alignment (DTW) enabled for photo-based scores
+
+User's proposal: instead of estimating measure boundaries from beat-counting (which drifts if a beat is ever missed/miscounted), match the ACTUAL PITCH SEQUENCE played against the score's note sequence — when that specific pattern of notes is heard, THAT determines the measure. The codebase already had exactly this (`dtw_align_to_score`, DTW-matching CREPE-detected pitches against the score's notes) — but it was gated to MusicXML scores only (`"music21" in score_source`). Every take in this project uses a PHOTO of the sheet music (Claude-vision-parsed), so DTW was never running; every take silently used the far more fragile beat-grid method instead.
+
+- Two bugs stacked to cause this: (1) the gate excluded any non-MusicXML `score_source`; (2) even worse, a **successfully parsed** photo score never set a `source` field at all (`read_score_notes_claude`'s success return was missing it — only the partial-failure recovery path set `"claude_vision_partial"`), so even fixing (1) alone would not have activated DTW for a normal, fully-successful score read.
+- Fixed both: `read_score_notes_claude` now sets `"source": "claude_vision"` on a successful parse. The alignment gate now accepts `music21` (≥4 notes) OR `claude_vision` (≥12 notes — a higher bar since photo-read notes are less precise per-note than MusicXML, though DTW's global warping path tolerates a few wrong ones).
+- `dtw_align_to_score` now returns `[]` (not the unmodified input) when it declines — previously this returned events without a `measure` key, silently risking a KeyError downstream; now the caller explicitly falls back to beat-grid.
+- `compare_and_coach_claude` gained a `dtw_verified` flag; when true, `time_to_measure`/`measure_to_time_range` check the DTW-built `alignment_ranges` FIRST — ahead of every beat-count/tempo-grid tier — since those ranges are validated against real pitch content, immune to the "one missed beat shifts everything after it" failure mode nothing else could fix.
+- `alignment_method` (surfaced in the `backend` field on the take) is now tracked explicitly at the point of decision instead of recomputed later from a now-stale heuristic.
+- Verified: DTW correctly aligns a Claude-vision-shaped score through a mid-piece tempo change (15 events → 5/5 measures, exact pitch match); declines cleanly (empty list, no crash) on too few notes; with `dtw_verified=True`, a flag's loop is correctly anchored to the real DTW-observed range instead of beat arithmetic; default (no DTW) path unchanged.
+
 ## 2026-07-23c — Loop shrinks inward from the beat estimate to stop bleeding into neighbors
 
 User report: loop for "measure 24" captured the last two notes of measure 23; occasionally the loop also ran one measure past what the flag described. This is a real limit of beat-tracking on a monophonic, non-percussive instrument (clarinet) — no beat detector is perfect, and any single missed/extra detected beat earlier in the piece shifts every later index-based boundary by that much (an index-based mapping has no way to self-correct that). No further math on top of a slightly-off beat estimate can make it exactly right.

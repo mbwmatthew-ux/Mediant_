@@ -773,11 +773,18 @@ def dtw_align_to_score(
 
     DTW finds the minimum-cost warping path between them. Each audio event
     is mapped to the score note it best aligns with, and inherits that
-    note's measure number. This handles tempo fluctuations, hesitations,
-    and repeats far better than linear time mapping.
+    note's measure number and — critically — the note's OWN detected time_sec
+    stays on the event, so alignment_ranges built from this reflect where the
+    matching PITCH CONTENT was actually heard, not a beat-count estimate. This
+    is far more robust to tempo fluctuation, rubato, and hesitations than any
+    beat-grid model, and doesn't accumulate drift from a missed/extra beat.
 
-    Only activated when the score has structured note data (MusicXML/MXL).
-    Falls back gracefully if the score has fewer than 4 notes total.
+    Works for any score with enough readable note pitches — MusicXML/MXL
+    (precise) or Claude-vision-read from a photo (less precise per-note, but
+    DTW's global warping path is robust to a few wrong/missing notes since it
+    optimizes the WHOLE sequence match, not note-by-note). Declines (returns
+    []) if the score has fewer than 4 usable pitched notes; the caller should
+    fall back to beat-grid alignment in that case.
     """
     import numpy as np
 
@@ -796,8 +803,12 @@ def dtw_align_to_score(
                     score_seq.append((midi, m["number"]))
 
     if len(score_seq) < 4:
-        print(f"[dtw_align] score has <4 pitched notes — falling back to beat-grid alignment")
-        return events
+        # Return [] (not `events`) so the caller can tell DTW declined and explicitly
+        # fall back to beat-grid — the raw `events` have no "measure" key, so silently
+        # returning them here used to risk a KeyError downstream wherever code assumes
+        # every aligned event carries one.
+        print(f"[dtw_align] score has <4 pitched notes — declining, caller should fall back")
+        return []
 
     # Build audio sequence: MIDI pitch per event (use the primary pitch)
     audio_midis: list[int | None] = []
@@ -1730,6 +1741,12 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
             "time_signature": parsed.get("time_signature"),
             "tempo_marking":  parsed.get("tempo_marking"),
             "measures":       measures,
+            # Was missing entirely on the success path — without it, run_full_analysis's
+            # DTW-eligibility check ("claude_vision" in score_source) could never be true
+            # for a successful photo-score parse, silently forcing every take with a
+            # photo score (rather than MusicXML) onto the far less accurate beat-grid
+            # alignment method regardless of how many notes were actually read.
+            "source":         "claude_vision",
         }
     except Exception as e:
         print(f"[read_score_notes_claude] error: {e}")
@@ -2214,6 +2231,7 @@ def compare_and_coach_claude(
     beat_times: list | None = None,
     beats_per_measure: int | None = None,
     end_measure: int | None = None,
+    dtw_verified: bool = False,
 ) -> list[dict]:
     import anthropic as ac, re
     CLAUDE_MODEL = "claude-sonnet-4-6"
@@ -2339,7 +2357,17 @@ def compare_and_coach_claude(
         if tsec is None:
             return None
         bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
-        # BEST: real detected beats, anchor-corrected. Tracks the performance's actual
+        # ABSOLUTE BEST, when available: DTW-verified alignment ranges. These come from
+        # matching the ACTUAL PITCH SEQUENCE the student played against the score's note
+        # sequence (dtw_align_to_score/dtw_align_to_reference) — so a measure's boundary
+        # here reflects real note content, not beat-count arithmetic. Immune to the one
+        # failure mode nothing else can fully fix: a beat tracker miscounting a beat
+        # somewhere earlier in the piece and shifting every later boundary by that much.
+        if dtw_verified and alignment_ranges:
+            for r in alignment_ranges:
+                if r["start"] <= tsec <= r["end"]:
+                    return r["measure"]
+        # BEST (no DTW): real detected beats, anchor-corrected. Tracks the performance's actual
         # tempo variation across the piece (a straight-line/constant-tempo model can't),
         # while the rescale guarantees no drift at either end.
         if scaled_beat_times and len(scaled_beat_times) >= 2 and bpm_grid >= 1:
@@ -2392,7 +2420,18 @@ def compare_and_coach_claude(
         applied on top of this raw result."""
         bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
 
-        # BEST: real detected beats, anchor-corrected — same tier and array
+        # ABSOLUTE BEST, when available: DTW-verified ranges — same source and tier
+        # time_to_measure checks first, so the label and the loop window can never
+        # disagree. Built from real detected note onsets matched to the score's actual
+        # pitch sequence, not beat-count arithmetic.
+        if dtw_verified:
+            r0, r1 = range_map.get(m0), range_map.get(m1)
+            if r0 and r1:
+                return (r0["start"], max(r0["start"], r1["end"]))
+            if r0:
+                return (r0["start"], r0["end"])
+
+        # BEST (no DTW): real detected beats, anchor-corrected — same tier and array
         # time_to_measure checks first, so the label and the loop window can never
         # disagree about where a measure's real (tempo-fluctuation-aware) boundary is.
         if scaled_beat_times and len(scaled_beat_times) >= 2 and bpm_grid >= 1:
@@ -3251,22 +3290,41 @@ def run_full_analysis(payload: dict) -> None:
 
         aligned: list[dict] = []
         alignment_ranges: list[dict] = []
+        alignment_method_used = "beat_grid"   # overwritten below on success; used for the backend label
 
         if ref_notes and len(ref_notes) >= 4:
             print(f"[run_full_analysis] using reference MIDI alignment ({len(ref_notes)} reference notes)")
             aligned, alignment_ranges = dtw_align_to_reference(raw_events, ref_notes, start_measure)
+            alignment_method_used = "reference_midi_dtw"
             debug_steps.append(f"alignment: reference_midi_dtw aligned={len(aligned)} ranges={len(alignment_ranges)}")
         else:
             total_score_notes = sum(len(m.get("notes", [])) for m in score.get("measures", []))
             score_source      = (score.get("source") or "")
-
-            if total_score_notes >= 4 and "music21" in score_source:
-                print(f"[run_full_analysis] using score DTW ({total_score_notes} score notes)")
+            # DTW matches the ACTUAL PITCH SEQUENCE played against the score's note
+            # sequence, so a flag's measure/timestamp is anchored to where that specific
+            # pattern of notes was really heard — not a beat-count estimate that drifts
+            # if a beat tracker ever misses/adds one beat somewhere earlier in the piece.
+            # Previously restricted to MusicXML ("music21" source) scores; most takes
+            # here use a photo of the sheet music instead (Claude-vision-read), which
+            # was always falling back to the far less accurate beat-grid method even
+            # though the score dict has the same {measures: [{notes: [...]}]} shape DTW
+            # needs. Photo-read note data is less precise per-note than MusicXML, so
+            # require a larger sample (12 vs 4) before trusting it for alignment.
+            is_musicxml = "music21" in score_source
+            is_vision   = score_source.startswith("claude_vision")
+            min_notes   = 4 if is_musicxml else 12
+            if total_score_notes >= min_notes and (is_musicxml or is_vision):
+                print(f"[run_full_analysis] using score DTW ({total_score_notes} score notes, source={score_source})")
                 aligned = dtw_align_to_score(raw_events, score, start_measure, bpm_int)
+                if aligned:
+                    alignment_method_used = "score_dtw"
                 debug_steps.append(f"alignment: score_dtw notes={total_score_notes} aligned={len(aligned)}")
-            else:
+            if not aligned:
+                if total_score_notes >= min_notes and (is_musicxml or is_vision):
+                    print("[run_full_analysis] score DTW declined/empty — falling back to beat-grid")
                 print(f"[run_full_analysis] using beat-grid alignment (score_notes={total_score_notes}, source={score_source})")
                 aligned = [ev for ev in events_with_measures if "measure" in ev]
+                alignment_method_used = "beat_grid"
                 debug_steps.append(f"alignment: beat_grid aligned={len(aligned)}")
 
             # Build alignment_ranges from aligned events when not using reference
@@ -3333,16 +3391,13 @@ def run_full_analysis(payload: dict) -> None:
                 beat_times=beats.get("beat_times"),
                 beats_per_measure=bpm_int,
                 end_measure=end_measure,
+                dtw_verified=(alignment_method_used in ("score_dtw", "reference_midi_dtw")),
             )
             debug_steps.append(f"claude_coaching: {len(flags)} flags")
         else:
             raise RuntimeError("ANTHROPIC_API_KEY not provided")
 
-        alignment_method = (
-            "reference_midi_dtw" if ref_notes
-            else "score_dtw" if (sum(len(m.get("notes", [])) for m in score.get("measures", [])) >= 4)
-            else "beat_grid"
-        )
+        alignment_method = alignment_method_used
         base_score = compute_weighted_score(flags)
         backend    = f"modal+gemini+claude ({alignment_method})"
         print(f"[run_full_analysis] done | score={base_score} | flags={len(flags)} | backend={backend}")

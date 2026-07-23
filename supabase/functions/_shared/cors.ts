@@ -1,9 +1,13 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 export async function requireAuth(req: Request): Promise<{ user: { id: string } } | Response> {
+  // Include CORS headers on the 401 response too — without them, a cross-origin
+  // browser fetch never sees the 401 body at all, it just reports a generic
+  // "Failed to fetch" / network error, masking the real "not logged in" cause.
+  const headers = { 'Content-Type': 'application/json', ...corsHeaders(req) }
   const authHeader = req.headers.get('Authorization') ?? ''
   if (!authHeader.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
   }
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -12,7 +16,7 @@ export async function requireAuth(req: Request): Promise<{ user: { id: string } 
   )
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
   }
   return { user: { id: user.id } }
 }

@@ -1066,12 +1066,22 @@ const videoRef    = useRef(null)
           flags:         take.flags,
         },
       })
-      if (fnErr) throw new Error(fnErr.message ?? String(fnErr))
+      if (fnErr) {
+        // supabase-js only puts a generic "non-2xx status code" string on fnErr.message —
+        // the function's actual { error: "..." } body is on fnErr.context (a Response).
+        // Without reading it we always show the same unhelpful text no matter the cause.
+        let detail = fnErr.message
+        try {
+          const body = await fnErr.context?.json?.()
+          if (body?.error) detail = body.error
+        } catch { /* body wasn't JSON or already consumed — keep fnErr.message */ }
+        throw new Error(detail || 'Edge function request failed')
+      }
       if (data?.error) throw new Error(data.error)
       setSummary(data.summary)
     } catch (err) {
       console.error('[analysis-summary]', err)
-      setSummaryError('Could not generate summary. Try again.')
+      setSummaryError(err?.message || 'Could not generate summary. Try again.')
     } finally {
       setSummaryLoading(false)
     }

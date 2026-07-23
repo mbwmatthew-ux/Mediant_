@@ -1,5 +1,12 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-21e — Frontend loop had its OWN duplicate 3s-minimum padding bug
+
+After 0ebac50 fixed the backend's over-padding, the loop still spilled into one extra unmarked measure (e.g. flag says "measures 20-22", audio also played 23). Root cause: `src/pages/Analysis.jsx`'s loop effect had a SEPARATE, frontend-only `MIN_LEN = 3` (3 seconds) floor in `resolveWindow()` — the same class of bug as the backend one, just duplicated on the client. A short passage (fast tempo or few measures) whose true duration was under 3s got stretched forward to 3s regardless of what the backend had already computed as the exact boundary.
+
+- Removed the 3s floor; `resolveWindow()` now trusts the backend's own timestamp_start/timestamp_end as authoritative (it already has its own ~1s audibility floor) and only clamps to the real recording duration, with a negligible 0.3s guard against a literal zero-length window.
+- Tightened the loop-back boundary check from the browser's `timeupdate` event (fires ~4x/sec, so playback could overshoot the end by up to ~250ms before being caught) to a `requestAnimationFrame` poll (~60x/sec) — the loop now snaps back within a few milliseconds of the true boundary instead of up to a quarter-second late, which for a short passage was enough to spill into the next measure.
+
 ## 2026-07-21d — Loop no longer bleeds into measures not mentioned in the flag
 
 Regression from the previous loop fix (a2567cb): after switching the loop window to `measure_to_time_range()` (the exact inverse of the measure-label math), I still padded it with `max(est_measure_sec * span_measures, natural_len)`. `est_measure_sec` is a coarse GLOBAL estimate (median CREPE range duration, or a generic tempo fallback, clamped [1.2, 8.0]) — whenever it was larger than the true, precise duration of the specific labeled measure(s) (which `measure_to_time_range` already computes correctly), the loop got stretched past the measure's real end into neighboring measures the flag never mentions. This is exactly what "loop plays the wrong section" / "includes other measures not marked in the issue" was.

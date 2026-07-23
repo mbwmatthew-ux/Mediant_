@@ -847,23 +847,22 @@ const videoRef    = useRef(null)
       return Number.isFinite(stored) && stored > 0 ? stored : null
     }
 
-    // Clamp the loop window inside the real recording and guarantee it is long
-    // enough to actually hear (>= ~3s), preserving the requested length otherwise.
+    // Clamp the loop window inside the real recording. The backend already computes
+    // the exact boundary of the labeled measure(s) (with its own small ~1s audibility
+    // floor) — do NOT re-extend it here. A previous 3s minimum here duplicated that
+    // same padding-past-the-boundary bug on the frontend: a short passage (fast tempo,
+    // or few measures) would get stretched to 3s and audibly spill into the next
+    // measure, even after the backend was fixed to stop doing exactly that.
     function resolveWindow() {
       let s = Math.max(0, Number(start) || 0)
-      let e = Number(end) || (s + 3)
+      let e = Number(end) || (s + 1)
       const dur = knownDuration()
-      const MIN_LEN = 3
+      const MIN_LEN = 0.3   // just enough to avoid a zero-length/instant loop, never more
       if (dur) {
         if (e > dur) e = dur
-        if (s > dur - 0.5) s = Math.max(0, dur - Math.max(MIN_LEN, e - s))
+        if (s > dur - 0.1) s = Math.max(0, dur - Math.max(MIN_LEN, e - s))
       }
-      if (e - s < MIN_LEN) {
-        // extend forward if room, else backward
-        if (dur && s + MIN_LEN <= dur) e = s + MIN_LEN
-        else if (dur) { e = dur; s = Math.max(0, dur - MIN_LEN) }
-        else e = s + MIN_LEN
-      }
+      if (e - s < MIN_LEN) e = s + MIN_LEN
       return { s, e }
     }
 
@@ -899,21 +898,26 @@ const videoRef    = useRef(null)
       try { video.currentTime = start } catch {}
       video.play().catch(() => {})
     }
-    function onTimeUpdate() {
-      // NOTE: do not setState here — it re-renders the flag list every ~250ms, which
-      // re-invokes the video's inline ref callback and can disrupt playback.
+    // The 'timeupdate' event only fires ~4x/sec, so checking the boundary there lets
+    // playback overshoot the labeled measure's end by up to ~250ms before we notice —
+    // for a short passage (fast tempo, or just 1-2 measures) that's enough to audibly
+    // spill into the next measure ("plays measure 23 too"). Poll every animation frame
+    // (~60x/sec) instead so the loop-back fires within a few milliseconds of the
+    // boundary — effectively as tight as the browser's own currentTime resolution.
+    let rafId = null
+    function tick() {
       const t = video.currentTime ?? start
-      // small epsilon so we catch the boundary before the browser fires 'ended'
-      if (t >= end - 0.05) loopBack()
+      if (t >= end - 0.02) loopBack()
+      rafId = requestAnimationFrame(tick)
     }
-    // If a long loop reaches the very end of the file, 'ended' fires instead of a
-    // final timeupdate — without this the loop would just stop (passages "not working").
+    rafId = requestAnimationFrame(tick)
+    // If a long loop reaches the very end of the file, 'ended' fires instead of the
+    // frame check catching it first — without this the loop would just stop (passages
+    // "not working").
     function onEnded() { loopBack() }
-
-    video.addEventListener('timeupdate', onTimeUpdate)
     video.addEventListener('ended', onEnded)
     return () => {
-      video.removeEventListener('timeupdate', onTimeUpdate)
+      if (rafId != null) cancelAnimationFrame(rafId)
       video.removeEventListener('ended', onEnded)
       video.removeEventListener('loadedmetadata', seekAndPlay)
       video.pause()

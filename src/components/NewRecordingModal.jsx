@@ -77,6 +77,7 @@ export default function NewRecordingModal({ open, onClose }) {
   const [pieceName, setPieceName] = useState('')
   const [startMeasure, setStartMeasure] = useState('')
   const [endMeasure, setEndMeasure] = useState('')
+  const [timeSig, setTimeSig] = useState('4/4')
   const [tag, setTag] = useState('Piece')
 
   // Performance: one of video OR audio required
@@ -196,7 +197,7 @@ export default function NewRecordingModal({ open, onClose }) {
             scorePath:     scorePath || undefined,
             scoreMimeType: scoreFile?.type || undefined,
             pieceTitle:    pieceName.trim() || undefined,
-            timeSig:       '4/4',
+            timeSig:       timeSig.trim() || '4/4',
             startMeasure:  startMeasure ? parseInt(startMeasure, 10) : 1,
             endMeasure:    endMeasure ? parseInt(endMeasure, 10) : undefined,
             notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
@@ -347,6 +348,17 @@ export default function NewRecordingModal({ open, onClose }) {
                     onChange={e => setEndMeasure(e.target.value)}
                     placeholder="last"
                     style={{ textAlign: 'center' }}
+                  />
+                </div>
+                <div style={{ width: 90 }}>
+                  <label className={styles.fieldLabel}>Time sig.</label>
+                  <input
+                    className={styles.textInput}
+                    value={timeSig}
+                    onChange={e => setTimeSig(e.target.value)}
+                    placeholder="4/4"
+                    style={{ textAlign: 'center' }}
+                    title="Only needed if the sheet music's time signature isn't read correctly from the score image"
                   />
                 </div>
               </div>

@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-23b — Fixed a hardcoded '4/4' that could silently override the real time signature
+
+Found while investigating remaining loop-boundary imprecision: `NewRecordingModal.jsx` (the "Record & Analyze" modal, the actual submission flow used throughout this project) hardcoded `timeSig: '4/4'` with no way to change it — unlike `Record.jsx`, which already had a real, editable field. The worker DOES correct this later if it successfully reads the time signature off the score image (`bpm_int` override in `run_full_analysis`), but if that score-parsing step ever misses (image quality, an unusual layout, a partial parse), it silently falls back to the WRONG hardcoded 4/4 — beats-per-measure would be off by a third for a 3/4 piece like Procession of the Nobles, which throws every measure boundary off by the same proportion (a systematic error, not just estimation noise).
+
+- Added a real "Time sig." field to `NewRecordingModal.jsx`, matching the existing Start/End measure fields, defaulting to 4/4 but user-editable.
+- Edge function (`analyze-performance`) already forwarded `timeSig -> time_sig` correctly — no backend change needed here.
+- This is a belt-and-suspenders fix layered on top of the score-based auto-detection, not a replacement for it — most takes should still auto-detect correctly; this closes the failure mode where they don't.
+
 ## 2026-07-23 — Loop boundaries now track the performance's real tempo, not an assumed constant one
 
 After the frontend padding-duplicate fix, the loop could still under/over-play by a fraction of a measure. Root cause: even with exact math, the primary measure-boundary tiers (two-point linear anchor, uniform tempo grid) both assume a PERFECTLY CONSTANT tempo across the whole recording — real playing has natural tempo fluctuation (rubato, a march that isn't machine-metronomic), so a constant-tempo model's mid-piece measure boundaries drift away from where the performer actually played the barlines, even though the overall start/end were correct.

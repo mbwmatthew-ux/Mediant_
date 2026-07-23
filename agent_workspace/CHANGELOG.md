@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-23 — Loop boundaries now track the performance's real tempo, not an assumed constant one
+
+After the frontend padding-duplicate fix, the loop could still under/over-play by a fraction of a measure. Root cause: even with exact math, the primary measure-boundary tiers (two-point linear anchor, uniform tempo grid) both assume a PERFECTLY CONSTANT tempo across the whole recording — real playing has natural tempo fluctuation (rubato, a march that isn't machine-metronomic), so a constant-tempo model's mid-piece measure boundaries drift away from where the performer actually played the barlines, even though the overall start/end were correct.
+
+- Added `scaled_beat_times`: the REAL detected beat onsets (from CREPE's beat tracking — already computed for every take) rescaled by a single factor so the anchored last beat lands exactly on `anchor_time`. This captures the performance's actual tempo shape (which raw beat detection sees) while removing the accumulated drift a raw, unanchored beat count would have — best of both.
+- Promoted this to the TOP-priority tier in both `time_to_measure` and `measure_to_time_range` (same array, same index math, used identically in both directions) — ahead of the two-point/tempo-grid tiers, which remain as fallbacks when no usable beat-time array exists.
+- Verified: doesn't change measure NUMBERING (same labels as before across no-beat-times / beat-times-no-anchor / beat-times-with-anchor cases) — only refines the loop's time-window precision. Ran cleanly against a synthetic rubato scenario (tempo speeding up mid-piece) without errors.
+
 ## 2026-07-21e — Frontend loop had its OWN duplicate 3s-minimum padding bug
 
 After 0ebac50 fixed the backend's over-padding, the loop still spilled into one extra unmarked measure (e.g. flag says "measures 20-22", audio also played 23). Root cause: `src/pages/Analysis.jsx`'s loop effect had a SEPARATE, frontend-only `MIN_LEN = 3` (3 seconds) floor in `resolveWindow()` — the same class of bug as the backend one, just duplicated on the client. A short passage (fast tempo or few measures) whose true duration was under 3s got stretched forward to 3s regardless of what the backend had already computed as the exact boundary.

@@ -2322,26 +2322,36 @@ def compare_and_coach_claude(
     # include trailing silence). Both are set below.
     anchor_end: int | None = None
     anchor_time: float | None = None
+    # Real detected beat onsets, RESCALED so the anchored last beat lands exactly on
+    # anchor_time. Set once anchor_end/anchor_time are known (below). This is the most
+    # accurate measure-boundary source available: raw beat_times reflect the performer's
+    # ACTUAL tempo (rubato, a march that isn't perfectly metronomic) far better than a
+    # straight-line or constant-tempo assumption — the rescale just removes whatever
+    # drift a raw, uncorrected beat count would otherwise accumulate by the end.
+    scaled_beat_times: list[float] | None = None
 
     def time_to_measure(tsec: float | None) -> int | None:
         """
         Map a recording timestamp to a measure number. Gemini reliably reports WHEN
         an issue happens (it watched the video) but often misreads the printed measure
         number off the score photo — so we trust the timestamp and derive the measure.
-
-        Primary method: the BEAT GRID. beat_times[] are the detected beat onsets;
-        beat 0 corresponds to measure `start_measure`. So the measure at time t is
-        start_measure + (beats elapsed by t) // beats_per_measure. This is deterministic,
-        monotonic, anchored at the student's real start measure, and consistent with how
-        CREPE events are numbered — the most reliable measure signal we have.
-        Falls back to CREPE alignment ranges, then a proportional estimate.
         """
         if tsec is None:
             return None
-        # BEST: two-point linear anchor. When we know the last measure (from the user or
-        # a reliable estimate), map [0, duration] -> [start_measure, anchor_end] linearly.
-        # This is exact at both ends and immune to tempo/meter estimation error — which
-        # is what made the beat/tempo grid under- or over-count toward the end.
+        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+        # BEST: real detected beats, anchor-corrected. Tracks the performance's actual
+        # tempo variation across the piece (a straight-line/constant-tempo model can't),
+        # while the rescale guarantees no drift at either end.
+        if scaled_beat_times and len(scaled_beat_times) >= 2 and bpm_grid >= 1:
+            idx = _bisect.bisect_right(scaled_beat_times, tsec) - 1
+            if idx < 0:
+                idx = 0
+            m = start_measure + idx // bpm_grid
+            return max(start_measure, min(anchor_end, m)) if anchor_end else m
+        # NEXT: two-point linear anchor. When we know the last measure (from the user or
+        # a reliable estimate) but have no usable beat-time array, map [0, duration] ->
+        # [start_measure, anchor_end] linearly. Exact at both ends, immune to tempo
+        # estimation error, but assumes constant tempo throughout.
         if anchor_end and anchor_end > start_measure:
             denom = anchor_time if (anchor_time and anchor_time > 0) else piece_len
             if denom and denom > 0:
@@ -2351,7 +2361,6 @@ def compare_and_coach_claude(
                 frac = min(1.0, max(0.0, tsec / denom))
                 m = start_measure + int(frac * (anchor_end - start_measure))
                 return max(start_measure, min(anchor_end, m))
-        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
         try:
             tempo_bpm = float((tempo or {}).get("bpm") or 0)
         except (TypeError, ValueError):
@@ -2364,7 +2373,7 @@ def compare_and_coach_claude(
             sec_per_measure = bpm_grid * 60.0 / tempo_bpm
             if sec_per_measure > 0.2:
                 return start_measure + int(max(0.0, tsec) // sec_per_measure)
-        # Fallback: count detected beats.
+        # Fallback: count detected beats (unscaled — no anchor was available to correct it).
         if beat_times and len(beat_times) >= 2 and bpm_grid >= 1:
             idx = _bisect.bisect_right(beat_times, tsec) - 1
             if idx < 0:
@@ -2387,6 +2396,19 @@ def compare_and_coach_claude(
         mapping, not two independently-computed values that can silently disagree.
         """
         m1 = m1 if (isinstance(m1, int) and m1 >= m0) else m0
+        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+
+        # BEST: real detected beats, anchor-corrected — same tier and array
+        # time_to_measure checks first, so the label and the loop window can never
+        # disagree about where a measure's real (tempo-fluctuation-aware) boundary is.
+        if scaled_beat_times and len(scaled_beat_times) >= 2 and bpm_grid >= 1:
+            n = len(scaled_beat_times)
+            avg_beat = (scaled_beat_times[-1] - scaled_beat_times[0]) / max(1, n - 1)
+            idx0 = (m0 - start_measure) * bpm_grid
+            idx1 = (m1 + 1 - start_measure) * bpm_grid
+            t0 = scaled_beat_times[idx0] if 0 <= idx0 < n else scaled_beat_times[-1] + avg_beat * (idx0 - (n - 1))
+            t1 = scaled_beat_times[idx1] if 0 <= idx1 < n else scaled_beat_times[-1] + avg_beat * (idx1 - (n - 1))
+            return (max(0.0, t0), max(t0, t1))
 
         if anchor_end and anchor_end > start_measure:
             denom = anchor_time if (anchor_time and anchor_time > 0) else piece_len
@@ -2396,7 +2418,6 @@ def compare_and_coach_claude(
                 f1 = min(1.0, (m1 + 1 - start_measure) / total)
                 return (f0 * denom, max(f0 * denom, f1 * denom))
 
-        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
         try:
             tempo_bpm = float((tempo or {}).get("bpm") or 0)
         except (TypeError, ValueError):
@@ -2714,6 +2735,25 @@ def compare_and_coach_claude(
         if anchor_end:
             print(f"[compare_and_coach_claude] estimated end_measure={anchor_end} "
                   f"(beat grid={grid_end_est}, Gemini span={gemini_end_est})")
+
+    # Build scaled_beat_times: the real detected beat onsets, rescaled so the beat at
+    # anchor_end lands exactly on anchor_time. A raw beat count alone drifts over a long
+    # span (spurious beats in fast passages accumulate error), which is why earlier
+    # tiers exist — but a raw count also THROWS AWAY the real tempo shape captured by
+    # actual beat detection, which is what a uniform tempo/two-point model can never
+    # capture (a march is not played by metronome). Anchoring the real beats removes
+    # the drift while keeping that real shape, so mid-piece measure boundaries track
+    # the performer's actual tempo instead of an idealized constant one.
+    if beat_times and len(beat_times) >= 2 and _bpm_grid >= 1 and anchor_end and anchor_time and anchor_time > 0:
+        _n = len(beat_times)
+        _avg_beat = (beat_times[-1] - beat_times[0]) / max(1, _n - 1)
+        _idx_end = (anchor_end - start_measure) * _bpm_grid
+        _raw_end_t = beat_times[_idx_end] if 0 <= _idx_end < _n else beat_times[-1] + _avg_beat * (_idx_end - (_n - 1))
+        if _raw_end_t and _raw_end_t > 0:
+            _scale = anchor_time / _raw_end_t
+            scaled_beat_times = [t * _scale for t in beat_times]
+            print(f"[compare_and_coach_claude] using anchor-corrected real beat times "
+                  f"(rescale factor {_scale:.3f}) as the primary measure-boundary source")
 
     # Measure numbers come from the BEAT GRID (time_to_measure), not Gemini's photo
     # reading — Gemini watches the video so its TIMESTAMP is reliable, but reading the

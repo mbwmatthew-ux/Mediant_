@@ -1,5 +1,14 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-21b — Loop audio no longer disagrees with the measure label
+
+Bug: the measure number shown on a flag could differ from what actually played when you hit Loop. Root cause: the loop's time window was built from the raw Gemini event timestamp plus a fixed 3.5s pad (and, for the no-timestamp path, could pad BACKWARD past the measure's start) — completely independent of the same-named measure boundaries used to derive the label. At normal/fast tempos (measures well under 3.5s) the loop routinely spilled into neighboring measures.
+
+- Added `measure_to_time_range(m0, m1)` — the EXACT inverse of `time_to_measure`, using the identical priority tiers (two-point anchor → uniform tempo grid → beat count → alignment ranges → proportional) and the same closure state, so label and audio are two views of one mapping instead of two independently-computed values.
+- Replaced `resolve_loop_range` (ad-hoc, backward-padding, fixed 3.5s floor) with this inverse function. The loop's start time is now always the labeled measure's true start; only the END may extend forward (never backward) when a measure is naturally short, capped at roughly one measure's estimated duration instead of 3.5s.
+- Fixed the two-point anchor tier to use floor instead of round, matching the other tiers and making it exactly invertible (round() could disagree with its own inverse by up to half a measure).
+- Verified: 20,000 random-timestamp probes against both the two-point and tempo-grid tiers — 0 invertibility failures (every timestamp's measure, when converted back to a time range, contains the original timestamp).
+
 ## 2026-07-20j — Reactive end-measure correction + trailing-silence anchor
 
 - Self-corrects a small end-measure slip (e.g. user types 23 when they played to 24). Compares the user's `end_measure` against two independent estimates — the beat grid at the last playing moment, and Gemini's relative span. Overrides ONLY when both estimates agree with each other (within 1) and differ from the user by 1-2 measures. Large disagreements (e.g. beat-grid drift) never override the user.

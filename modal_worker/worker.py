@@ -2345,8 +2345,11 @@ def compare_and_coach_claude(
         if anchor_end and anchor_end > start_measure:
             denom = anchor_time if (anchor_time and anchor_time > 0) else piece_len
             if denom and denom > 0:
+                # Floor (not round) so this is exactly invertible by
+                # measure_to_time_range below — with round(), the measure label and
+                # the loop's time window could disagree by up to half a measure.
                 frac = min(1.0, max(0.0, tsec / denom))
-                m = start_measure + int(round(frac * (anchor_end - start_measure)))
+                m = start_measure + int(frac * (anchor_end - start_measure))
                 return max(start_measure, min(anchor_end, m))
         bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
         try:
@@ -2375,44 +2378,57 @@ def compare_and_coach_claude(
             return int(round(measure_lo + frac * (measure_hi - measure_lo)))
         return None
 
-    def resolve_loop_range(m_num: int, beat=None, time_hint: float | None = None) -> tuple[float, float]:
+    def measure_to_time_range(m0: int, m1: int | None = None) -> tuple[float, float]:
         """
-        Produce a passage-length loop window [start, end] for a flagged measure.
-        Priority: CREPE alignment range → explicit time hint (this issue's own
-        Gemini timestamp) → Gemini's earliest timestamp for the measure →
-        proportional estimate. Always spans a musical passage (>= ~one measure).
+        EXACT inverse of time_to_measure: returns the [start_sec, end_sec) time window
+        occupied by measures m0..m1 (inclusive), using the SAME priority tiers in the
+        SAME order. This is what guarantees the Loop button always plays exactly the
+        measure(s) printed on the flag — the label and the audio are two views of one
+        mapping, not two independently-computed values that can silently disagree.
         """
-        r = range_map.get(m_num)
-        if r:
-            start = r["start"]
-            end   = r["end"]
-        elif time_hint is not None:
-            start = max(0.0, time_hint)
-            end   = start + est_measure_sec
-        elif m_num in gemini_measure_time:
-            start = gemini_measure_time[m_num]
-            end   = start + est_measure_sec
-        else:
-            # Proportional placement along the recording by measure position.
-            frac  = (m_num - span_min) / max(1, (span_max - span_min))
-            frac  = min(1.0, max(0.0, frac))
-            start = frac * max(0.0, piece_len - est_measure_sec)
-            end   = start + est_measure_sec
-        # Nudge start toward the flagged beat within the measure, but keep the window
-        # passage-length (the user wants to hear the phrase, not one note).
-        if isinstance(beat, (int, float)) and beat and end > start:
-            spb    = (end - start) / max(1, bpm)
-            offset = max(0.0, (beat - 1)) * spb
-            start  = start + min(offset, max(0.0, (end - start) - est_measure_sec * 0.5))
-        # Enforce a minimum passage length of ~one measure (min 3.5s), clamp to piece.
-        min_len = max(3.5, est_measure_sec)
-        if end - start < min_len:
-            end = start + min_len
-        if piece_len > 0:
-            end = min(end, piece_len)
-            if end - start < min_len:
-                start = max(0.0, end - min_len)
-        return round(start, 3), round(end, 3)
+        m1 = m1 if (isinstance(m1, int) and m1 >= m0) else m0
+
+        if anchor_end and anchor_end > start_measure:
+            denom = anchor_time if (anchor_time and anchor_time > 0) else piece_len
+            total = anchor_end - start_measure
+            if denom and denom > 0 and total > 0:
+                f0 = max(0.0, (m0 - start_measure) / total)
+                f1 = min(1.0, (m1 + 1 - start_measure) / total)
+                return (f0 * denom, max(f0 * denom, f1 * denom))
+
+        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+        try:
+            tempo_bpm = float((tempo or {}).get("bpm") or 0)
+        except (TypeError, ValueError):
+            tempo_bpm = 0.0
+        if tempo_bpm > 20 and bpm_grid >= 1:
+            sec_per_measure = bpm_grid * 60.0 / tempo_bpm
+            if sec_per_measure > 0.2:
+                start = max(0.0, (m0 - start_measure) * sec_per_measure)
+                end   = max(start, (m1 + 1 - start_measure) * sec_per_measure)
+                return (start, end)
+
+        if beat_times and len(beat_times) >= 2 and bpm_grid >= 1:
+            n = len(beat_times)
+            avg_beat = (beat_times[-1] - beat_times[0]) / max(1, n - 1)
+            idx0 = (m0 - start_measure) * bpm_grid
+            idx1 = (m1 + 1 - start_measure) * bpm_grid
+            t0 = beat_times[idx0] if 0 <= idx0 < n else beat_times[-1] + avg_beat * (idx0 - (n - 1))
+            t1 = beat_times[idx1] if 0 <= idx1 < n else beat_times[-1] + avg_beat * (idx1 - (n - 1))
+            return (max(0.0, t0), max(t0, t1))
+
+        r0, r1 = range_map.get(m0), range_map.get(m1)
+        if r0 and r1:
+            return (r0["start"], max(r0["start"], r1["end"]))
+        if r0:
+            return (r0["start"], r0["end"])
+
+        if piece_len > 0 and span_max > span_min:
+            f0 = max(0.0, (m0 - span_min) / max(1, (span_max - span_min)))
+            f1 = min(1.0, (m1 + 1 - span_min) / max(1, (span_max - span_min)))
+            return (f0 * piece_len, max(f0 * piece_len, f1 * piece_len))
+
+        return (0.0, max(1.2, est_measure_sec))
 
     evidence_candidates: list[str] = []
     for m in played_measures:
@@ -2847,38 +2863,22 @@ Return JSON only (no markdown):
             f"{iss['observed']}. Focus a few slow, careful repetitions on this spot, "
             f"listening closely, before playing it back up to tempo."
         )
-        # Build the loop window. When the issue carries its own Gemini timestamp,
-        # anchor the loop directly on it (distinct spot per issue). Otherwise (CREPE
-        # intonation / wrong notes) use the measure's accurate alignment range. For a
-        # multi-measure passage, the loop spans the whole range so you hear it all.
+        # Build the loop window from the SAME mapping that produced the measure label
+        # (measure_to_time_range is the exact inverse of time_to_measure). This is what
+        # guarantees the Loop button always plays the measure(s) shown on the flag —
+        # previously the window was built from the raw Gemini timestamp plus a fixed
+        # 3.5s pad, which routinely overran (or, when padding backward, preceded) the
+        # labeled measure's real boundaries, so what played didn't match what was shown.
         m_end = iss.get("measure_end")
-        t_end = iss.get("time_end_sec")
         span_measures = (m_end - iss["measure"] + 1) if (m_end and m_end > iss["measure"]) else 1
-        # Loops should be long enough to actually hear the passage — at least ~3.5s
-        # (a full measure of musical context), longer for multi-measure passages.
-        MIN_LOOP = 3.5
-        tsec = iss["time_sec"]
-        if tsec is not None:
-            start = max(0.0, tsec)
-            if t_end is not None and t_end > start:
-                end = t_end
-            else:
-                end = start + max(MIN_LOOP, est_measure_sec * span_measures)
-            if piece_len > 0:
-                end = min(end, piece_len)
-            if end - start < MIN_LOOP:
-                start = max(0.0, end - MIN_LOOP)
-            ts_start, ts_end = round(start, 3), round(end, 3)
-        else:
-            ts_start, ts_end = resolve_loop_range(iss["measure"], None, None)
-            desired = est_measure_sec * span_measures
-            if ts_end - ts_start < max(MIN_LOOP, desired):
-                extended = ts_start + max(MIN_LOOP, desired)
-                if piece_len > 0:
-                    extended = min(extended, piece_len)
-                ts_end = round(max(ts_end, extended), 3)
-                if ts_end - ts_start < MIN_LOOP:
-                    ts_start = round(max(0.0, ts_end - MIN_LOOP), 3)
+        ts_start, ts_end = measure_to_time_range(iss["measure"], m_end)
+        # Only pad FORWARD, never before the measure's true start, so the loop always
+        # begins on the correct measure even if that measure is naturally short.
+        target_len = max(est_measure_sec * span_measures, ts_end - ts_start)
+        ts_end = ts_start + target_len
+        if piece_len > 0:
+            ts_end = min(ts_end, piece_len)
+        ts_start, ts_end = round(max(0.0, ts_start), 3), round(max(ts_start, ts_end), 3)
         flags.append({
             "measure":              iss["measure"],
             "measure_end":          m_end,

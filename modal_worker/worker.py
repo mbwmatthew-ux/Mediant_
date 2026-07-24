@@ -2511,7 +2511,12 @@ def compare_and_coach_claude(
         n_beats = max(1, (m1 + 1 - m0) * bpm_grid)
         spb = max(0.05, (t1 - t0) / n_beats)   # seconds per beat, estimated locally
         margin = min(0.25, spb * 0.15)         # up to 15% of one beat, capped at 250ms
-        t0_adj, t1_adj = t0 + margin, t1 - margin
+        # The start margin exists to protect against bleeding in the TAIL of a real
+        # previous measure. The very first playable measure has no previous measure to
+        # bleed from, so delaying its start only risks clipping the true opening note
+        # for no benefit — skip the start margin there.
+        start_margin = margin if m0 > start_measure else 0.0
+        t0_adj, t1_adj = t0 + start_margin, t1 - margin
         if t1_adj - t0_adj < 0.5:
             # Margin would collapse an already-short window — better to risk a sliver
             # of bleed than to under-play the labeled measure(s) entirely.
@@ -2647,7 +2652,7 @@ def compare_and_coach_claude(
 
     def _add(measure, ftype, observed, time_sec, confirmed,
              cents=None, timing=None, is_global=False,
-             measure_end=None, time_end_sec=None):
+             measure_end=None, time_end_sec=None, direction=None):
         observed = str(observed or "").strip()
         if not observed or "not visible" in observed.lower():
             return
@@ -2665,6 +2670,7 @@ def compare_and_coach_claude(
             "cents":        cents,
             "timing":       timing,
             "global":       is_global,
+            "direction":    direction,   # "sharp"/"flat" for intonation; else None
         })
 
     # 1. Gemini-authored issues (note errors, timing, dynamics, tone) — one flag each.
@@ -2896,9 +2902,14 @@ def compare_and_coach_claude(
                 d["time"] = t
     for m, d in inton.items():
         direction = "sharp" if d["sharp"] else "flat"
+        fix_hint = (
+            "loosen the embouchure slightly and drop jaw pressure, or open the throat"
+            if direction == "sharp" else
+            "tighten the embouchure slightly and increase air support"
+        )
         _add(m, "intonation",
-             f"pitch runs {round(d['cents'])}¢ {direction} in this measure",
-             d["time"], confirmed=True, cents=round(d["cents"], 1))
+             f"pitch runs {round(d['cents'])}¢ {direction} in this measure — {fix_hint}",
+             d["time"], confirmed=True, cents=round(d["cents"], 1), direction=direction)
 
     # 3. CREPE-detected wrong notes not already flagged by Gemini.
     for cand in wrong_note_candidates:
@@ -2942,6 +2953,17 @@ def compare_and_coach_claude(
     # every played measure examined, so we do not throttle coverage here.
     deduped_issues = deduped_issues[:40]
 
+    # Drop unconfirmed (Tier B, not corroborated by CREPE) issues entirely rather than
+    # showing them hedged ("possible hesitation", "may have rushed") — the user doesn't
+    # want low-confidence guesses in the report at all, only things we can state as fact.
+    dropped_unconfirmed = sum(1 for iss in deduped_issues if not iss["confirmed"])
+    deduped_issues = [iss for iss in deduped_issues if iss["confirmed"]]
+    if dropped_unconfirmed:
+        print(f"[compare_and_coach_claude] dropped {dropped_unconfirmed} unconfirmed "
+              f"(hedged) issue(s) — only reporting confirmed findings")
+    if not deduped_issues:
+        return []
+
     # ── Claude writes coaching text for EACH canonical issue (no selection) ──
     coaching_by_index: dict[int, dict] = {}
     issue_lines = []
@@ -2950,15 +2972,16 @@ def compare_and_coach_claude(
         loc = f"m.{iss['measure']}-{m_end}" if m_end else f"m.{iss['measure']}"
         if iss["time_sec"] is not None:
             loc += f" ({int(iss['time_sec']) // 60}:{int(iss['time_sec']) % 60:02d})"
-        tag = "" if iss["confirmed"] else " (UNCONFIRMED — hedge: 'may have', 'appears to')"
-        issue_lines.append(f"[{i}] type={iss['type']} | {loc}{tag} | observed: {iss['observed']}")
+        issue_lines.append(f"[{i}] type={iss['type']} | {loc} | observed: {iss['observed']}")
     coach_prompt = f"""You are a master {instrument} teacher writing feedback on a student's performance of "{piece_title}" by {composer}.
 
 Below is the VERIFIED list of issues found in the performance. Write specific coaching for EACH issue. Do NOT add, remove, merge, reorder, or skip any — return exactly one coaching entry per issue, matched by its index "i".
 
 The location given for each issue (e.g. "m.25" or "m.25-27") is the VERIFIED, authoritative measure — it was computed from the recording's timing, not read off the page, so trust it completely. If the "observed" text for an issue mentions a different measure number, that is a stale/incorrect reference — ignore it and use ONLY the given location in your title and body. Never cite a measure number in your response other than the one given for that issue.
 
-For issues marked (UNCONFIRMED), use hedged language ("may have", "appears to", "worth checking") — do not assert them as certain fact.
+Every issue below is CONFIRMED — state it as fact. Never use hedging language like "possible", "may have", "appears to", or "worth checking".
+
+For "intonation" issues specifically: the title you write will be discarded and replaced with just "Sharp" or "Flat", so don't worry about the title for those — but make the body state the exact cents deviation (given in "observed") and a concrete embouchure/air-support fix for that direction.
 {f'Student note about this take (context only, do not excuse issues): "{user_note}"' if user_note else ''}
 
 ISSUES:
@@ -2992,7 +3015,14 @@ Return JSON only (no markdown):
     flags: list[dict] = []
     for i, iss in enumerate(deduped_issues):
         coach = coaching_by_index.get(i) or {}
-        title = coach.get("title") or f"{TYPE_LABEL.get(iss['type'], iss['type'].title())} — m.{iss['measure']}"
+        if iss["type"] == "intonation" and iss.get("direction"):
+            # User preference: the intonation title should just say "Sharp"/"Flat" —
+            # the cents amount and fix belong in the body, not the headline. Overrides
+            # whatever title Claude wrote (it's told this will happen; the coaching
+            # prompt asks it to focus effort on the body for these instead).
+            title = iss["direction"].capitalize()
+        else:
+            title = coach.get("title") or f"{TYPE_LABEL.get(iss['type'], iss['type'].title())} — m.{iss['measure']}"
         body  = coach.get("body") or (
             f"{iss['observed']}. Focus a few slow, careful repetitions on this spot, "
             f"listening closely, before playing it back up to tempo."

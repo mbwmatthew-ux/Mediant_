@@ -1,5 +1,18 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-24 — Drop hedged issues, intonation titles = "Sharp"/"Flat", first-measure loop refinement
+
+User feedback after DTW rollout: loop is much better, just a tiny miss at measure 20 (the piece's first measure) with a missing opening note. Plus two display requests.
+
+### Loop: first-measure margin fix
+The inward-shrink margin added earlier (2026-07-23c) delays a measure's start slightly to avoid bleeding the tail of a real previous measure — but the very FIRST playable measure has no previous measure to bleed from, so that delay only risked clipping the true opening note for no benefit. `measure_to_time_range` now skips the start margin when `m0 <= start_measure`; the end margin is unaffected. Verified: first measure's loop now starts at exactly 0.000 (no delay); later measures keep the protective margin.
+
+### Drop unconfirmed ("possible") issues entirely
+User: "get rid of any issues labeled as possible... I don't really want to see those." Tier B issues (error/timing) not corroborated by CREPE were previously shown with hedged language ("possible hesitation", "may have rushed"). Now dropped from the report entirely rather than hedged — `deduped_issues` is filtered to `confirmed=True` only before coaching, and the coaching prompt's hedging instruction was removed (replaced with "every issue below is CONFIRMED — state it as fact"). Tier A issues (dynamics, tone, posture, technique) are unaffected — they're always confirmed. Verified: an unconfirmed rhythm issue and an uncorroborated wrong-note issue are both dropped from the output; a confirmed dynamics issue survives.
+
+### Intonation titles: "Sharp"/"Flat" only, cents + fix in the body
+User: title should just say "flat" or "sharp"; cents + fix belongs in the description. Added a `direction` field threaded from the intonation-detection step through to the flag; flag assembly now force-overrides the title to `iss['direction'].capitalize()` for intonation issues regardless of what Claude wrote (the coaching prompt tells Claude this will happen, so it should focus effort on the body). The underlying `observed` text (used as both the Claude-visible evidence and the template fallback) now also includes a concrete embouchure/air-support fix hint per direction. Verified: titles are exactly "Sharp"/"Flat"; cents deviation and fix guidance are present in the body even via the template fallback path.
+
 ## 2026-07-23d — Note-content alignment (DTW) enabled for photo-based scores
 
 User's proposal: instead of estimating measure boundaries from beat-counting (which drifts if a beat is ever missed/miscounted), match the ACTUAL PITCH SEQUENCE played against the score's note sequence — when that specific pattern of notes is heard, THAT determines the measure. The codebase already had exactly this (`dtw_align_to_score`, DTW-matching CREPE-detected pitches against the score's notes) — but it was gated to MusicXML scores only (`"music21" in score_source`). Every take in this project uses a PHOTO of the sheet music (Claude-vision-parsed), so DTW was never running; every take silently used the far more fragile beat-grid method instead.

@@ -443,7 +443,7 @@ const videoRef    = useRef(null)
     setTakesLoaded(false)
     supabase
       .from('takes')
-      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, duration_seconds, created_at')
+      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, duration_seconds, created_at, ai_summary')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
@@ -1083,6 +1083,14 @@ const videoRef    = useRef(null)
       }
       if (data?.error) throw new Error(data.error)
       setSummary(data.summary)
+      // Persist so re-opening this take never re-generates identical content with a
+      // fresh (billed) Claude call — was previously regenerated on every page load.
+      if (take?.id && !isDemo) {
+        supabase.from('takes').update({ ai_summary: data.summary }).eq('id', take.id)
+          .then(({ error: saveErr }) => {
+            if (saveErr) console.error('[analysis-summary] failed to cache:', saveErr)
+          })
+      }
     } catch (err) {
       console.error('[analysis-summary]', err)
       setSummaryError(err?.message || 'Could not generate summary. Try again.')
@@ -1091,10 +1099,16 @@ const videoRef    = useRef(null)
     }
   }
 
-  // Clear stale summary when the take changes, then auto-generate
+  // Clear stale summary when the take changes. If a summary was already generated
+  // and cached for this take, use it directly — no API call. Only call Claude for a
+  // take that has never had a summary generated.
   useEffect(() => {
-    setSummary(null)
     setSummaryError(null)
+    if (take?.ai_summary) {
+      setSummary(take.ai_summary)
+      return
+    }
+    setSummary(null)
     if (take && take.flags?.length && !take._polling) {
       generateSummary()
     }

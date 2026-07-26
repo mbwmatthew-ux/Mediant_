@@ -1,5 +1,15 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-26 — Cache the AI session summary (stop regenerating it on every page load)
+
+Investigated cutting Claude API cost without touching analysis quality. Findings:
+- Measured the two Sonnet calls' static instructional text directly (`read_score_notes_claude` ~250 tokens, `compare_and_coach_claude`'s coach_prompt ~280 tokens) — both are well under Sonnet 4.6's 2048-token minimum cacheable prefix, so adding `cache_control` there would not actually reduce cost today (would silently just not cache). Not implemented, to avoid selling a change with zero real effect.
+- Score parsing (`read_score_notes_claude`) already only runs once per NEW piece thanks to existing DB-level score caching — already optimal, no further action.
+- The practice plan (`analysis-webhook` → Haiku) was already generated once server-side and persisted to `takes.practice_plan` — already optimal.
+- **Found the real leak:** the session summary (`analysis-summary` edge function → Haiku) had no persistence at all — it re-called Claude with identical inputs every single time a take's Analysis page was opened or reloaded, producing the same content over and over for zero benefit. This was pure waste, not a needed-for-accuracy call.
+
+Fix: added `takes.ai_summary JSONB` (migration `20260726_add_ai_summary_to_takes.sql`, applied directly via `supabase db query` — the full `db push` is blocked by a pre-existing unrelated migration-history drift, not touched). Frontend now reads `take.ai_summary` first and skips the Claude call entirely if present; on a fresh generation, persists the result back to the take row so every subsequent open of that take is free. Same exact content as before — this only removes redundant regeneration.
+
 ## 2026-07-24 — Drop hedged issues, intonation titles = "Sharp"/"Flat", first-measure loop refinement
 
 User feedback after DTW rollout: loop is much better, just a tiny miss at measure 20 (the piece's first measure) with a missing opening note. Plus two display requests.

@@ -387,6 +387,21 @@ const videoRef    = useRef(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [isLooping, setIsLooping] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
+
+  // Analysis <-> Summary section nav arrows: track which section is in view so we
+  // show the right-pointing arrow (go to summary) or the left-pointing one (back to
+  // analysis), never both.
+  const [inSummaryView, setInSummaryView] = useState(false)
+  useEffect(() => {
+    const summaryEl = document.getElementById('summary-section')
+    if (!summaryEl) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setInSummaryView(entry.isIntersecting),
+      { threshold: 0.15 },
+    )
+    observer.observe(summaryEl)
+    return () => observer.disconnect()
+  }, [take?.id])
   
   const [scoreUrl, setScoreUrl]       = useState(null)
   const [videoUrl, setVideoUrl]       = useState(null)
@@ -1577,8 +1592,30 @@ const videoRef    = useRef(null)
         </div>
       )}
 
+      {/* Analysis <-> Summary nav arrow: right arrow while viewing the analysis,
+          left arrow while viewing the summary. Fixed to the viewport edge. */}
+      {take?.flags?.length > 0 && (
+        <button
+          type="button"
+          className={`${aStyles.sectionNavArrow} ${inSummaryView ? aStyles.sectionNavArrowLeft : aStyles.sectionNavArrowRight}`}
+          onClick={() => {
+            playTick()
+            const targetId = inSummaryView ? 'analysis-top' : 'summary-section'
+            document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }}
+          aria-label={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
+          title={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {inSummaryView
+              ? <polyline points="15 6 9 12 15 18" />
+              : <polyline points="9 6 15 12 9 18" />}
+          </svg>
+        </button>
+      )}
+
       {/* SESSION HEADER */}
-      <div className={aStyles.sessionHeader}>
+      <div id="analysis-top" className={aStyles.sessionHeader}>
         <div className={aStyles.sessionHeaderLeft}>
           <span className={aStyles.sessionLabel}>SESSION</span>
           <h1 className={aStyles.sessionTitle}>

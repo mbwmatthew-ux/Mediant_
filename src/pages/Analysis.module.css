@@ -89,6 +89,22 @@
 }
 .jumpSummaryBtn:hover { background: #d9743f; }
 
+/* Fixed edge arrow — toggles between "jump to summary" (right-pointing, right edge)
+   and "back to analysis" (left-pointing, left edge) depending on scroll position. */
+.sectionNavArrow {
+  align-items: center; background: var(--accent); border: none; border-radius: 50%;
+  box-shadow: var(--shadow-lg); color: #fff; cursor: pointer; display: flex;
+  height: 48px; width: 48px; justify-content: center; position: fixed; top: 50%;
+  transform: translateY(-50%); transition: background 140ms ease, opacity 140ms ease;
+  z-index: 50;
+}
+.sectionNavArrow:hover { background: #d9743f; }
+.sectionNavArrowRight { right: 18px; }
+.sectionNavArrowLeft { left: 18px; }
+@media (max-width: 760px) {
+  .sectionNavArrow { display: none; }
+}
+
 /* ── TWO-PANEL ── */
 .twoPanel {
   display: grid; grid-template-columns: 1fr 400px;
@@ -109,9 +125,13 @@
   font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
-/* Score panel */
+/* Score panel — locked in place while the issues panel (taller, to its right)
+   scrolls past. Sticks within the twoPanel grid row, whose height is set by the
+   taller issues column (align-items: start on .twoPanel), so the sheet music stays
+   visible for as long as there's issue content still scrolling by. */
 .scorePanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+  position: sticky; top: 20px; align-self: start;
 }
 .scorePanelBody { padding: 16px; }
 .scoreImgWrap { position: relative; display: inline-block; width: 100%; }
@@ -308,6 +328,7 @@
 /* Responsive */
 @media (max-width: 960px) {
   .twoPanel { grid-template-columns: 1fr; }
+  .scorePanel { position: static; }
   .issuesPanel { position: static; }
 }
 @media (max-width: 760px) {

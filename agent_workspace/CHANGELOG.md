@@ -1,5 +1,11 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-26 — Analysis page: nav arrow to Summary, sticky sheet music panel
+
+Three UI requests on the Analysis page:
+- Added a floating circular orange arrow button, fixed to the viewport edge. Right-pointing (right edge) while viewing the analysis — click scrolls smoothly to `#summary-section`. Left-pointing (left edge) while viewing the summary — click scrolls back to `#analysis-top` (the session header, now given that id). A single toggling button driven by an `IntersectionObserver` on `#summary-section` (`inSummaryView` state), not two separately-rendered buttons — keeps "only one arrow visible at a time" trivially true. Hidden below 760px (no room on mobile).
+- `.scorePanel` (sheet music) is now `position: sticky; top: 20px; align-self: start;`. Since `.twoPanel` already uses CSS Grid with `align-items: start`, the sticky panel's containing block is exactly as tall as the issues column next to it, so the sheet music stays pinned in place for the full duration of the issues panel scrolling past it — no nested scroll container needed, just one continuous page scroll with one column pinned. Reset to `position: static` under the existing `@media (max-width: 960px)` breakpoint (matches the existing `.issuesPanel` mobile reset), since a single-column mobile layout has nothing to pin against.
+
 ## 2026-07-26 — Cache the AI session summary (stop regenerating it on every page load)
 
 Investigated cutting Claude API cost without touching analysis quality. Findings:

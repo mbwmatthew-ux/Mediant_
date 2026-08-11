@@ -1,5 +1,11 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-07-26 — Fix TDZ crash on Analysis page; require explicit session selection
+
+The previous nav-arrow change ("Cannot access 'D' before initialization" in prod, minified) had a `useEffect` referencing `take?.id` in its dependency array before `const take = useMemo(...)` was declared later in the component — a temporal-dead-zone bug. Moved the effect to right after `take` is declared (next to the existing "must be after `take`" annotation comment pattern already used for the teacher-annotations effect).
+
+Also changed take-selection: previously `take` always fell back to `takesForActiveThread[0]` even with no explicit selection, so bare `nav('/analysis')` (sidebar icon, Calendar, ProgressFeedback) silently showed your latest take with no way to tell it wasn't the one you meant to view. Now non-demo users must land via an explicit `?takeId=` (from Sessions/Takes/Home/Record) or pick one from the take dropdown; landing with no selection shows a "No session selected" prompt with "Select a session" / "Record a new take" actions instead. Demo mode (`isDemo`) is unaffected — it still auto-selects its sample take. Verified via Playwright against `/#/demo` (unauthenticated route, same Analysis component with `demo` prop) — arrow toggles direction on scroll, sheet music panel sticks at `top: 20px` while the issues panel scrolls past it, no console errors.
+
 ## 2026-07-26 — Analysis page: nav arrow to Summary, sticky sheet music panel
 
 Three UI requests on the Analysis page:

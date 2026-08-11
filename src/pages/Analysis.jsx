@@ -388,20 +388,9 @@ const videoRef    = useRef(null)
   const [isLooping, setIsLooping] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
 
-  // Analysis <-> Summary section nav arrows: track which section is in view so we
-  // show the right-pointing arrow (go to summary) or the left-pointing one (back to
-  // analysis), never both.
+  // Analysis <-> Summary section nav arrows: track which section is in view (state
+  // declared here, effect wired up below once `take` exists — see near line 648).
   const [inSummaryView, setInSummaryView] = useState(false)
-  useEffect(() => {
-    const summaryEl = document.getElementById('summary-section')
-    if (!summaryEl) return
-    const observer = new IntersectionObserver(
-      ([entry]) => setInSummaryView(entry.isIntersecting),
-      { threshold: 0.15 },
-    )
-    observer.observe(summaryEl)
-    return () => observer.disconnect()
-  }, [take?.id])
   
   const [scoreUrl, setScoreUrl]       = useState(null)
   const [videoUrl, setVideoUrl]       = useState(null)
@@ -629,12 +618,15 @@ const videoRef    = useRef(null)
     return activeThread?.takes ?? []
   }, [activeThread])
 
+  // Demo always shows its sample take by default; real users must explicitly pick a
+  // session (via the takeId query param or the take dropdown) — landing here with
+  // no selection shows the "select a session" prompt below instead of guessing.
   const take = useMemo(() => {
     if (selectedTakeId) {
-      return takesForActiveThread.find(t => t.id === selectedTakeId) || takesForActiveThread[0]
+      return takesForActiveThread.find(t => t.id === selectedTakeId) || (isDemo ? takesForActiveThread[0] : undefined)
     }
-    return takesForActiveThread[0]
-  }, [takesForActiveThread, selectedTakeId])
+    return isDemo ? takesForActiveThread[0] : undefined
+  }, [takesForActiveThread, selectedTakeId, isDemo])
 
   // Keep the active thread valid. If the current selection isn't among the
   // available threads (e.g. a real user whose demo defaults are no longer
@@ -644,6 +636,19 @@ const videoRef    = useRef(null)
       setActiveThreadTitle(threads[0].piece_title)
     }
   }, [threads, activeThreadTitle])
+
+  // Analysis <-> Summary nav arrow: track which section is in view (must be after
+  // `take` is declared above — re-observes whenever the selected take changes).
+  useEffect(() => {
+    const summaryEl = document.getElementById('summary-section')
+    if (!summaryEl) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setInSummaryView(entry.isIntersecting),
+      { threshold: 0.15 },
+    )
+    observer.observe(summaryEl)
+    return () => observer.disconnect()
+  }, [take?.id])
 
   // Load annotations when teacher views a take (must be after `take` is declared above)
   useEffect(() => {
@@ -1549,6 +1554,46 @@ const videoRef    = useRef(null)
             <button className={aStyles.analysisNewSessionBtn} style={{ marginTop: 8 }} onClick={() => nav('/record')}>
               Record your first take →
             </button>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Real user has sessions but hasn't picked one (landed here from the sidebar/nav,
+  // not a specific take link) — ask them to choose rather than silently guessing.
+  if (!isDemo && !take) {
+    return (
+      <div className={aStyles.pageShell}>
+        <main className={aStyles.mainPageContent} style={{ animation: 'contentFadeIn 200ms ease both' }}>
+          <div className={aStyles.analysisPageHeader}>
+            <div className={aStyles.analysisPageHeaderLeft}>
+              <h1 className={aStyles.analysisPageTitle}>Analysis</h1>
+              <p className={aStyles.analysisPageSubtitle}>Pick a session to see its breakdown.</p>
+            </div>
+          </div>
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+            gap: 14, padding: '64px 24px', margin: '8px auto 0', maxWidth: 460,
+          }}>
+            <div style={{
+              fontSize: 38, lineHeight: 1, width: 84, height: 84, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--bg-card, rgba(255,255,255,0.04))', color: 'var(--accent)',
+              border: '1px solid var(--border, rgba(255,255,255,0.08))',
+            }}>♪</div>
+            <h2 style={{ margin: 0, fontSize: '1.4rem', color: 'var(--text)' }}>No session selected</h2>
+            <p style={{ margin: 0, color: 'var(--text-soft)', lineHeight: 1.5 }}>
+              Select a session to view its analysis, or go analyze a new recording.
+            </p>
+            <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+              <button className={aStyles.analysisNewSessionBtn} onClick={() => nav('/sessions')}>
+                Select a session
+              </button>
+              <button className={aStyles.analysisNewSessionBtn} style={{ background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)' }} onClick={() => nav('/record')}>
+                Record a new take →
+              </button>
+            </div>
           </div>
         </main>
       </div>

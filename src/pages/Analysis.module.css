@@ -11,7 +11,7 @@
    scrolling itself — exactly the whole-page scroll this layout is meant to kill.
    Keep these in sync if the top bar's height ever changes. */
 .page {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 12px 24px 10px;
   height: calc(100vh - 56px);
@@ -124,7 +124,11 @@
   /* Score column is capped (not 1fr) so the issues column — which used to be the
      fixed 340px one — gets whatever's left over instead, giving issue titles
      more room before truncating. */
-  display: grid; grid-template-columns: minmax(440px, 620px) 1fr;
+  /* Score column takes up to 800px, but its min is 0 so it YIELDS first when the
+     viewport is tight; the issues column carries the hard 340px floor. With the
+     floor on the score column instead, a ~1000px viewport starved the issues
+     panel down to ~140px and its titles became unreadable. */
+  display: grid; grid-template-columns: minmax(0, 800px) minmax(340px, 1fr);
   /* Without this, the implicit row auto-sizes to its tallest child's natural
      content height (the full-size score image) instead of being capped at the
      grid's own height — which is exactly how the sheet music ended up taller
@@ -188,8 +192,13 @@
    available space when there's room, and clamps to 0 (never negative) once the
    item is bigger than the container — so it centers when it fits and simply
    starts flush at the true top-left, fully scrollable, once it doesn't. */
+/* Generous left/right padding (vs. 14px top/bottom) so there's comfortable
+   white space either side of the score — that's the gutter the page arrows
+   sit against, and it keeps a full-bleed sheet-music photo from looking
+   jammed against the card's edges. The JS width-fit math reads these values
+   back via getComputedStyle, so changing them here is safe and self-consistent. */
 .scorePanelBody {
-  padding: 14px; flex: 1; min-height: 0;
+  padding: 14px 30px; flex: 1; min-height: 0;
   display: flex;
   overflow-x: hidden; overflow-y: auto;
 }

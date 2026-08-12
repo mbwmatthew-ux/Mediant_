@@ -1,5 +1,30 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Restore the larger sheet-music size (without the horizontal cut)
+
+The width-fit change fixed the horizontal cropping but shrank the score ~20%
+in the process (it was previously oversized *because* it was overflowing). Got
+the old size back by giving the score more room rather than reintroducing a
+zoom multiplier — so it still fits the width exactly, still never scrolls
+horizontally:
+- `.page` max-width `1200px` → `1440px`.
+- Score grid column `minmax(440px, 620px)` → up to `800px`.
+- `.scorePanelBody` padding `14px` → `14px 30px`, so there's a real white
+  gutter either side of the score for the page arrows to sit against.
+
+Net: rendered score width 530px → 650px (back to roughly the pre-fix size),
+with the issues panel still *wider* than it was before today at 576px.
+
+**Caught a regression while verifying at multiple widths:** the first attempt
+used `minmax(520px, 800px)` for the score column, putting the hard floor on
+the wrong track — at a ~1000px viewport the score column hogged its 800px max
+and starved the issues panel down to ~140px, truncating every title to two or
+three characters. Fixed by moving the floor to the issues column instead
+(`minmax(0, 800px) minmax(340px, 1fr)`), so the score column is the one that
+yields when space is tight. Verified at 1700 / 1200 / 1000px: equal 30px
+padding and zero horizontal overflow at every width, score column shrinking
+gracefully (650 → 646 → 446px) while the issues panel holds its floor.
+
 ## 2026-08-12 — Score panel: fit width exactly, scroll vertically only
 
 Per feedback, dropped `SCORE_ZOOM` and the `min(width-fit, height-fit)` sizing

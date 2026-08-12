@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — "All sessions" back link onto the title row, compact hover
+
+- Moved the back link into `.sessionHeader` and positioned it absolutely at the row's left edge (`.sessionHeader` is now `position: relative`), so it sits on the same line as the piece title instead of stacked above it. Absolute rather than a flex sibling on purpose: the title stays centered on the *page*, not on the leftover space next to a variable-width button — and stays centered when the back link isn't rendered at all (it only shows for `?from=sessions`).
+- Reverted the full-bleed row hover to a compact rounded box around the text (`display: inline-flex`, `border-radius: 8px`, `padding: 7px 12px`, no negative margins). I had this backwards when it was first raised — the earlier request was describing the full-row highlight as the bug, not asking for it.
+- Below 760px the back link drops back into normal flow above the title (`position: static`, `display: flex`, `width: fit-content` so it stays left-aligned and tight despite the parent's `text-align: center`) — absolute positioning would have collided with the centered title once it wraps to two lines at that width.
+
+Verified: back link is 114px wide vs. the 1280px header (compact, not a row), vertically centered on the header row, title still exactly page-centered, and no back-link/title overlap at 500px.
+
 ## 2026-08-12 — Analysis header/gutter cleanup, page arrows moved inside the score card
 
 Four fixes:

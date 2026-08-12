@@ -53,23 +53,29 @@
 /* Back button (from sessions) — full-bleed row (breaks out of .page's own
    horizontal padding via matching negative margin) so the hover fill reads as
    one continuous row flush with the page edges, not a floating rounded box. */
+/* Pinned to the left of the session header row (see .sessionHeader), vertically
+   centered against the title+date block. inline-flex + tight padding keeps the
+   hover fill a compact rounded box around the text — it must NOT stretch into a
+   full-width row. */
 .backBtn {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
   align-items: center;
   background: none;
   border: none;
-  border-radius: 0;
+  border-radius: 8px;
   color: var(--text-muted);
   cursor: pointer;
-  display: flex;
-  width: auto;
+  display: inline-flex;
   font: inherit;
   font-size: 0.83rem;
   font-weight: 600;
   gap: 6px;
-  margin: 0 -24px 6px;
-  padding: 8px 24px;
+  margin: 0;
+  padding: 7px 12px;
   transition: color 130ms ease, background 130ms ease;
-  flex-shrink: 0;
 }
 .backBtn:hover { color: var(--text); background: var(--surface-subtle); }
 
@@ -84,8 +90,10 @@
 .threadChipActive { background: var(--text); border-color: var(--text); color: var(--bg); }
 .threadChipScore { font-size: 0.78rem; font-weight: 700; margin-left: 6px; }
 
-/* ── SESSION HEADER ── piece title + date, centered, nothing else. */
+/* ── SESSION HEADER ── piece title + date, centered, with the "All sessions"
+   back link absolutely positioned at the left of the same row. */
 .sessionHeader {
+  position: relative;
   text-align: center; margin-bottom: 10px; flex-shrink: 0; min-width: 0;
 }
 .sessionTitle {
@@ -420,7 +428,15 @@
 }
 @media (max-width: 760px) {
   .page { padding: 20px 16px 48px; }
-  .backBtn { margin: 0 -16px 6px; padding: 8px 16px; }
+  /* Not enough width to sit beside a centered title without colliding with it
+     once the title wraps — drop the back link back into normal flow above it.
+     display:flex + width:fit-content keeps it left-aligned (text-align:center
+     on the parent would otherwise center an inline-flex button) and keeps the
+     hover fill tight to the text. */
+  .backBtn {
+    position: static; transform: none; display: flex;
+    width: fit-content; margin: 0 0 8px;
+  }
   .sessionTitle { font-size: 1.3rem; }
   .strWeakRow { grid-template-columns: 1fr; }
   .scoreBreakdownRow { gap: 8px; }

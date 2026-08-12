@@ -191,7 +191,7 @@
 .scorePanelBody {
   padding: 14px; flex: 1; min-height: 0;
   display: flex;
-  overflow: auto;
+  overflow-x: hidden; overflow-y: auto;
 }
 .scoreImgWrap { position: relative; width: fit-content; margin: auto; }
 .scoreImg {

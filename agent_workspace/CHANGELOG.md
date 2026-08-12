@@ -1,5 +1,26 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Score panel: fit width exactly, scroll vertically only
+
+Per feedback, dropped `SCORE_ZOOM` and the `min(width-fit, height-fit)` sizing
+entirely — the image now scales to `panelContentWidth / naturalWidth` and
+nothing else, so its rendered width always exactly equals the panel's content
+box (`clientWidth` minus its own left/right padding, read via
+`getComputedStyle` so it can't drift out of sync with the CSS). That
+guarantees equal padding on both sides and zero horizontal scrollbar, ever —
+`.scorePanelBody` also now sets `overflow-x: hidden` explicitly rather than
+relying on the math to land exactly at zero. Height just follows from the
+image's own aspect ratio: for a typical portrait score it now exceeds the
+panel and the panel scrolls vertically only, which was the actual goal (bigger
+sheet music) — horizontal scrolling was a side effect of the old uniform
+zoom-both-axes approach, not something anyone wanted.
+
+Verified the same way as the clipping fix earlier today — intercepted the demo
+image request and served a synthetic tall SVG in its place — confirming zero
+horizontal overflow, exactly equal left/right padding (measured, not just
+visually eyeballed), and the vertical centering/scroll-to-top/scroll-to-bottom
+behavior from the previous fix still holds with the new sizing math.
+
 ## 2026-08-12 — Fix score panel clipping a tall image with no way to scroll to it
 
 Real bug, not just sizing: a tall (portrait) sheet-music photo — the actual use

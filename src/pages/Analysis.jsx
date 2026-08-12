@@ -426,17 +426,18 @@ const videoRef    = useRef(null)
     return () => observer.disconnect()
   }, [scoreUrl])
 
-  // Sheet music now renders zoomed in (bigger than "fits the panel") so it's
-  // actually legible — the panel scrolls instead. SCORE_ZOOM is how much bigger
-  // than "fit" the image renders; explicit pixel width/height (not CSS max-
-  // width/height) because the zoom target is a multiple of the FIT size, which
-  // only JS can compute from the image's natural dimensions vs. the panel's.
+  // Sheet music is scaled to fit the panel's WIDTH exactly (equal padding on
+  // both sides, never a horizontal scrollbar) and its height just follows from
+  // that — for a portrait score the height then exceeds the panel and the
+  // panel scrolls vertically, which is the point (bigger, legible score).
+  // Explicit pixel width/height (not CSS max-width) because "fit the content
+  // box width" needs the image's natural size vs. the panel's, which only JS
+  // can compute.
   const [scoreRenderSize, setScoreRenderSize] = useState(null) // { width, height } px
   useEffect(() => {
     const body = scorePanelBodyRef.current
     const img = scoreImgRef.current
     if (!body || !img || !scoreUrl) return
-    const SCORE_ZOOM = 1.4
     let centered = false
     let centerTimer = null
     function computeSize() {
@@ -449,22 +450,20 @@ const videoRef    = useRef(null)
         return
       }
       if (!img.naturalWidth || !img.naturalHeight) return
-      const availW = body.clientWidth
-      const availH = body.clientHeight
-      if (availW <= 0 || availH <= 0) return
-      const fitScale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight)
-      const scale = fitScale * SCORE_ZOOM
+      const cs = window.getComputedStyle(body)
+      const availW = body.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      if (availW <= 0) return
+      const scale = availW / img.naturalWidth
       setScoreRenderSize({ width: img.naturalWidth * scale, height: img.naturalHeight * scale })
-      // Start scrolled to the middle of the zoomed score, not the top-left corner.
-      // Applying the new image size makes scrollbars appear, which shrinks body's
-      // own clientWidth/clientHeight and re-fires this same ResizeObserver — so
-      // debounce: only actually center once a short stretch passes with no further
-      // resize (i.e. once the scrollbar-induced resize cascade has settled).
+      // Start scrolled to the vertical middle of the score, not the top.
+      // Applying the new image size makes a scrollbar appear, which shrinks
+      // body's own clientHeight and re-fires this same ResizeObserver — so
+      // debounce: only actually center once a short stretch passes with no
+      // further resize (i.e. once the scrollbar-induced resize has settled).
       if (centered) return
       if (centerTimer) clearTimeout(centerTimer)
       centerTimer = setTimeout(() => {
         centered = true
-        body.scrollLeft = (body.scrollWidth - body.clientWidth) / 2
         body.scrollTop = (body.scrollHeight - body.clientHeight) / 2
       }, 80)
     }

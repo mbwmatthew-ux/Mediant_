@@ -3,12 +3,19 @@
    (banner, back button, thread strip, session header) sits at its natural height;
    .lockedBody fills the rest of the viewport and only its visible child panel's
    own content scrolls (the issues list in the analysis view, the whole summary
-   panel in the summary view). */
+   panel in the summary view).
+   Height is 100vh minus AppShell's 56px sticky top bar (.topBar in
+   AppShell.module.css) — .page lives inside AppShell's own `.main`, which is
+   ALSO height:100vh with overflow-y:auto, so if .page claims the full 100vh on
+   top of the top bar's 56px, .main ends up taller than the viewport and starts
+   scrolling itself — exactly the whole-page scroll this layout is meant to kill.
+   Keep these in sync if the top bar's height ever changes. */
 .page {
   max-width: 1160px;
   margin: 0 auto;
-  padding: 28px 32px 20px;
-  height: 100vh;
+  padding: 20px 32px 16px;
+  height: calc(100vh - 56px);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   animation: contentFadeIn 200ms ease both;
@@ -24,10 +31,10 @@
 
 /* Demo banner */
 .demoBanner {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
   background: rgba(45,90,78,0.08); border: 1px solid rgba(45,90,78,0.18);
   border-radius: 10px; color: var(--text-muted); font-size: 0.88rem;
-  margin-bottom: 20px; padding: 10px 16px;
+  margin-bottom: 12px; padding: 8px 16px;
 }
 .demoPill {
   background: var(--hero-green); border-radius: 5px; color: #fff;
@@ -50,14 +57,15 @@
   font-size: 0.83rem;
   font-weight: 600;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
   padding: 6px 10px 6px 6px;
   transition: color 130ms ease, background 130ms ease;
+  flex-shrink: 0;
 }
 .backBtn:hover { color: var(--text); background: var(--surface-subtle); }
 
 /* Thread strip */
-.threadStrip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.threadStrip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
 .threadChip {
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px;
   color: var(--text-muted); cursor: pointer; font-size: 0.83rem; font-weight: 500;
@@ -70,7 +78,7 @@
 /* ── SESSION HEADER ── */
 .sessionHeader {
   display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 24px; margin-bottom: 28px;
+  gap: 24px; margin-bottom: 14px; flex-shrink: 0;
 }
 .sessionHeaderLeft { flex: 1; min-width: 0; }
 .sessionLabel {
@@ -120,6 +128,13 @@
 /* ── TWO-PANEL ── */
 .twoPanel {
   display: grid; grid-template-columns: 1fr 400px;
+  /* Without this, the implicit row auto-sizes to its tallest child's natural
+     content height (the full-size score image) instead of being capped at the
+     grid's own height — which is exactly how the sheet music ended up taller
+     than the viewport again. minmax(0, 1fr) forces the row to the container's
+     height and lets its children's own overflow rules (or height:100% + centering
+     on the score image) take over from there. */
+  grid-template-rows: minmax(0, 1fr);
   gap: 20px; align-items: stretch; height: 100%;
 }
 
@@ -138,18 +153,29 @@
   font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
-/* Score panel — the page never scrolls, so the sheet music simply never moves.
-   scorePanelBody keeps its own overflow-y as a fallback for a score taller than
-   the viewport; in the common case it just fits and never shows a scrollbar. */
+/* Score panel — the page never scrolls, so the whole sheet music must fit in
+   the available height. scorePanelBody centers scoreImgWrap; the image is scaled
+   by HEIGHT (not width, unlike a normal responsive image) so it always fits
+   vertically with no scrollbar. scoreImgWrap is `display:inline-block` with
+   `height:100%` and no explicit width, so it shrink-wraps tightly to the image's
+   actual rendered box (no letterbox gap) — that's required for the marker/span
+   overlays below, which are positioned with left/top percentages relative to
+   this wrapper and need it to exactly match the image's pixel bounds.
+   overflow-x:auto is just a safety net for a pathologically wide score image;
+   it should never trigger in the common case. */
 .scorePanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; min-height: 0;
 }
-.scorePanelBody { padding: 16px; flex: 1; min-height: 0; overflow-y: auto; }
-.scoreImgWrap { position: relative; display: inline-block; width: 100%; }
+.scorePanelBody {
+  padding: 16px; flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow-x: auto; overflow-y: hidden;
+}
+.scoreImgWrap { position: relative; display: inline-block; height: 100%; flex-shrink: 0; }
 .scoreImg {
   background: #fff; border-radius: 8px; box-shadow: var(--shadow-sm);
-  display: block; width: 100%;
+  display: block; height: 100%; width: auto;
 }
 .scoreFlagStrip {
   position: relative; height: 32px; margin-top: 8px;
@@ -175,7 +201,7 @@
    the panel's height and scrolls independently of everything else on the page. */
 .issuesPanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px;
-  overflow: hidden; display: flex; flex-direction: column;
+  overflow: hidden; display: flex; flex-direction: column; min-height: 0;
 }
 .issuesList { flex: 1; min-height: 0; overflow-y: auto; }
 .noIssues {
@@ -349,7 +375,12 @@
   .lockedBody { flex: none; }
   .twoPanel { grid-template-columns: 1fr; height: auto; }
   .scorePanel, .issuesPanel { position: static; }
-  .scorePanelBody, .issuesList { overflow-y: visible; }
+  .scorePanelBody { overflow: visible; display: block; }
+  .issuesList { overflow-y: visible; }
+  /* Back to a normal responsive image (scaled by width) once it's no longer
+     sharing a fixed-height row with the issues panel. */
+  .scoreImgWrap { height: auto; width: 100%; display: block; }
+  .scoreImg { height: auto; width: 100%; }
   .summarySection { height: auto; overflow-y: visible; border-top: 1px solid var(--border); padding-top: 48px; }
 }
 @media (max-width: 760px) {

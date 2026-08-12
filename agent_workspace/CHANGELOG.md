@@ -1,5 +1,15 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Fix Analysis page scroll leak + fit whole sheet music without scrolling
+
+Follow-up on the locked-layout change earlier today. Two real bugs, one CSS tightening:
+
+1. **The page could still scroll when the cursor wasn't over the sheet music or issues panel.** Root cause: `.page` was set to `height: 100vh`, but it renders inside AppShell's `#main-content` (`.main` in AppShell.module.css), which is ALSO `height: 100vh` with `overflow-y: auto` — and `.main` also contains a 56px sticky top bar above the page content. So actual content height inside `.main` was `56px + 100vh`, 56px taller than `.main` itself, and that 56px surplus is exactly what let you scroll from anywhere outside the two inner scroll regions. Fixed by changing `.page` to `height: calc(100vh - 56px)` so it exactly fills what's left after the top bar — verified via Playwright: `window.scrollY` no longer moves no matter where on the page you wheel.
+2. **Sheet music was taller than its panel and needed a scrollbar to see all of it.** Root cause was two-fold: (a) `.twoPanel`'s implicit grid row had no `grid-template-rows`, so it auto-sized to its tallest child's *natural* content height (the full-res score image) instead of being capped at the available viewport height — added `grid-template-rows: minmax(0, 1fr)` to force the row (and both panels) to the container's actual height; (b) the JSX had an unstyled wrapper `<div>` between `.scorePanelBody` (flex container, definite height) and `.scoreImgWrap` (which needs `height: 100%` to scale the image to fit) — that extra div's own height was `auto`, breaking the percentage-height chain (a `height: 100%` against an indefinite/auto containing block resolves to `auto`, not a real constraint), so the image rendered at its full intrinsic size regardless. Fixed by giving that wrapper `style={{ display: 'contents' }}` so it doesn't generate a box and `.scoreImgWrap` becomes a direct flex item of `.scorePanelBody` again. Also caught and fixed a self-inflicted regression from the same edit pass: an earlier find-and-replace had accidentally deleted the `.scorePanel` rule itself.
+3. Tightened header/thread-strip/banner spacing (smaller margins and padding) to reclaim vertical room for the sheet music, since it now has to fit entirely within the viewport with no scroll fallback.
+
+All verified via a Playwright pass against `/#/demo`: sheet music image bounding box now sits fully inside its panel's bounding box (no clipping, no scrollbar needed), `window.scrollY` stays at 0 when wheeling over any part of the page, the issues list still scrolls independently, the summary view-toggle still works both directions, and the mobile (<960px) fallback still renders and scrolls normally.
+
 ## 2026-08-12 — Remove "Fix This Section", lock the Analysis page layout
 
 Two requests:

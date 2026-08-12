@@ -1686,7 +1686,10 @@ const videoRef    = useRef(null)
           </div>
           <div className={aStyles.scorePanelBody}>
             {scoreUrl ? (
-              <div>
+              // display:contents so this wrapper doesn't break the height-percentage
+              // chain scoreImgWrap relies on (it needs to be a direct flex item of
+              // scorePanelBody, which has the actual definite height).
+              <div style={{ display: 'contents' }}>
                 {(() => {
                   const flags = take?.flags ?? []
 

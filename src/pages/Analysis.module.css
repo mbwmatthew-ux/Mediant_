@@ -11,9 +11,9 @@
    scrolling itself — exactly the whole-page scroll this layout is meant to kill.
    Keep these in sync if the top bar's height ever changes. */
 .page {
-  max-width: 1160px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 14px 32px 12px;
+  padding: 12px 24px 10px;
   height: calc(100vh - 56px);
   overflow: hidden;
   display: flex;
@@ -122,7 +122,7 @@
 
 /* ── TWO-PANEL ── */
 .twoPanel {
-  display: grid; grid-template-columns: 1fr 400px;
+  display: grid; grid-template-columns: 1fr 340px;
   /* Without this, the implicit row auto-sizes to its tallest child's natural
      content height (the full-size score image) instead of being capped at the
      grid's own height — which is exactly how the sheet music ended up taller
@@ -130,7 +130,7 @@
      height and lets its children's own overflow rules (or height:100% + centering
      on the score image) take over from there. */
   grid-template-rows: minmax(0, 1fr);
-  gap: 20px; align-items: stretch; height: 100%;
+  gap: 16px; align-items: stretch; height: 100%;
 }
 
 /* Panel shared. Each panel is a fixed-height column: its .panelHead never moves,
@@ -148,16 +148,16 @@
   font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
-/* Score panel — the page never scrolls, so the whole sheet music must fit in
-   the available height. scorePanelBody centers scoreImgWrap; the image is scaled
-   by HEIGHT (not width, unlike a normal responsive image) so it always fits
-   vertically with no scrollbar. scoreImgWrap is `display:inline-block` with
-   `height:100%` and no explicit width, so it shrink-wraps tightly to the image's
-   actual rendered box (no letterbox gap) — that's required for the marker/span
-   overlays below, which are positioned with left/top percentages relative to
-   this wrapper and need it to exactly match the image's pixel bounds.
-   overflow-x:auto is just a safety net for a pathologically wide score image;
-   it should never trigger in the common case. */
+/* Score panel — the page never scrolls, so the whole sheet music must fit in the
+   available space on BOTH axes (never cropped). scoreImgWrap fills scorePanelBody
+   exactly (both dimensions definite) and centers the image inside it; the image
+   itself uses the standard "contain" sizing (max-width/max-height:100% + auto)
+   so it scales down to whichever axis is more restrictive. For a typical portrait
+   score this fills the full height edge-to-edge same as before; only a
+   pathologically wide image would ever letterbox. The marker/span overlay is a
+   separate absolutely-positioned layer sized to the image's actual measured box
+   (see scoreImgBox in Analysis.jsx), not this wrapper — required so markers stay
+   correctly aligned even when the image IS letterboxed. */
 .scorePanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
   display: flex; flex-direction: column; min-height: 0;
@@ -165,12 +165,12 @@
 .scorePanelBody {
   padding: 10px; flex: 1; min-height: 0;
   display: flex; align-items: center; justify-content: center;
-  overflow-x: auto; overflow-y: hidden;
+  overflow: hidden;
 }
-.scoreImgWrap { position: relative; display: inline-block; height: 100%; flex-shrink: 0; }
+.scoreImgWrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 .scoreImg {
   background: #fff; border-radius: 8px; box-shadow: var(--shadow-sm);
-  display: block; height: 100%; width: auto;
+  display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
 }
 .scoreFlagStrip {
   position: relative; height: 32px; margin-top: 8px;

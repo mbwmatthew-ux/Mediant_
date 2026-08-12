@@ -1,5 +1,36 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Analysis page: sheet music no longer clipped, wider score panel
+
+Root cause of "still too small": the score image was being scaled by HEIGHT only
+(`.scoreImg { height:100%; width:auto }`), which for a wide-aspect image (the demo
+route's clarinet photo, ~1.8:1) meant the rendered image was WIDER than its panel —
+the `overflow-x:auto` fallback then silently cropped ~15% off each side rather than
+showing the whole thing. That's what looked "small": you were only ever seeing the
+cropped middle of it.
+
+Fixed properly instead of just tuning numbers: the image now uses real "contain"
+sizing (`max-width/max-height:100%` + auto) so it always shows in full, scaled by
+whichever axis is more restrictive — for a typical portrait sheet-music image this
+still fills the panel edge-to-edge exactly as before, only an unusually wide image
+would ever letterbox. The catch: `.scoreImgWrap` now fills the whole panel (not
+shrink-wrapped to the image), which used to be required so the marker/span overlay's
+percentage positions lined up with the image — with a wrapper bigger than a
+letterboxed image, they'd land in the letterbox gap instead. Fixed by measuring the
+image's actual rendered box via a `ResizeObserver` (`scoreImgBox` state in
+Analysis.jsx) and rendering the marker/span overlay as its own absolutely-positioned
+layer sized to that measured box, not the wrapper — so markers stay correctly
+aligned regardless of letterboxing, on any viewport.
+
+Also gave the score panel more width (twoPanel: `400px` issues column → `340px`,
+gap `20px` → `16px`, page max-width `1160` → `1200`, padding `32px` → `24px`
+horizontal) since a wider panel needs to letterbox less often in practice.
+
+Verified via Playwright: image bounding box sits fully inside its panel on both
+axes now (previously overflowed left/right by ~150px combined), markers still land
+on the correct spots, marker click still works, window scroll still locked, mobile
+(<960px) fallback unaffected — confirmed by screenshot.
+
 ## 2026-08-12 — Analysis page: bigger sheet music, remove take dropdown, fix summary scrollbar gutter
 
 Two more follow-ups on today's locked-layout work:

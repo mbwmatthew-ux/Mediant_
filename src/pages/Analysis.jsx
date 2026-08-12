@@ -356,6 +356,8 @@ const videoRef    = useRef(null)
   const chatEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const summaryRef = useRef(null)
+  const scoreImgWrapRef = useRef(null)
+  const scoreImgRef = useRef(null)
 
   // Waveform header animated metric bar refs
   const hFill1Ref = useRef(null)
@@ -390,6 +392,34 @@ const videoRef    = useRef(null)
   const [inSummaryView, setInSummaryView] = useState(false)
   
   const [scoreUrl, setScoreUrl]       = useState(null)
+  // The score image is scaled to fit its panel on both axes (never cropped), which
+  // can letterbox it (e.g. a wide demo photo in a taller-than-wide panel). The
+  // measure markers/span bars are positioned by percentage relative to the actual
+  // rendered image box, not the panel — so we track that box in real pixels here,
+  // via a ResizeObserver on the <img>, and use it to size/position the overlay
+  // layer that holds the markers.
+  const [scoreImgBox, setScoreImgBox] = useState(null) // { left, top, width, height } relative to scoreImgWrapRef
+  useEffect(() => {
+    const wrap = scoreImgWrapRef.current
+    const img = scoreImgRef.current
+    if (!wrap || !img || !scoreUrl) return
+    const measure = () => {
+      const wrapRect = wrap.getBoundingClientRect()
+      const imgRect = img.getBoundingClientRect()
+      if (imgRect.width === 0 || imgRect.height === 0) return
+      setScoreImgBox({
+        left: imgRect.left - wrapRect.left,
+        top: imgRect.top - wrapRect.top,
+        width: imgRect.width,
+        height: imgRect.height,
+      })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(wrap)
+    observer.observe(img)
+    return () => observer.disconnect()
+  }, [scoreUrl])
   const [videoUrl, setVideoUrl]       = useState(null)
   const [activeFlag, setActiveFlag]   = useState(null)
   const [scoreReady, setScoreReady]   = useState(false)
@@ -1803,56 +1833,64 @@ const videoRef    = useRef(null)
                   }
 
                   return (
-                    <div className={aStyles.scoreImgWrap}>
-                      <img src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
+                    <div className={aStyles.scoreImgWrap} ref={scoreImgWrapRef}>
+                      <img ref={scoreImgRef} src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
 
-                      {/* Span bars for multi-measure issues, one segment per printed row crossed */}
-                      {markerSpecs.filter(m => m.measureEnd > m.measureStart).map((m, mi) => {
-                        const isAct = activeFlag === m.flagId
-                        const segments = spanSegments(m.measureStart, m.measureEnd)
-                        return segments.map((seg, si) => (
-                          <div key={`bar_${mi}_${si}`}
-                            className={aStyles.scoreSpanBar}
-                            style={{
-                              left: `${seg.left}%`,
-                              top: `${seg.y}%`,
-                              width: `${Math.max(1, seg.right - seg.left)}%`,
-                              background: isAct ? 'var(--accent)' : '#2A2A28',
-                            }}
-                          />
-                        ))
-                      })}
+                      {/* Overlay layer sized/positioned to match the actual rendered image box
+                          (scoreImgBox, measured via ResizeObserver above) — NOT the wrapper,
+                          which can be larger than the image when it's letterboxed. Markers/
+                          spans below are positioned by percentage relative to THIS layer. */}
+                      {scoreImgBox && (
+                        <div style={{ position: 'absolute', left: scoreImgBox.left, top: scoreImgBox.top, width: scoreImgBox.width, height: scoreImgBox.height }}>
+                          {/* Span bars for multi-measure issues, one segment per printed row crossed */}
+                          {markerSpecs.filter(m => m.measureEnd > m.measureStart).map((m, mi) => {
+                            const isAct = activeFlag === m.flagId
+                            const segments = spanSegments(m.measureStart, m.measureEnd)
+                            return segments.map((seg, si) => (
+                              <div key={`bar_${mi}_${si}`}
+                                className={aStyles.scoreSpanBar}
+                                style={{
+                                  left: `${seg.left}%`,
+                                  top: `${seg.y}%`,
+                                  width: `${Math.max(1, seg.right - seg.left)}%`,
+                                  background: isAct ? 'var(--accent)' : '#2A2A28',
+                                }}
+                              />
+                            ))
+                          })}
 
-                      {/* Circle markers — centered on the span's middle row for multi-measure issues */}
-                      {markerSpecs.map((m, mi) => {
-                        const isAct = activeFlag === m.flagId
-                        let x, y
-                        if (m.measureEnd > m.measureStart) {
-                          const segments = spanSegments(m.measureStart, m.measureEnd)
-                          const midSeg = segments[Math.floor((segments.length - 1) / 2)]
-                          x = (midSeg.left + midSeg.right) / 2
-                          y = midSeg.y
-                        } else {
-                          const box = getBox(m.measureStart)
-                          x = box.x
-                          y = box.y
-                        }
-                        return (
-                          <button key={`marker_${mi}`} type="button"
-                            className={aStyles.scoreMarker}
-                            style={{
-                              left: `${x}%`,
-                              top: `${y}%`,
-                              background: isAct ? 'var(--accent)' : '#2A2A28',
-                              boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
-                              fontSize: m.label ? 9 : 11,
-                            }}
-                            onClick={() => { playTick(); setActiveFlag(isAct ? null : m.flagId) }}
-                            title={`M.${m.measureStart}${m.measureEnd > m.measureStart ? `–${m.measureEnd}` : ''}${m.label ? ` (${m.flagIdx + 1}${m.label})` : ''}`}>
-                            {m.label ? `${m.flagIdx + 1}${m.label}` : m.flagIdx + 1}
-                          </button>
-                        )
-                      })}
+                          {/* Circle markers — centered on the span's middle row for multi-measure issues */}
+                          {markerSpecs.map((m, mi) => {
+                            const isAct = activeFlag === m.flagId
+                            let x, y
+                            if (m.measureEnd > m.measureStart) {
+                              const segments = spanSegments(m.measureStart, m.measureEnd)
+                              const midSeg = segments[Math.floor((segments.length - 1) / 2)]
+                              x = (midSeg.left + midSeg.right) / 2
+                              y = midSeg.y
+                            } else {
+                              const box = getBox(m.measureStart)
+                              x = box.x
+                              y = box.y
+                            }
+                            return (
+                              <button key={`marker_${mi}`} type="button"
+                                className={aStyles.scoreMarker}
+                                style={{
+                                  left: `${x}%`,
+                                  top: `${y}%`,
+                                  background: isAct ? 'var(--accent)' : '#2A2A28',
+                                  boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
+                                  fontSize: m.label ? 9 : 11,
+                                }}
+                                onClick={() => { playTick(); setActiveFlag(isAct ? null : m.flagId) }}
+                                title={`M.${m.measureStart}${m.measureEnd > m.measureStart ? `–${m.measureEnd}` : ''}${m.label ? ` (${m.flagIdx + 1}${m.label})` : ''}`}>
+                                {m.label ? `${m.flagIdx + 1}${m.label}` : m.flagIdx + 1}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   )
                 })()}

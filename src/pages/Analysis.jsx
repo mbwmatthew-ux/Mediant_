@@ -2,9 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { useRecordModal } from '../context/RecordModalContext'
 import AnalysisOnboarding from '../components/AnalysisOnboarding'
-import FixThisSection from '../components/FixThisSection'
 import styles from './Page.module.css'
 import aStyles from './Analysis.module.css'
 import { playTick, playPop, playNav } from '../utils/sounds'
@@ -352,8 +350,7 @@ export default function Analysis({ demo: demoProp = false }) {
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
   const { user, profile } = useAuth()
-  const { setOpen: setOpenRecord } = useRecordModal()
-  
+
 const videoRef    = useRef(null)
   const loopRef     = useRef(null)
   const chatEndRef = useRef(null)
@@ -637,17 +634,11 @@ const videoRef    = useRef(null)
     }
   }, [threads, activeThreadTitle])
 
-  // Analysis <-> Summary nav arrow: track which section is in view (must be after
-  // `take` is declared above — re-observes whenever the selected take changes).
+  // Analysis <-> Summary nav arrow: the page no longer scrolls (only the issues
+  // panel does), so the arrow swaps between the two views instead of scrolling to
+  // an anchor. Reset to the analysis view whenever the selected take changes.
   useEffect(() => {
-    const summaryEl = document.getElementById('summary-section')
-    if (!summaryEl) return
-    const observer = new IntersectionObserver(
-      ([entry]) => setInSummaryView(entry.isIntersecting),
-      { threshold: 0.15 },
-    )
-    observer.observe(summaryEl)
-    return () => observer.disconnect()
+    setInSummaryView(false)
   }, [take?.id])
 
   // Load annotations when teacher views a take (must be after `take` is declared above)
@@ -1638,16 +1629,14 @@ const videoRef    = useRef(null)
       )}
 
       {/* Analysis <-> Summary nav arrow: right arrow while viewing the analysis,
-          left arrow while viewing the summary. Fixed to the viewport edge. */}
+          left arrow while viewing the summary. Fixed to the viewport edge. The page
+          itself never scrolls, so this swaps which panel is shown instead of
+          scrolling to an anchor. */}
       {take?.flags?.length > 0 && (
         <button
           type="button"
           className={`${aStyles.sectionNavArrow} ${inSummaryView ? aStyles.sectionNavArrowLeft : aStyles.sectionNavArrowRight}`}
-          onClick={() => {
-            playTick()
-            const targetId = inSummaryView ? 'analysis-top' : 'summary-section'
-            document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          }}
+          onClick={() => { playTick(); setInSummaryView(v => !v) }}
           aria-label={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
           title={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
         >
@@ -1660,7 +1649,7 @@ const videoRef    = useRef(null)
       )}
 
       {/* SESSION HEADER */}
-      <div id="analysis-top" className={aStyles.sessionHeader}>
+      <div className={aStyles.sessionHeader}>
         <div className={aStyles.sessionHeaderLeft}>
           <span className={aStyles.sessionLabel}>SESSION</span>
           <h1 className={aStyles.sessionTitle}>
@@ -1678,28 +1667,18 @@ const videoRef    = useRef(null)
               })}
             </select>
           )}
-          <button className={aStyles.analysisTabBtn}>Analysis</button>
-          <a href="#summary-section" className={aStyles.jumpSummaryBtn}>Jump to summary ↓</a>
+          <button className={aStyles.analysisTabBtn} onClick={() => { playTick(); setInSummaryView(false) }}>Analysis</button>
+          <button className={aStyles.jumpSummaryBtn} onClick={() => { playTick(); setInSummaryView(true) }}>Jump to summary →</button>
         </div>
       </div>
 
-      {/* FIX THIS SECTION */}
-      {take?.flags?.length > 0 && (
-        <FixThisSection
-          flags={take.flags}
-          isLooping={isLooping}
-          loopRef={loopRef}
-          onStartLoop={startLoop}
-          onStopLoop={stopLoop}
-          videoSpeed={videoSpeed}
-          onSpeedChange={setVideoSpeed}
-          onReRecord={() => setOpenRecord(true)}
-          onSeek={seekTo}
-        />
-      )}
+      {/* LOCKED BODY: fills remaining viewport height. Only ONE of the two panels
+          below is visible at a time (toggled by the nav arrow / tab buttons above);
+          the page itself never scrolls — only the visible panel's own content does. */}
+      <div className={aStyles.lockedBody}>
 
       {/* TWO-PANEL BODY */}
-      <div className={aStyles.twoPanel}>
+      <div className={aStyles.twoPanel} style={inSummaryView ? { display: 'none' } : undefined}>
         {/* LEFT: Annotated Score */}
         <div className={aStyles.scorePanel}>
           <div className={aStyles.panelHead}>
@@ -2086,7 +2065,7 @@ const videoRef    = useRef(null)
       </div>
 
       {/* SUMMARY SECTION */}
-      <div id="summary-section" className={aStyles.summarySection}>
+      <div id="summary-section" className={aStyles.summarySection} style={!inSummaryView ? { display: 'none' } : undefined}>
         <span className={aStyles.summaryEyebrow}>SUMMARY</span>
         <h2 className={aStyles.summaryTitle}>Your progress at a glance</h2>
 
@@ -2210,6 +2189,8 @@ const videoRef    = useRef(null)
             )}
           </>
         ) : null}
+      </div>
+
       </div>
 
       {showAnalysisIntro && (

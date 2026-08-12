@@ -1,5 +1,14 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Remove "Fix This Section", lock the Analysis page layout
+
+Two requests:
+- Dropped the "Fix This Section" card (component left in place, unused, in case it comes back) — removed its render block and the now-dead `FixThisSection` import, plus the `useRecordModal`/`setOpenRecord` wiring that only existed to feed it.
+- The Analysis page no longer scrolls as a whole. `.page` is now a fixed `height: 100vh` flex column; everything above the two-panel body (demo banner, thread strip, session header) sits at natural height and never moves. A new `.lockedBody` wrapper fills the remaining space, and only the issues list inside it scrolls (`.issuesList { overflow-y: auto }` under a `.panelHead` that stays put) — the sheet music panel and session header are simply never in a scrolling container, so they can't move.
+- Because the page can't scroll to `#summary-section` anymore, the nav arrow and the two session-header buttons ("Analysis" / "Jump to summary") now toggle an `inSummaryView` view-swap (inline `display:none` on whichever panel isn't active) instead of `scrollIntoView`. Dropped the `IntersectionObserver` that used to track scroll position for the arrow — it's a direct click-driven toggle now, reset to the analysis view whenever the selected take changes.
+- Below 960px the locked/pinned layout is disabled entirely (`.page { height: auto }`, panels back to `position: static` / normal overflow) — falls back to the old scrolling single-column layout, since pinning doesn't make sense once the two panels stack.
+- Verified via Playwright against `/#/demo`: window-level `mouse.wheel` no longer moves the session title or score panel; wheeling over the issues list scrolls only that list; the summary toggle swaps views correctly in both directions with the arrow icon flipping; no console errors.
+
 ## 2026-07-26 — Fix TDZ crash on Analysis page; require explicit session selection
 
 The previous nav-arrow change ("Cannot access 'D' before initialization" in prod, minified) had a `useEffect` referencing `take?.id` in its dependency array before `const take = useMemo(...)` was declared later in the component — a temporal-dead-zone bug. Moved the effect to right after `take` is declared (next to the existing "must be after `take`" annotation comment pattern already used for the teacher-annotations effect).

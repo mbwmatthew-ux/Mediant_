@@ -1,9 +1,21 @@
-/* ── Page shell ── */
+/* ── Page shell ──
+   Locked layout: the page itself never scrolls. Everything above .lockedBody
+   (banner, back button, thread strip, session header) sits at its natural height;
+   .lockedBody fills the rest of the viewport and only its visible child panel's
+   own content scrolls (the issues list in the analysis view, the whole summary
+   panel in the summary view). */
 .page {
   max-width: 1160px;
   margin: 0 auto;
-  padding: 28px 32px 64px;
+  padding: 28px 32px 20px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   animation: contentFadeIn 200ms ease both;
+}
+.lockedBody {
+  flex: 1;
+  min-height: 0;
 }
 @keyframes contentFadeIn {
   from { opacity: 0; }
@@ -108,12 +120,13 @@
 /* ── TWO-PANEL ── */
 .twoPanel {
   display: grid; grid-template-columns: 1fr 400px;
-  gap: 20px; align-items: start; margin-bottom: 48px;
+  gap: 20px; align-items: stretch; height: 100%;
 }
 
-/* Panel shared */
+/* Panel shared. Each panel is a fixed-height column: its .panelHead never moves,
+   only the content below it (scorePanelBody / issuesList) scrolls independently. */
 .panelHead {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
   padding: 16px 20px 14px; border-bottom: 1px solid var(--border);
 }
 .panelHeadTitle {
@@ -125,15 +138,14 @@
   font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
-/* Score panel — locked in place while the issues panel (taller, to its right)
-   scrolls past. Sticks within the twoPanel grid row, whose height is set by the
-   taller issues column (align-items: start on .twoPanel), so the sheet music stays
-   visible for as long as there's issue content still scrolling by. */
+/* Score panel — the page never scrolls, so the sheet music simply never moves.
+   scorePanelBody keeps its own overflow-y as a fallback for a score taller than
+   the viewport; in the common case it just fits and never shows a scrollbar. */
 .scorePanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
-  position: sticky; top: 20px; align-self: start;
+  display: flex; flex-direction: column;
 }
-.scorePanelBody { padding: 16px; }
+.scorePanelBody { padding: 16px; flex: 1; min-height: 0; overflow-y: auto; }
 .scoreImgWrap { position: relative; display: inline-block; width: 100%; }
 .scoreImg {
   background: #fff; border-radius: 8px; box-shadow: var(--shadow-sm);
@@ -158,12 +170,14 @@
   color: var(--text-faint); font-size: 0.88rem; padding: 48px 0; text-align: center;
 }
 
-/* Issues panel */
+/* Issues panel — the one part of the locked layout that actually scrolls. Its
+   header (panelHead, "DETECTED ISSUES") stays put; issuesList takes the rest of
+   the panel's height and scrolls independently of everything else on the page. */
 .issuesPanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px;
-  overflow: hidden;
+  overflow: hidden; display: flex; flex-direction: column;
 }
-.issuesList {}
+.issuesList { flex: 1; min-height: 0; overflow-y: auto; }
 .noIssues {
   color: var(--hero-green); font-size: 0.88rem; font-weight: 500; padding: 28px 20px; text-align: center;
 }
@@ -233,7 +247,9 @@
 .occurrenceRow .loopBtn { padding: 4px 10px; font-size: 0.72rem; flex-shrink: 0; }
 
 /* ── SUMMARY ── */
-.summarySection { border-top: 1px solid var(--border); padding-top: 48px; }
+/* Summary view fills the same locked body the two-panel analysis view does when
+   toggled in — it scrolls as a whole since there's no separate panel to pin. */
+.summarySection { height: 100%; overflow-y: auto; padding: 0 0 32px; }
 .summaryEyebrow {
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em;
   color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 8px;
@@ -325,11 +341,16 @@
 }
 .newSessionBtn:hover { background: #d9743f; }
 
-/* Responsive */
+/* Responsive — the locked/pinned layout only makes sense with the two-panel
+   side-by-side grid. Below 960px everything falls back to normal document
+   scrolling: the page scrolls as a whole, panels stack, nothing is pinned. */
 @media (max-width: 960px) {
-  .twoPanel { grid-template-columns: 1fr; }
-  .scorePanel { position: static; }
-  .issuesPanel { position: static; }
+  .page { height: auto; overflow: visible; }
+  .lockedBody { flex: none; }
+  .twoPanel { grid-template-columns: 1fr; height: auto; }
+  .scorePanel, .issuesPanel { position: static; }
+  .scorePanelBody, .issuesList { overflow-y: visible; }
+  .summarySection { height: auto; overflow-y: visible; border-top: 1px solid var(--border); padding-top: 48px; }
 }
 @media (max-width: 760px) {
   .page { padding: 20px 16px 48px; }

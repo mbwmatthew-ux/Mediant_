@@ -1374,10 +1374,12 @@ const videoRef    = useRef(null)
     if (remainingTakes.length > 0) {
       setSelectedTakeId(remainingTakes[0].id)
     } else {
-      setSelectedTakeId(null)
       const nextThread = threads.find(th => th.piece_title !== activeThreadTitle && th.takes?.length > 0)
       if (nextThread) {
         setActiveThreadTitle(nextThread.piece_title)
+        setSelectedTakeId(nextThread.takes[0].id)
+      } else {
+        setSelectedTakeId(null)
       }
       setActiveFlag(null)
     }
@@ -1618,7 +1620,7 @@ const videoRef    = useRef(null)
           {threads.map(thread => (
             <button key={thread.piece_title}
               className={`${aStyles.threadChip} ${thread.piece_title === activeThreadTitle ? aStyles.threadChipActive : ''}`}
-              onClick={() => { playPop(); setActiveThreadTitle(thread.piece_title); setSelectedTakeId(null) }}>
+              onClick={() => { playPop(); setActiveThreadTitle(thread.piece_title); setSelectedTakeId(thread.takes?.[0]?.id ?? null) }}>
               {thread.piece_title}
               {thread.takes?.[0]?.score != null && (
                 <span className={aStyles.threadChipScore} style={{ color: scoreColor(thread.takes[0].score) }}>{thread.takes[0].score}</span>
@@ -1658,15 +1660,6 @@ const videoRef    = useRef(null)
           <p className={aStyles.sessionMeta}>{takeMeta}</p>
         </div>
         <div className={aStyles.sessionHeaderRight}>
-          {takesForActiveThread.length > 1 && (
-            <select className={aStyles.takeSelect} value={selectedTakeId ?? take?.id ?? ''}
-              onChange={e => { playTick(); setSelectedTakeId(e.target.value) }}>
-              {takesForActiveThread.map((t, idx) => {
-                const n = takesForActiveThread.length - idx
-                return <option key={t.id} value={t.id}>Take {n}{t.score != null ? ` · ${t.score}` : ''}</option>
-              })}
-            </select>
-          )}
           <button className={aStyles.analysisTabBtn} onClick={() => { playTick(); setInSummaryView(false) }}>Analysis</button>
           <button className={aStyles.jumpSummaryBtn} onClick={() => { playTick(); setInSummaryView(true) }}>Jump to summary →</button>
         </div>

@@ -1,6 +1,11 @@
 # Changelog — Practapal (formerly Mediant)
 
-## 2026-08-12 — Fix Analysis page scroll leak + fit whole sheet music without scrolling
+## 2026-08-12 — Analysis page: bigger sheet music, remove take dropdown, fix summary scrollbar gutter
+
+Two more follow-ups on today's locked-layout work:
+
+1. **Sheet music was fitting but rendering smaller than it needed to.** Removed the take-selector dropdown ("Take 5 · 72") from the session header per user decision (it let you switch between takes of the same piece from this page — that's still possible via Sessions/Takes, which deep-link into `/analysis?takeId=...`). Since it's gone, clicking a thread chip or deleting a take now auto-selects that thread's newest take (`setSelectedTakeId(thread.takes[0].id)`) instead of clearing to `null` — previously that null was fine because the dropdown let you immediately pick a take, but without it, clearing to null would've dead-ended on the "No session selected" empty state. Also shaved down `.page` padding, `.sessionHeader`/`.threadStrip`/`.demoBanner` margins, `.sessionTitle` font size, and `.panelHead`/`.scorePanelBody` padding — reclaimed enough height that the demo score image grew from ~491px to ~557px tall in an 900px-viewport test.
+2. **Summary view's scrollbar was rendering flush against the score/strength cards' right edge** (`.scoreBreakdownRow` / `.strWeakRow` had zero right padding on their container, so the scrollbar thumb had nowhere to sit but on top of the cards). Added a 14px right-padding gutter to `.summarySection` — verified via Playwright that the container's right edge now sits 14px outside the cards' right edge instead of flush with it.
 
 Follow-up on the locked-layout change earlier today. Two real bugs, one CSS tightening:
 

@@ -1,5 +1,15 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Sheet music now zooms in + scrolls instead of shrinking to fit
+
+Reversed the earlier "must fit without scrolling" design for the score panel specifically — user wants it bigger and legible, scrolling to see the rest. `scorePanelBody` is now the scroll viewport (`overflow: auto`, minimal 4px padding so the scrollbar sits close to the image, not out at the card's edge); the image renders at `1.5x` its "fits the panel" size (`SCORE_ZOOM` in Analysis.jsx), computed from `img.naturalWidth/Height` vs. the panel's `clientWidth/Height` and set as an explicit inline pixel `width`/`height` (not CSS `max-width`, since the zoom target is a multiple of the fit size — only JS can compute that). View starts scrolled to the middle of the zoomed score rather than the top-left corner.
+
+Hit a real bug getting the initial centering right: applying the new (larger) image size makes scrollbars appear, which shrinks `scorePanelBody`'s own `clientWidth`/`clientHeight` (scrollbar reserves space) — that resize re-fires the same `ResizeObserver` watching the panel, which recomputes a *smaller* target image size to compensate, shrinking the image again just after the first centering pass already ran against the larger, pre-scrollbar size. The already-set `scrollLeft` then gets silently clamped to the new (smaller) max by the browser, landing at the far edge instead of centered. Fixed by debouncing the "center once" step (80ms of no further resize) instead of firing on the very first `ResizeObserver` callback — confirmed via Playwright that `scrollLeft`/`scrollTop` land exactly at `(scrollWidth - clientWidth) / 2` / `(scrollHeight - clientHeight) / 2` after settling.
+
+Also switched `.scoreImgWrap`/`scorePanelBody` off flexbox for this (was `display:flex; align-items:center; justify-content:center`) — flexbox's centering combined with scrollable overflow has inconsistent, browser-dependent scroll-range semantics (`scrollLeft: 0` doesn't reliably mean the content's true left edge once it's centered *and* overflowing). Plain block layout keeps `scrollLeft`/`scrollTop` unambiguous, which the centering math depends on.
+
+Below 960px the zoom is off entirely — `computeSize()` checks `matchMedia('(max-width: 960px)')` and clears the inline size (falls back to the mobile stylesheet's normal responsive `width:100%` image), since an inline style would otherwise override that CSS outright (inline always wins) regardless of viewport.
+
 ## 2026-08-12 — Multi-page sheet music, Analysis page layout cleanup
 
 **Multi-page sheet music** (new feature, scoped deliberately — see `Fixes/Fix — Multi-page sheet music (score_paths).md`):

@@ -356,6 +356,7 @@ const videoRef    = useRef(null)
   const chatEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const summaryRef = useRef(null)
+  const scorePanelBodyRef = useRef(null)
   const scoreImgWrapRef = useRef(null)
   const scoreImgRef = useRef(null)
 
@@ -424,6 +425,56 @@ const videoRef    = useRef(null)
     observer.observe(img)
     return () => observer.disconnect()
   }, [scoreUrl])
+
+  // Sheet music now renders zoomed in (bigger than "fits the panel") so it's
+  // actually legible — the panel scrolls instead. SCORE_ZOOM is how much bigger
+  // than "fit" the image renders; explicit pixel width/height (not CSS max-
+  // width/height) because the zoom target is a multiple of the FIT size, which
+  // only JS can compute from the image's natural dimensions vs. the panel's.
+  const [scoreRenderSize, setScoreRenderSize] = useState(null) // { width, height } px
+  useEffect(() => {
+    const body = scorePanelBodyRef.current
+    const img = scoreImgRef.current
+    if (!body || !img || !scoreUrl) return
+    const SCORE_ZOOM = 1.5
+    let centered = false
+    let centerTimer = null
+    function computeSize() {
+      // Below 960px the locked/zoomed layout is off entirely (CSS falls back to a
+      // normal responsive width:100% image) — an inline pixel size from here would
+      // override that CSS (inline styles always win), so explicitly bail and clear
+      // it instead of fighting the mobile stylesheet.
+      if (window.matchMedia('(max-width: 960px)').matches) {
+        setScoreRenderSize(null)
+        return
+      }
+      if (!img.naturalWidth || !img.naturalHeight) return
+      const availW = body.clientWidth
+      const availH = body.clientHeight
+      if (availW <= 0 || availH <= 0) return
+      const fitScale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight)
+      const scale = fitScale * SCORE_ZOOM
+      setScoreRenderSize({ width: img.naturalWidth * scale, height: img.naturalHeight * scale })
+      // Start scrolled to the middle of the zoomed score, not the top-left corner.
+      // Applying the new image size makes scrollbars appear, which shrinks body's
+      // own clientWidth/clientHeight and re-fires this same ResizeObserver — so
+      // debounce: only actually center once a short stretch passes with no further
+      // resize (i.e. once the scrollbar-induced resize cascade has settled).
+      if (centered) return
+      if (centerTimer) clearTimeout(centerTimer)
+      centerTimer = setTimeout(() => {
+        centered = true
+        body.scrollLeft = (body.scrollWidth - body.clientWidth) / 2
+        body.scrollTop = (body.scrollHeight - body.clientHeight) / 2
+      }, 80)
+    }
+    if (img.complete) computeSize()
+    img.addEventListener('load', computeSize)
+    const observer = new ResizeObserver(computeSize)
+    observer.observe(body)
+    return () => { img.removeEventListener('load', computeSize); observer.disconnect(); clearTimeout(centerTimer) }
+  }, [scoreUrl])
+
   const [videoUrl, setVideoUrl]       = useState(null)
   const [activeFlag, setActiveFlag]   = useState(null)
   const [scoreReady, setScoreReady]   = useState(false)
@@ -1730,7 +1781,7 @@ const videoRef    = useRef(null)
                 <span className={aStyles.scorePagerLabel}>Page {currentScorePage + 1} of {scorePageCount}</span>
               )}
             </div>
-            <div className={aStyles.scorePanelBody}>
+            <div className={aStyles.scorePanelBody} ref={scorePanelBodyRef}>
             {scoreUrl ? (
               // display:contents so this wrapper doesn't break the height-percentage
               // chain scoreImgWrap relies on (it needs to be a direct flex item of
@@ -1857,7 +1908,8 @@ const videoRef    = useRef(null)
 
                   return (
                     <div className={aStyles.scoreImgWrap} ref={scoreImgWrapRef}>
-                      <img ref={scoreImgRef} src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music" />
+                      <img ref={scoreImgRef} src={scoreUrl} className={aStyles.scoreImg} alt="Sheet music"
+                        style={scoreRenderSize ? { width: scoreRenderSize.width, height: scoreRenderSize.height } : undefined} />
 
                       {/* Overlay layer sized/positioned to match the actual rendered image box
                           (scoreImgBox, measured via ResizeObserver above) — NOT the wrapper,

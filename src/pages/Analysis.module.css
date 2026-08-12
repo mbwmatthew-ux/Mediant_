@@ -147,21 +147,18 @@
   font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
-/* Score panel — the page never scrolls, so the whole sheet music must fit in the
-   available space on BOTH axes (never cropped). scoreImgWrap fills scorePanelBody
-   exactly (both dimensions definite) and centers the image inside it; the image
-   itself uses the standard "contain" sizing (max-width/max-height:100% + auto)
-   so it scales down to whichever axis is more restrictive. For a typical portrait
-   score this fills the full height edge-to-edge same as before; only a
-   pathologically wide image would ever letterbox. The marker/span overlay is a
-   separate absolutely-positioned layer sized to the image's actual measured box
-   (see scoreImgBox in Analysis.jsx), not this wrapper — required so markers stay
-   correctly aligned even when the image IS letterboxed. */
+/* Score panel — zoomed in past "fits the panel" so the sheet music is actually
+   legible (SCORE_ZOOM in Analysis.jsx), so scorePanelBody is now the scroll
+   viewport instead of a fit-and-center box. scoreImgWrap still shrink-wraps
+   tightly to the image (display:inline-block, no forced width/height) so the
+   marker/span overlay's percentage positions land correctly — that hasn't
+   changed, only how the image itself is sized. Padding is kept minimal so the
+   browser's scrollbar sits close to the image, not out at the card's edge. */
 /* scoreColumn is the full grid-cell-width row; the card itself (.scorePanel) is
    capped narrower so a portrait score doesn't drown in leftover white space —
    that freed-up width is exactly where the page arrows live, flanking the card. */
 .scoreColumn {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   height: 100%; min-width: 0;
 }
 .scorePanel {
@@ -178,15 +175,19 @@
 .scoreSideArrow:hover:not(:disabled) { background: var(--surface-hover, var(--panel-tint)); color: var(--text); }
 .scoreSideArrow:disabled { opacity: 0.35; cursor: default; }
 .scorePagerLabel { color: var(--text-muted); font-size: 0.76rem; font-weight: 500; margin-left: auto; }
+/* Plain block layout, not flex — flexbox's justify/align-content:center combined
+   with scrollable overflow has inconsistent, browser-dependent scroll-range
+   semantics (where scrollLeft:0 lands isn't the content's true edge). A normal
+   block container keeps scrollLeft/scrollTop unambiguous, which the initial
+   "start centered" scroll positioning in Analysis.jsx depends on. */
 .scorePanelBody {
-  padding: 8px; flex: 1; min-height: 0;
-  display: flex; align-items: center; justify-content: center;
-  overflow: hidden;
+  padding: 4px; flex: 1; min-height: 0;
+  overflow: auto;
 }
-.scoreImgWrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.scoreImgWrap { position: relative; display: inline-block; }
 .scoreImg {
   background: #fff; border-radius: 8px; box-shadow: var(--shadow-sm);
-  display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
+  display: block;
 }
 .scoreFlagStrip {
   position: relative; height: 32px; margin-top: 8px;

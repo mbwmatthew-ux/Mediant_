@@ -436,7 +436,7 @@ const videoRef    = useRef(null)
     const body = scorePanelBodyRef.current
     const img = scoreImgRef.current
     if (!body || !img || !scoreUrl) return
-    const SCORE_ZOOM = 1.3
+    const SCORE_ZOOM = 1.4
     let centered = false
     let centerTimer = null
     function computeSize() {

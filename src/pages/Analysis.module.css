@@ -124,7 +124,7 @@
   /* Score column is capped (not 1fr) so the issues column — which used to be the
      fixed 340px one — gets whatever's left over instead, giving issue titles
      more room before truncating. */
-  display: grid; grid-template-columns: minmax(360px, 460px) 1fr;
+  display: grid; grid-template-columns: minmax(440px, 620px) 1fr;
   /* Without this, the implicit row auto-sizes to its tallest child's natural
      content height (the full-size score image) instead of being capped at the
      grid's own height — which is exactly how the sheet music ended up taller
@@ -177,23 +177,23 @@
 .scoreSideArrow:hover:not(:disabled) { background: var(--surface-hover, var(--panel-tint)); color: var(--text); }
 .scoreSideArrow:disabled { opacity: 0.35; cursor: default; }
 .scorePagerLabel { color: var(--text-muted); font-size: 0.76rem; font-weight: 500; margin-left: auto; }
-/* Plain block layout, not flex — flexbox's justify/align-content:center combined
-   with scrollable overflow has inconsistent, browser-dependent scroll-range
-   semantics (where scrollLeft:0 lands isn't the content's true edge). A normal
-   block container keeps scrollLeft/scrollTop unambiguous, which the initial
-   "start centered" scroll positioning in Analysis.jsx depends on. */
+/* display:flex on the container + margin:auto on the (single) child is the
+   correct way to center something that might overflow and need to scroll.
+   align-items/justify-content:center on the CONTAINER do NOT work here — that's
+   "unsafe" box alignment, and browsers are allowed to make the overflow that
+   falls "before" the centered position unreachable by scrolling (this is a real,
+   documented CSS footgun, not a hunch — it's exactly what made the tall real
+   photo look clipped/squished with no way to scroll to the rest of it). A flex
+   ITEM's own margin:auto has different, safe resolution rules: it fills
+   available space when there's room, and clamps to 0 (never negative) once the
+   item is bigger than the container — so it centers when it fits and simply
+   starts flush at the true top-left, fully scrollable, once it doesn't. */
 .scorePanelBody {
   padding: 14px; flex: 1; min-height: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  display: flex;
   overflow: auto;
 }
-/* width:fit-content (not inline-block) lets margin:auto genuinely center the
-   image when it's narrower than the panel — equal space on both sides — while
-   still behaving correctly once it's wider than the panel and needs to scroll:
-   per spec, auto margins on an overflowing block resolve to 0 (never negative),
-   so it starts flush at the true left edge either way, which is what the JS
-   scrollLeft-centering math in Analysis.jsx assumes. */
-.scoreImgWrap { position: relative; display: block; width: fit-content; margin: 0 auto; }
+.scoreImgWrap { position: relative; width: fit-content; margin: auto; }
 .scoreImg {
   background: #fff; border-radius: 8px; box-shadow: var(--shadow-sm);
   display: block;

@@ -1,5 +1,32 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Fix score panel clipping a tall image with no way to scroll to it
+
+Real bug, not just sizing: a tall (portrait) sheet-music photo — the actual use
+case, unlike the wide demo clarinet asset used in most of today's earlier
+testing — rendered squished/clipped at the bottom with no way to scroll down
+to see the rest. Root cause: `.scorePanelBody` centered its content via
+`display:flex; align-items:center; justify-content:center`. That's "unsafe" CSS
+box alignment — per spec, when centered content overflows, browsers are
+allowed to make the portion that falls *before* the visual center unreachable
+by scrolling, rather than guaranteeing the full scrollable range. That's
+exactly what this looked like: content simply cut off at the container's
+edge, no scrollbar movement reaching the rest.
+
+Fixed by centering via the child's own `margin: auto` instead of the
+container's `align-items`/`justify-content` — a flex item's own auto margins
+resolve differently (clamp to 0 when negative, matching normal box-model
+behavior) and don't have the unsafe-overflow problem. `scoreImgWrap` is now
+`margin: auto` on a plain `display:flex` container (no `align-items`/
+`justify-content` at all). Verified by intercepting the demo image request and
+serving a synthetic 800×3000 portrait SVG in its place — confirmed both the
+top and bottom of the tall image are now reachable by scrolling, and the
+initial view still lands centered.
+
+While in there, per feedback that the score panel looked "squished": widened
+the score grid column (`minmax(360px,460px)` → `minmax(440px,620px)`) and
+bumped `SCORE_ZOOM` back up slightly (`1.3` → `1.4`).
+
 ## 2026-08-12 — Score panel smaller + centered, issues panel wider
 
 Follow-up sizing/spacing pass on the score panel:

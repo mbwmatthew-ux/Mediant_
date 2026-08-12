@@ -1683,7 +1683,7 @@ const videoRef    = useRef(null)
   }
 
   return (
-    <div className={aStyles.page}>
+    <div className={`${aStyles.page} ${inSummaryView ? aStyles.pageSummary : ''}`}>
       {/* No hidden video — videoRef is wired directly to the active card's video element */}
       <input ref={fileInputRef} type="file" style={{ display: 'none' }} accept="audio/*,video/*" onChange={handleFileUpload} />
 

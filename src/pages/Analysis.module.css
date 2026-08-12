@@ -34,13 +34,26 @@
   display: flex;
   flex-direction: column;
 }
-/* Summary view only: this box becomes the scroller, so the header (its first
-   child) scrolls away with the content rather than the content sliding under a
-   pinned header. Right padding is the scrollbar gutter — without it the thumb
-   renders flush against the cards' right edge. */
+/* Summary view: nothing here scrolls. Scrolling is handed all the way up to
+   AppShell's `.main` (see .pageSummary) so the scrollbar renders at the
+   window's right edge rather than tucked against the cards — a scroller nested
+   inside .page would put its thumb at .page's padded, centered inner edge. */
 .lockedBodyScroll {
-  overflow-y: auto;
-  padding-right: 14px;
+  overflow-y: visible;
+}
+/* Summary view: drop the fixed-height/no-scroll lock so the page grows to its
+   content and AppShell's `.main` (full width, from the sidebar to the window
+   edge) does the scrolling — that's what puts the scrollbar on the window edge.
+   min-height keeps short summaries from collapsing above the fold. */
+.pageSummary {
+  height: auto;
+  min-height: calc(100vh - 56px);
+  overflow: visible;
+}
+/* .page is no longer a fixed-height box here, so an absolutely-positioned arrow
+   would scroll off with the content — pin it to the viewport instead. */
+.pageSummary .sectionNavArrow {
+  position: fixed;
 }
 @keyframes contentFadeIn {
   from { opacity: 0; }

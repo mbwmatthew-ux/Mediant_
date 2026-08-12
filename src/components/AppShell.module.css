@@ -289,7 +289,15 @@
 }
 .skipLink:focus { transform: translateY(0); }
 
-.pageIn { animation: pageIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+/* `backwards`, not `both`: `both` keeps the final keyframe applied forever, and
+   that lingering `transform: translateY(0)` makes this element a containing
+   block for `position: fixed` descendants — which silently pins them to this
+   box instead of the viewport (e.g. the Analysis page's floating nav arrow,
+   which would then scroll away with the content). The final keyframe's values
+   are the natural defaults anyway, so dropping them changes nothing visually;
+   `backwards` still applies the `from` state up front, so the entrance
+   animation is identical. */
+.pageIn { animation: pageIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
 @keyframes pageIn {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }

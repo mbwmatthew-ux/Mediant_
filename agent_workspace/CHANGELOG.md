@@ -1,5 +1,40 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Summary scrollbar moved to the window edge (+ a latent position:fixed bug)
+
+The summary's scrollbar was hugging the cards because the scroller was
+`.lockedBody`, nested inside `.page`'s centered, 80px-padded box — so its thumb
+rendered at that inner edge. Fixed by handing scrolling all the way up: in the
+summary view `.page` drops its fixed-height/no-scroll lock (`.pageSummary`:
+`height: auto; min-height: calc(100vh - 56px); overflow: visible`) and AppShell's
+`.main` — full width, sidebar to window edge — does the scrolling. Analysis view
+is untouched and still fully locked.
+
+**Found and fixed a latent bug this depended on.** With `.page` no longer a
+fixed-height box, the floating nav arrow has to be `position: fixed` or it
+scrolls away. But AppShell's `.pageIn` used `animation: … both`, and
+`fill-mode: both` keeps the final keyframe applied forever — including its
+`transform: translateY(0)`. A non-`none` transform makes an element a
+containing block for `position: fixed` descendants, silently pinning them to
+that box instead of the viewport. Confirmed in an isolated repro: under
+`both` the ancestor keeps `matrix(1,0,0,1,0,0)` and a fixed child renders at
+the ancestor's offset (top 8) rather than the viewport (top 0); under
+`backwards` the transform is `none` and the child pins correctly.
+
+Changed `.pageIn` to `animation-fill-mode: backwards`. The final keyframe's
+values (`opacity: 1`, `translateY(0)`) are the natural defaults, so this is a
+visual no-op and the entrance animation is unchanged — `backwards` still
+applies the `from` state up front.
+
+Worth flagging because **the demo route would never have caught this**:
+`/#/demo` renders outside AppShell, so there's no `.pageIn` there and the arrow
+tested fine while the real logged-in page would have been broken. It also
+silently repairs the ≤960px mobile FAB, which had the same defect.
+
+Verified: summary uses the document scroller with no nested scroller, arrow
+stays put at scrollTop 300 on both desktop and mobile, analysis view still
+locked with a pinned header, landing page unaffected.
+
 ## 2026-08-12 — Header is part of the scrolling page in the summary view
 
 Replaces the mask-fade patch from earlier today. That treated the symptom (a

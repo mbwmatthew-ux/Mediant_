@@ -1,5 +1,28 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Summary content no longer looks like it collides with the header
+
+Reported as "the header goes on top of the other texts". It never actually
+overlapped — measured a 10px gap between `.sessionHeader`'s bottom and
+`.lockedBody`'s top, and `.sessionHeader` has no background to paint over
+anything. The real problem was that `.summarySection` is a scroll container
+whose top edge sat only 10px under the header, so scrolled content was
+guillotined mid-glyph right beneath the date (half-height "45", "18", "28"…),
+which reads as the header sitting on top of it.
+
+Fixed with a top fade instead of a hard cut: `.summarySection` gets
+`padding-top: 20px` plus a matching `mask-image: linear-gradient(to bottom,
+transparent 0, #000 20px)`. The two sizes are a pair and must stay in sync —
+because the first 20px is padding, nothing is visibly dimmed at rest
+(scrollTop 0 still shows "SUMMARY" / "Your progress at a glance" at full
+opacity); the fade only bites once content scrolls up into that band, which is
+exactly when it's wanted. Also nudged `.sessionHeader` margin-bottom 10 → 14px
+for a bit more separation.
+
+The mask is explicitly disabled in the ≤960px block: there's no scroll
+container there (the page scrolls as a whole), so it would have permanently
+dimmed the section heading instead of only affecting scrolled-away content.
+
 ## 2026-08-12 — "All sessions" back link onto the title row, compact hover
 
 - Moved the back link into `.sessionHeader` and positioned it absolutely at the row's left edge (`.sessionHeader` is now `position: relative`), so it sits on the same line as the piece title instead of stacked above it. Absolute rather than a flex sibling on purpose: the title stays centered on the *page*, not on the leftover space next to a variable-width button — and stays centered when the back link isn't rendered at all (it only shows for `?from=sessions`).

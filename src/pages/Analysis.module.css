@@ -94,7 +94,7 @@
    back link absolutely positioned at the left of the same row. */
 .sessionHeader {
   position: relative;
-  text-align: center; margin-bottom: 10px; flex-shrink: 0; min-width: 0;
+  text-align: center; margin-bottom: 14px; flex-shrink: 0; min-width: 0;
 }
 .sessionTitle {
   font-size: 1.35rem; font-weight: 700; color: var(--text);
@@ -307,8 +307,19 @@
    toggled in — it scrolls as a whole since there's no separate panel to pin. */
 /* Right padding here is a deliberate gutter for the scrollbar thumb — without it
    the scrollbar renders flush against (and visually overlaps) the score/strength
-   cards' right edge instead of sitting in clear space beside them. */
-.summarySection { height: 100%; overflow-y: auto; padding: 0 14px 32px 0; }
+   cards' right edge instead of sitting in clear space beside them.
+   The top padding + matching mask fade are a pair, and the sizes must stay in
+   sync: scrolled content used to be guillotined mid-glyph a few px under the
+   session header, which read as the header sitting ON TOP of the text (it never
+   actually overlapped — measured a 10px gap). The mask fades content out over
+   the top 20px instead of cutting it dead. Because the first 20px is padding,
+   nothing is visibly faded at rest (scrollTop 0) — the fade only bites once
+   content scrolls up into that band, which is exactly when it's wanted. */
+.summarySection {
+  height: 100%; overflow-y: auto; padding: 20px 14px 32px 0;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 20px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 20px);
+}
 .summaryEyebrow {
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em;
   color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 8px;
@@ -424,7 +435,12 @@
      sharing a fixed-height row with the issues panel. */
   .scoreImgWrap { height: auto; width: 100%; display: block; }
   .scoreImg { height: auto; width: 100%; }
-  .summarySection { height: auto; overflow-y: visible; border-top: 1px solid var(--border); padding: 48px 0 0; }
+  /* No scroll container here (the page scrolls as a whole), so the top fade
+     would just permanently dim the section heading — turn it off. */
+  .summarySection {
+    height: auto; overflow-y: visible; border-top: 1px solid var(--border); padding: 48px 0 0;
+    -webkit-mask-image: none; mask-image: none;
+  }
 }
 @media (max-width: 760px) {
   .page { padding: 20px 16px 48px; }

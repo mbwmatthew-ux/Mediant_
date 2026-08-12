@@ -10,14 +10,20 @@
    top of the top bar's 56px, .main ends up taller than the viewport and starts
    scrolling itself — exactly the whole-page scroll this layout is meant to kill.
    Keep these in sync if the top bar's height ever changes. */
+/* The wide symmetric left/right padding is deliberate and load-bearing, not
+   decoration: it's the gutter the floating Analysis<->Summary arrow lives in
+   (absolutely positioned against .page, see .sectionNavArrow). Because it's
+   equal on both sides and .page is centered, the gap from the sidebar to the
+   left panel always matches the gap from the right panel to the window edge. */
 .page {
   max-width: 1440px;
   margin: 0 auto;
-  padding: 12px 24px 10px;
+  padding: 12px 80px 10px;
   height: calc(100vh - 56px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
   animation: contentFadeIn 200ms ease both;
 }
 .lockedBody {
@@ -78,46 +84,31 @@
 .threadChipActive { background: var(--text); border-color: var(--text); color: var(--bg); }
 .threadChipScore { font-size: 0.78rem; font-weight: 700; margin-left: 6px; }
 
-/* ── SESSION HEADER ── */
+/* ── SESSION HEADER ── piece title + date, centered, nothing else. */
 .sessionHeader {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 24px; margin-bottom: 8px; flex-shrink: 0;
+  text-align: center; margin-bottom: 10px; flex-shrink: 0; min-width: 0;
 }
-.sessionHeaderLeft { flex: 1; min-width: 0; }
 .sessionTitle {
   font-size: 1.35rem; font-weight: 700; color: var(--text);
   letter-spacing: -0.025em; line-height: 1.15; margin: 0 0 2px;
 }
 .sessionMeta { font-size: 0.88rem; color: var(--text-muted); margin: 0; }
-.sessionHeaderRight {
-  display: flex; align-items: center; gap: 10px; flex-shrink: 0; padding-top: 4px;
-}
-.analysisTabBtn {
-  background: #fff; border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text); cursor: pointer; font: inherit; font-size: 0.84rem; font-weight: 500; padding: 8px 16px;
-}
-.jumpSummaryBtn {
-  background: var(--accent); border: none; border-radius: 8px; color: #fff;
-  cursor: pointer; font-size: 0.84rem; font-weight: 600; padding: 8px 16px;
-  text-decoration: none; transition: background 140ms ease; white-space: nowrap;
-}
-.jumpSummaryBtn:hover { background: #d9743f; }
 
-/* Fixed edge arrow — toggles between "jump to summary" (right-pointing, right edge)
-   and "back to analysis" (left-pointing, left edge) depending on scroll position. */
+/* Analysis <-> Summary arrow. Absolutely positioned against .page (NOT fixed to
+   the viewport) so it sits inside .page's own 80px gutter — fixed positioning
+   anchored it to the window edge, which at narrower viewports put it right on
+   top of the issues panel. 16px in from the page edge leaves a clear ~16px gap
+   between the arrow and the panel beside it at every width. */
 .sectionNavArrow {
   align-items: center; background: var(--accent); border: none; border-radius: 50%;
   box-shadow: var(--shadow-lg); color: #fff; cursor: pointer; display: flex;
-  height: 48px; width: 48px; justify-content: center; position: fixed; top: 50%;
+  height: 48px; width: 48px; justify-content: center; position: absolute; top: 50%;
   transform: translateY(-50%); transition: background 140ms ease, opacity 140ms ease;
   z-index: 50;
 }
 .sectionNavArrow:hover { background: #d9743f; }
-.sectionNavArrowRight { right: 18px; }
-.sectionNavArrowLeft { left: 18px; }
-@media (max-width: 760px) {
-  .sectionNavArrow { display: none; }
-}
+.sectionNavArrowRight { right: 16px; }
+.sectionNavArrowLeft { left: 16px; }
 
 /* ── TWO-PANEL ── */
 .twoPanel {
@@ -154,30 +145,31 @@
   font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
-/* Score panel — zoomed in past "fits the panel" so the sheet music is actually
-   legible (SCORE_ZOOM in Analysis.jsx), so scorePanelBody is now the scroll
-   viewport instead of a fit-and-center box. Padding is kept modest so the
-   browser's scrollbar sits reasonably close to the image without the card
-   looking edge-to-edge. */
-/* scoreColumn is the grid cell; the card itself (.scorePanel) fills it, flanked
-   by page arrows whose slot is ALWAYS reserved (rendered, just visibility:hidden
-   when there's only one page) — keeps the card's width/centering constant
-   whether or not a take actually has multiple pages. */
+/* scoreColumn is the grid cell; the card (.scorePanel) fills it edge to edge.
+   The page arrows now live INSIDE the card, absolutely positioned within its
+   left/right padding gutters (see .scorePanelBody's 62px horizontal padding,
+   sized to clear the 40px circle plus breathing room on both sides). They're
+   always rendered, just visibility:hidden for a single-page take, so the
+   card's width and the score's centering never shift when pagination appears. */
 .scoreColumn {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  display: flex; align-items: center; justify-content: center;
   height: 100%; min-width: 0;
 }
 .scorePanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
   display: flex; flex-direction: column; min-height: 0; height: 100%;
-  width: 100%; min-width: 0;
+  width: 100%; min-width: 0; position: relative;
 }
 .scoreSideArrow {
   align-items: center; background: #fff; border: 1px solid var(--border); border-radius: 50%;
   color: var(--text-muted); cursor: pointer; display: flex; flex-shrink: 0;
-  height: 36px; width: 36px; justify-content: center;
+  height: 40px; width: 40px; justify-content: center;
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+  box-shadow: var(--shadow-sm);
   transition: background 130ms ease, color 130ms ease, opacity 130ms ease;
 }
+.scoreSideArrowPrev { left: 11px; }
+.scoreSideArrowNext { right: 11px; }
 .scoreSideArrow:hover:not(:disabled) { background: var(--surface-hover, var(--panel-tint)); color: var(--text); }
 .scoreSideArrow:disabled { opacity: 0.35; cursor: default; }
 .scorePagerLabel { color: var(--text-muted); font-size: 0.76rem; font-weight: 500; margin-left: auto; }
@@ -192,13 +184,13 @@
    available space when there's room, and clamps to 0 (never negative) once the
    item is bigger than the container — so it centers when it fits and simply
    starts flush at the true top-left, fully scrollable, once it doesn't. */
-/* Generous left/right padding (vs. 14px top/bottom) so there's comfortable
-   white space either side of the score — that's the gutter the page arrows
-   sit against, and it keeps a full-bleed sheet-music photo from looking
-   jammed against the card's edges. The JS width-fit math reads these values
-   back via getComputedStyle, so changing them here is safe and self-consistent. */
+/* The 62px left/right padding (vs. 14px top/bottom) is the arrow gutter: a 40px
+   circle sitting 11px in from the card edge occupies 11–51px, so 62px leaves an
+   11px clear gap before the sheet music starts. The JS width-fit math reads
+   these values back via getComputedStyle, so the score automatically sizes to
+   the remaining space — changing the number here stays self-consistent. */
 .scorePanelBody {
-  padding: 14px 30px; flex: 1; min-height: 0;
+  padding: 14px 62px; flex: 1; min-height: 0;
   display: flex;
   overflow-x: hidden; overflow-y: auto;
 }
@@ -404,7 +396,15 @@
    side-by-side grid. Below 960px everything falls back to normal document
    scrolling: the page scrolls as a whole, panels stack, nothing is pinned. */
 @media (max-width: 960px) {
-  .page { height: auto; overflow: visible; }
+  /* No side-by-side panels here, so the wide arrow gutter isn't needed. */
+  .page { height: auto; overflow: visible; padding: 12px 24px 48px; }
+  /* The page scrolls normally at this size, so an arrow absolutely positioned
+     against .page would scroll off with it. Pin it to the viewport as a
+     floating action button — it must stay reachable, since it's now the ONLY
+     Analysis <-> Summary control (the header buttons were removed). */
+  .sectionNavArrow { position: fixed; top: auto; bottom: 20px; transform: none; }
+  .sectionNavArrowRight { right: 16px; }
+  .sectionNavArrowLeft { left: 16px; }
   .lockedBody { flex: none; }
   .twoPanel { grid-template-columns: 1fr; height: auto; }
   .scoreColumn { height: auto; }
@@ -421,8 +421,6 @@
 @media (max-width: 760px) {
   .page { padding: 20px 16px 48px; }
   .backBtn { margin: 0 -16px 6px; padding: 8px 16px; }
-  .sessionHeader { flex-direction: column; align-items: flex-start; gap: 14px; }
-  .sessionHeaderRight { flex-wrap: wrap; }
   .sessionTitle { font-size: 1.3rem; }
   .strWeakRow { grid-template-columns: 1fr; }
   .scoreBreakdownRow { gap: 8px; }

@@ -1739,18 +1739,14 @@ const videoRef    = useRef(null)
         </button>
       )}
 
-      {/* SESSION HEADER */}
+      {/* SESSION HEADER — title + date only, centered. The Analysis / Jump to
+          summary buttons that used to sit on the right are gone; the floating
+          edge arrow is now the only Analysis <-> Summary control. */}
       <div className={aStyles.sessionHeader}>
-        <div className={aStyles.sessionHeaderLeft}>
-          <h1 className={aStyles.sessionTitle}>
-            {pieceComposer && pieceComposer !== 'Unknown' ? `${pieceComposer} — ` : ''}{pieceTitle || 'No session selected'}
-          </h1>
-          <p className={aStyles.sessionMeta}>{takeMeta}</p>
-        </div>
-        <div className={aStyles.sessionHeaderRight}>
-          <button className={aStyles.analysisTabBtn} onClick={() => { playTick(); setInSummaryView(false) }}>Analysis</button>
-          <button className={aStyles.jumpSummaryBtn} onClick={() => { playTick(); setInSummaryView(true) }}>Jump to summary →</button>
-        </div>
+        <h1 className={aStyles.sessionTitle}>
+          {pieceComposer && pieceComposer !== 'Unknown' ? `${pieceComposer} — ` : ''}{pieceTitle || 'No session selected'}
+        </h1>
+        <p className={aStyles.sessionMeta}>{takeMeta}</p>
       </div>
 
       {/* LOCKED BODY: fills remaining viewport height. Only ONE of the two panels
@@ -1760,20 +1756,28 @@ const videoRef    = useRef(null)
 
       {/* TWO-PANEL BODY */}
       <div className={aStyles.twoPanel} style={inSummaryView ? { display: 'none' } : undefined}>
-        {/* LEFT: Annotated Score — a card narrower than its grid column so the
-            issues panel gets more room. Page arrows flank it; their slot is
-            always reserved (kept in flow, just invisible via CSS) even for a
-            single-page take, so the card's width and centering never jump when
-            a take does have multiple pages. */}
+        {/* LEFT: Annotated Score. The page arrows sit INSIDE the card, absolutely
+            positioned within its left/right padding gutters (which are sized to
+            fit the 40px circle comfortably) — so they never crowd the sheet music
+            or the neighbouring issues panel. Always rendered, just
+            visibility:hidden for a single-page take, so nothing shifts when a
+            take does have multiple pages. */}
         <div className={aStyles.scoreColumn}>
-          <button type="button" className={aStyles.scoreSideArrow}
-            style={scorePageCount <= 1 ? { visibility: 'hidden' } : undefined}
-            disabled={currentScorePage === 0}
-            aria-label="Previous page"
-            onClick={() => { playTick(); setCurrentScorePage(p => Math.max(0, p - 1)) }}>
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 6 9 12 15 18" /></svg>
-          </button>
           <div className={aStyles.scorePanel}>
+            <button type="button" className={`${aStyles.scoreSideArrow} ${aStyles.scoreSideArrowPrev}`}
+              style={scorePageCount <= 1 ? { visibility: 'hidden' } : undefined}
+              disabled={currentScorePage === 0}
+              aria-label="Previous page"
+              onClick={() => { playTick(); setCurrentScorePage(p => Math.max(0, p - 1)) }}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 6 9 12 15 18" /></svg>
+            </button>
+            <button type="button" className={`${aStyles.scoreSideArrow} ${aStyles.scoreSideArrowNext}`}
+              style={scorePageCount <= 1 ? { visibility: 'hidden' } : undefined}
+              disabled={currentScorePage >= scorePageCount - 1}
+              aria-label="Next page"
+              onClick={() => { playTick(); setCurrentScorePage(p => Math.min(scorePageCount - 1, p + 1)) }}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18" /></svg>
+            </button>
             <div className={aStyles.panelHead}>
               <span className={aStyles.panelHeadTitle}>ANNOTATED SCORE</span>
               {scorePageCount > 1 && (
@@ -1976,13 +1980,6 @@ const videoRef    = useRef(null)
             )}
             </div>
           </div>
-          <button type="button" className={aStyles.scoreSideArrow}
-            style={scorePageCount <= 1 ? { visibility: 'hidden' } : undefined}
-            disabled={currentScorePage >= scorePageCount - 1}
-            aria-label="Next page"
-            onClick={() => { playTick(); setCurrentScorePage(p => Math.min(scorePageCount - 1, p + 1)) }}>
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18" /></svg>
-          </button>
         </div>
 
         {/* RIGHT: Detected Issues */}

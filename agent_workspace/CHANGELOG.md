@@ -1,5 +1,15 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Analysis header/gutter cleanup, page arrows moved inside the score card
+
+Four fixes:
+- **Equal left/right gutters.** `.page` padding `24px` → `80px` (symmetric) and it's still `margin: 0 auto` inside AppShell's `.main`, so the sidebar→left-panel gap now always equals the right-panel→window-edge gap. Measured at 1700/1300/1050px: 210/210, 80/80, 80/80.
+- **Header stripped to title + date, centered.** Removed the "Analysis" and "Jump to summary" buttons (and their now-dead `.analysisTabBtn` / `.jumpSummaryBtn` / `.sessionHeaderLeft` / `.sessionHeaderRight` rules); `.sessionHeader` is a plain centered block instead of a space-between flex row.
+- **Page arrows moved inside the score card.** They were siblings flanking the card; they're now absolutely positioned within the card's own left/right padding. `.scorePanelBody` horizontal padding `30px` → `62px`, sized so the 40px circle (11px in from the card edge) clears the sheet music by another 11px on each side. Because the JS width-fit math reads the padding back via `getComputedStyle`, the score auto-resizes to the remaining space with no extra wiring. Bonus: reclaiming the old flanking space made the score *wider* (650 → 674px) despite the bigger gutters.
+- **Nav arrow no longer overlaps the issues panel.** It was `position: fixed` (anchored to the window edge), so at narrower viewports it sat on top of the panel. Now `position: absolute` against `.page`, living in the new 80px gutter — a measured 16px clear of the panel at every width tested.
+
+**Watch out:** removing the header buttons made the floating arrow the *only* Analysis↔Summary control, and it was previously `display: none` below 760px — which would have left mobile with no way to reach the summary at all. Below 960px it's now a `position: fixed` bottom-corner FAB instead of hidden (an absolutely-positioned arrow would scroll away with the page there, since that breakpoint uses normal document scrolling). Verified on a 500px viewport that the summary is reachable and returnable.
+
 ## 2026-08-12 — Restore the larger sheet-music size (without the horizontal cut)
 
 The width-fit change fixed the horizontal cropping but shrank the score ~20%

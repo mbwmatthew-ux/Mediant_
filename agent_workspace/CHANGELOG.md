@@ -1,5 +1,20 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Multi-page sheet music, Analysis page layout cleanup
+
+**Multi-page sheet music** (new feature, scoped deliberately — see `Fixes/Fix — Multi-page sheet music (score_paths).md`):
+- `takes.score_paths JSONB` migration (additive; `score_path` singular unchanged, still page 0).
+- Upload modal accepts multiple score images (`multiple` file input), with a removable page-chip list.
+- `analyze-performance` edge function accepts/validates/stores `scorePaths` (IDOR-checked same as the existing singular path); **deployed**.
+- Analysis page: `scoreUrls`/`currentScorePage` state, flanking prev/next page arrows (only rendered for >1 page), "Page X of Y" label.
+- **Scope limit, on purpose:** only page 0 is ever fed to the AI (Modal worker, `score_cache`, Claude vision) — that pipeline is untouched. Pages 1+ are stored/viewable with no measure markers. Extending measure-detection across pages is flagged as follow-up work, not attempted blind against a tuned production pipeline I can't fully test here.
+
+**Layout cleanup** (user feedback: sheet music still looked small, wanted the "SESSION" label gone, and the back-button hover looked like a floating box instead of a full row):
+- Removed the "SESSION" eyebrow label above the piece title.
+- Score panel (`.scorePanel`) capped at `max-width: 620px` instead of stretching the full grid column — was leaving big empty gutters beside portrait-oriented images; that freed space is now where the page arrows live.
+- `.backBtn` ("← All sessions") now breaks out of `.page`'s horizontal padding via a matching negative margin, so its hover fill is one continuous full-bleed row flush with the page edges instead of a rounded box inset from them.
+- Full regression pass via Playwright against `/#/demo` (including a temporary synthetic 2-page take to exercise the new pager, reverted after verifying) — no console errors, page-lock/summary-toggle/mobile-fallback from earlier today all still intact.
+
 ## 2026-08-12 — Analysis page: sheet music no longer clipped, wider score panel
 
 Root cause of "still too small": the score image was being scaled by HEIGHT only

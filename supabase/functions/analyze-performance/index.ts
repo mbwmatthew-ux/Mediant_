@@ -1160,7 +1160,7 @@ serve(async (req: Request) => {
     const body = await req.json()
     const {
       videoPath, videoMimeType,
-      scorePath, scoreMimeType,
+      scorePath, scorePaths, scoreMimeType,
       pieceTitle, composer,
       timeSig, instrument, part, keySignature,
       startMeasure, endMeasure,
@@ -1201,6 +1201,18 @@ serve(async (req: Request) => {
       })
     }
     if (scorePath && !ownsPath(scorePath)) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403, headers: { 'Content-Type': 'application/json', ...CORS },
+      })
+    }
+    // Multiple sheet-music pages (optional). Only scorePaths[0] is actually fed to
+    // the analysis pipeline below (as `scorePath` already is) — the rest are just
+    // stored for the Analysis page to display. Still validated for ownership since
+    // they're persisted and later signed-URL'd the same way.
+    const safeScorePaths: string[] = Array.isArray(scorePaths)
+      ? scorePaths.filter((p): p is string => typeof p === 'string' && ownsPath(p))
+      : []
+    if (Array.isArray(scorePaths) && safeScorePaths.length !== scorePaths.length) {
       return new Response(JSON.stringify({ error: 'Forbidden' }), {
         status: 403, headers: { 'Content-Type': 'application/json', ...CORS },
       })
@@ -1248,6 +1260,7 @@ serve(async (req: Request) => {
         video_path:      videoPath,
         video_mime_type: videoMimeType,
         score_path:      scorePath   ?? null,
+        score_paths:     safeScorePaths.length ? safeScorePaths : null,
         note:            cleanNote,
         score:           null,
         flags:           [],

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { extractAudioFeatures, extractScoreFacts } from '../lib/analysisEvidence'
 import styles from './NewRecordingModal.module.css'
-import { playDrop, playAnalyzeStart, playAnalyzeComplete } from '../utils/sounds'
+import { playDrop, playTick, playAnalyzeStart, playAnalyzeComplete } from '../utils/sounds'
 
 const TAG_OPTIONS = ['Piece', 'Warm-up', 'Sight-read']
 
@@ -83,7 +83,7 @@ export default function NewRecordingModal({ open, onClose }) {
   // Performance: one of video OR audio required
   const [videoFile, setVideoFile] = useState(null)
   const [audioFile, setAudioFile] = useState(null)
-  const [scoreFile, setScoreFile] = useState(null)
+  const [scoreFiles, setScoreFiles] = useState([]) // multiple pages; page 0 is what the AI actually analyzes today
 
   const videoInputRef = useRef()
   const audioInputRef = useRef()
@@ -124,8 +124,13 @@ export default function NewRecordingModal({ open, onClose }) {
     if (f) { playDrop(); setAudioFile(f); setVideoFile(null) }
   }
   function pickScore(e) {
-    const f = e.target.files?.[0]
-    if (f) { playDrop(); setScoreFile(f) }
+    const files = Array.from(e.target.files ?? [])
+    if (files.length) { playDrop(); setScoreFiles(prev => [...prev, ...files]) }
+    e.target.value = '' // allow re-picking the same file(s) / adding more after removing one
+  }
+  function removeScorePage(idx) {
+    playTick()
+    setScoreFiles(prev => prev.filter((_, i) => i !== idx))
   }
 
   async function handleSubmit() {
@@ -152,17 +157,22 @@ export default function NewRecordingModal({ open, onClose }) {
         .from('recordings')
         .upload(filePath, media, { contentType: media.type || 'video/mp4', upsert: false })
 
-      // Upload sheet music (optional)
+      // Upload sheet music pages (optional, multiple allowed). Only the FIRST page
+      // (scorePath, kept singular for backward compat) is actually read by the AI
+      // today — the rest are stored and viewable on the Analysis page but not yet
+      // fed into measure detection.
       let scorePath
-      if (scoreFile) {
-        const safeSN = scoreFile.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+      const scorePaths = []
+      for (const file of scoreFiles) {
+        const safeSN = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
         const sp = `${user.id}/scores/${Date.now()}-${safeSN}`
         const { error: scoreErr } = await supabase.storage
           .from('sheet-music')
-          .upload(sp, scoreFile, { contentType: scoreFile.type || 'application/octet-stream', upsert: false })
+          .upload(sp, file, { contentType: file.type || 'application/octet-stream', upsert: false })
         if (scoreErr) throw new Error(`Sheet music upload failed: ${scoreErr.message}`)
-        scorePath = sp
+        scorePaths.push(sp)
       }
+      if (scorePaths.length) scorePath = scorePaths[0]
 
       clearInterval(progressTick)
       if (uploadError) throw new Error(`Upload failed: ${uploadError.message || 'please try a different file'}`)
@@ -195,7 +205,8 @@ export default function NewRecordingModal({ open, onClose }) {
             videoPath:     filePath,
             videoMimeType: media.type || (videoFile ? 'video/mp4' : 'audio/mpeg'),
             scorePath:     scorePath || undefined,
-            scoreMimeType: scoreFile?.type || undefined,
+            scorePaths:    scorePaths.length ? scorePaths : undefined,
+            scoreMimeType: scoreFiles[0]?.type || undefined,
             pieceTitle:    pieceName.trim() || undefined,
             timeSig:       timeSig.trim() || '4/4',
             startMeasure:  startMeasure ? parseInt(startMeasure, 10) : 1,
@@ -399,26 +410,42 @@ export default function NewRecordingModal({ open, onClose }) {
               <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={pickVideo} />
               <input ref={audioInputRef} type="file" accept="audio/*" hidden onChange={pickAudio} />
 
-              {/* Sheet music */}
+              {/* Sheet music — multiple pages allowed. Only the first page is read by
+                  the AI today; the rest are stored and viewable on the Analysis page. */}
               <div className={styles.sectionHead}>
                 <span className={styles.sectionTitle}>Sheet music</span>
                 <span className={styles.optBadge}>OPTIONAL BUT RECOMMENDED</span>
               </div>
               <UploadCard
                 wide
-                active={!!scoreFile}
+                active={scoreFiles.length > 0}
                 icon={<ScoreIcon />}
-                title={scoreFile ? scoreFile.name : 'Photo of score'}
-                hint="JPG, PNG, or PDF"
+                title={
+                  scoreFiles.length === 0 ? 'Photo of score'
+                  : scoreFiles.length === 1 ? scoreFiles[0].name
+                  : `${scoreFiles.length} pages selected`
+                }
+                hint={scoreFiles.length > 0 ? 'Click to add another page' : 'JPG, PNG, or PDF — add multiple pages'}
                 onClick={() => scoreInputRef.current?.click()}
               />
               <input
                 ref={scoreInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
+                multiple
                 hidden
                 onChange={pickScore}
               />
+              {scoreFiles.length > 1 && (
+                <div className={styles.scorePageList}>
+                  {scoreFiles.map((f, i) => (
+                    <span key={`${f.name}-${i}`} className={styles.scorePageChip}>
+                      Page {i + 1} — {f.name}
+                      <button type="button" aria-label={`Remove page ${i + 1}`} onClick={() => removeScorePage(i)}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <p className={styles.infoNote}>
                 A clear photo lets Mediant pin issues to specific measures on your score.
               </p>

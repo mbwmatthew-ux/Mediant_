@@ -391,7 +391,11 @@ const videoRef    = useRef(null)
   // declared here, effect wired up below once `take` exists — see near line 648).
   const [inSummaryView, setInSummaryView] = useState(false)
   
-  const [scoreUrl, setScoreUrl]       = useState(null)
+  // Sheet music can have multiple pages (score_paths); scoreUrl below always
+  // refers to whichever page is currently being viewed.
+  const [scoreUrls, setScoreUrls]           = useState([])
+  const [currentScorePage, setCurrentScorePage] = useState(0)
+  const scoreUrl = scoreUrls[currentScorePage] ?? null
   // The score image is scaled to fit its panel on both axes (never cropped), which
   // can letterbox it (e.g. a wide demo photo in a taller-than-wide panel). The
   // measure markers/span bars are positioned by percentage relative to the actual
@@ -474,7 +478,7 @@ const videoRef    = useRef(null)
     setTakesLoaded(false)
     supabase
       .from('takes')
-      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, measure_layout, note, duration_seconds, created_at, ai_summary')
+      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, score_paths, measure_layout, note, duration_seconds, created_at, ai_summary')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
@@ -791,20 +795,21 @@ const videoRef    = useRef(null)
 
   // Resolve signed URLs for Supabase media
   useEffect(() => {
-    setScoreUrl(null)
+    setScoreUrls([])
+    setCurrentScorePage(0)
     setVideoUrl(null)
     setScoreReady(false)
     setHighlights([])
-    
+
     if (!take) return
-    
+
     if (take._demo || String(take.id).startsWith('mock')) {
       setScoreReady(true)
       if (take.piece_title === 'Procession of the Nobles') {
-        setScoreUrl('/Clarinet.png')
+        setScoreUrls(['/Clarinet.png'])
         setVideoUrl('https://assets.mixkit.co/videos/preview/mixkit-playing-the-clarinet-close-up-41372-large.mp4')
       } else if (take.piece_title === 'Clair de lune') {
-        setScoreUrl('/scores/clair-de-lune-preview.png')
+        setScoreUrls(['/scores/clair-de-lune-preview.png'])
         setVideoUrl('https://assets.mixkit.co/videos/preview/mixkit-hands-of-a-pianist-playing-piano-34288-large.mp4')
       }
       return
@@ -813,11 +818,13 @@ const videoRef    = useRef(null)
     // Short-lived signed URLs (2h). These are regenerated every time the page
     // loads a take, so a shorter window limits how long a copied/leaked media
     // link keeps working without affecting normal viewing.
-    if (take.score_path) {
-      supabase.storage
-        .from('sheet-music')
-        .createSignedUrl(take.score_path, 7200)
-        .then(({ data }) => { if (data?.signedUrl) setScoreUrl(data.signedUrl) })
+    // score_paths (plural) holds every uploaded page; score_path (singular) is
+    // just page 0, kept for older takes recorded before multi-page upload existed.
+    const pagePaths = take.score_paths?.length ? take.score_paths : (take.score_path ? [take.score_path] : [])
+    if (pagePaths.length) {
+      Promise.all(pagePaths.map(p =>
+        supabase.storage.from('sheet-music').createSignedUrl(p, 7200).then(({ data }) => data?.signedUrl ?? null),
+      )).then(urls => setScoreUrls(urls.filter(Boolean)))
     }
 
     // Download the recording as a Blob and play from an object URL. Streaming a
@@ -1415,13 +1422,15 @@ const videoRef    = useRef(null)
     }
   }
 
-  // Sheet music/PDF fallbacks
+  // Sheet music/PDF fallbacks — based on the currently-viewed page's path
+  const currentScorePath = take?.score_paths?.[currentScorePage] ?? (currentScorePage === 0 ? take?.score_path : null)
   const isVisualScore = scoreUrl && (() => {
-    const p = (take?.score_path ?? '').toLowerCase()
+    const p = (currentScorePath ?? '').toLowerCase()
     return /\.(jpe?g|png|webp|heic|pdf)$/.test(p)
   })()
-  const isPdfScore = isVisualScore && (take?.score_path ?? '').toLowerCase().endsWith('.pdf')
+  const isPdfScore = isVisualScore && (currentScorePath ?? '').toLowerCase().endsWith('.pdf')
   const isImageScore = isVisualScore && !isPdfScore
+  const scorePageCount = Math.max(scoreUrls.length, take?.score_paths?.length ?? 0)
 
   const overallConfidence = useMemo(() => {
     if (!take) return 0;
@@ -1683,7 +1692,6 @@ const videoRef    = useRef(null)
       {/* SESSION HEADER */}
       <div className={aStyles.sessionHeader}>
         <div className={aStyles.sessionHeaderLeft}>
-          <span className={aStyles.sessionLabel}>SESSION</span>
           <h1 className={aStyles.sessionTitle}>
             {pieceComposer && pieceComposer !== 'Unknown' ? `${pieceComposer} — ` : ''}{pieceTitle || 'No session selected'}
           </h1>
@@ -1702,12 +1710,27 @@ const videoRef    = useRef(null)
 
       {/* TWO-PANEL BODY */}
       <div className={aStyles.twoPanel} style={inSummaryView ? { display: 'none' } : undefined}>
-        {/* LEFT: Annotated Score */}
-        <div className={aStyles.scorePanel}>
-          <div className={aStyles.panelHead}>
-            <span className={aStyles.panelHeadTitle}>ANNOTATED SCORE</span>
-          </div>
-          <div className={aStyles.scorePanelBody}>
+        {/* LEFT: Annotated Score — a card narrower than its grid column (so it
+            doesn't drown in white space when the image is portrait-shaped),
+            flanked by page arrows in the space that frees up. Arrows only render
+            once a take actually has more than one sheet-music page. */}
+        <div className={aStyles.scoreColumn}>
+          {scorePageCount > 1 && (
+            <button type="button" className={aStyles.scoreSideArrow}
+              disabled={currentScorePage === 0}
+              aria-label="Previous page"
+              onClick={() => { playTick(); setCurrentScorePage(p => Math.max(0, p - 1)) }}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 6 9 12 15 18" /></svg>
+            </button>
+          )}
+          <div className={aStyles.scorePanel}>
+            <div className={aStyles.panelHead}>
+              <span className={aStyles.panelHeadTitle}>ANNOTATED SCORE</span>
+              {scorePageCount > 1 && (
+                <span className={aStyles.scorePagerLabel}>Page {currentScorePage + 1} of {scorePageCount}</span>
+              )}
+            </div>
+            <div className={aStyles.scorePanelBody}>
             {scoreUrl ? (
               // display:contents so this wrapper doesn't break the height-percentage
               // chain scoreImgWrap relies on (it needs to be a direct flex item of
@@ -1839,8 +1862,10 @@ const videoRef    = useRef(null)
                       {/* Overlay layer sized/positioned to match the actual rendered image box
                           (scoreImgBox, measured via ResizeObserver above) — NOT the wrapper,
                           which can be larger than the image when it's letterboxed. Markers/
-                          spans below are positioned by percentage relative to THIS layer. */}
-                      {scoreImgBox && (
+                          spans below are positioned by percentage relative to THIS layer.
+                          Only page 0 has been read by the AI, so only page 0 gets markers —
+                          other pages are reference-only until multi-page analysis exists. */}
+                      {scoreImgBox && currentScorePage === 0 && (
                         <div style={{ position: 'absolute', left: scoreImgBox.left, top: scoreImgBox.top, width: scoreImgBox.width, height: scoreImgBox.height }}>
                           {/* Span bars for multi-measure issues, one segment per printed row crossed */}
                           {markerSpecs.filter(m => m.measureEnd > m.measureStart).map((m, mi) => {
@@ -1898,7 +1923,16 @@ const videoRef    = useRef(null)
             ) : (
               <div className={aStyles.scoreEmpty}>No sheet music uploaded for this session.</div>
             )}
+            </div>
           </div>
+          {scorePageCount > 1 && (
+            <button type="button" className={aStyles.scoreSideArrow}
+              disabled={currentScorePage >= scorePageCount - 1}
+              aria-label="Next page"
+              onClick={() => { playTick(); setCurrentScorePage(p => Math.min(scorePageCount - 1, p + 1)) }}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18" /></svg>
+            </button>
+          )}
         </div>
 
         {/* RIGHT: Detected Issues */}

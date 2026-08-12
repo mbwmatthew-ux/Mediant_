@@ -164,6 +164,20 @@
 }
 .uploadHint { font-size: 0.74rem; color: var(--text-faint); }
 
+.scorePageList { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.scorePageChip {
+  align-items: center; background: var(--surface-hover); border: 1px solid var(--border);
+  border-radius: 16px; color: var(--text-muted); display: inline-flex; font-size: 0.76rem;
+  gap: 6px; max-width: 240px; overflow: hidden; padding: 4px 6px 4px 10px; white-space: nowrap;
+}
+.scorePageChip span, .scorePageChip { text-overflow: ellipsis; }
+.scorePageChip button {
+  align-items: center; background: none; border: none; border-radius: 50%; color: var(--text-faint);
+  cursor: pointer; display: flex; flex-shrink: 0; font-size: 1rem; height: 18px; justify-content: center;
+  line-height: 1; padding: 0; width: 18px;
+}
+.scorePageChip button:hover { background: var(--surface-subtle, rgba(0,0,0,0.06)); color: var(--text); }
+
 .infoNote {
   margin-top: 10px;
   font-size: 0.8rem;

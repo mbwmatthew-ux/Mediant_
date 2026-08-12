@@ -65,3 +65,4 @@ _Ideas that are not yet approved. Do not implement these until they move to Appr
 - [ ] Email digest of weekly progress
 - [ ] Sheet music annotation layer (highlight flagged measures directly on the score image)
 - [ ] Onboarding flow for new users
+- [ ] Multi-page sheet music: AI reads/annotates every page, not just page 0. Upload + storage + Analysis-page pagination already ships (2026-08-12) — `takes.score_paths`, upload modal `multiple` file input, prev/next arrows. What's missing is the Modal worker (`read_score_notes_claude`) sending all page images to Claude in one vision call, a `page` field per measure in `measure_layout`, and `score_cache` rekeyed off the full path array instead of one path. See `Fixes/Fix — Multi-page sheet music (score_paths).md` in the Obsidian vault for the full breakdown.

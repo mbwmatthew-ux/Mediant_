@@ -44,21 +44,24 @@
 .demoBannerLink { color: var(--hero-green); font-weight: 600; margin-left: auto; text-decoration: none; }
 .demoBannerLink:hover { text-decoration: underline; }
 
-/* Back button (from sessions) */
+/* Back button (from sessions) — full-bleed row (breaks out of .page's own
+   horizontal padding via matching negative margin) so the hover fill reads as
+   one continuous row flush with the page edges, not a floating rounded box. */
 .backBtn {
   align-items: center;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--text-muted);
   cursor: pointer;
-  display: inline-flex;
+  display: flex;
+  width: auto;
   font: inherit;
   font-size: 0.83rem;
   font-weight: 600;
   gap: 6px;
-  margin-bottom: 6px;
-  padding: 6px 10px 6px 6px;
+  margin: 0 -24px 6px;
+  padding: 8px 24px;
   transition: color 130ms ease, background 130ms ease;
   flex-shrink: 0;
 }
@@ -81,10 +84,6 @@
   gap: 24px; margin-bottom: 8px; flex-shrink: 0;
 }
 .sessionHeaderLeft { flex: 1; min-width: 0; }
-.sessionLabel {
-  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em;
-  color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 2px;
-}
 .sessionTitle {
   font-size: 1.35rem; font-weight: 700; color: var(--text);
   letter-spacing: -0.025em; line-height: 1.15; margin: 0 0 2px;
@@ -158,12 +157,29 @@
    separate absolutely-positioned layer sized to the image's actual measured box
    (see scoreImgBox in Analysis.jsx), not this wrapper — required so markers stay
    correctly aligned even when the image IS letterboxed. */
+/* scoreColumn is the full grid-cell-width row; the card itself (.scorePanel) is
+   capped narrower so a portrait score doesn't drown in leftover white space —
+   that freed-up width is exactly where the page arrows live, flanking the card. */
+.scoreColumn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  height: 100%; min-width: 0;
+}
 .scorePanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
-  display: flex; flex-direction: column; min-height: 0;
+  display: flex; flex-direction: column; min-height: 0; height: 100%;
+  width: 100%; max-width: 620px;
 }
+.scoreSideArrow {
+  align-items: center; background: #fff; border: 1px solid var(--border); border-radius: 50%;
+  color: var(--text-muted); cursor: pointer; display: flex; flex-shrink: 0;
+  height: 36px; width: 36px; justify-content: center;
+  transition: background 130ms ease, color 130ms ease, opacity 130ms ease;
+}
+.scoreSideArrow:hover:not(:disabled) { background: var(--surface-hover, var(--panel-tint)); color: var(--text); }
+.scoreSideArrow:disabled { opacity: 0.35; cursor: default; }
+.scorePagerLabel { color: var(--text-muted); font-size: 0.76rem; font-weight: 500; margin-left: auto; }
 .scorePanelBody {
-  padding: 10px; flex: 1; min-height: 0;
+  padding: 8px; flex: 1; min-height: 0;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
@@ -372,7 +388,8 @@
   .page { height: auto; overflow: visible; }
   .lockedBody { flex: none; }
   .twoPanel { grid-template-columns: 1fr; height: auto; }
-  .scorePanel, .issuesPanel { position: static; }
+  .scoreColumn { height: auto; }
+  .scorePanel, .issuesPanel { position: static; height: auto; max-width: none; }
   .scorePanelBody { overflow: visible; display: block; }
   .issuesList { overflow-y: visible; }
   /* Back to a normal responsive image (scaled by width) once it's no longer
@@ -383,6 +400,7 @@
 }
 @media (max-width: 760px) {
   .page { padding: 20px 16px 48px; }
+  .backBtn { margin: 0 -16px 6px; padding: 8px 16px; }
   .sessionHeader { flex-direction: column; align-items: flex-start; gap: 14px; }
   .sessionHeaderRight { flex-wrap: wrap; }
   .sessionTitle { font-size: 1.3rem; }

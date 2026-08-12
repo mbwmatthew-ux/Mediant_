@@ -1,5 +1,32 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Header is part of the scrolling page in the summary view
+
+Replaces the mask-fade patch from earlier today. That treated the symptom (a
+hard clip line under a pinned header); the actual ask was for the header to be
+part of the page rather than something content slides beneath.
+
+Restructured so the scroll boundary moves up instead of being disguised: the
+demo banner, piece chips, and session header all moved *inside* `.lockedBody`,
+and `.lockedBody` became the flex-column scroller (`.lockedBodyScroll`,
+applied only when `inSummaryView`). Consequences:
+- **Summary view:** `.lockedBody` scrolls, so banner/chips/title/date scroll
+  away with the content — one continuous page, nothing pinned above it for
+  content to be sliced under. `.summarySection` is no longer a scroller itself
+  (`flex: none; height: auto; overflow: visible`) and the mask/`padding-top`
+  fade pair is gone entirely.
+- **Analysis view:** `.lockedBody` doesn't scroll, so everything stays exactly
+  where it was — verified the title doesn't move while the issues list scrolls,
+  and nothing overflows the box.
+- `.twoPanel` switched from `height: 100%` to `flex: 1; min-height: 0` — it's
+  now a flex child *below* the header, so it has to claim the leftover space,
+  not the parent's full height (which would have overflowed by exactly the
+  header's height).
+
+The nav arrow stays absolute against `.page` (still fixed-height, still
+`overflow: hidden`), so it doesn't scroll away with the content — verified
+on-screen at scrollTop 200.
+
 ## 2026-08-12 — Summary content no longer looks like it collides with the header
 
 Reported as "the header goes on top of the other texts". It never actually

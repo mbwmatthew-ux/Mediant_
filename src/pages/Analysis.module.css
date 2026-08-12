@@ -26,9 +26,21 @@
   position: relative;
   animation: contentFadeIn 200ms ease both;
 }
+/* Holds the session header + whichever view is active. A flex column so the
+   header takes its natural height and the view below it claims the rest. */
 .lockedBody {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Summary view only: this box becomes the scroller, so the header (its first
+   child) scrolls away with the content rather than the content sliding under a
+   pinned header. Right padding is the scrollbar gutter — without it the thumb
+   renders flush against the cards' right edge. */
+.lockedBodyScroll {
+  overflow-y: auto;
+  padding-right: 14px;
 }
 @keyframes contentFadeIn {
   from { opacity: 0; }
@@ -135,7 +147,10 @@
      height and lets its children's own overflow rules (or height:100% + centering
      on the score image) take over from there. */
   grid-template-rows: minmax(0, 1fr);
-  gap: 16px; align-items: stretch; height: 100%;
+  /* flex:1 rather than height:100% — it's now a flex child sitting below the
+     session header, so it must claim the space LEFT OVER after the header, not
+     the parent's full height (which would overflow by the header's height). */
+  gap: 16px; align-items: stretch; flex: 1; min-height: 0;
 }
 
 /* Panel shared. Each panel is a fixed-height column: its .panelHead never moves,
@@ -303,22 +318,13 @@
 .occurrenceRow .loopBtn { padding: 4px 10px; font-size: 0.72rem; flex-shrink: 0; }
 
 /* ── SUMMARY ── */
-/* Summary view fills the same locked body the two-panel analysis view does when
-   toggled in — it scrolls as a whole since there's no separate panel to pin. */
-/* Right padding here is a deliberate gutter for the scrollbar thumb — without it
-   the scrollbar renders flush against (and visually overlaps) the score/strength
-   cards' right edge instead of sitting in clear space beside them.
-   The top padding + matching mask fade are a pair, and the sizes must stay in
-   sync: scrolled content used to be guillotined mid-glyph a few px under the
-   session header, which read as the header sitting ON TOP of the text (it never
-   actually overlapped — measured a 10px gap). The mask fades content out over
-   the top 20px instead of cutting it dead. Because the first 20px is padding,
-   nothing is visibly faded at rest (scrollTop 0) — the fade only bites once
-   content scrolls up into that band, which is exactly when it's wanted. */
+/* Not a scroller itself — .lockedBodyScroll (its parent) is, so the session
+   header above it scrolls too. This just grows to its natural height and lets
+   the parent handle overflow. Replaced an earlier setup where this scrolled
+   independently beneath a pinned header, which made content look like it was
+   being cut off by (and colliding with) the header. */
 .summarySection {
-  height: 100%; overflow-y: auto; padding: 20px 14px 32px 0;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 20px);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 20px);
+  flex: none; height: auto; overflow: visible; padding: 0 0 32px;
 }
 .summaryEyebrow {
   font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em;
@@ -424,8 +430,11 @@
   .sectionNavArrow { position: fixed; top: auto; bottom: 20px; transform: none; }
   .sectionNavArrowRight { right: 16px; }
   .sectionNavArrowLeft { left: 16px; }
-  .lockedBody { flex: none; }
-  .twoPanel { grid-template-columns: 1fr; height: auto; }
+  /* The whole page scrolls at this size, so nothing nested should scroll or be
+     height-constrained — including the summary-mode scroller. */
+  .lockedBody { flex: none; display: block; }
+  .lockedBodyScroll { overflow-y: visible; padding-right: 0; }
+  .twoPanel { grid-template-columns: 1fr; height: auto; flex: none; }
   .scoreColumn { height: auto; }
   .scoreSideArrow { display: none; }
   .scorePanel, .issuesPanel { position: static; height: auto; max-width: none; }
@@ -435,11 +444,8 @@
      sharing a fixed-height row with the issues panel. */
   .scoreImgWrap { height: auto; width: 100%; display: block; }
   .scoreImg { height: auto; width: 100%; }
-  /* No scroll container here (the page scrolls as a whole), so the top fade
-     would just permanently dim the section heading — turn it off. */
   .summarySection {
-    height: auto; overflow-y: visible; border-top: 1px solid var(--border); padding: 48px 0 0;
-    -webkit-mask-image: none; mask-image: none;
+    height: auto; overflow: visible; border-top: 1px solid var(--border); padding: 48px 0 0;
   }
 }
 @media (max-width: 760px) {

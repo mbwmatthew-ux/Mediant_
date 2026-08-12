@@ -1687,6 +1687,37 @@ const videoRef    = useRef(null)
       {/* No hidden video — videoRef is wired directly to the active card's video element */}
       <input ref={fileInputRef} type="file" style={{ display: 'none' }} accept="audio/*,video/*" onChange={handleFileUpload} />
 
+      {/* Analysis <-> Summary nav arrow: right arrow while viewing the analysis,
+          left arrow while viewing the summary. Fixed to the viewport edge. The page
+          itself never scrolls, so this swaps which panel is shown instead of
+          scrolling to an anchor. */}
+      {take?.flags?.length > 0 && (
+        <button
+          type="button"
+          className={`${aStyles.sectionNavArrow} ${inSummaryView ? aStyles.sectionNavArrowLeft : aStyles.sectionNavArrowRight}`}
+          onClick={() => { playTick(); setInSummaryView(v => !v) }}
+          aria-label={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
+          title={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {inSummaryView
+              ? <polyline points="15 6 9 12 15 18" />
+              : <polyline points="9 6 15 12 9 18" />}
+          </svg>
+        </button>
+      )}
+
+      {/* LOCKED BODY: fills the remaining viewport height. Only ONE of the two
+          views below is visible at a time (toggled by the floating edge arrow).
+          The session header lives INSIDE this box on purpose: in the analysis
+          view nothing here scrolls, so it stays put; in the summary view this
+          box is the scroller, so the header scrolls away with the content
+          instead of the content sliding underneath a pinned header. */}
+      <div className={`${aStyles.lockedBody} ${inSummaryView ? aStyles.lockedBodyScroll : ''}`}>
+
+      {/* Banner + piece chips live inside the scroller too, so in the summary
+          view the entire page scrolls as one piece and nothing stays pinned for
+          content to be sliced underneath. */}
       {isDemo && (
         <div className={aStyles.demoBanner}>
           <span className={aStyles.demoPill}>Demo</span>
@@ -1710,33 +1741,11 @@ const videoRef    = useRef(null)
         </div>
       )}
 
-      {/* Analysis <-> Summary nav arrow: right arrow while viewing the analysis,
-          left arrow while viewing the summary. Fixed to the viewport edge. The page
-          itself never scrolls, so this swaps which panel is shown instead of
-          scrolling to an anchor. */}
-      {take?.flags?.length > 0 && (
-        <button
-          type="button"
-          className={`${aStyles.sectionNavArrow} ${inSummaryView ? aStyles.sectionNavArrowLeft : aStyles.sectionNavArrowRight}`}
-          onClick={() => { playTick(); setInSummaryView(v => !v) }}
-          aria-label={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
-          title={inSummaryView ? 'Back to analysis' : 'Jump to summary'}
-        >
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            {inSummaryView
-              ? <polyline points="15 6 9 12 15 18" />
-              : <polyline points="9 6 15 12 9 18" />}
-          </svg>
-        </button>
-      )}
-
       {/* SESSION HEADER — "All sessions" pinned left, title + date centered on
           the same row. The back link is absolutely positioned rather than a
           flex sibling so the title stays centered on the PAGE, not on the
           leftover space beside a variable-width button (and stays centered
-          whether or not the back link renders at all). The Analysis / Jump to
-          summary buttons that used to sit on the right are gone; the floating
-          edge arrow is now the only Analysis <-> Summary control. */}
+          whether or not the back link renders at all). */}
       <div className={aStyles.sessionHeader}>
         {searchParams.get('from') === 'sessions' && (
           <button className={aStyles.backBtn} onClick={() => nav('/sessions')}>
@@ -1751,11 +1760,6 @@ const videoRef    = useRef(null)
         </h1>
         <p className={aStyles.sessionMeta}>{takeMeta}</p>
       </div>
-
-      {/* LOCKED BODY: fills remaining viewport height. Only ONE of the two panels
-          below is visible at a time (toggled by the nav arrow / tab buttons above);
-          the page itself never scrolls — only the visible panel's own content does. */}
-      <div className={aStyles.lockedBody}>
 
       {/* TWO-PANEL BODY */}
       <div className={aStyles.twoPanel} style={inSummaryView ? { display: 'none' } : undefined}>

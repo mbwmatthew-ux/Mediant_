@@ -1,5 +1,16 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-12 — Score panel smaller + centered, issues panel wider
+
+Follow-up sizing/spacing pass on the score panel:
+- `SCORE_ZOOM` down from `1.5` to `1.3` (a little smaller, per feedback).
+- `.twoPanel` grid flipped: score column is now `minmax(360px, 460px)` (capped) instead of `1fr`, and the issues column gets `1fr` (was a fixed `340px`) — issues panel is now noticeably wider so titles truncate less.
+- Sheet music is properly centered in its card with equal space on both sides now, including when it doesn't need to scroll at all: `.scoreImgWrap` switched from `display:inline-block` to `display:block; width:fit-content; margin:0 auto`, and `.scorePanelBody` is a `flex column` with `align-items:center; justify-content:center`. (Confirmed the earlier flex-centering concern doesn't apply anymore — that bug was the debounce/resize-race fixed last time, not flex itself; re-added it for the vertical axis without reintroducing the original bug.)
+- The page-arrow slots (`.scoreSideArrow`) are now always rendered (previously conditionally, `{scorePageCount > 1 && ...}`) and just `visibility:hidden` for single-page takes, so the card's width and centering stay identical whether or not a take has multiple pages — no more layout jump when pagination does show up.
+- `scorePanelBody` padding up from `4px` to `14px` for a bit of breathing room around the image inside the card.
+
+Verified via Playwright: `.scoreImgWrap`'s rendered box sits symmetrically inside `.scorePanelBody` on both axes (confirmed CSS auto-margins DO center correctly even when the content overflows — negative auto-margins split the overflow evenly rather than clamping to 0 as I'd assumed last time), scroll-centering math still lands exactly on `(scrollWidth-clientWidth)/2`, issues panel measurably wider, no console errors, mobile fallback (<960px, arrows hidden entirely there) unaffected.
+
 ## 2026-08-12 — Sheet music now zooms in + scrolls instead of shrinking to fit
 
 Reversed the earlier "must fit without scrolling" design for the score panel specifically — user wants it bigger and legible, scrolling to see the rest. `scorePanelBody` is now the scroll viewport (`overflow: auto`, minimal 4px padding so the scrollbar sits close to the image, not out at the card's edge); the image renders at `1.5x` its "fits the panel" size (`SCORE_ZOOM` in Analysis.jsx), computed from `img.naturalWidth/Height` vs. the panel's `clientWidth/Height` and set as an explicit inline pixel `width`/`height` (not CSS `max-width`, since the zoom target is a multiple of the fit size — only JS can compute that). View starts scrolled to the middle of the zoomed score rather than the top-left corner.

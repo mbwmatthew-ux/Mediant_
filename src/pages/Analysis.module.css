@@ -121,7 +121,10 @@
 
 /* ── TWO-PANEL ── */
 .twoPanel {
-  display: grid; grid-template-columns: 1fr 340px;
+  /* Score column is capped (not 1fr) so the issues column — which used to be the
+     fixed 340px one — gets whatever's left over instead, giving issue titles
+     more room before truncating. */
+  display: grid; grid-template-columns: minmax(360px, 460px) 1fr;
   /* Without this, the implicit row auto-sizes to its tallest child's natural
      content height (the full-size score image) instead of being capped at the
      grid's own height — which is exactly how the sheet music ended up taller
@@ -149,22 +152,21 @@
 
 /* Score panel — zoomed in past "fits the panel" so the sheet music is actually
    legible (SCORE_ZOOM in Analysis.jsx), so scorePanelBody is now the scroll
-   viewport instead of a fit-and-center box. scoreImgWrap still shrink-wraps
-   tightly to the image (display:inline-block, no forced width/height) so the
-   marker/span overlay's percentage positions land correctly — that hasn't
-   changed, only how the image itself is sized. Padding is kept minimal so the
-   browser's scrollbar sits close to the image, not out at the card's edge. */
-/* scoreColumn is the full grid-cell-width row; the card itself (.scorePanel) is
-   capped narrower so a portrait score doesn't drown in leftover white space —
-   that freed-up width is exactly where the page arrows live, flanking the card. */
+   viewport instead of a fit-and-center box. Padding is kept modest so the
+   browser's scrollbar sits reasonably close to the image without the card
+   looking edge-to-edge. */
+/* scoreColumn is the grid cell; the card itself (.scorePanel) fills it, flanked
+   by page arrows whose slot is ALWAYS reserved (rendered, just visibility:hidden
+   when there's only one page) — keeps the card's width/centering constant
+   whether or not a take actually has multiple pages. */
 .scoreColumn {
-  display: flex; align-items: center; justify-content: center; gap: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
   height: 100%; min-width: 0;
 }
 .scorePanel {
   background: #fff; border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
   display: flex; flex-direction: column; min-height: 0; height: 100%;
-  width: 100%; max-width: 620px;
+  width: 100%; min-width: 0;
 }
 .scoreSideArrow {
   align-items: center; background: #fff; border: 1px solid var(--border); border-radius: 50%;
@@ -181,10 +183,17 @@
    block container keeps scrollLeft/scrollTop unambiguous, which the initial
    "start centered" scroll positioning in Analysis.jsx depends on. */
 .scorePanelBody {
-  padding: 4px; flex: 1; min-height: 0;
+  padding: 14px; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
   overflow: auto;
 }
-.scoreImgWrap { position: relative; display: inline-block; }
+/* width:fit-content (not inline-block) lets margin:auto genuinely center the
+   image when it's narrower than the panel — equal space on both sides — while
+   still behaving correctly once it's wider than the panel and needs to scroll:
+   per spec, auto margins on an overflowing block resolve to 0 (never negative),
+   so it starts flush at the true left edge either way, which is what the JS
+   scrollLeft-centering math in Analysis.jsx assumes. */
+.scoreImgWrap { position: relative; display: block; width: fit-content; margin: 0 auto; }
 .scoreImg {
   background: #fff; border-radius: 8px; box-shadow: var(--shadow-sm);
   display: block;
@@ -390,6 +399,7 @@
   .lockedBody { flex: none; }
   .twoPanel { grid-template-columns: 1fr; height: auto; }
   .scoreColumn { height: auto; }
+  .scoreSideArrow { display: none; }
   .scorePanel, .issuesPanel { position: static; height: auto; max-width: none; }
   .scorePanelBody { overflow: visible; display: block; }
   .issuesList { overflow-y: visible; }

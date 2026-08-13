@@ -39,21 +39,36 @@
    window's right edge rather than tucked against the cards — a scroller nested
    inside .page would put its thumb at .page's padded, centered inner edge. */
 .lockedBodyScroll {
-  overflow-y: visible;
+  overflow-y: auto;
 }
-/* Summary view: drop the fixed-height/no-scroll lock so the page grows to its
-   content and AppShell's `.main` (full width, from the sidebar to the window
-   edge) does the scrolling — that's what puts the scrollbar on the window edge.
-   min-height keeps short summaries from collapsing above the fold. */
+/* Summary view: .page goes full-bleed (no max-width, no side padding) so that
+   .lockedBodyScroll — the scroller — spans the whole main column and its
+   scrollbar lands on the window's right edge instead of tucked against the
+   cards. The gutters and content cap move onto the scroller and its children
+   instead, so the content still lines up exactly with the analysis view.
+   .page deliberately KEEPS its fixed height / overflow:hidden here: that's what
+   lets the nav arrow stay `position: absolute` against it. Using `position:
+   fixed` instead put the arrow at 16px from the *viewport* edge — i.e. directly
+   underneath AppShell's 72px sidebar, which covered it entirely. (Invisible on
+   /#/demo, which renders outside AppShell and has no sidebar.) */
 .pageSummary {
-  height: auto;
-  min-height: calc(100vh - 56px);
-  overflow: visible;
+  max-width: none;
+  padding-left: 0;
+  padding-right: 0;
 }
-/* .page is no longer a fixed-height box here, so an absolutely-positioned arrow
-   would scroll off with the content — pin it to the viewport instead. */
-.pageSummary .sectionNavArrow {
-  position: fixed;
+/* Padding on the scroll container, not the page: the scrollbar sits outside it,
+   on the border-box edge, so the gutter doesn't push the scrollbar inward. */
+.pageSummary .lockedBodyScroll {
+  padding-left: 80px;
+  padding-right: 80px;
+}
+/* 1280px = the analysis view's content width (1440 max-width - 2x80 padding),
+   so both views line up despite .page being full-bleed only in this one. */
+.pageSummary .lockedBodyScroll > * {
+  width: 100%;
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
 }
 @keyframes contentFadeIn {
   from { opacity: 0; }
@@ -442,11 +457,17 @@
      Analysis <-> Summary control (the header buttons were removed). */
   .sectionNavArrow { position: fixed; top: auto; bottom: 20px; transform: none; }
   .sectionNavArrowRight { right: 16px; }
-  .sectionNavArrowLeft { left: 16px; }
+  /* 72px clears AppShell's sidebar, which is still on screen down to 760px —
+     a plain 16px would tuck the arrow underneath it (the sidebar is z-index
+     200 and would swallow the clicks). Reset to 16px below 760px, where the
+     sidebar is replaced by the bottom nav. */
+  .sectionNavArrowLeft { left: 88px; }
   /* The whole page scrolls at this size, so nothing nested should scroll or be
-     height-constrained — including the summary-mode scroller. */
+     height-constrained — including the summary-mode scroller (which needs the
+     compound selector to out-specify .pageSummary .lockedBodyScroll above). */
   .lockedBody { flex: none; display: block; }
-  .lockedBodyScroll { overflow-y: visible; padding-right: 0; }
+  .lockedBodyScroll,
+  .pageSummary .lockedBodyScroll { overflow-y: visible; padding-left: 0; padding-right: 0; }
   .twoPanel { grid-template-columns: 1fr; height: auto; flex: none; }
   .scoreColumn { height: auto; }
   .scoreSideArrow { display: none; }
@@ -463,6 +484,9 @@
 }
 @media (max-width: 760px) {
   .page { padding: 20px 16px 48px; }
+  /* Sidebar is hidden at this size (replaced by the bottom nav), so the arrow
+     can sit at the true left edge again. */
+  .sectionNavArrowLeft { left: 16px; }
   /* Not enough width to sit beside a centered title without colliding with it
      once the title wraps — drop the back link back into normal flow above it.
      display:flex + width:fit-content keeps it left-aligned (text-align:center

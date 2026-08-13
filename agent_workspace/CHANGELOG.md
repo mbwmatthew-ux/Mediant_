@@ -1,5 +1,39 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-13 — Fix: summary nav arrow was hidden behind the sidebar
+
+The previous change made the summary-view nav arrow `position: fixed` so it
+wouldn't scroll away. But `fixed` resolves against the **viewport**, so
+`left: 16px` put it at 16px from the window edge — directly underneath
+AppShell's 72px sidebar (`z-index: 200`), which covered it completely. The
+arrow simply vanished on the summary view.
+
+Reworked so the arrow never needs `position: fixed` on desktop:
+- `.pageSummary` no longer unlocks `.page`'s height. `.page` stays fixed-height
+  with `overflow: hidden`, so the arrow stays `position: absolute` against it —
+  and because `.page` starts *after* the sidebar, `left: 16px` is measured from
+  the main column, safely clear of it.
+- Instead, `.pageSummary` makes `.page` full-bleed (`max-width: none`, no side
+  padding) so `.lockedBodyScroll` spans the whole main column and its scrollbar
+  still lands on the window's right edge. The gutters moved onto the scroller
+  (`padding: 0 80px` — padding sits *inside* the scrollbar, so it doesn't push
+  it inward) and the 1280px content cap onto its children, which reproduces the
+  analysis view's content box exactly. Measured: identical 176px gutters either
+  side, matching the analysis view.
+- The ≤960px FAB still uses `position: fixed`, and had the same defect between
+  761–960px where the sidebar is still on screen — `.sectionNavArrowLeft` is
+  now `left: 88px` there, reset to `16px` below 760px where the sidebar is
+  replaced by the bottom nav.
+
+**Testing note worth remembering:** `/#/demo` renders *outside* AppShell, so it
+has no sidebar and no `.pageIn` — it cannot catch this class of bug, and it
+reported everything green while the real page was broken. Verified this time by
+temporarily adding a throwaway route that mounts `<AppShell>` around the demo
+Analysis (auth bypassed), checking `elementFromPoint` hit-testing at the arrow's
+centre, then removing the route. Note such a route also triggers the "what
+instrument do you play?" onboarding modal (`z-index: 1000`), which blocks clicks
+and must be dismissed in the test — that overlay is a bypass artifact, not a bug.
+
 ## 2026-08-12 — Summary scrollbar moved to the window edge (+ a latent position:fixed bug)
 
 The summary's scrollbar was hugging the cards because the scroller was

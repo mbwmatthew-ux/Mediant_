@@ -16,10 +16,14 @@
    equal on both sides and .page is centered, the gap from the sidebar to the
    left panel always matches the gap from the right panel to the window edge. */
 .page {
+  /* AppShell's sticky top bar height. Declared as a variable because the nav
+     arrow also needs it (to centre itself against the whole viewport rather
+     than just this box) — keep it here so the two can't drift apart. */
+  --topbar-h: 56px;
   max-width: 1440px;
   margin: 0 auto;
   padding: 12px 80px 10px;
-  height: calc(100vh - 56px);
+  height: calc(100vh - var(--topbar-h));
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -150,7 +154,13 @@
 .sectionNavArrow {
   align-items: center; background: var(--accent); border: none; border-radius: 50%;
   box-shadow: var(--shadow-lg); color: #fff; cursor: pointer; display: flex;
-  height: 48px; width: 48px; justify-content: center; position: absolute; top: 50%;
+  height: 48px; width: 48px; justify-content: center; position: absolute;
+  /* Centred against the FULL viewport, not this box. .page starts below the
+     sticky top bar, so a plain top:50% would sit half the bar's height too low
+     (28px). Subtracting the bar height puts the arrow's centre on 50vh exactly.
+     It stays `absolute` rather than `fixed` on purpose — `fixed` measures from
+     the window edge, which tucks the left-hand arrow under AppShell's sidebar. */
+  top: calc(50vh - var(--topbar-h));
   transform: translateY(-50%); transition: background 140ms ease, opacity 140ms ease;
   z-index: 50;
 }

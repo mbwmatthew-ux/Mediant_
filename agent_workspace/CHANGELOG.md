@@ -1,5 +1,26 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-13 — Nav arrow centred against the whole viewport
+
+The arrow is positioned against `.page`, which starts *below* AppShell's 56px
+sticky top bar — so `top: 50%` centred it within that box, leaving it 28px
+(half the bar) below the true middle of the window. Changed to
+`top: calc(50vh - var(--topbar-h))`, which puts its centre on 50vh exactly.
+
+Introduced `--topbar-h: 56px` on `.page` and switched its own
+`height: calc(100vh - 56px)` to use it, so the arrow's offset and the page
+height can't drift apart if the bar height ever changes.
+
+Kept `position: absolute` rather than switching to `fixed` (which would centre
+trivially) — `fixed` measures from the window edge and tucks the left-hand
+arrow under the sidebar, the bug fixed in the previous entry.
+
+Verified inside a real AppShell at three viewport heights (720/900/1100): the
+arrow's centre matches the viewport centre exactly (delta 0 in all six
+analysis + summary cases), stays clickable, and stays clear of the sidebar.
+The ≤960px bottom-corner FAB is unchanged — a centred floating button would
+cover content on a phone.
+
 ## 2026-08-13 — Fix: summary nav arrow was hidden behind the sidebar
 
 The previous change made the summary-view nav arrow `position: fixed` so it

@@ -758,6 +758,52 @@ def midi_from_name(pitch_name: str) -> int | None:
     return (octave_str + 1) * 12 + base + acc
 
 
+def flatten_score_notes(score: dict) -> list[dict]:
+    """
+    Flatten a score into the ordered list of pitched notes DTW aligns against.
+
+    This is the single source of truth for that ordering: dtw_align_to_score
+    emits a `score_idx` into this list, and analyze_timing_vs_score reads the
+    expected beat/duration back out of it. If the two ever built the list
+    differently, every timing residual would be silently attributed to the wrong
+    note — hence one shared function rather than two parallel loops.
+
+    Notes without a parseable pitch are skipped (same rule DTW always used).
+    Rests are already absent: parse_musicxml drops them deliberately.
+
+    Returns: [{"midi", "measure", "beat", "dur_beats", "pitch"}]
+      beat       — 1-based position within its measure, in the time signature's
+                   beat unit (music21's `el.beat`).
+      dur_beats  — quarterLength from music21. Equal to the beat unit only in
+                   simple metres; treated as approximate for duration checks.
+    """
+    out: list[dict] = []
+    for m in score.get("measures", []):
+        for note in m.get("notes", []):
+            pitch = note.get("pitch")
+            if not pitch:
+                continue
+            midi = midi_from_name(pitch)
+            if midi is None:
+                continue
+            try:
+                beat = float(note.get("beat") or 1.0)
+            except (TypeError, ValueError):
+                beat = 1.0
+            try:
+                dur = float(note.get("duration_beats") or 0.0)
+            except (TypeError, ValueError):
+                dur = 0.0
+            out.append({
+                "midi":      midi,
+                "measure":   m["number"],
+                "beat":      beat,
+                "dur_beats": dur,
+                "pitch":     pitch,
+            })
+    return out
+
+
 def dtw_align_to_score(
     events: list[dict],
     score: dict,
@@ -792,15 +838,10 @@ def dtw_align_to_score(
     if not measures or not events:
         return events
 
-    # Build flattened score sequence: (midi_pitch, measure_number)
-    score_seq: list[tuple[int, int]] = []
-    for m in measures:
-        for note in m.get("notes", []):
-            pitch = note.get("pitch")
-            if pitch:
-                midi = midi_from_name(pitch)
-                if midi is not None:
-                    score_seq.append((midi, m["number"]))
+    # Flattened score sequence. Shared with the timing analysis so the score_idx
+    # emitted below indexes the exact same list there — see flatten_score_notes.
+    score_notes = flatten_score_notes(score)
+    score_seq: list[tuple[int, int]] = [(sn["midi"], sn["measure"]) for sn in score_notes]
 
     if len(score_seq) < 4:
         # Return [] (not `events`) so the caller can tell DTW declined and explicitly
@@ -868,18 +909,319 @@ def dtw_align_to_score(
                 j -= 1
     path_audio_to_score[0] = j
 
-    # Map each audio event to a measure number via the score alignment
+    # Map each audio event to a measure number via the score alignment.
+    # score_idx is kept too: it indexes flatten_score_notes(score), which carries
+    # each note's expected beat position and duration. That's what makes objective
+    # timing analysis possible (analyze_timing_vs_score) — previously the matched
+    # score note was resolved and then thrown away, keeping only its measure.
     result = []
     for idx, ev in enumerate(events):
         score_idx   = path_audio_to_score[idx]
         measure_num = score_seq[score_idx][1]
-        result.append({**ev, "measure": measure_num})
+        result.append({**ev, "measure": measure_num, "score_idx": score_idx})
 
     # Sanity check: count how many distinct measures were assigned
     measures_hit = len({ev["measure"] for ev in result})
     total_score_measures = len(measures)
     print(f"[dtw_align] {n} audio events → {measures_hit}/{total_score_measures} score measures covered")
     return result
+
+
+# ── Objective timing analysis ──────────────────────────────────────────────
+
+# Thresholds. Deliberately conservative: a false "you rushed" is worse than a
+# missed one, and these are the first objective timing numbers the product has
+# emitted, so they should be revisited once real analyses accumulate.
+_TIMING_MIN_NOTES        = 8     # below this a tempo fit isn't trustworthy
+_TIMING_MIN_SPB          = 0.12  # sanity band for seconds-per-beat (=500 BPM)
+_TIMING_MAX_SPB          = 3.0   # (=20 BPM)
+_TIMING_PLACEMENT_MS     = 110.0 # |median residual| in a measure to flag placement
+_TIMING_DRIFT_PCT        = 7.0   # local-vs-global tempo delta to call rush/drag
+_TIMING_DRIFT_MIN_NOTES  = 3     # notes needed in a measure for a local tempo fit
+_TIMING_DUR_SHORT        = 0.60  # actual/expected duration ratio → clipped
+_TIMING_DUR_LONG         = 1.65  # → held too long
+_TIMING_DUR_MIN_MS       = 140.0 # ignore duration errors smaller than this
+
+
+def _robust_linear_fit(xs: list[float], ys: list[float]) -> tuple[float, float, list[float]] | None:
+    """
+    Least-squares fit y = intercept + slope*x, refit twice after trimming outliers
+    beyond 2.5x the median absolute residual.
+
+    Plain least squares is badly skewed by a couple of gross outliers — one long
+    hesitation would tilt the whole tempo estimate and smear error across every
+    other note. Trimming keeps the fit on the notes that were actually in tempo.
+
+    Returns (intercept, slope, residuals_for_all_inputs) or None if degenerate.
+    """
+    if len(xs) < 3:
+        return None
+    idx = list(range(len(xs)))
+    intercept = slope = 0.0
+    for _ in range(3):
+        n = len(idx)
+        if n < 3:
+            return None
+        mx = sum(xs[i] for i in idx) / n
+        my = sum(ys[i] for i in idx) / n
+        sxx = sum((xs[i] - mx) ** 2 for i in idx)
+        if sxx <= 1e-9:
+            return None
+        sxy = sum((xs[i] - mx) * (ys[i] - my) for i in idx)
+        slope = sxy / sxx
+        intercept = my - slope * mx
+        resid_all = [ys[i] - (intercept + slope * xs[i]) for i in range(len(xs))]
+        cur = sorted(abs(resid_all[i]) for i in idx)
+        mad = cur[len(cur) // 2]
+        if mad <= 1e-6:
+            break
+        keep = [i for i in idx if abs(resid_all[i]) <= 2.5 * mad]
+        if len(keep) < 3 or len(keep) == len(idx):
+            idx = keep if len(keep) >= 3 else idx
+            break
+        idx = keep
+    residuals = [ys[i] - (intercept + slope * xs[i]) for i in range(len(xs))]
+    return intercept, slope, residuals
+
+
+def analyze_timing_vs_score(
+    aligned: list[dict],
+    score: dict,
+    beats_per_measure: int,
+) -> dict:
+    """
+    Derive objective timing feedback by diffing performed onsets against the
+    score's expected beat positions, using the DTW note correspondence.
+
+    This is the "write down what was played and compare it to the sheet music"
+    idea, minus the unreliable step: we never transcribe to notation. DTW already
+    tells us which score note each performed note is, and MusicXML already gives
+    exact beat positions — so the comparison is an alignment problem (solved)
+    rather than a transcription problem (not reliably solved).
+
+    Three independent findings, all with real numbers so they need no external
+    corroboration to be stated as fact:
+      placement — a measure sitting consistently early/late against the tempo
+      drift     — a stretch played faster/slower than the piece's own tempo
+      duration  — a note held much longer/shorter than written
+
+    Requires score_idx on the aligned events, i.e. score-DTW alignment. Returns
+    {"ok": False, "reason": ...} when the input can't support a trustworthy fit;
+    the caller should then emit nothing rather than guess.
+    """
+    score_notes = flatten_score_notes(score)
+    if not score_notes:
+        return {"ok": False, "reason": "no score notes"}
+
+    bpm_measure = max(1, int(beats_per_measure or 4))
+
+    # Absolute beat position of each score note across the whole piece. Measures
+    # are numbered from the score itself, so index them by order of appearance
+    # rather than by number (numbers can start anywhere / skip).
+    measure_order: dict[int, int] = {}
+    for sn in score_notes:
+        if sn["measure"] not in measure_order:
+            measure_order[sn["measure"]] = len(measure_order)
+    for sn in score_notes:
+        sn["abs_beat"] = measure_order[sn["measure"]] * bpm_measure + (sn["beat"] - 1.0)
+
+    # One onset per score note: the earliest event DTW mapped to it. DTW is
+    # many-to-one (a sustained note yields several CREPE events), and only the
+    # first marks the attack.
+    onset_by_idx: dict[int, dict] = {}
+    for ev in aligned:
+        si = ev.get("score_idx")
+        t  = ev.get("time_sec")
+        if si is None or t is None:
+            continue
+        if not (0 <= si < len(score_notes)):
+            continue
+        if ev.get("confidence", 100) < 25:
+            continue
+        cur = onset_by_idx.get(si)
+        if cur is None or t < cur["time_sec"]:
+            onset_by_idx[si] = ev
+
+    if len(onset_by_idx) < _TIMING_MIN_NOTES:
+        return {"ok": False, "reason": f"only {len(onset_by_idx)} matched onsets"}
+
+    pairs = sorted(
+        ((score_notes[si]["abs_beat"], ev["time_sec"], si) for si, ev in onset_by_idx.items()),
+        key=lambda p: p[0],
+    )
+    xs = [p[0] for p in pairs]
+    ys = [p[1] for p in pairs]
+
+    fit = _robust_linear_fit(xs, ys)
+    if fit is None:
+        return {"ok": False, "reason": "degenerate tempo fit"}
+    intercept, spb, residuals = fit
+    if not (_TIMING_MIN_SPB <= spb <= _TIMING_MAX_SPB):
+        return {"ok": False, "reason": f"implausible tempo ({spb:.3f} s/beat)"}
+
+    # Per-measure local tempo, used by both findings below.
+    per_measure_pairs: dict[int, list[tuple[float, float]]] = {}
+    for (abs_beat, t_actual, si) in pairs:
+        per_measure_pairs.setdefault(score_notes[si]["measure"], []).append((abs_beat, t_actual))
+    local_spb_by_measure: dict[int, float] = {}
+    for m, pts in per_measure_pairs.items():
+        if len(pts) < _TIMING_DRIFT_MIN_NOTES:
+            continue
+        lf = _robust_linear_fit([p[0] for p in pts], [p[1] for p in pts])
+        if lf is None:
+            continue
+        if _TIMING_MIN_SPB <= lf[1] <= _TIMING_MAX_SPB:
+            local_spb_by_measure[m] = lf[1]
+
+    # ── Drift: local tempo vs the tempo the player ESTABLISHED at the start ──
+    # Not vs the global average: if someone plays half the piece steady and then
+    # rushes, the global fit lands between the two, and the steady half gets
+    # reported as "dragging" — telling a student they slowed down where they in
+    # fact played it correctly. Rushing/dragging musically means departing from
+    # the tempo you set, so the opening is the honest reference.
+    ordered_measures = sorted(per_measure_pairs.keys())
+    ref_pts: list[tuple[float, float]] = []
+    for m in ordered_measures:
+        ref_pts.extend(per_measure_pairs[m])
+        if len(ref_pts) >= max(2 * _TIMING_DRIFT_MIN_NOTES, bpm_measure * 2):
+            break
+    ref_spb = spb
+    ref_fit = _robust_linear_fit([p[0] for p in ref_pts], [p[1] for p in ref_pts]) if len(ref_pts) >= 3 else None
+    if ref_fit and _TIMING_MIN_SPB <= ref_fit[1] <= _TIMING_MAX_SPB:
+        ref_spb = ref_fit[1]
+
+    drift: dict[int, dict] = {}
+    for m, local_spb in local_spb_by_measure.items():
+        # Positive pct = local seconds-per-beat smaller = playing faster = rushing.
+        pct = (ref_spb - local_spb) / ref_spb * 100.0
+        if abs(pct) >= _TIMING_DRIFT_PCT:
+            drift[m] = {
+                "pct":       round(abs(pct), 1),
+                "direction": "rushing" if pct > 0 else "dragging",
+                "local_bpm": round(60.0 / local_spb, 1),
+                "piece_bpm": round(60.0 / ref_spb, 1),
+            }
+
+    # ── Placement: per-measure median residual against the global fit ──
+    # Only meaningful where the measure is IN the piece's tempo: if the measure
+    # is itself a tempo change, its notes are "late" because the passage moved,
+    # which the drift finding already says better. Reporting both would blame a
+    # tempo change on note placement.
+    by_measure: dict[int, list[float]] = {}
+    note_rows: list[dict] = []
+    for (abs_beat, t_actual, si), resid in zip(pairs, residuals):
+        sn = score_notes[si]
+        ms = resid * 1000.0
+        by_measure.setdefault(sn["measure"], []).append(ms)
+        note_rows.append({
+            "measure": sn["measure"], "beat": sn["beat"], "pitch": sn["pitch"],
+            "time_sec": t_actual, "residual_ms": ms,
+        })
+
+    placement: dict[int, dict] = {}
+    for m, vals in by_measure.items():
+        if m in drift:
+            continue
+        local_spb = local_spb_by_measure.get(m)
+        if local_spb is not None and abs(local_spb - spb) / spb >= 0.05:
+            continue  # measure runs at its own tempo — not a placement error
+        sv = sorted(vals)
+        med = sv[len(sv) // 2]
+        if abs(med) >= _TIMING_PLACEMENT_MS:
+            worst = max(vals, key=abs)
+            placement[m] = {
+                "median_ms": round(med, 1),
+                "worst_ms":  round(worst, 1),
+                "direction": "late" if med > 0 else "early",
+                "n":         len(vals),
+            }
+
+    # ── Duration: written length vs how long the note actually got ──
+    # Only compare consecutive score notes, so the gap really is this note's
+    # sounding length and not a jump across something DTW skipped.
+    durations: dict[int, dict] = {}
+    have = sorted(onset_by_idx.keys())
+    pos_of = {si: k for k, si in enumerate(have)}
+    for si in have:
+        nxt = si + 1
+        if nxt not in onset_by_idx:
+            continue
+        sn = score_notes[si]
+        exp_beats = sn.get("dur_beats") or 0.0
+        if exp_beats <= 0:
+            continue
+        expected = exp_beats * spb
+        actual   = onset_by_idx[nxt]["time_sec"] - onset_by_idx[si]["time_sec"]
+        if expected <= 0 or actual <= 0:
+            continue
+        ratio = actual / expected
+        delta_ms = (actual - expected) * 1000.0
+        if abs(delta_ms) < _TIMING_DUR_MIN_MS:
+            continue
+        if ratio <= _TIMING_DUR_SHORT or ratio >= _TIMING_DUR_LONG:
+            m = sn["measure"]
+            prev = durations.get(m)
+            if prev is None or abs(delta_ms) > abs(prev["delta_ms"]):
+                durations[m] = {
+                    "beat":      sn["beat"],
+                    "pitch":     sn["pitch"],
+                    "ratio":     round(ratio, 2),
+                    "delta_ms":  round(delta_ms, 1),
+                    "direction": "short" if ratio <= _TIMING_DUR_SHORT else "long",
+                    "time_sec":  onset_by_idx[si]["time_sec"],
+                }
+
+    # One explanation per measure, most-fundamental first. These findings are not
+    # independent: a measure entered late also compresses the note before the next
+    # on-time entry (a spurious "too short"), and a note held past its length skews
+    # that measure's local tempo fit (a spurious "rushing"). Reporting the
+    # side-effect instead of the cause would send the student after the wrong fix.
+    #   placement (entered early/late)  >  duration (note length)  >  drift (tempo)
+    for m in placement:
+        durations.pop(m, None)
+        drift.pop(m, None)
+    for m in durations:
+        drift.pop(m, None)
+
+    # Piece-level tempo trend. A gradual accelerando never trips the per-measure
+    # threshold (each measure is only ~1% off its neighbour) but still adds up to
+    # a large change end-to-end, so compare the opening window with the closing one.
+    overall = None
+    if len(ordered_measures) >= 4:
+        tail_pts: list[tuple[float, float]] = []
+        for m in reversed(ordered_measures):
+            tail_pts[:0] = per_measure_pairs[m]
+            if len(tail_pts) >= max(2 * _TIMING_DRIFT_MIN_NOTES, bpm_measure * 2):
+                break
+        tail_fit = _robust_linear_fit([p[0] for p in tail_pts], [p[1] for p in tail_pts]) if len(tail_pts) >= 3 else None
+        if tail_fit and _TIMING_MIN_SPB <= tail_fit[1] <= _TIMING_MAX_SPB:
+            end_spb = tail_fit[1]
+            pct = (ref_spb - end_spb) / ref_spb * 100.0
+            if abs(pct) >= _TIMING_DRIFT_PCT:
+                overall = {
+                    "pct":        round(abs(pct), 1),
+                    "direction":  "accelerating" if pct > 0 else "slowing",
+                    "start_bpm":  round(60.0 / ref_spb, 1),
+                    "end_bpm":    round(60.0 / end_spb, 1),
+                    "measure_lo": ordered_measures[0],
+                    "measure_hi": ordered_measures[-1],
+                }
+
+    print(f"[timing] fit {60.0 / spb:.1f} BPM from {len(pairs)} notes | "
+          f"placement={len(placement)} drift={len(drift)} duration={len(durations)} "
+          f"overall={(overall or {}).get('direction')}")
+
+    return {
+        "ok": True,
+        "spb": spb,
+        "bpm": 60.0 / spb,
+        "n_notes": len(pairs),
+        "placement": placement,
+        "drift": drift,
+        "durations": durations,
+        "overall": overall,
+        "notes": note_rows,
+    }
 
 
 # ── Reference MIDI alignment ───────────────────────────────────────────────
@@ -2547,12 +2889,44 @@ def compare_and_coach_claude(
                     evidence_candidates.append(
                         f"timing | measure {m['number']} near beat {beat} | {gap:.2f}s gap after {'/'.join(events[i]['pitches'])} at {events[i]['time_sec']:.2f}s"
                     )
-    strongest = evidence_candidates[:8]
+    # Candidates are appended in measure order, and within a measure intonation is
+    # appended before timing — so a flat [:8] truncation quietly meant "the first
+    # couple of measures only, intonation first". Take the strongest by magnitude
+    # instead, and keep more of them, so late-measure and timing evidence can
+    # actually reach the model.
+    def _evidence_magnitude(cand: str) -> float:
+        m = re.search(r'([+-]?\d+(?:\.\d+)?)¢', cand)
+        if m:
+            return abs(float(m.group(1)))
+        m = re.search(r'(\d+(?:\.\d+)?)s gap', cand)
+        if m:
+            return float(m.group(1)) * 100.0   # 1s gap ranks like 100¢
+        return 0.0
+    strongest = sorted(evidence_candidates, key=_evidence_magnitude, reverse=True)[:16]
 
     # Add direct CREPE-vs-score wrong note candidates
     wrong_note_candidates = find_wrong_note_candidates(aligned, score)
 
-    crepe_has_data = bool(strongest or wrong_note_candidates)
+    # Objective timing must be computed BEFORE the no-evidence guard below and
+    # counted as evidence in its own right. A performance that is in tune, on the
+    # right notes, and that Gemini had no comment on can still be rhythmically
+    # wrong — that used to return zero flags here, which is exactly the "nothing
+    # on timing" gap this analysis exists to close.
+    timing_report = None
+    if score.get("measures") and any(ev.get("score_idx") is not None for ev in aligned):
+        try:
+            timing_report = analyze_timing_vs_score(aligned, score, bpm)
+        except Exception as e:                      # never fail the whole analysis
+            print(f"[compare_and_coach_claude] timing analysis error: {e}")
+            timing_report = None
+    has_timing_data = bool(
+        timing_report and timing_report.get("ok") and (
+            timing_report["placement"] or timing_report["drift"]
+            or timing_report["durations"] or timing_report.get("overall")
+        )
+    )
+
+    crepe_has_data = bool(strongest or wrong_note_candidates or has_timing_data)
     # Gemini is always present — check if it found anything across all categories
     has_gemini_data = bool(any(
         gemini_assessment.get(k) for k in (
@@ -2560,7 +2934,7 @@ def compare_and_coach_claude(
             "dynamics_issues", "tone_issues", "posture_issues", "technique_issues",
         )
     ))
-    if not strongest and not wrong_note_candidates and not has_gemini_data:
+    if not strongest and not wrong_note_candidates and not has_gemini_data and not has_timing_data:
         print("[compare_and_coach_claude] no evidence from CREPE or Gemini; returning no flags")
         return []
 
@@ -2652,7 +3026,7 @@ def compare_and_coach_claude(
 
     def _add(measure, ftype, observed, time_sec, confirmed,
              cents=None, timing=None, is_global=False,
-             measure_end=None, time_end_sec=None, direction=None):
+             measure_end=None, time_end_sec=None, direction=None, priority=0):
         observed = str(observed or "").strip()
         if not observed or "not visible" in observed.lower():
             return
@@ -2671,6 +3045,8 @@ def compare_and_coach_claude(
             "timing":       timing,
             "global":       is_global,
             "direction":    direction,   # "sharp"/"flat" for intonation; else None
+            # Dedup tie-break only (see the sort below); not part of the output.
+            "_priority":    priority,
         })
 
     # 1. Gemini-authored issues (note errors, timing, dynamics, tone) — one flag each.
@@ -2911,6 +3287,50 @@ def compare_and_coach_claude(
              f"pitch runs {round(d['cents'])}¢ {direction} in this measure — {fix_hint}",
              d["time"], confirmed=True, cents=round(d["cents"], 1), direction=direction)
 
+    # 2b. Timing — CREPE+DTW owns it, exactly as CREPE owns intonation above.
+    # Previously timing had NO objective author: flags came only from Gemini's
+    # subjective rhythm_issues, and survived only if a crude heuristic (a >0.8 s
+    # gap) happened to corroborate them, so anything short of a long hesitation
+    # was detected by nobody and then culled as unconfirmed. These carry measured
+    # millisecond/percentage numbers, so they are confirmed=True by construction.
+    if timing_report and timing_report.get("ok"):
+        def _t_of(measure):
+            r = range_map.get(measure)
+            return r["start"] if r else None
+
+        for m, p in timing_report["placement"].items():
+            ms = abs(p["median_ms"])
+            _add(m, "timing",
+                 f"notes land about {int(round(ms))} ms {p['direction']} against the beat here — "
+                 f"count the pulse aloud and place the downbeat exactly with it",
+                 _t_of(m), confirmed=True, timing=round(ms, 1), priority=2)
+
+        for m, d in timing_report["drift"].items():
+            _add(m, "timing",
+                 f"this measure runs at about {d['local_bpm']:.0f} BPM against your "
+                 f"{d['piece_bpm']:.0f} BPM — {d['pct']}% {d['direction']}; "
+                 f"practise it with a metronome at {d['piece_bpm']:.0f}",
+                 _t_of(m), confirmed=True, priority=2)
+
+        for m, du in timing_report["durations"].items():
+            held = du["direction"] == "long"
+            _add(m, "timing",
+                 f"the {du['pitch']} on beat {du['beat']:g} is held "
+                 f"{'about ' + str(round(du['ratio'], 1)) + 'x its written length' if held else 'only ' + str(int(round(du['ratio'] * 100))) + '% of its written length'} "
+                 f"({abs(int(round(du['delta_ms'])))} ms {'too long' if held else 'too short'}) — "
+                 f"{'release it on the following beat' if held else 'sustain it to its full value'}",
+                 du.get("time_sec") or _t_of(m), confirmed=True,
+                 timing=round(abs(du["delta_ms"]), 1), priority=2)
+
+        ov = timing_report.get("overall")
+        if ov:
+            _add(ov["measure_lo"], "timing",
+                 f"tempo {ov['direction']} across the passage — you start around "
+                 f"{ov['start_bpm']:.0f} BPM and finish around {ov['end_bpm']:.0f} BPM "
+                 f"({ov['pct']}%); play it through with a metronome to hold one tempo",
+                 _t_of(ov["measure_lo"]), confirmed=True, is_global=True, priority=2,
+                 measure_end=ov["measure_hi"] if ov["measure_hi"] > ov["measure_lo"] else None)
+
     # 3. CREPE-detected wrong notes not already flagged by Gemini.
     for cand in wrong_note_candidates:
         mm = re.search(r'measure (\d+)', cand)
@@ -2939,7 +3359,10 @@ def compare_and_coach_claude(
     seen_keys: set = set()
     deduped_issues: list[dict] = []
     # Prefer confirmed, then larger deviation, so the strongest survives a dedup.
-    for iss in sorted(canonical, key=lambda x: (not x["confirmed"], -(x["cents"] or 0))):
+    # _priority breaks ties within a (measure, type): a measured timing finding
+    # must beat Gemini's unquantified one for the same measure, which would
+    # otherwise win purely by being appended first.
+    for iss in sorted(canonical, key=lambda x: (not x["confirmed"], -x.get("_priority", 0), -(x["cents"] or 0))):
         if iss["type"] in ("posture", "technique"):
             key = iss["type"]
         else:

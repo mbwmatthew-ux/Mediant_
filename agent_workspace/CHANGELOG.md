@@ -1,5 +1,51 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-13 — Objective timing analysis: CREPE+DTW now owns timing
+
+Reported as "almost nothing on timing". It wasn't under-tuned — timing was
+structurally unable to fire. Full write-up in
+`Fixes/Fix — Objective timing analysis (DTW residuals).md`.
+
+**Root cause.** Timing flags were only ever *authored* by Gemini's subjective
+`rhythm_issues`; the only corroborating signal was a hesitation detector that
+fires on a `>0.8 s` gap; and unconfirmed issues are dropped outright. So a
+timing flag survived **only if the player paused for over 0.8 s**. Rushing,
+dragging, a note 120 ms late, wrong note lengths — detected by nobody.
+
+**Fix.** `analyze_timing_vs_score` diffs performed onsets against the score's
+expected beat positions using the DTW note correspondence that already existed
+(`dtw_align_to_score` was resolving the matching score note and then discarding
+everything but its measure number). No transcription-to-notation: alignment is
+a solved problem, transcription isn't. Emits placement (early/late ≥110 ms),
+drift (local vs established tempo ≥7%), duration (≥1.65x / ≤0.60x written
+length) and a piece-level accelerando/rit. — all with measured numbers, so they
+are `confirmed=True` by construction and survive the cull.
+
+Three findings worth remembering, all caught while testing:
+- **Drift is measured against the tempo the player established, not the global
+  average.** With a steady first half and a rushed second half the global fit
+  lands between them, so the *steady* half got reported as "dragging".
+- **One explanation per measure, placement > duration > drift.** A late entry
+  compresses the preceding note (spurious "too short"); a held note skews its
+  measure's tempo fit (spurious "rushing"). Reporting the side-effect sends the
+  student after the wrong fix.
+- **The no-evidence guard had to move.** `compare_and_coach_claude` bailed early
+  when CREPE and Gemini both found nothing — but an in-tune, right-notes,
+  un-commented-on take can still be rhythmically wrong, which was exactly the
+  reported bug. Timing now counts as evidence in its own right.
+
+Also: measured timing findings now outrank Gemini's for the same measure in
+dedup (`_priority`), and `evidence_candidates[:8]` — which truncated in measure
+order, intonation first, so it meant "the first couple of measures only" — is
+now sorted by magnitude and raised to 16.
+
+Verified by unit-testing the math against 7 synthetic performances and running
+`compare_and_coach_claude` end-to-end with `anthropic` mocked: a take with zero
+intonation/note/Gemini evidence now produces 4 timing flags where it previously
+produced 0, and a clean take with ±25 ms human jitter still produces none.
+**Thresholds are first-guess conservative and should be revisited once real
+analyses accumulate.** Deployed to Modal.
+
 ## 2026-08-13 — New-recording modal: removable uploads, no tags, everything required
 
 - **Removed the Piece / Warm-up / Sight-read chips** and the `tag` state behind

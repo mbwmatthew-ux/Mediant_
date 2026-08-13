@@ -6,7 +6,6 @@ import { extractAudioFeatures, extractScoreFacts } from '../lib/analysisEvidence
 import styles from './NewRecordingModal.module.css'
 import { playDrop, playTick, playAnalyzeStart, playAnalyzeComplete } from '../utils/sounds'
 
-const TAG_OPTIONS = ['Piece', 'Warm-up', 'Sight-read']
 
 /* Extract sampled video frames for the analysis engine (best-effort, non-fatal). */
 function extractVideoFrames(videoFile, count = 9) {
@@ -78,7 +77,6 @@ export default function NewRecordingModal({ open, onClose }) {
   const [startMeasure, setStartMeasure] = useState('')
   const [endMeasure, setEndMeasure] = useState('')
   const [timeSig, setTimeSig] = useState('4/4')
-  const [tag, setTag] = useState('Piece')
 
   // Performance: one of video OR audio required
   const [videoFile, setVideoFile] = useState(null)
@@ -94,7 +92,9 @@ export default function NewRecordingModal({ open, onClose }) {
   const [errorMsg, setErrorMsg] = useState('')
 
   const performanceFile = videoFile || audioFile
-  const readyToAnalyze = Boolean(performanceFile)
+  // Everything is required now: a performance (video OR audio) AND at least one
+  // sheet-music page. The score used to be optional-but-recommended.
+  const readyToAnalyze = Boolean(performanceFile) && scoreFiles.length > 0
 
   // Reset when closed
   useEffect(() => {
@@ -131,6 +131,17 @@ export default function NewRecordingModal({ open, onClose }) {
   function removeScorePage(idx) {
     playTick()
     setScoreFiles(prev => prev.filter((_, i) => i !== idx))
+  }
+  function clearVideo() {
+    playTick()
+    setVideoFile(null)
+    // Clear the input's value too, or re-picking the SAME file fires no change event.
+    if (videoInputRef.current) videoInputRef.current.value = ''
+  }
+  function clearAudio() {
+    playTick()
+    setAudioFile(null)
+    if (audioInputRef.current) audioInputRef.current.value = ''
   }
 
   async function handleSubmit() {
@@ -211,7 +222,6 @@ export default function NewRecordingModal({ open, onClose }) {
             timeSig:       timeSig.trim() || '4/4',
             startMeasure:  startMeasure ? parseInt(startMeasure, 10) : 1,
             endMeasure:    endMeasure ? parseInt(endMeasure, 10) : undefined,
-            notes:         tag && tag !== 'Piece' ? `Session type: ${tag}.` : undefined,
           }),
         })
       } catch (networkErr) {
@@ -373,23 +383,9 @@ export default function NewRecordingModal({ open, onClose }) {
                   />
                 </div>
               </div>
-              <div className={styles.tagRow}>
-                {TAG_OPTIONS.map(t => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={`${styles.tagPill} ${tag === t ? styles.tagPillActive : ''}`}
-                    onClick={() => setTag(t)}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-
               {/* Performance */}
               <div className={styles.sectionHead}>
                 <span className={styles.sectionTitle}>Your performance</span>
-                <span className={styles.reqBadge}>REQUIRED</span>
               </div>
               <div className={styles.uploadRow}>
                 <UploadCard
@@ -398,6 +394,7 @@ export default function NewRecordingModal({ open, onClose }) {
                   title={videoFile ? videoFile.name : 'Video'}
                   hint="MP4, MOV up to 500MB"
                   onClick={() => videoInputRef.current?.click()}
+                  onRemove={videoFile ? clearVideo : undefined}
                 />
                 <UploadCard
                   active={!!audioFile}
@@ -405,6 +402,7 @@ export default function NewRecordingModal({ open, onClose }) {
                   title={audioFile ? audioFile.name : 'Audio'}
                   hint="WAV, MP3, M4A up to 200MB"
                   onClick={() => audioInputRef.current?.click()}
+                  onRemove={audioFile ? clearAudio : undefined}
                 />
               </div>
               <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={pickVideo} />
@@ -414,18 +412,16 @@ export default function NewRecordingModal({ open, onClose }) {
                   the AI today; the rest are stored and viewable on the Analysis page. */}
               <div className={styles.sectionHead}>
                 <span className={styles.sectionTitle}>Sheet music</span>
-                <span className={styles.optBadge}>OPTIONAL BUT RECOMMENDED</span>
               </div>
               <UploadCard
                 wide
                 active={scoreFiles.length > 0}
                 icon={<ScoreIcon />}
-                title={
-                  scoreFiles.length === 0 ? 'Photo of score'
-                  : scoreFiles.length === 1 ? scoreFiles[0].name
-                  : `${scoreFiles.length} pages selected`
-                }
-                hint={scoreFiles.length > 0 ? 'Click to add another page' : 'JPG, PNG, or PDF — add multiple pages'}
+                title={scoreFiles.length === 0
+                  ? 'Add sheet music'
+                  : `Add another page (${scoreFiles.length} added)`}
+                hint="JPG, PNG, or PDF — add as many pages as you need"
+                activeHint="Click to add another page"
                 onClick={() => scoreInputRef.current?.click()}
               />
               <input
@@ -436,15 +432,27 @@ export default function NewRecordingModal({ open, onClose }) {
                 hidden
                 onChange={pickScore}
               />
-              {scoreFiles.length > 1 && (
-                <div className={styles.scorePageList}>
+              {/* One row per page, each independently removable — the card above
+                  always ADDS, so a mis-picked page is deleted here rather than by
+                  replacing the whole selection. */}
+              {scoreFiles.length > 0 && (
+                <ul className={styles.pageList}>
                   {scoreFiles.map((f, i) => (
-                    <span key={`${f.name}-${i}`} className={styles.scorePageChip}>
-                      Page {i + 1} — {f.name}
-                      <button type="button" aria-label={`Remove page ${i + 1}`} onClick={() => removeScorePage(i)}>×</button>
-                    </span>
+                    <li key={`${f.name}-${f.lastModified}-${i}`} className={styles.pageRow}>
+                      <span className={styles.pageNum}>{i + 1}</span>
+                      <span className={styles.pageName} title={f.name}>{f.name}</span>
+                      <button
+                        type="button"
+                        className={styles.pageRemove}
+                        aria-label={`Remove page ${i + 1}`}
+                        title="Remove"
+                        onClick={() => removeScorePage(i)}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
               <p className={styles.infoNote}>
                 A clear photo lets Mediant pin issues to specific measures on your score.
@@ -468,17 +476,49 @@ export default function NewRecordingModal({ open, onClose }) {
   )
 }
 
-function UploadCard({ active, icon, title, hint, onClick, wide }) {
+/* `onRemove` is optional. When given, a small remove control is layered over the
+   card — it's a <span role="button"> rather than a <button> because the card
+   itself is already a <button>, and nesting interactive elements is invalid
+   HTML (React will warn, and browsers recover unpredictably). Clicks are
+   stopped from bubbling so removing doesn't also re-open the file picker. */
+function UploadCard({ active, icon, title, hint, onClick, wide, onRemove, activeHint }) {
   return (
     <button
       type="button"
       className={`${styles.uploadCard} ${wide ? styles.uploadCardWide : ''} ${active ? styles.uploadCardActive : ''}`}
       onClick={onClick}
     >
+      {onRemove && (
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label="Remove file"
+          title="Remove"
+          className={styles.cardRemove}
+          onClick={e => { e.stopPropagation(); onRemove() }}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onRemove() }
+          }}
+        >
+          <TrashIcon />
+        </span>
+      )}
       <span className={styles.uploadIcon}>{active ? <CheckIcon /> : icon}</span>
       <span className={styles.uploadTitle}>{title}</span>
-      <span className={styles.uploadHint}>{active ? 'Click to replace' : hint}</span>
+      {/* The score card ADDS pages rather than replacing them, so it overrides
+          the default "Click to replace" copy via activeHint. */}
+      <span className={styles.uploadHint}>{active ? (activeHint ?? 'Click to replace') : hint}</span>
     </button>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
   )
 }
 

@@ -1,5 +1,37 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-13 — New-recording modal: removable uploads, no tags, everything required
+
+- **Removed the Piece / Warm-up / Sight-read chips** and the `tag` state behind
+  them. That state fed `notes: "Session type: …"` into the analyze request, so
+  that line is gone too — no other consumer referenced it.
+- **Removed the REQUIRED / OPTIONAL BUT RECOMMENDED badges** and their CSS.
+- **Sheet music is now genuinely required**, matching "everything is required":
+  `readyToAnalyze` is `performanceFile && scoreFiles.length > 0`, so Analyze
+  stays disabled until both a performance and at least one score page are
+  attached. *This is a real behaviour change* — takes could previously be
+  analysed with no score at all.
+- **Uploads are now removable.** `UploadCard` takes an optional `onRemove` and
+  layers a trash control on the card, so the video/audio can be cleared rather
+  than only replaced. Sheet music gets a numbered row per page, each with its
+  own delete — and the card itself now *adds* pages instead of replacing the
+  selection (its hint copy is overridden via a new `activeHint` prop, since the
+  default "Click to replace" contradicted that).
+
+Two details worth keeping:
+- Clearing a file also resets `input.value`. Without that, re-picking the *same
+  file* fires no `change` event and the upload silently appears to do nothing —
+  verified by removing and re-adding the identical video in the test.
+- The remove control on a card is a `<span role="button">`, not a `<button>`:
+  the card is itself a `<button>`, and nesting interactive elements is invalid
+  HTML that React warns about and browsers recover from inconsistently. Clicks
+  are `stopPropagation`'d so removing doesn't also reopen the file picker.
+
+Verified end-to-end against an isolated instance of the modal: chips and badges
+gone, Analyze disabled with nothing / with video-but-no-score / after removing
+either, pages append rather than replace across successive picks, removing a
+middle page renumbers the rest, and the same file is re-addable after removal.
+
 ## 2026-08-13 — Nav arrow centred against the whole viewport
 
 The arrow is positioned against `.page`, which starts *below* AppShell's 56px

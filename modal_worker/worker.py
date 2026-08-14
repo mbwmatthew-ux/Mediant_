@@ -1580,18 +1580,80 @@ def parse_mmss_to_seconds(t) -> float | None:
         return None
 
 
+def repair_truncated_json(text: str) -> str | None:
+    """
+    Rebuild parseable JSON from a reply that was cut off mid-structure.
+
+    A model that hits max_tokens stops mid-object, so the text ends with
+    something like `...,{"number":31,"notes":[{"p":"D` — every enclosing bracket
+    is still open. Naively taking up to the last `}` just yields a different
+    unbalanced fragment, which is why the score read was failing outright and
+    losing every measure rather than the last one or two.
+
+    Strategy: walk the text tracking string/escape state so brackets inside
+    string literals are ignored, remember the position after the last element
+    that closed cleanly, truncate there, then close whatever is still open.
+    Returns None if nothing salvageable.
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    stack: list[str] = []
+    last_good: int | None = None      # index just past a completed element
+    last_good_stack: list[str] = []
+
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in '{[':
+            stack.append(ch)
+        elif ch in '}]':
+            if not stack:
+                break
+            stack.pop()
+            # A complete element inside a container is a safe cut point.
+            if stack:
+                last_good = i + 1
+                last_good_stack = list(stack)
+
+    if last_good is None:
+        return None
+    head = text[:last_good]
+    closers = ''.join(']' if b == '[' else '}' for b in reversed(last_good_stack))
+    return head + closers
+
+
 def extract_json_object(raw: str) -> dict | None:
     import json, re
     # Strip all markdown code fences regardless of position or leading whitespace
     text = re.sub(r'```(?:json)?\s*', '', raw, flags=re.IGNORECASE).strip()
     start = text.find('{')
     end   = text.rfind('}')
-    if start == -1 or end == -1:
+    if start == -1:
         return None
-    try:
-        return json.loads(text[start:end + 1])
-    except Exception:
-        return None
+    if end != -1:
+        try:
+            return json.loads(text[start:end + 1])
+        except Exception:
+            pass
+    # Truncated / malformed — salvage the complete portion rather than losing all.
+    repaired = repair_truncated_json(text[start:])
+    if repaired:
+        try:
+            obj = json.loads(repaired)
+            print(f"[extract_json_object] salvaged truncated JSON ({len(repaired):,} of {len(text):,} chars)")
+            return obj
+        except Exception:
+            return None
+    return None
 
 
 def upload_video_to_gemini(video_bytes: bytes, mime_type: str, api_key: str) -> str:
@@ -2034,13 +2096,24 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=8192,
+            # A full score is one JSON object per NOTE, so a couple of pages
+            # easily exceeded 8192 and got cut off mid-object — which failed the
+            # whole parse and silently dropped every measure (score_parse: 0),
+            # disabling DTW alignment, objective timing and wrong-note checks.
+            max_tokens=32000,
             messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
         )
         raw    = msg.content[0].text
+        if getattr(msg, "stop_reason", None) == "max_tokens":
+            print(f"[read_score_notes_claude] hit max_tokens ({len(raw):,} chars) — "
+                  f"salvaging the complete measures")
         parsed = extract_json_object(raw)
         if not parsed:
-            print(f"[read_score_notes_claude] no JSON: {raw[:300]}")
+            # Log the TAIL too: for a truncation the head always looks fine, so
+            # head-only logging hid the real cause.
+            print(f"[read_score_notes_claude] no JSON | stop_reason="
+                  f"{getattr(msg, 'stop_reason', None)} len={len(raw):,} "
+                  f"| head: {raw[:200]} | tail: {raw[-200:]}")
             # Regex fallback: extract at least time/key signature even from truncated JSON
             import re as _re
             ts_m = _re.search(r'"time_signature"\s*:\s*"([^"]+)"', raw)
@@ -3155,6 +3228,17 @@ def compare_and_coach_claude(
     if _gm_vals and (max(_gm_vals) - min(_gm_vals)) >= 2:
         gemini_end_est = start_measure + (max(_gm_vals) - min(_gm_vals))
 
+    # The score itself is the most reliable end estimate available: it literally
+    # lists the measures. It was never consulted here, so the end of the piece was
+    # inferred purely from the beat grid and Gemini's issue span — and BOTH only
+    # ever reach as far as the last thing they happened to notice. Any measures
+    # after that fell outside the two-point map and could not be flagged at all,
+    # which is why reports stopped short of the end of the piece.
+    score_end_est = None
+    _score_measures = [m.get("number") for m in score.get("measures", []) if m.get("number")]
+    if len(_score_measures) >= 2:
+        score_end_est = int(max(_score_measures))
+
     if end_measure and end_measure > start_measure:
         anchor_end = int(end_measure)
         # Reactive correction: only override the user's value when BOTH independent
@@ -3173,17 +3257,19 @@ def compare_and_coach_claude(
             print(f"[compare_and_coach_claude] using user end_measure={anchor_end} — "
                   f"two-point map m.{start_measure}..m.{anchor_end}")
     else:
-        # No user end — reconcile the two estimates (average if they agree, else prefer
-        # Gemini's span, else the grid).
-        if gemini_end_est and grid_end_est and abs(gemini_end_est - grid_end_est) <= 1:
-            anchor_end = int(round((gemini_end_est + grid_end_est) / 2))
-        elif gemini_end_est:
-            anchor_end = gemini_end_est
-        elif grid_end_est:
-            anchor_end = grid_end_est
-        if anchor_end:
+        # No user end — take the LARGEST estimate. Every one of these is really a
+        # lower bound ("as far as I read / noticed / tracked"), so they all
+        # under-shoot independently, and under-shooting is the failure that
+        # silently drops the end of the piece. Over-shooting only adds empty
+        # measures nobody flags, which is harmless. In particular the score's own
+        # count can under-shoot when a truncated score read was salvaged, so it
+        # must not be trusted on its own.
+        _ests = [e for e in (score_end_est, gemini_end_est, grid_end_est)
+                 if e and e > start_measure]
+        if _ests:
+            anchor_end = int(max(_ests))
             print(f"[compare_and_coach_claude] estimated end_measure={anchor_end} "
-                  f"(beat grid={grid_end_est}, Gemini span={gemini_end_est})")
+                  f"(score={score_end_est}, beat grid={grid_end_est}, Gemini span={gemini_end_est})")
 
     # Build scaled_beat_times: the real detected beat onsets, rescaled so the beat at
     # anchor_end lands exactly on anchor_time. A raw beat count alone drifts over a long

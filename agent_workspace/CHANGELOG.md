@@ -1,5 +1,48 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-14 — Score reads were failing silently; end of piece was unreachable
+
+Reported as "still fails to capture timing flags, and it skipped the flags at
+the end of the piece". Diagnosed from the take row + Modal logs rather than by
+guessing, and both turned out to be upstream of the timing work shipped
+yesterday.
+
+**Root cause 1 — the sheet music was never being read.** `pipeline_debug`
+showed `score_parse: 0 measures` and `alignment: beat_grid`, and the Modal log
+showed `[read_score_notes_claude] no JSON`. `read_score_notes_claude` asks for
+one JSON object *per note*, but ran with `max_tokens=8192` — a couple of pages
+overflows that, the reply is cut off mid-object, and the resulting unbalanced
+JSON fails to parse. The whole score was then discarded (not just the tail),
+which cascaded:
+- no score notes → DTW declines → `beat_grid` alignment → **no `score_idx` → the
+  entire new timing analysis is skipped**, so zero timing flags;
+- no score → no wrong-note corroboration, so Gemini's 8 wrong-note findings were
+  culled too (the take had 15 Gemini rhythm issues and 0 survived).
+
+Fixes: `max_tokens` 8192 → 32000, and `extract_json_object` now falls back to
+`repair_truncated_json`, which walks the text tracking string/escape state,
+truncates at the last cleanly-closed element and re-closes the open brackets —
+so a truncated read salvages the measures it did complete instead of losing
+everything. Also logs `stop_reason` and the response **tail** (head-only logging
+is useless for truncation — the head always looks fine).
+
+**Root cause 2 — the end of the piece was outside the measure map.**
+`anchor_end` was estimated only from the beat grid and Gemini's issue span, and
+never from the parsed score. Both of those are really "as far as I noticed", so
+they systematically under-shoot; measures past that point fall outside the
+two-point map and cannot be flagged at all. The score — which literally lists
+its measures — was never consulted. It is now one of three estimators, and the
+combiner takes the **largest**: all three are lower bounds, under-shooting
+silently truncates the report, while over-shooting only adds empty measures
+nobody flags. Deliberately not "prefer the score", because a salvaged partial
+read can itself under-shoot.
+
+Verified: `repair_truncated_json` unit-tested at four truncation points (7/12/16/19
+measures salvaged), on garbage, on fenced input, and on brackets inside string
+literals; pipeline test confirms a flag now lands on the final measure (m.38)
+and the end estimate reads `score=38`. Clean take with jitter still yields 0
+flags. Deployed to Modal.
+
 ## 2026-08-13 — Objective timing analysis: CREPE+DTW now owns timing
 
 Reported as "almost nothing on timing". It wasn't under-tuned — timing was

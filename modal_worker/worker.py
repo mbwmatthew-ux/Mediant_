@@ -2094,15 +2094,21 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
 
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
-        msg = client.messages.create(
+        # MUST stream. A full score is one JSON object per NOTE, so a couple of
+        # pages easily exceeded the old max_tokens=8192 and got cut off
+        # mid-object, which failed the whole parse and silently dropped every
+        # measure (score_parse: 0) — disabling DTW alignment, objective timing
+        # and wrong-note checks. But simply raising max_tokens is not enough:
+        # above roughly 20k the SDK refuses a non-streaming request outright
+        # ("Streaming is required for operations that may take longer than 10
+        # minutes"), which turned the truncation into a hard error. Streaming is
+        # the supported way to ask for a long generation.
+        with client.messages.stream(
             model="claude-sonnet-4-6",
-            # A full score is one JSON object per NOTE, so a couple of pages
-            # easily exceeded 8192 and got cut off mid-object — which failed the
-            # whole parse and silently dropped every measure (score_parse: 0),
-            # disabling DTW alignment, objective timing and wrong-note checks.
             max_tokens=32000,
             messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
-        )
+        ) as stream:
+            msg = stream.get_final_message()
         raw    = msg.content[0].text
         if getattr(msg, "stop_reason", None) == "max_tokens":
             print(f"[read_score_notes_claude] hit max_tokens ({len(raw):,} chars) — "
@@ -2127,7 +2133,8 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
                     "measures":       [],
                     "source":         "claude_vision_partial",
                 }
-            return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+            return {"key_signature": None, "time_signature": None, "tempo_marking": None,
+                    "measures": [], "error": "unparseable JSON from score read"}
         def _norm_note(n: dict) -> dict:
             # Accept both old long names (pitch/beat/duration_beats/articulation/dynamic)
             # and new compact names (p/b/d/a/dyn) — normalize to long form.
@@ -2164,8 +2171,13 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
             "source":         "claude_vision",
         }
     except Exception as e:
+        # Surface the reason on the dict so it reaches pipeline_debug. A failed
+        # score read silently disables DTW, objective timing and wrong-note
+        # checks, so "score_parse: 0 measures" with no reason is not diagnosable
+        # from the take row alone — it cost a full round trip to Modal logs.
         print(f"[read_score_notes_claude] error: {e}")
-        return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+        return {"key_signature": None, "time_signature": None, "tempo_marking": None,
+                "measures": [], "error": f"{type(e).__name__}: {e}"}
 
 
 def beats_per_measure_from_time_sig(time_sig: str | None) -> int:
@@ -3746,6 +3758,8 @@ def run_full_analysis(payload: dict) -> None:
                     if res.get("measures"):
                         s = res
                         ps_notes = res
+                    elif res.get("error"):
+                        s = {**s, "error": res["error"]}
             # For any visual score, get exact measure positions from Gemini
             if kind == "visual" and gemini_key and s.get("measures"):
                 positions = get_measure_positions_gemini(sb, score_mime, gemini_key)
@@ -3784,7 +3798,10 @@ def run_full_analysis(payload: dict) -> None:
             if parsed_score_notes_inner:
                 parsed_score_notes = parsed_score_notes_inner
             total_m = len(score.get("measures", []))
-            debug_steps.append(f"score_parse: {total_m} measures")
+            _score_err = score.get("error")
+            debug_steps.append(
+                f"score_parse: {total_m} measures" + (f" — FAILED: {_score_err}" if _score_err else "")
+            )
 
         # Change 4: cross-validate Gemini measure numbers against parsed score range
         gemini_assessment, n_discarded = validate_gemini_measures(gemini_assessment, score)

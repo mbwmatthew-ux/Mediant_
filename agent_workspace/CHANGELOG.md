@@ -1,5 +1,35 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-14 (later) — Score read: my own max_tokens fix broke it harder
+
+The previous entry raised `read_score_notes_claude` to `max_tokens=32000` to
+stop long scores truncating. That made things worse: above roughly 20k the
+Anthropic SDK **refuses a non-streaming request client-side**, before it is even
+sent —
+
+    ValueError: Streaming is required for operations that may take longer than
+    10 minutes.
+
+So the score read went from "truncated, parse fails" to "never runs at all", and
+`score_parse: 0 measures` persisted for the same downstream reason (no
+`score_idx` → no DTW → objective timing skipped entirely).
+
+Reproduced the guard directly against the installed SDK: `max_tokens` 8192 and
+16000 send fine (fail only on auth with a fake key); 32000 raises the ValueError
+without any network call.
+
+Fix: the score read now uses `client.messages.stream(...)` +
+`get_final_message()`, which is the supported way to request a long generation.
+Verified `messages.stream` / `get_final_message` exist in the SDK before
+deploying. The truncation salvage from the previous entry stays as a safety net.
+
+**Also made this class of failure diagnosable from the DB.** A failed score read
+silently disables DTW, objective timing and wrong-note corroboration, but
+`pipeline_debug` only said `score_parse: 0 measures` with no reason — which cost
+a round trip to Modal logs both times. `read_score_notes_claude` now returns an
+`error` field and the debug line reads
+`score_parse: 0 measures — FAILED: <reason>`.
+
 ## 2026-08-14 — Score reads were failing silently; end of piece was unreachable
 
 Reported as "still fails to capture timing flags, and it skipped the flags at

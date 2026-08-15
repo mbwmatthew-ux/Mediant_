@@ -1,5 +1,34 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-15 — Retry transient Gemini failures instead of losing the take
+
+Reported: `Analysis failed: All Gemini models failed. Last error: gemini-2.5-pro
+→ HTTP 503 ... "This model is currently experiencing high demand."`
+
+A capacity spike on Google's side, not our bug — but the handling was brittle.
+`evaluate_with_gemini` attempted each model/config **exactly once with no
+backoff**, so a momentary 503 (the error text literally says "spikes in demand
+are usually temporary") failed the whole analysis and threw away the upload,
+making the student re-record for nothing.
+
+Added bounded retry around the Gemini POST:
+- retries only genuinely transient statuses (408/429/500/502/503/504); a 400 or
+  401 still fails immediately rather than burning the budget on a request that
+  will never succeed
+- exponential backoff with jitter (~1.5s, 3s), max 3 attempts per model/config,
+  honouring `Retry-After` when the server sends one
+- a global 100s sleep budget so retries can't run past the 300s Modal function
+  timeout — worst case adds ~20s across all models/configs
+
+Also replaced the user-facing message for 429/503 with a plain-language one
+saying the provider is temporarily at capacity and the recording uploaded fine.
+The old text surfaced a raw provider JSON blob, which reads like the upload was
+broken and invites a pointless re-record.
+
+Verified the retry logic against a mocked transport: 503→200 retries once and
+succeeds; persistent 503 stops at 3 attempts with growing backoff; a
+non-transient 400 is not retried at all; 429 is retried. Deployed to Modal.
+
 ## 2026-08-14 (later) — Score read: my own max_tokens fix broke it harder
 
 The previous entry raised `read_score_notes_claude` to `max_tokens=32000` to

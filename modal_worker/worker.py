@@ -1992,17 +1992,48 @@ Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") w
             text = next((p.get("text", "") for p in resp_parts if p.get("text", "").strip()), "")
         return text, str(cand.get("finishReason", "?"))
 
+    # Transient upstream failures — capacity spikes and gateway blips, not our
+    # request being wrong. Previously each model/config was attempted exactly
+    # once with no backoff, so a momentary "high demand" 503 on Gemini failed the
+    # entire analysis and threw away the user's upload. These clear on a retry
+    # seconds later, which is cheaper than making the student re-record.
+    _TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504}
+    _RETRY_BUDGET_S   = 100.0   # total time we may spend sleeping between retries
+    _MAX_ATTEMPTS     = 3
+    import time as _time, random as _random
+    _retry_deadline = _time.monotonic() + _RETRY_BUDGET_S
+
+    def _post_gemini(model: str, gen_config: dict):
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{model}:generateContent?key={api_key}")
+        body = {"contents": [{"parts": parts}], "generationConfig": gen_config}
+        attempt = 0
+        while True:
+            attempt += 1
+            with httpx.Client(timeout=150) as client:
+                resp = client.post(url, json=body)
+            if resp.is_success or resp.status_code not in _TRANSIENT_STATUS:
+                return resp
+            if attempt >= _MAX_ATTEMPTS or _time.monotonic() >= _retry_deadline:
+                return resp
+            # Honour Retry-After when the server sends one; otherwise exponential
+            # backoff with jitter so parallel takes don't retry in lockstep.
+            ra = (resp.headers.get("Retry-After") or "").strip()
+            delay = float(ra) if ra.isdigit() else min(8.0, 1.5 * (2 ** (attempt - 1)))
+            delay = min(delay, max(0.0, _retry_deadline - _time.monotonic())) + _random.uniform(0, 0.4)
+            print(f"[evaluate_with_gemini] {model} → HTTP {resp.status_code} "
+                  f"(transient, attempt {attempt}/{_MAX_ATTEMPTS}) — retrying in {delay:.1f}s")
+            _time.sleep(delay)
+
     last_error = "no models attempted"
+    last_status = None
     for model in GEMINI_MODELS:
         try:
             text = ""
             for gen_config in _configs_for(model):
-                with httpx.Client(timeout=150) as client:
-                    resp = client.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
-                        json={"contents": [{"parts": parts}], "generationConfig": gen_config},
-                    )
+                resp = _post_gemini(model, gen_config)
                 if not resp.is_success:
+                    last_status = resp.status_code
                     last_error = f"{model} → HTTP {resp.status_code}: {resp.text[:200]}"
                     print(f"[evaluate_with_gemini] {last_error}")
                     if resp.status_code in (401, 403):
@@ -2052,6 +2083,15 @@ Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") w
             print(f"[evaluate_with_gemini] {last_error}")
             continue
 
+    # A capacity spike is temporary and not the student's fault — say so plainly
+    # instead of surfacing a raw provider JSON blob, which reads like the upload
+    # was broken and invites them to re-record for no reason.
+    if last_status in (429, 503):
+        raise RuntimeError(
+            "The analysis service is temporarily overloaded (the AI provider is at "
+            "capacity right now). Your recording was uploaded fine — press Try again "
+            "in a minute and it should go through."
+        )
     raise RuntimeError(f"All Gemini models failed. Last error: {last_error}")
 
 

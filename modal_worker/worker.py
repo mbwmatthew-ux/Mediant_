@@ -758,15 +758,24 @@ def midi_from_name(pitch_name: str) -> int | None:
     return (octave_str + 1) * 12 + base + acc
 
 
-def flatten_score_notes(score: dict) -> list[dict]:
+def flatten_score_notes(
+    score: dict,
+    start_measure: int | None = None,
+    end_measure: int | None = None,
+    beats_per_measure: int | None = None,
+) -> list[dict]:
     """
-    Flatten a score into the ordered list of pitched notes DTW aligns against.
+    Flatten a score into the ordered list of pitched notes DTW aligns against,
+    restricted to the measures the student actually played.
 
-    This is the single source of truth for that ordering: dtw_align_to_score
-    emits a `score_idx` into this list, and analyze_timing_vs_score reads the
-    expected beat/duration back out of it. If the two ever built the list
-    differently, every timing residual would be silently attributed to the wrong
-    note — hence one shared function rather than two parallel loops.
+    The window matters enormously. A photo of two pages can contain 60+ measures
+    while the take covers 18 of them; DTW warps the WHOLE audio onto the WHOLE
+    note sequence it is given, so handing it the full score stretches those 18
+    measures across all 60 and every resulting measure number is wrong. The
+    caller knows the range (the student enters start/end measure), so honour it.
+
+    Also stamps abs_beat — the note's position in beats from the start of the
+    window — which is what the timing analysis diffs performed onsets against.
 
     Notes without a parseable pitch are skipped (same rule DTW always used).
     Rests are already absent: parse_musicxml drops them deliberately.
@@ -779,6 +788,11 @@ def flatten_score_notes(score: dict) -> list[dict]:
     """
     out: list[dict] = []
     for m in score.get("measures", []):
+        num = m.get("number")
+        if start_measure is not None and isinstance(num, int) and num < start_measure:
+            continue
+        if end_measure is not None and isinstance(num, int) and num > end_measure:
+            continue
         for note in m.get("notes", []):
             pitch = note.get("pitch")
             if not pitch:
@@ -801,6 +815,16 @@ def flatten_score_notes(score: dict) -> list[dict]:
                 "dur_beats": dur,
                 "pitch":     pitch,
             })
+    # Absolute beat position across the window. Measures are indexed by order of
+    # appearance rather than by number, so a score numbered from anywhere (or
+    # with a gap) still yields a monotonic beat axis.
+    bpm_m = max(1, int(beats_per_measure or 4))
+    order: dict = {}
+    for sn in out:
+        if sn["measure"] not in order:
+            order[sn["measure"]] = len(order)
+    for sn in out:
+        sn["abs_beat"] = order[sn["measure"]] * bpm_m + (sn["beat"] - 1.0)
     return out
 
 
@@ -809,6 +833,7 @@ def dtw_align_to_score(
     score: dict,
     start_measure: int,
     beats_per_measure: int,
+    end_measure: int | None = None,
 ) -> list[dict]:
     """
     Align CREPE pitch events to score measures using Dynamic Time Warping.
@@ -838,9 +863,8 @@ def dtw_align_to_score(
     if not measures or not events:
         return events
 
-    # Flattened score sequence. Shared with the timing analysis so the score_idx
-    # emitted below indexes the exact same list there — see flatten_score_notes.
-    score_notes = flatten_score_notes(score)
+    # Only the measures the student actually played — see flatten_score_notes.
+    score_notes = flatten_score_notes(score, start_measure, end_measure, beats_per_measure)
     score_seq: list[tuple[int, int]] = [(sn["midi"], sn["measure"]) for sn in score_notes]
 
     if len(score_seq) < 4:
@@ -886,9 +910,15 @@ def dtw_align_to_score(
                 candidates.append(acc[i,     j - 1])
             acc[i, j] = cost[i, j] + min(candidates)
 
-    # Traceback from (n-1, m_len-1) to (0, 0)
+    # Open-END traceback: begin from the best-scoring column of the last row
+    # rather than forcing the path onto the score's final note. A take that stops
+    # partway (or an end_measure we could not determine) would otherwise be
+    # stretched to cover every remaining measure, which is exactly what smeared
+    # the measure numbers across the whole score.
+    last_row = acc[n - 1]
+    j_end = int(np.argmin(last_row)) if np.isfinite(last_row).any() else m_len - 1
     path_audio_to_score: list[int] = [0] * n
-    i, j = n - 1, m_len - 1
+    i, j = n - 1, j_end
     while i > 0 or j > 0:
         path_audio_to_score[i] = j
         if i == 0:
@@ -914,11 +944,24 @@ def dtw_align_to_score(
     # each note's expected beat position and duration. That's what makes objective
     # timing analysis possible (analyze_timing_vs_score) — previously the matched
     # score note was resolved and then thrown away, keeping only its measure.
+    # Stamp the matched score note's own data straight onto the event. The timing
+    # analysis then needs no index back into a re-derived list — previously it
+    # re-flattened the score itself, so any difference in filtering between the
+    # two (exactly what adding the played-range window introduces) would have
+    # attributed every residual to the wrong note.
     result = []
     for idx, ev in enumerate(events):
-        score_idx   = path_audio_to_score[idx]
-        measure_num = score_seq[score_idx][1]
-        result.append({**ev, "measure": measure_num, "score_idx": score_idx})
+        score_idx = path_audio_to_score[idx]
+        sn = score_notes[score_idx]
+        result.append({
+            **ev,
+            "measure":          sn["measure"],
+            "score_idx":        score_idx,
+            "score_beat":       sn["beat"],
+            "score_dur_beats":  sn["dur_beats"],
+            "score_abs_beat":   sn["abs_beat"],
+            "score_pitch":      sn["pitch"],
+        })
 
     # Sanity check: count how many distinct measures were assigned
     measures_hit = len({ev["measure"] for ev in result})
@@ -1009,32 +1052,20 @@ def analyze_timing_vs_score(
     {"ok": False, "reason": ...} when the input can't support a trustworthy fit;
     the caller should then emit nothing rather than guess.
     """
-    score_notes = flatten_score_notes(score)
-    if not score_notes:
-        return {"ok": False, "reason": "no score notes"}
-
     bpm_measure = max(1, int(beats_per_measure or 4))
 
-    # Absolute beat position of each score note across the whole piece. Measures
-    # are numbered from the score itself, so index them by order of appearance
-    # rather than by number (numbers can start anywhere / skip).
-    measure_order: dict[int, int] = {}
-    for sn in score_notes:
-        if sn["measure"] not in measure_order:
-            measure_order[sn["measure"]] = len(measure_order)
-    for sn in score_notes:
-        sn["abs_beat"] = measure_order[sn["measure"]] * bpm_measure + (sn["beat"] - 1.0)
-
-    # One onset per score note: the earliest event DTW mapped to it. DTW is
+    # Read the matched score note straight off the event (stamped by
+    # dtw_align_to_score). Deliberately NOT re-deriving the score note list here:
+    # DTW aligns against the played-measure window only, so a list rebuilt with
+    # different filtering would misattribute every residual.
+    # One onset per score note: the earliest event mapped to it. DTW is
     # many-to-one (a sustained note yields several CREPE events), and only the
     # first marks the attack.
     onset_by_idx: dict[int, dict] = {}
     for ev in aligned:
         si = ev.get("score_idx")
         t  = ev.get("time_sec")
-        if si is None or t is None:
-            continue
-        if not (0 <= si < len(score_notes)):
+        if si is None or t is None or ev.get("score_abs_beat") is None:
             continue
         if ev.get("confidence", 100) < 25:
             continue
@@ -1044,6 +1075,13 @@ def analyze_timing_vs_score(
 
     if len(onset_by_idx) < _TIMING_MIN_NOTES:
         return {"ok": False, "reason": f"only {len(onset_by_idx)} matched onsets"}
+
+    score_notes = {
+        si: {"measure": ev["measure"], "beat": ev.get("score_beat") or 1.0,
+             "dur_beats": ev.get("score_dur_beats") or 0.0,
+             "pitch": ev.get("score_pitch") or "", "abs_beat": ev["score_abs_beat"]}
+        for si, ev in onset_by_idx.items()
+    }
 
     pairs = sorted(
         ((score_notes[si]["abs_beat"], ev["time_sec"], si) for si, ev in onset_by_idx.items()),
@@ -1141,7 +1179,6 @@ def analyze_timing_vs_score(
     # sounding length and not a jump across something DTW skipped.
     durations: dict[int, dict] = {}
     have = sorted(onset_by_idx.keys())
-    pos_of = {si: k for k, si in enumerate(have)}
     for si in have:
         nxt = si + 1
         if nxt not in onset_by_idx:
@@ -3910,8 +3947,10 @@ def run_full_analysis(payload: dict) -> None:
             is_vision   = score_source.startswith("claude_vision")
             min_notes   = 4 if is_musicxml else 12
             if total_score_notes >= min_notes and (is_musicxml or is_vision):
-                print(f"[run_full_analysis] using score DTW ({total_score_notes} score notes, source={score_source})")
-                aligned = dtw_align_to_score(raw_events, score, start_measure, bpm_int)
+                print(f"[run_full_analysis] using score DTW ({total_score_notes} score notes, "
+                      f"source={score_source}, window=m.{start_measure}..{end_measure or 'open'})")
+                aligned = dtw_align_to_score(raw_events, score, start_measure, bpm_int,
+                                             end_measure=end_measure)
                 if aligned:
                     alignment_method_used = "score_dtw"
                 debug_steps.append(f"alignment: score_dtw notes={total_score_notes} aligned={len(aligned)}")

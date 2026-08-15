@@ -1,5 +1,38 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-15 (later) — Measure numbers were wrong: DTW ignored the played range
+
+The streaming fix worked — this take shows `score_parse: 64 measures` and
+`alignment: score_dtw` for the first time. That immediately exposed the next
+bug: **`start_measure` was declared as a `dtw_align_to_score` parameter and never
+used in the body.**
+
+DTW warps the whole audio onto the whole note sequence it is handed. The photo
+of two pages contained 64 measures; the take covered 18 of them (m.20–37). So
+those 18 measures were stretched across all 64, and the traceback additionally
+forced the path onto the score's final note. Reproduced exactly: a performance
+of m.20–37 came out labelled **m.1–19, 0/54 measure numbers correct**. With the
+fix it is m.20–37, **54/54 correct**.
+
+Three changes:
+- `flatten_score_notes` takes a `start_measure`/`end_measure` window, so DTW only
+  ever sees the measures the student said they played.
+- Open-**end** traceback: start from the best-scoring column of the last row
+  instead of the score's final note, so a take that stops partway (or one where
+  we could not determine an end measure) is not stretched to fill the score.
+  Verified identical results with and without an `end_measure`.
+- DTW now stamps the matched score note's own data (`score_beat`,
+  `score_dur_beats`, `score_abs_beat`, `score_pitch`) directly onto each event,
+  and `analyze_timing_vs_score` reads those instead of re-deriving the note list.
+  It previously re-flattened the score itself — which, the moment windowing was
+  introduced, would have produced a *differently filtered* list and misattributed
+  every timing residual to the wrong note. Removing the index coupling makes that
+  class of bug impossible rather than merely fixed.
+
+Re-verified end to end afterwards: a take with m.30 entered late and m.36–37
+rushed produces timing flags on exactly those measures, all inside the played
+window, and a clean take with ±20 ms jitter still produces none. Deployed.
+
 ## 2026-08-15 — Retry transient Gemini failures instead of losing the take
 
 Reported: `Analysis failed: All Gemini models failed. Last error: gemini-2.5-pro

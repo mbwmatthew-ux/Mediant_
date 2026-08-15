@@ -2868,8 +2868,14 @@ def compare_and_coach_claude(
         # failure mode nothing else can fully fix: a beat tracker miscounting a beat
         # somewhere earlier in the piece and shifting every later boundary by that much.
         if dtw_verified and alignment_ranges:
-            for r in alignment_ranges:
-                if r["start"] <= tsec <= r["end"]:
+            # Half-open [start, end). The ranges are contiguous — each measure's
+            # end IS the next measure's first onset — so an inclusive upper bound
+            # matches the earlier measure first and attributes every downbeat to
+            # the measure before it. The final range stays inclusive so the last
+            # note of the piece still lands somewhere.
+            for _i, r in enumerate(alignment_ranges):
+                _last = _i == len(alignment_ranges) - 1
+                if r["start"] <= tsec < r["end"] or (_last and tsec == r["end"]):
                     return r["measure"]
         # BEST (no DTW): real detected beats, anchor-corrected. Tracks the performance's actual
         # tempo variation across the piece (a straight-line/constant-tempo model can't),
@@ -3973,11 +3979,40 @@ def run_full_analysis(payload: dict) -> None:
                 if len(beats["beat_times"]) >= 2 else 1.0
             )
             sec_per_measure = max(1.0, min(30.0, avg_beat * bpm_int))
-            alignment_ranges = [
-                {"measure": m, "start": r["start"], "end": max(r["end"], r["start"] + sec_per_measure * 0.9)}
-                for m, r in sorted(ranges_acc.items())
-                if r["start"] != float("inf")
-            ]
+            # Chain each measure's end to the NEXT measure's first onset, so the
+            # ranges are contiguous and non-overlapping.
+            #
+            # These onset spans are the single source of truth for both the flag's
+            # measure number (time_to_measure) and its Loop window
+            # (measure_to_time_range), so their shape has to be right twice over:
+            #   * the old `start + 0.9 * nominal measure` padding could OVERLAP the
+            #     next measure, and time_to_measure returns the FIRST range that
+            #     contains the timestamp — so notes belonging to m+1 were labelled
+            #     m, i.e. the number disagreed with the clip that played.
+            #   * min/max of onsets alone ends a measure on its LAST NOTE'S ONSET,
+            #     which both truncates that note from the loop and leaves a gap
+            #     before the next measure; timestamps landing in the gap fell
+            #     through to the beat grid and disagreed with the DTW ranges again.
+            _items = [(m, r) for m, r in sorted(ranges_acc.items()) if r["start"] != float("inf")]
+            alignment_ranges = []
+            for _i, (_m, _r) in enumerate(_items):
+                _start = _r["start"]
+                _nxt = _items[_i + 1] if _i + 1 < len(_items) else None
+                if _nxt is not None:
+                    _end = _nxt[1]["start"]
+                    # A gap in measure numbers means measures we detected nothing
+                    # in; don't let one measure swallow all of them.
+                    if _nxt[0] != _m + 1:
+                        _end = min(_end, _start + sec_per_measure)
+                else:
+                    # Last measure: no following onset to chain to, so give it a
+                    # full nominal measure past its final detected note.
+                    _end = max(_r["end"] + sec_per_measure / max(1, bpm_int), _start + sec_per_measure)
+                alignment_ranges.append({
+                    "measure": _m,
+                    "start":   _start,
+                    "end":     max(_end, _start + 0.25),
+                })
 
         if end_measure:
             aligned          = [ev for ev in aligned if ev["measure"] <= end_measure]

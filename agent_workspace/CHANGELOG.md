@@ -1,5 +1,39 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-15 (later still) — Flag measure numbers disagreed with the Loop clip
+
+Reported: "the clip played in Loop does not match the measure number". Both come
+from `alignment_ranges`, so the ranges' shape had to be wrong twice over — and it
+was, for two separate reasons.
+
+`alignment_ranges` were built as the min/max of detected note ONSETS in each
+measure, then padded to `start + 0.9 * nominal measure`. That gives ranges which
+are neither contiguous nor reliably non-overlapping:
+
+- The padding could **overlap** into the next measure. `time_to_measure` returns
+  the FIRST range containing the timestamp, so notes belonging to m+1 were
+  labelled m — the number and the clip disagreed.
+- Onset min/max ends a measure on its **last note's onset**, so the loop cut that
+  note off, and the space before the next measure's first onset was a **gap**.
+  Timestamps landing in a gap fell through to the beat-grid tier, a completely
+  different measure model from the one the Loop window uses. Measured on a
+  representative 18-measure take: **17 gaps, ~25% of sampled timestamps
+  mislabelled**.
+
+Ranges are now chained — each measure ends exactly where the next one's first
+onset begins — so they are contiguous and non-overlapping, the loop includes the
+measure's final note, and nothing can fall through to a different tier. A gap in
+measure *numbers* (measures where nothing was detected) is capped at one nominal
+measure so a single range can't swallow the rest.
+
+**Caught while verifying:** making the ranges contiguous introduced an
+off-by-one. With `end == next start` and an inclusive `<=` on both bounds, every
+downbeat matched the *previous* measure first. Test injected sharp notes in m.25
+and m.33 and got flags on m.24 and m.32. `time_to_measure`'s DTW lookup is now
+half-open `[start, end)`, with the final range left inclusive so the last note of
+the piece still lands. Re-tested: flags land on exactly m.25 and m.33, and zero
+flags have a timestamp outside their own measure's Loop window.
+
 ## 2026-08-15 (later) — Measure numbers were wrong: DTW ignored the played range
 
 The streaming fix worked — this take shows `score_parse: 64 measures` and

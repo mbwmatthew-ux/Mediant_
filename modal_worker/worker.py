@@ -815,16 +815,17 @@ def flatten_score_notes(
                 "dur_beats": dur,
                 "pitch":     pitch,
             })
-    # Absolute beat position across the window. Measures are indexed by order of
-    # appearance rather than by number, so a score numbered from anywhere (or
-    # with a gap) still yields a monotonic beat axis.
+    # Absolute beat position across the window, derived from the measure NUMBER
+    # rather than order of appearance. Rest-only measures are absent from this
+    # list (multirests especially — this repertoire opens with an 11-bar rest),
+    # so counting appearances would collapse every rest to zero beats and make
+    # the timing fit think the player jumped ahead. Using the number lets the
+    # rests consume the beats they really occupy.
     bpm_m = max(1, int(beats_per_measure or 4))
-    order: dict = {}
-    for sn in out:
-        if sn["measure"] not in order:
-            order[sn["measure"]] = len(order)
-    for sn in out:
-        sn["abs_beat"] = order[sn["measure"]] * bpm_m + (sn["beat"] - 1.0)
+    if out:
+        first_m = min(sn["measure"] for sn in out)
+        for sn in out:
+            sn["abs_beat"] = (sn["measure"] - first_m) * bpm_m + (sn["beat"] - 1.0)
     return out
 
 
@@ -2150,11 +2151,17 @@ def read_score_notes_claude(
 
     prompt = f"""You are an expert music engraver reading sheet music for a {instrument} student.
 
-MEASURE NUMBERING — CRITICAL: Trust the printed measure numbers you can see on the page (numbers above/below the staff or boxed rehearsal numbers). The first printed number you see is the authoritative start. Do not renumber or recount — use exactly what is printed. If no numbers are printed, count barlines starting from {start_measure}.
+MEASURE NUMBERING — THE MOST IMPORTANT PART OF THIS TASK. Get this wrong and every piece of feedback points at the wrong bar.
+
+1. The printed numbers on the page are the ONLY source of truth. These are the small boxed numbers above the staff (e.g. 12, 20, 38, 50, 58). Assign them exactly as printed.
+2. MULTIRESTS CONSUME MEASURE NUMBERS. A bar drawn as a thick horizontal block with a number over it (e.g. "11", "4", "2") is that many WHOLE MEASURES of rest, not one measure. If a multirest of 11 sits before the bar printed "12", then those 11 rest measures are measures 1-11. After a multirest of N, the next measure number is (current + N). Skipping a multirest without advancing the count is the single most common way to get this wrong.
+3. Number every measure continuously across the whole line, including measures that contain only rests. You will NOT output the rest measures (see below) — but they must still consume their numbers, so the measures you DO output carry their true printed numbers.
+4. Therefore the "number" values you output will normally have GAPS in them (e.g. ... 37, then 40 ...). That is correct and expected. A perfectly consecutive 1,2,3,4... run is almost always a sign you renumbered — do not do that.
+5. Do NOT start counting from the student's starting measure, and do not renumber to make the first measure you see come out as any particular value. Only if the page shows no printed numbers anywhere should you count barlines, and in that case the FIRST measure in the image is measure 1.
 
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
-Return EVERY measure from the first barline to the last. For each sounded note (skip rests):
+Return every measure that CONTAINS AT LEAST ONE SOUNDED NOTE, in order. Omit measures that are entirely rest (including multirests) — but per the numbering rules above, they still consume their measure numbers. For each sounded note (skip rests):
 - "p": pitch in scientific notation ("D3", "F#4") — null only if notehead present but pitch unreadable
 - "b": beat position in measure (1.0 = downbeat)
 - "d": duration in beats
@@ -2230,11 +2237,43 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
             for m in (parsed.get("measures") or [])
             if isinstance(m.get("notes"), list)
         ]
-        if measures and measures[0].get("number") != start_measure:
-            for i, m in enumerate(measures):
-                m["number"] = start_measure + i
+        # DO NOT renumber to start at start_measure. This used to force
+        # m["number"] = start_measure + i for every measure, which threw away the
+        # printed numbers the prompt works hard to read and replaced them with a
+        # consecutive run. Two things break as a result:
+        #   * start_measure is where the STUDENT began playing, which is not where
+        #     the PHOTO begins — a photo of the whole part renumbered so its first
+        #     bar became m.20 shifted every label by the difference.
+        #   * consecutive numbering cannot represent multirests. This part opens
+        #     with an 11-bar rest and has 2/2/4-bar rests later; those consume
+        #     measure numbers, so real numbering has gaps and the offset grows
+        #     through the piece.
+        # Symptom was a flag labelled m.30 whose Loop clip played printed m.20.
+        # Keep whatever the page says; only repair entries that are unusable.
+        _prev = None
+        for i, m in enumerate(measures):
+            try:
+                n = int(m.get("number"))
+            except (TypeError, ValueError):
+                n = None
+            # Numbers must be strictly increasing; anything else is a misread.
+            if n is None or (_prev is not None and n <= _prev):
+                n = (_prev + 1) if _prev is not None else start_measure
+            m["number"] = n
+            _prev = n
         total_notes = sum(len(m["notes"]) for m in measures)
-        print(f"[read_score_notes_claude] {len(measures)} measures, {total_notes} notes")
+        if measures:
+            _nums = [m["number"] for m in measures]
+            _gaps = sum(1 for a, b in zip(_nums, _nums[1:]) if b != a + 1)
+            print(f"[read_score_notes_claude] {len(measures)} measures "
+                  f"m.{_nums[0]}-{_nums[-1]}, {total_notes} notes, {_gaps} numbering gap(s) "
+                  f"(gaps are expected wherever the part has multirests)")
+            if _gaps == 0 and _nums[0] == start_measure and len(_nums) > 8:
+                print("[read_score_notes_claude] WARNING: numbering is perfectly "
+                      "consecutive from start_measure — printed numbers may have been "
+                      "ignored; measure labels could be offset from the page")
+        else:
+            print(f"[read_score_notes_claude] {len(measures)} measures, {total_notes} notes")
         return {
             "key_signature":  parsed.get("key_signature"),
             "time_signature": parsed.get("time_signature"),

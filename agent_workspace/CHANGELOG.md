@@ -1,5 +1,53 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-15 (final) — Score reader was overwriting the printed measure numbers
+
+Reported: "it says measure 30 while the clip shows measure 20". Diagnosed by
+dumping the take's stored measure numbers, which came back as
+`20,21,22,…,87` — a perfectly consecutive run starting at exactly
+`start_measure`. That is not what the page says.
+
+**Cause:** `read_score_notes_claude` ended with
+
+    if measures and measures[0].get("number") != start_measure:
+        for i, m in enumerate(measures):
+            m["number"] = start_measure + i
+
+so every measure number Claude read off the page was thrown away and replaced
+with a consecutive run from the student's start measure. Two independent things
+break:
+
+- `start_measure` is where the **student began playing**, not where the
+  **photo** begins. Downloaded the actual score image to confirm: it is the full
+  first page, and the first sounded bar is printed **12**. Renumbering it to 20
+  shifts every label by 8 immediately.
+- Consecutive numbering cannot represent **multirests**, and this part is full of
+  them — it opens with an 11-bar rest and has 2-, 2- and 4-bar rests later. Rest
+  measures consume numbers but are (correctly) not emitted, so true numbering has
+  gaps and the offset *grows* through the piece. Hence m.20 reading as m.30.
+
+Fixes:
+- Removed the renumbering. Printed numbers are kept as read; only entries that
+  are missing or non-monotonic get repaired, and only to the smallest sensible
+  value.
+- Rewrote the numbering section of the prompt: printed numbers are the sole
+  source of truth, a multirest consumes N measure numbers, gaps in the output are
+  expected and correct, and a perfectly consecutive run is the signature of the
+  bug. The no-printed-numbers fallback now starts at 1 rather than at
+  `start_measure`.
+- `flatten_score_notes` now derives `abs_beat` from the measure **number** rather
+  than order of appearance. With real numbering gaps, counting appearances would
+  collapse an 11-bar rest to zero beats and make the timing fit think the player
+  jumped ahead.
+- Logs the measure range and gap count, and warns explicitly when numbering comes
+  back perfectly consecutive from `start_measure` — the exact signature of this
+  bug, so it can never again be invisible in the take record.
+
+Verified: printed numbering with a multirest gap (…37, 40…) survives intact;
+malformed and non-monotonic entries are repaired; `abs_beat` advances 9 beats
+across a 2-bar rest in 3/4 as it should; DTW still labels a windowed take 54/54
+exactly. Deployed.
+
 ## 2026-08-15 (later still) — Flag measure numbers disagreed with the Loop clip
 
 Reported: "the clip played in Loop does not match the measure number". Both come

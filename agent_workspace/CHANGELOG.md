@@ -1,5 +1,30 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (hotfix) — NameError shipped; added a static check that would have caught it
+
+`Analysis failed: name 'time_sig_hint' is not defined`. My time-signature change
+used a variable belonging to a **different function** (`analyze`), not to
+`run_full_analysis`. Syntax was valid and all 47 tests passed, because no test
+executes `run_full_analysis` — it needs real audio and API keys. So the crash
+went straight to production.
+
+Ran pyflakes over the whole module and it found **two more landmines I had
+introduced in the same session**, neither of which any test would have reached:
+- `tempo_bpm` used inside `_timeline()` — that name does not exist there; the
+  function receives a `tempo` dict. Would have crashed whenever the tempo could
+  not be derived from the anchors.
+- `re.match` in `run_full_analysis` — `re` is imported inside other functions,
+  not at module level. Replaced with a plain split/isdigit check rather than
+  adding an import, since the validation is trivial.
+
+Added **test [0]: a static undefined-name check** over the entire worker, wired
+into the suite ahead of everything else. Unit tests only cover code they execute;
+a NameError in an unexercised branch is invisible to them but fatal in
+production. This reads the whole module, including paths no test touches.
+
+Suite: 48 checks. Requires `pyflakes` (the test reports clearly if it is missing
+rather than silently passing).
+
 ## 2026-08-16 (four fixes) — form wins, transposition, run-up in timing, hand naming
 
 **1. The form's time signature and measure range now win over the vision read.**

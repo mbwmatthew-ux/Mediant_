@@ -3159,7 +3159,12 @@ def compare_and_coach_claude(
             if spread_m > 0 and spread_t > 0:
                 spm = spread_t / spread_m
         if not spm or spm <= 0.05:
-            spm = (60.0 / tempo_bpm * bpm_grid) if tempo_bpm and tempo_bpm > 20 else 2.0
+            _bpm_hint = 0.0
+            try:
+                _bpm_hint = float((tempo or {}).get("bpm") or 0.0)
+            except (TypeError, ValueError):
+                _bpm_hint = 0.0
+            spm = (60.0 / _bpm_hint * bpm_grid) if _bpm_hint > 20 else 2.0
 
         tl = build_measure_timeline(lo, hi, anchors, spm,
                                     last_event_time=last_t, piece_len=piece_len)
@@ -4278,10 +4283,14 @@ def run_full_analysis(payload: dict) -> None:
         # beat axis, the timeline and every derived measure number. The student is
         # looking at the actual sheet music, so their answer is the better prior.
         # The read is only consulted when no usable value was supplied.
-        _user_ts = (time_sig_hint or "").strip()
+        _user_ts = (time_sig or "").strip()
         detected_ts = score.get("time_signature")
         chosen_ts, ts_source = (None, None)
-        if re.match(r'^\d+\s*/\s*\d+$', _user_ts):
+        _ts_parts = _user_ts.split("/")
+        _ts_valid = (len(_ts_parts) == 2
+                     and _ts_parts[0].strip().isdigit() and _ts_parts[1].strip().isdigit()
+                     and int(_ts_parts[0].strip()) > 0 and int(_ts_parts[1].strip()) > 0)
+        if _ts_valid:
             chosen_ts, ts_source = _user_ts, "form"
             if detected_ts and str(detected_ts).replace(" ", "") != _user_ts.replace(" ", ""):
                 print(f"[run_full_analysis] score read said time_sig={detected_ts!r} but the "

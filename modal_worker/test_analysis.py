@@ -490,11 +490,35 @@ def test_form_time_signature_wins():
           b3 != b2, f"3/4 -> {b3}, 2/4 -> {b2}")
 
 
+
+def test_no_undefined_names():
+    print("\n[0] static check: no undefined names in worker.py")
+    # A NameError in a branch the tests do not execute still reaches production.
+    # `name 'time_sig_hint' is not defined` shipped exactly that way — the name
+    # belonged to a different function, syntax was valid, and every test passed
+    # because none of them run run_full_analysis (it needs audio and API keys).
+    # pyflakes reads the whole module, including code no test touches.
+    import subprocess
+    worker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker.py")
+    try:
+        out = subprocess.run([sys.executable, "-m", "pyflakes", worker],
+                             capture_output=True, text=True, timeout=120)
+    except Exception as e:                                        # noqa: BLE001
+        check("pyflakes available", False, f"{type(e).__name__}: {e}")
+        return
+    if "No module named" in (out.stderr or ""):
+        check("pyflakes installed (pip install pyflakes)", False, out.stderr.strip()[:80])
+        return
+    undefined = [ln for ln in (out.stdout or "").splitlines() if "undefined name" in ln]
+    check("no undefined names anywhere in worker.py", not undefined,
+          "; ".join(u.split("worker.py:")[-1] for u in undefined[:4]))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
     print("=" * 70)
-    for t in (test_timeline_tiles, test_multirest_time, test_score_numbering,
+    for t in (test_no_undefined_names, test_timeline_tiles, test_multirest_time, test_score_numbering,
               test_dtw_labels, test_label_matches_loop, test_spans_merge,
               test_posture_spans, test_pathological_alignment_rejected,
               test_leading_silence_trimmed, test_measure_from_notes,

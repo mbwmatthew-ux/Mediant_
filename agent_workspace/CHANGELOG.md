@@ -1,5 +1,42 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 — Concise flag bodies, descriptive sharp/flat titles, real intonation accuracy
+
+### Intonation accuracy (the substantive one)
+`cents_offset` was absolute against A=440, so an instrument tuned to A=442 — or
+a player sitting a few cents sharp throughout — produced one intonation flag per
+measure for a single tuning problem.
+
+- Cents are now measured **relative to the take's own reference pitch** (median
+  of confident, stable notes). The overall offset is reported **once**, as a
+  tuning matter, when it exceeds 10¢. A note genuinely out of tune against the
+  player's own centre still flags — verified by test.
+- Pitch is read on the note's **sustained core** (middle 60%), not the whole
+  window; attacks scoop and releases sag, worth ~6¢ of false flatness.
+- **Median** instead of mean, so one CREPE octave-error frame (~22¢ of drag on a
+  mean) cannot move the note.
+- Confidence gate 25 → **50**, plus a new spread gate: a note whose pitch travels
+  >35¢ has no centre to be sharp or flat of, so it is not flagged.
+- `measure_note_pitch()` and `apply_tuning_center()` extracted as pure functions
+  so this is testable without audio. 11 new checks, 59/59 passing.
+
+Noted for honesty: the log-vs-Hz averaging correction is in here too, but
+measurement showed it is worth ~0.2¢, not the flag-source I first claimed in the
+comment. The test failed on my overstatement and both are now corrected.
+
+### Flag bodies are tighter
+Coaching bodies were 3 sentences including "why it matters musically" — reliable
+filler. Now 2 sentences, 40 words max: what went wrong specifically, then the
+fix. The prompt explicitly bans the why-this-matters sentence, restating the
+issue type, and opening praise, while requiring that specifics (note names,
+beats, cents, hand, direction) are kept — concise means fewer words, not vaguer.
+
+### Sharp/flat titles say what, never how much
+Titles were hard-overwritten to bare "Sharp"/"Flat". They now read like "Flat on
+the sustained high notes" — direction first, then 2-5 words naming where. Claude's
+title is accepted only if it leads with the correct direction word, carries no
+number or cents value, and is 2-8 words; otherwise it falls back to the bare word.
+
 ## 2026-08-16 (hotfix) — Settings/Signup/Record/AppShell crashed: I overwrote an existing module
 
 `Minified React error #31 ... object with keys {name, family, transpose}` on

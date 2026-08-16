@@ -249,6 +249,91 @@ def _instrument_pitch_bounds(instrument: str) -> tuple[float, float]:
     return 32.70, 2093.0          # safe default covering cello–violin range
 
 
+def measure_note_pitch(hz_frames, conf_frames):
+    """Reduce a note's CREPE frames to one pitch reading.
+
+    Returns (midi_float, hz, cents_spread). Kept pure and separate from the
+    event loop because intonation flags live or die on this number, and it
+    needs to be testable without audio.
+
+    Three corrections over the obvious "confidence-weighted mean of the Hz
+    frames", in descending order of how much they actually matter:
+
+    1. Measure the SUSTAINED CORE, not the whole note. Nearly every instrument
+       scoops into the attack and sags on release; including those frames drags
+       the reading off centre. Worth ~6¢ on a typical scooped entry — enough on
+       its own to flag a note the listener hears as in tune.
+    2. Take a MEDIAN, not a mean. CREPE's characteristic failure is a lone
+       octave-jump frame, which a mean smears across the whole note (a single
+       bad frame in 40 moves a mean ~30¢); a median ignores it outright.
+    3. Average in MIDI (log) space rather than Hz. Pitch is logarithmic in
+       frequency, so the Hz-mean of a symmetric vibrato sits slightly sharp of
+       true centre. This one is correctness housekeeping, not a bug fix — the
+       bias is only ~0.2¢ at ±40¢ vibrato and does not reach the flag
+       threshold. It matters at extreme swings, and it costs nothing.
+    """
+    import numpy as np
+    hz_v   = np.asarray(hz_frames,   dtype=float)
+    conf_v = np.asarray(conf_frames, dtype=float)
+
+    n_v = len(hz_v)
+    if n_v >= 5:
+        lo = int(n_v * 0.20)
+        hi = max(lo + 1, int(n_v * 0.80))
+        hz_core, conf_core = hz_v[lo:hi], conf_v[lo:hi]
+    else:
+        hz_core, conf_core = hz_v, conf_v
+
+    midi_frames = 12.0 * np.log2(hz_core / 440.0) + 69.0
+    order = np.argsort(midi_frames)
+    mf_s  = midi_frames[order]
+    cw    = np.cumsum(conf_core[order] + 1e-6)
+    midi_float = float(mf_s[int(np.searchsorted(cw, cw[-1] / 2.0))])
+    hz         = 440.0 * (2.0 ** ((midi_float - 69.0) / 12.0))
+
+    # How far the pitch travelled across the core, in cents (10th–90th pct).
+    # A wide spread means vibrato, a slide, or an unstable note — the centre is
+    # then not a trustworthy intonation reading, and callers gate on this.
+    spread = (
+        float((np.percentile(mf_s, 90) - np.percentile(mf_s, 10)) * 100.0)
+        if len(mf_s) >= 4 else 0.0
+    )
+    return midi_float, hz, spread
+
+
+def apply_tuning_center(events) -> float:
+    """Re-express each note's cents offset relative to the take's own reference.
+
+    `cents_offset` is measured against A=440 equal temperament. If the
+    instrument is tuned to A=442, or the player simply sits a little sharp all
+    the way through, then EVERY note reads sharp and we emit one intonation
+    flag per measure for what is a single tuning problem.
+
+    The median of the confident, stable notes IS this performance's reference
+    pitch. Measuring each note against it is what "in tune with yourself"
+    means, and it is what a teacher actually hears. The overall offset is not
+    discarded — it is returned so it can be reported once, as a tuning matter,
+    which is the correct granularity for it.
+
+    Mutates each event: keeps the raw value as `cents_raw`, rewrites
+    `cents_offset` to the relative one, stamps `tuning_center`.
+    """
+    import numpy as np
+    ref = [e["cents_offset"] for e in events
+           if e.get("confidence", 0) >= 50 and e.get("cents_spread", 0) <= 35]
+    center = 0.0
+    if len(ref) >= 8:
+        # Clamped: past this the reading is likelier a bad take or an octave
+        # confusion than a tuning choice, and the notes should still surface
+        # individually rather than being normalised away.
+        center = max(-35.0, min(35.0, float(np.median(ref))))
+    for e in events:
+        e["cents_raw"]     = e["cents_offset"]
+        e["cents_offset"]  = round(e["cents_offset"] - center)
+        e["tuning_center"] = round(center, 1)
+    return center
+
+
 def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None, instrument: str = "") -> list[dict]:
     """
     Detect note events using CREPE (neural pitch tracking) + librosa onset detection.
@@ -387,10 +472,10 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             if not valid.any():
                 continue
 
-            dominant_hz = float(np.average(window_hz[valid], weights=window_conf[valid] + 1e-6))
+            midi_float, dominant_hz, cents_spread = measure_note_pitch(
+                window_hz[valid], window_conf[valid]
+            )
 
-            # Convert Hz → MIDI float → nearest semitone + cents offset
-            midi_float   = 12.0 * math.log2(dominant_hz / 440.0) + 69.0
             midi_raw     = int(round(midi_float))
             # Compute cents from the UN-clamped value so out-of-range notes
             # don't produce bogus offsets like -500¢.
@@ -417,12 +502,20 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 "midi_raw":    midi_raw,   # unclamped — used for wrong-note comparison
                 "pitch_hz":    round(dominant_hz, 2),
                 "cents_offset": cents_offset,
+                "cents_spread": round(cents_spread),
                 "confidence":  confidence,
                 "loudness":    loudness,
                 "source":      "crepe+librosa+dense",
             })
 
         events.sort(key=lambda e: e["time_sec"])
+
+        # Re-express intonation relative to the take's own reference pitch, so a
+        # sharp-tuned instrument is one tuning note instead of a flag per bar.
+        tuning_center = apply_tuning_center(events)
+        if abs(tuning_center) >= 5:
+            print(f"[run_pitch_tracking] performance tuning centre "
+                  f"{tuning_center:+.1f}¢ vs A=440 — intonation measured relative to it")
 
         # Clarinet harmonic suppression: clarinet overblows at the 12th (3× frequency),
         # so CREPE can track the 3rd harmonic instead of the fundamental. If the instrument
@@ -3354,7 +3447,7 @@ def compare_and_coach_claude(
         spb     = m_dur / max(1, bpm)
         for ev in events:
             cents = ev.get("cents_offset")
-            if cents is not None and abs(cents) >= cents_flag_threshold and ev.get("confidence", 100) >= 25:
+            if cents is not None and abs(cents) >= cents_flag_threshold and ev.get("confidence", 100) >= 50 and ev.get("cents_spread", 0) <= 35:
                 beat = max(1, round((ev["time_sec"] - m_start) / spb + 1, 2))
                 sign = "+" if cents > 0 else ""
                 evidence_candidates.append(
@@ -3772,10 +3865,29 @@ def compare_and_coach_claude(
     # Number these measures with the SAME time->measure mapping used for Gemini flags
     # (from the event's timestamp), so intonation and everything else stay consistent
     # and don't drift apart. The loop is anchored on the event timestamp too.
+    # First: is the WHOLE performance sitting off A=440? Per-note cents are now
+    # measured relative to the take's own tuning centre, so a uniformly sharp
+    # instrument no longer lights up every bar. That offset is still real and
+    # worth saying — once, as a tuning matter, not as an embouchure problem in
+    # thirty separate measures.
+    tuning_center = next((ev["tuning_center"] for ev in aligned
+                          if ev.get("tuning_center")), 0.0)
+    if abs(tuning_center) >= 10:
+        _dir = "sharp" if tuning_center > 0 else "flat"
+        _add(measure_lo, "intonation",
+             f"the whole take sits about {abs(round(tuning_center))}¢ {_dir} of A=440 — "
+             f"the playing is consistent with itself, so this is the instrument's "
+             f"tuning rather than your embouchure. Retune to a drone or tuner before "
+             f"the next run",
+             min((ev.get("time_sec") for ev in aligned
+                  if ev.get("time_sec") is not None), default=0.0),
+             confirmed=True, is_global=True,
+             measure_end=measure_hi, direction=_dir, priority=2)
+
     inton: dict[int, dict] = {}   # measure -> {cents, time, sharp}
     for ev in aligned:
         c = ev.get("cents_offset")
-        if c is not None and abs(c) >= cents_flag_threshold and ev.get("confidence", 100) >= 25:
+        if c is not None and abs(c) >= cents_flag_threshold and ev.get("confidence", 100) >= 50 and ev.get("cents_spread", 0) <= 35:
             t  = ev.get("time_sec")
             # This event IS a note DTW matched to the score, so its own measure
             # is the note-content answer. Preferring the time lookup over it (as
@@ -3799,7 +3911,8 @@ def compare_and_coach_claude(
             "tighten the embouchure slightly and increase air support"
         )
         _add(m, "intonation",
-             f"pitch runs {round(d['cents'])}¢ {direction} in this measure — {fix_hint}",
+             f"pitch sits {round(d['cents'])}¢ {direction} of the rest of your playing "
+             f"here — {fix_hint}",
              d["time"], confirmed=True, cents=round(d["cents"], 1), direction=direction)
 
     # 2b. Timing — CREPE+DTW owns it, exactly as CREPE owns intonation above.
@@ -3984,14 +4097,22 @@ The location given for each issue (e.g. "m.25" or "m.25-27") is the VERIFIED, au
 
 Every issue below is CONFIRMED — state it as fact. Never use hedging language like "possible", "may have", "appears to", or "worth checking".
 
-For "intonation" issues specifically: the title you write will be discarded and replaced with just "Sharp" or "Flat", so don't worry about the title for those — but make the body state the exact cents deviation (given in "observed") and a concrete embouchure/air-support fix for that direction.
+For "intonation" issues, the title MUST begin with the word "Sharp" or "Flat" (whichever the "observed" text says), followed by 2-5 words naming WHERE it happened — the note, register, or gesture. Examples of the right shape: "Flat on the sustained high notes", "Sharp entering the descending run", "Flat across the slurred leap". NEVER put a number, a cents value, or the words "slightly"/"very" in an intonation title — how far off it is belongs in the body, not the headline. Do not name the measure in the title.
 {f'Student note about this take (context only, do not excuse issues): "{user_note}"' if user_note else ''}
 
 ISSUES:
 {chr(10).join(issue_lines)}
 
+WRITE TIGHT. The body is 2 sentences, 40 words maximum:
+  1. What went wrong, concretely — the note, beat, interval, or cents value from "observed". Name the specific thing, not the category.
+  2. What to do about it — one practice instruction the student can act on today.
+
+Cut everything else. Do NOT write "this matters because...", "in a piece like this...", "as a musician you...", or any sentence explaining why the issue is worth caring about — the student already knows. Do not restate the issue type. Do not open with praise or a transition. Every clause must carry information the student did not already have from the title.
+
+Keep all specifics: note names, beats, cents, hand, direction. Concise means fewer words, NOT vaguer — "the F♯ on beat 3 lands early" is right, "some notes are rushed" is wrong.
+
 Return JSON only (no markdown):
-{{"coaching": [{{"i": <index>, "title": "<6-10 word specific title naming the exact issue>", "body": "<3 sentences: (1) what happened and where, (2) why it matters musically, (3) a specific practice fix the student can do today>"}}]}}"""
+{{"coaching": [{{"i": <index>, "title": "<4-8 word title naming the exact issue>", "body": "<2 sentences, 40 words max: what went wrong specifically, then the fix>"}}]}}"""
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         msg    = client.messages.create(
@@ -4019,16 +4140,24 @@ Return JSON only (no markdown):
     for i, iss in enumerate(deduped_issues):
         coach = coaching_by_index.get(i) or {}
         if iss["type"] == "intonation" and iss.get("direction"):
-            # User preference: the intonation title should just say "Sharp"/"Flat" —
-            # the cents amount and fix belong in the body, not the headline. Overrides
-            # whatever title Claude wrote (it's told this will happen; the coaching
-            # prompt asks it to focus effort on the body for these instead).
-            title = iss["direction"].capitalize()
+            # Intonation titles say the direction AND what was out of tune, but
+            # never how far out — the cents value belongs in the body, not the
+            # headline. Take Claude's title only if it obeys both rules, since a
+            # title that leads with the wrong direction word is worse than a
+            # plain one.
+            direction = iss["direction"]
+            cand = re.sub(r"\s+", " ", str(coach.get("title") or "")).strip(" .")
+            ok = (
+                cand.lower().startswith(direction)
+                and not re.search(r"\d|¢|cent", cand, re.I)
+                and 2 <= len(cand.split()) <= 8
+            )
+            title = (cand[0].upper() + cand[1:]) if ok else direction.capitalize()
         else:
             title = coach.get("title") or f"{TYPE_LABEL.get(iss['type'], iss['type'].title())} — m.{iss['measure']}"
         body  = coach.get("body") or (
-            f"{iss['observed']}. Focus a few slow, careful repetitions on this spot, "
-            f"listening closely, before playing it back up to tempo."
+            f"{iss['observed']}. Play it slowly a few times, listening closely, "
+            f"before taking it back up to tempo."
         )
         # Build the loop window from the SAME mapping that produced the measure label
         # (measure_to_time_range is the exact inverse of time_to_measure). This is what

@@ -491,6 +491,97 @@ def test_form_time_signature_wins():
 
 
 
+def test_pitch_measurement_is_unbiased():
+    print("\n[16] pitch reading: vibrato must not read sharp, attacks must not read flat")
+    import numpy as np
+    A4 = 440.0
+
+    # A perfectly centred vibrato, ±40¢ at A440. The true pitch is A440 exactly.
+    # Averaging in Hz lands sharp of centre (pitch is logarithmic in frequency),
+    # but measured: only ~0.2¢ at this depth. Asserting the DIRECTION and the
+    # smallness on purpose — an earlier draft of this comment claimed the Hz
+    # bias was inventing sharp flags, and that was simply not true. The wins
+    # below (core trimming, median) are the ones that carry real weight.
+    t   = np.linspace(0, 4 * np.pi, 60)
+    vib = A4 * 2.0 ** ((40.0 * np.sin(t)) / 1200.0)
+    conf = np.full(60, 0.9)
+
+    naive_hz    = float(np.average(vib, weights=conf))
+    naive_cents = 1200.0 * np.log2(naive_hz / A4)
+    midi, hz, spread = w.measure_note_pitch(vib, conf)
+    ours_cents  = 1200.0 * np.log2(hz / A4)
+
+    check("Hz-averaging bias is sharp but negligible, not a flag source",
+          0 < naive_cents < 1.0, f"{naive_cents:+.2f}¢ — below any threshold")
+    check("log-domain median centres the vibrato",
+          abs(ours_cents) < 3.0, f"{ours_cents:+.1f}¢")
+    check("wide vibrato is reported as a wide spread, so it won't be flagged",
+          spread > 35, f"{spread:.0f}¢ spread")
+
+    # A note that scoops in 60¢ flat and settles: the sustained pitch is the
+    # true one. Including the attack drags the reading flat and would flag a
+    # note the listener hears as in tune.
+    scoop = np.concatenate([
+        A4 * 2.0 ** (np.linspace(-60, 0, 10) / 1200.0),   # attack scoop
+        np.full(40, A4),                                   # sustained core
+    ])
+    conf_s = np.full(50, 0.9)
+    naive_scoop = 1200.0 * np.log2(float(np.average(scoop, weights=conf_s)) / A4)
+    _, hz_s, _  = w.measure_note_pitch(scoop, conf_s)
+    ours_scoop  = 1200.0 * np.log2(hz_s / A4)
+    check("a scooped attack does not drag the reading flat",
+          abs(ours_scoop) < 2.0, f"{ours_scoop:+.1f}¢ (whole-window {naive_scoop:+.1f}¢)")
+
+    # One octave-jump frame (CREPE's classic failure) must not move the note.
+    # This is where the median genuinely earns its place: a mean would drag the
+    # reading by tens of cents, straight through the flag threshold.
+    octave_err = np.full(40, A4); octave_err[17] = A4 / 2
+    conf_o = np.full(40, 0.9)
+    mean_err = 1200.0 * np.log2(float(np.average(octave_err, weights=conf_o)) / A4)
+    _, hz_o, _ = w.measure_note_pitch(octave_err, conf_o)
+    check("a single octave-error frame does not move the note",
+          abs(1200.0 * np.log2(hz_o / A4)) < 2.0,
+          f"median {1200.0 * np.log2(hz_o / A4):+.1f}¢ vs mean {mean_err:+.1f}¢")
+
+
+def test_tuning_center_normalisation():
+    print("\n[17] a sharp-tuned instrument is one tuning note, not a flag per bar")
+    # Every note 14¢ sharp of A=440 but perfectly in tune with itself — a player
+    # tuned to ~A=443. Previously this flagged every single measure.
+    evs = [{"cents_offset": 14, "confidence": 90, "cents_spread": 5}
+           for _ in range(20)]
+    center = w.apply_tuning_center(evs)
+    check("the tuning centre is detected", abs(center - 14) < 1.0, f"{center:+.1f}¢")
+    check("consistently-tuned notes read as in tune with themselves",
+          all(abs(e["cents_offset"]) <= 2 for e in evs),
+          f"max {max(abs(e['cents_offset']) for e in evs)}¢")
+    check("the raw offset is preserved for the global tuning note",
+          all(e["cents_raw"] == 14 for e in evs))
+
+    # Same player, but one note genuinely 30¢ sharper than the rest. That note
+    # must still be caught — normalisation must not launder real problems.
+    evs2 = [{"cents_offset": 14, "confidence": 90, "cents_spread": 5}
+            for _ in range(20)]
+    evs2[7]["cents_offset"] = 44
+    w.apply_tuning_center(evs2)
+    check("a genuinely out-of-tune note still stands out",
+          evs2[7]["cents_offset"] >= 25, f"{evs2[7]['cents_offset']}¢ relative")
+
+    # Too few notes to establish a reference: leave the readings alone rather
+    # than inventing a centre from three samples.
+    evs3 = [{"cents_offset": 20, "confidence": 90, "cents_spread": 5}
+            for _ in range(3)]
+    check("no centre is inferred from too few notes",
+          w.apply_tuning_center(evs3) == 0.0)
+
+    # Unstable / low-confidence notes must not define the reference.
+    evs4 = ([{"cents_offset": 2,  "confidence": 90, "cents_spread": 5} for _ in range(12)]
+            + [{"cents_offset": 45, "confidence": 20, "cents_spread": 90} for _ in range(12)])
+    c4 = w.apply_tuning_center(evs4)
+    check("junk frames do not define the tuning reference",
+          abs(c4 - 2) < 2.0, f"{c4:+.1f}¢")
+
+
 def test_no_undefined_names():
     print("\n[0] static check: no undefined names in worker.py")
     # A NameError in a branch the tests do not execute still reaches production.
@@ -526,7 +617,9 @@ def main():
               test_runup_excluded_even_when_alignment_rejected,
               test_measure_starts_on_a_note_not_noise,
               test_transposing_instrument_not_flagged_as_wrong_notes,
-              test_form_time_signature_wins):
+              test_form_time_signature_wins,
+              test_pitch_measurement_is_unbiased,
+              test_tuning_center_normalisation):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

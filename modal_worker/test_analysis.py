@@ -337,6 +337,65 @@ def test_measure_from_notes():
           all(START <= e["measure"] <= END for e in late), f"{len(late)} events")
 
 
+
+def test_loop_always_plays_the_flagged_measure():
+    print("\n[11] HARD INVARIANT: Loop plays the measure on the flag")
+    score = make_score()
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    for e in aligned:
+        if e["measure"] in (24, 25, 31):
+            e["cents_offset"] = 33
+
+    # Adversarial: Gemini reports measures that are nonsense (way out of range,
+    # zero, and one just past the end). These used to resolve to the FIRST
+    # measure's window while keeping their bogus label.
+    gem = dict(EMPTY_GEMINI)
+    gem["rhythm_issues"] = [
+        {"measure": 999, "time": "0:05", "description": "rushed"},
+        {"measure": 0,   "time": "0:11", "description": "dragged"},
+        {"measure": 41,  "time": "0:17", "description": "hesitated"},
+    ]
+    gem["tone_issues"] = [{"measure": 12345, "time": "0:20", "description": "thin tone"}]
+    flags = run_pipeline(score, aligned, gemini=gem)
+    check("still produced flags", len(flags) > 0, f"{len(flags)}")
+
+    # Rebuild the canonical timeline exactly as the worker does, then require
+    # that the window on every flag really is the measure(s) it claims.
+    anchors = {}
+    for e in aligned:
+        m, t2 = e["measure"], e["time_sec"]
+        if e.get("confidence", 100) >= 50 and (m not in anchors or t2 < anchors[m]):
+            anchors[m] = t2
+    tl = w.build_measure_timeline(min(anchors), max(anchors), anchors,
+                                  BEATS_PER_MEASURE * SEC_PER_BEAT,
+                                  last_event_time=max(e["time_sec"] for e in aligned))
+
+    def measure_at(t):
+        if t < tl[0]["start"]:
+            return tl[0]["measure"]
+        for r in tl:
+            if r["start"] <= t < r["end"]:
+                return r["measure"]
+        return tl[-1]["measure"]
+
+    mismatches = []
+    for f in flags:
+        ts, te = f.get("timestamp_start"), f.get("timestamp_end")
+        if ts is None or te is None:
+            continue
+        probe = ts + min(0.05, max(0.0, (te - ts) * 0.1))
+        actual = measure_at(probe)
+        lo, hi = f["measure"], f.get("measure_end") or f["measure"]
+        if not (lo <= actual <= hi):
+            mismatches.append((lo, hi, actual, round(ts, 2), round(te, 2)))
+    check("EVERY flag's loop plays its own measure", not mismatches,
+          f"{len(mismatches)} mismatch(es): {mismatches[:4]}")
+    check("no flag escaped the played range",
+          all(START <= f["measure"] <= END for f in flags),
+          str(sorted({f["measure"] for f in flags})))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -344,7 +403,8 @@ def main():
     for t in (test_timeline_tiles, test_multirest_time, test_score_numbering,
               test_dtw_labels, test_label_matches_loop, test_spans_merge,
               test_posture_spans, test_pathological_alignment_rejected,
-              test_leading_silence_trimmed, test_measure_from_notes):
+              test_leading_silence_trimmed, test_measure_from_notes,
+              test_loop_always_plays_the_flagged_measure):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

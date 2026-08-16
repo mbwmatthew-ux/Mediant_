@@ -3185,8 +3185,15 @@ def compare_and_coach_claude(
         if not tl:
             return (0.0, 0.0)
         idx = _timeline_cache["idx"]
-        a = idx.get(int(m0)) or tl[0]
-        b = idx.get(int(m1)) if m1 else None
+        # Clamp into the timeline instead of falling back to tl[0]. A measure that
+        # is not in the timeline (Gemini's own printed number, or one parsed out
+        # of free text) used to silently resolve to the FIRST measure, so the Loop
+        # played bar one while the flag said bar thirty. Clamping keeps the window
+        # adjacent to what was asked for, and the invariant pass below then
+        # relabels the flag to whatever actually plays.
+        lo_m, hi_m = tl[0]["measure"], tl[-1]["measure"]
+        a = idx.get(min(max(int(m0), lo_m), hi_m)) or tl[0]
+        b = idx.get(min(max(int(m1), lo_m), hi_m)) if m1 else None
         t0, t1 = a["start"], (b or a)["end"]
         if t1 <= t0:
             t1 = a["end"]
@@ -3904,6 +3911,44 @@ Return JSON only (no markdown):
             "timing_deviation_ms":  iss["timing"],
             "confirmed":            iss["confirmed"],
         })
+
+    # ── HARD INVARIANT: the Loop must play the measure printed on the flag ────
+    # Everything above is *supposed* to keep these in step, and has been rewritten
+    # several times to do so. This pass makes it impossible to ship a flag that
+    # does not, regardless of which upstream path produced the measure number.
+    #
+    # The Loop window is authoritative, because it is what the user actually
+    # hears. So we ask the canonical timeline which measure the window really
+    # plays, and if the label disagrees, the LABEL is corrected — never the other
+    # way round. Silently relabelling is the right trade: a flag pointing at the
+    # bar you can hear is useful, a flag pointing at a bar that never plays is
+    # not.
+    _relabelled = 0
+    for f in flags:
+        ts, te = f.get("timestamp_start"), f.get("timestamp_end")
+        if ts is None:
+            continue
+        # Probe just inside the window so a boundary does not resolve to the
+        # neighbouring measure.
+        probe = ts + min(0.05, max(0.0, (te - ts) * 0.1)) if te and te > ts else ts
+        actual = time_to_measure(probe)
+        if actual is None:
+            continue
+        labelled, labelled_end = f["measure"], f.get("measure_end")
+        span_ok = (labelled <= actual <= labelled_end) if labelled_end else (actual == labelled)
+        if not span_ok:
+            print(f"[compare_and_coach_claude] flag labelled m.{labelled}"
+                  f"{'-' + str(labelled_end) if labelled_end else ''} but its loop "
+                  f"({ts:.2f}-{te:.2f}s) plays m.{actual} — relabelling to match the audio")
+            if labelled_end and labelled_end > labelled:
+                shift = actual - labelled
+                f["measure"], f["measure_end"] = actual, labelled_end + shift
+            else:
+                f["measure"] = actual
+            _relabelled += 1
+    if _relabelled:
+        print(f"[compare_and_coach_claude] corrected {_relabelled} flag label(s) to "
+              f"match what the Loop plays")
 
     flags.sort(key=lambda x: x["measure"])
     # Do NOT group: the user wants to see EVERY played measure with an issue as its own

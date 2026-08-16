@@ -1,5 +1,32 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (hard invariant) — the Loop is now guaranteed to play the flagged measure
+
+Found the remaining guaranteed-mismatch path and then made the whole class of
+bug unshippable rather than fixing one more instance of it.
+
+**The path.** `measure_to_time_range()` did `idx.get(int(m0)) or tl[0]`. Any flag
+whose measure was not in the timeline — Gemini's own printed number, or a number
+parsed out of free text, neither of which is bounded by anything — silently
+resolved to **the first measure's window**. So the flag said m.30 and the Loop
+played bar one. Now clamped into the timeline instead of falling back.
+
+**The guarantee.** A final pass runs over every flag before it is returned. It
+asks the canonical timeline which measure the flag's Loop window *actually*
+plays, and if that disagrees with the label, **the label is corrected** — never
+the other way round. The Loop window is authoritative because it is what the user
+hears; a flag pointing at the bar you can hear is useful, a flag pointing at a
+bar that never plays is not. Any correction is logged with both values.
+
+This means no future upstream change — a new flag source, a different score
+reader, another alignment tier — can reintroduce a label/audio mismatch. It is
+checked at the exit, not trusted along the way.
+
+**Adversarial test.** Test 11 feeds deliberately corrupt measure numbers (999, 0,
+41, 12345) and asserts that every emitted flag's Loop window really is the
+measure(s) it claims, using a timeline rebuilt the same way the worker builds it.
+Suite is 38 checks.
+
 ## 2026-08-16 (final) — Measures start at the music; measure = the matched note
 
 Two requests: the first measure was being labelled over the seconds spent

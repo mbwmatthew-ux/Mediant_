@@ -298,13 +298,53 @@ def test_pathological_alignment_rejected():
           all(abs(a["end"] - b["start"]) < 1e-6 for a, b in zip(fixed, fixed[1:])))
 
 
+
+def test_leading_silence_trimmed():
+    print("\n[9] the first measure starts at the music, not the run-up")
+    score = make_score()
+    played, evs = make_performance(score)
+    # 3 seconds of settling before the first note: low-confidence noise, plus one
+    # isolated confident click (a key/stand knock) that must not open the piece.
+    noise = [{"time_sec": 0.2, "pitches": ["C4"], "confidence": 12, "cents_offset": 0},
+             {"time_sec": 0.9, "pitches": ["D4"], "confidence": 18, "cents_offset": 0},
+             {"time_sec": 1.4, "pitches": ["E4"], "confidence": 66, "cents_offset": 0}]
+    shifted = [{**e, "time_sec": e["time_sec"] + 3.0} for e in evs]
+    aligned = w.dtw_align_to_score(noise + shifted, score, START, BEATS_PER_MEASURE, end_measure=END)
+    flags = run_pipeline(score, aligned)
+    first_note_t = min(e["time_sec"] for e in shifted)
+    starts = [f["timestamp_start"] for f in flags if f.get("timestamp_start") is not None]
+    check("no flag window opens before the music",
+          all(t >= first_note_t - 0.6 for t in starts) if starts else True,
+          f"earliest {min(starts):.2f}s vs first note {first_note_t:.2f}s" if starts else "no flags")
+
+
+def test_measure_from_notes():
+    print("\n[10] measure comes from the notes, not elapsed time")
+    score = make_score()
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Every event should report the measure of the score note it was matched to.
+    truth = [m["number"] for m in played for _ in m["notes"]]
+    got = [e["measure"] for e in aligned]
+    check("each event carries its matched note's measure",
+          got == truth, f"{sum(1 for a,b in zip(got,truth) if a==b)}/{len(truth)}")
+    # After a big hesitation, elapsed time and note content disagree; the note wins.
+    warped = w.dtw_align_to_score(
+        [{**e, "time_sec": e["time_sec"] + (2.5 if e["time_sec"] > 9.0 else 0.0)} for e in evs],
+        score, START, BEATS_PER_MEASURE, end_measure=END)
+    late = [e for e in warped if e["time_sec"] > 12.0]
+    check("notes after a hesitation keep their true measures",
+          all(START <= e["measure"] <= END for e in late), f"{len(late)} events")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
     print("=" * 70)
     for t in (test_timeline_tiles, test_multirest_time, test_score_numbering,
               test_dtw_labels, test_label_matches_loop, test_spans_merge,
-              test_posture_spans, test_pathological_alignment_rejected):
+              test_posture_spans, test_pathological_alignment_rejected,
+              test_leading_silence_trimmed, test_measure_from_notes):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

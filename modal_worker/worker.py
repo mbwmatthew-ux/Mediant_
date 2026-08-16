@@ -3034,6 +3034,30 @@ def compare_and_coach_claude(
 
         last_t = max([0.0] + [float(e["time_sec"]) for e in (aligned or []) if e.get("time_sec") is not None])
 
+        # Where the MUSIC starts, which is not where the recording starts. Takes
+        # open with the player settling, breathing, adjusting the stand — CREPE
+        # emits low-periodicity events for that, and whichever measure they land
+        # on absorbs the whole run-up, so the first measure was being labelled
+        # over the seconds before a note was played. Require a confident event
+        # that is followed by another within two seconds, so an isolated key
+        # click or breath cannot open the piece.
+        # Require DENSITY, not just a neighbour: the first confident event that has
+        # at least three confident events within the following two seconds. A
+        # phrase begins with several notes in quick succession; a key click or a
+        # stand knock does not. (Merely "followed by another within 2s" was not
+        # enough — an isolated click 1.6s before the real entry still qualified
+        # and opened the piece early.)
+        music_t0 = None
+        _conf = sorted(float(e["time_sec"]) for e in (aligned or [])
+                       if e.get("time_sec") is not None and e.get("confidence", 0) >= 50)
+        for _i, _t in enumerate(_conf):
+            _near = sum(1 for _u in _conf[_i:] if _u - _t <= 2.0)
+            if _near >= 3:
+                music_t0 = _t
+                break
+        if music_t0 is None and _conf:
+            music_t0 = _conf[0]
+
         # Tier choice happens HERE and only here.
         anchors: dict[int, float] = {}
         tier = "uniform"
@@ -3041,6 +3065,10 @@ def compare_and_coach_claude(
             for e in aligned:
                 m, t = e.get("measure"), e.get("time_sec")
                 if m is None or t is None:
+                    continue
+                # Ignore anything before the music actually starts, so the run-up
+                # is not folded into the first measure.
+                if music_t0 is not None and float(t) < music_t0 - 0.05:
                     continue
                 m = int(m)
                 if m not in anchors or t < anchors[m]:
@@ -3100,6 +3128,35 @@ def compare_and_coach_claude(
         _timeline_cache["tl"] = tl
         _timeline_cache["idx"] = {r["measure"]: r for r in tl}
         return tl
+
+    def measure_from_notes(tsec: float | None) -> int | None:
+        """
+        Which measure a moment belongs to, decided by the NOTES rather than by
+        elapsed time: snap to the nearest event DTW matched against the score's
+        pitch sequence, and take that note's measure.
+
+        Time lookup answers "what should be sounding now if the tempo held";
+        this answers "which written note was actually sounding", which is what a
+        teacher means by "the issue is in bar 24". They agree in steady playing
+        and diverge exactly where it matters — after a hesitation, a dropped
+        note, or any rubato. Falls back to the timeline when there is no note
+        correspondence (no score DTW, or a moment with no detected pitch).
+        """
+        if tsec is None or not aligned:
+            return None
+        best, best_d = None, None
+        for e in aligned:
+            t, m = e.get("time_sec"), e.get("measure")
+            if t is None or m is None or e.get("confidence", 100) < 25:
+                continue
+            d = abs(float(t) - float(tsec))
+            if best_d is None or d < best_d:
+                best, best_d = int(m), d
+        # Only trust the snap when a real note is nearby; past that the nearest
+        # note says nothing useful about this moment.
+        if best is not None and best_d is not None and best_d <= 1.5:
+            return best
+        return None
 
     def time_to_measure(tsec: float | None) -> int | None:
         """Recording time -> measure number. Reads the canonical timeline."""
@@ -3522,7 +3579,8 @@ def compare_and_coach_claude(
             gm_measure_end, tsec_end = None, None   # ranges are meaningless when spreading
         # Beat-grid measure from the timestamp is primary; Gemini's own number is only a
         # fallback when there is no timestamp to place the issue.
-        m = time_to_measure(tsec)
+        # Prefer the note-content match over elapsed time — see measure_from_notes.
+        m = measure_from_notes(tsec) or time_to_measure(tsec)
         if m is None:
             m = gm_measure
         if m is None or m <= 0:
@@ -3557,7 +3615,10 @@ def compare_and_coach_claude(
         c = ev.get("cents_offset")
         if c is not None and abs(c) >= cents_flag_threshold and ev.get("confidence", 100) >= 25:
             t  = ev.get("time_sec")
-            mm = time_to_measure(t)
+            # This event IS a note DTW matched to the score, so its own measure
+            # is the note-content answer. Preferring the time lookup over it (as
+            # this did) threw away the better signal.
+            mm = ev.get("measure") or time_to_measure(t)
             if mm is None:
                 mm = ev.get("measure")
             if mm is None:

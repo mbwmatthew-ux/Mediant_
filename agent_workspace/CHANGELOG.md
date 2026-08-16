@@ -1,5 +1,38 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (final) — Measures start at the music; measure = the matched note
+
+Two requests: the first measure was being labelled over the seconds spent
+preparing to play, and issue measures should come from actually reading the
+notes rather than from elapsed time.
+
+**Run-up no longer counts as the first measure.** CREPE emits low-periodicity
+events while the player settles, breathes and adjusts, and whichever measure they
+landed on absorbed the whole lead-in — so m.20 started seconds before a note was
+played. The timeline now ignores everything before the music starts, defined as
+the first confident event with **at least three** confident events in the
+following two seconds. Density is the point: a phrase opens with several notes in
+quick succession, a key click does not. The first rule tried ("followed by
+another within 2s") was caught by its own test — an isolated click 1.6s before
+the real entry still qualified and opened the piece early.
+
+**Measures now come from the notes.** DTW already matched each played note to a
+note in the score, but that answer was being discarded:
+- intonation resolved its measure with `time_to_measure(t)` and only fell back to
+  the event's own matched note — backwards, since the event *is* a matched note
+- Gemini's findings were placed purely by timestamp
+
+Both now use the note correspondence first. New `measure_from_notes(t)` snaps a
+moment to the measure of the nearest DTW-matched note (within 1.5s, else it
+declines and the timeline answers). Time lookup says "what should be sounding if
+the tempo held"; the note match says "which written note *was* sounding" — which
+is what a teacher means by "the issue is in bar 24". They agree in steady playing
+and diverge exactly where it matters: after a hesitation, a dropped note, or any
+rubato.
+
+Test suite is 35 checks, adding lead-in trimming (with the isolated-click case
+that broke the first attempt) and note-derived measures across a hesitation.
+
 ## 2026-08-16 (later) — The score read was non-deterministic; that was corrupting everything
 
 Reported: flag measure still not matching the Loop clip. Pulled the take apart

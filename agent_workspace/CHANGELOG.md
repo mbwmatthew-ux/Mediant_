@@ -1,5 +1,41 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (run-up) — the loop still opened on the preparation. Root cause found in the logs.
+
+The lead-in trim shipped earlier today did not take effect, and the reason was
+not the trim — it was the safety net I added alongside it. Modal logs:
+
+    [measure_timeline] REJECTED tier=dtw_onsets: measure spans range
+    0.35-15.12s against a median of 0.84s — alignment is untrustworthy
+    [measure_timeline] tier=dtw_onsets+rejected_uneven m.20-37
+
+The score read is still poor (18 of 62 measures covered), so DTW came out
+lopsided, the sanity gate correctly rejected it — **and the even-distribution
+fallback then spread measures from t=0**, putting the entire run-up inside m.20.
+The trim was applied to the anchors it discarded. A take shipped with m.20's
+loop starting at 0.00s.
+
+Three fixes, all on the "measures begin at a note" rule:
+1. **The even fallback now starts at the first note**, not at zero: it spreads
+   measures across the part of the recording that actually has music.
+2. **Anchors require a confident event.** A measure was anchored on its first
+   event of any kind, so a low-periodicity blip (breath, key noise, stand knock)
+   inside a bar pulled its start earlier than anything audible. Now `confidence
+   >= 50`, falling back to any event only if a take has nothing confident.
+3. **A hard floor on every path**: whatever tier produced the timeline, if the
+   first measure starts before the first note the whole timeline is shifted so it
+   does not. Logged when it happens.
+
+Two new tests, both from this failure rather than invented: a run-up combined
+with a *rejected* alignment (the exact production shape — the earlier lead-in
+test passed because its alignment was healthy), and a measure whose first event
+is a blip rather than a note. Suite: 41 checks.
+
+**Still outstanding:** the score read remains the weak link — 62 measures for
+this page, DTW covering only 18. Measure *placement* is now correct and
+guaranteed against the audio, but placement can only be as good as the numbering
+underneath it.
+
 ## 2026-08-16 (hotfix) — score upload broke on the second upload of the same photo
 
 `Analysis failed: Sheet music upload failed: new row violates row-level security

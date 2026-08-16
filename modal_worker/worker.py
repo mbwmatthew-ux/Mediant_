@@ -3070,9 +3070,24 @@ def compare_and_coach_claude(
                 # is not folded into the first measure.
                 if music_t0 is not None and float(t) < music_t0 - 0.05:
                     continue
+                # A measure begins at its first real NOTE. Anchoring on any event
+                # lets a low-periodicity blip (breath, key noise, stand knock)
+                # inside the bar pull its start earlier than anything audible.
+                if e.get("confidence", 0) < 50:
+                    continue
                 m = int(m)
                 if m not in anchors or t < anchors[m]:
                     anchors[m] = float(t)
+            if len(anchors) < 2:      # nothing confident — fall back to any event
+                for e in aligned:
+                    m, t = e.get("measure"), e.get("time_sec")
+                    if m is None or t is None:
+                        continue
+                    if music_t0 is not None and float(t) < music_t0 - 0.05:
+                        continue
+                    m = int(m)
+                    if m not in anchors or t < anchors[m]:
+                        anchors[m] = float(t)
             tier = "dtw_onsets"
         if len(anchors) < 2 and alignment_ranges:
             anchors = {int(r["measure"]): float(r["start"]) for r in alignment_ranges}
@@ -3117,14 +3132,31 @@ def compare_and_coach_claude(
                       f"range {durs[0]:.2f}-{worst:.2f}s against a median of "
                       f"{med:.2f}s — alignment is untrustworthy (usually a bad "
                       f"score read). Falling back to an even distribution.")
-                span_t = max(last_t, spm * max(1, hi - lo + 1))
-                even = {m: (m - lo) * (span_t / max(1, hi - lo + 1)) for m in range(lo, hi + 1)}
-                tl = build_measure_timeline(lo, hi, even, span_t / max(1, hi - lo + 1),
+                # Spread the measures over the part of the recording that has
+                # MUSIC in it. Starting at 0 put the whole run-up inside the first
+                # measure — the loop for m.20 opened on the player still getting
+                # ready, which is exactly what this fallback is supposed to avoid.
+                t_begin = music_t0 if music_t0 is not None else 0.0
+                n_meas = max(1, hi - lo + 1)
+                step = max(0.25, (max(last_t, t_begin + spm) - t_begin) / n_meas)
+                even = {m: t_begin + (m - lo) * step for m in range(lo, hi + 1)}
+                tl = build_measure_timeline(lo, hi, even, step,
                                             last_event_time=last_t, piece_len=piece_len)
                 tier += "+rejected_uneven"
 
+        # Final floor: whatever tier produced this, no measure may begin before
+        # the first note was played.
+        if music_t0 is not None and tl and tl[0]["start"] < music_t0 - 0.05:
+            shift = music_t0 - tl[0]["start"]
+            for r in tl:
+                r["start"] = round(r["start"] + shift, 4)
+                r["end"] = round(r["end"] + shift, 4)
+            print(f"[measure_timeline] shifted +{shift:.2f}s so m.{tl[0]['measure']} "
+                  f"starts on the first note ({music_t0:.2f}s), not the run-up")
+
         print(f"[measure_timeline] tier={tier} m.{lo}-{hi} ({len(tl)} measures) "
-              f"spm={spm:.2f}s anchors={len(anchors)}")
+              f"spm={spm:.2f}s anchors={len(anchors)} music_t0="
+              f"{('%.2f' % music_t0) if music_t0 is not None else 'n/a'}")
         _timeline_cache["tl"] = tl
         _timeline_cache["idx"] = {r["measure"]: r for r in tl}
         return tl

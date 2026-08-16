@@ -396,6 +396,60 @@ def test_loop_always_plays_the_flagged_measure():
           str(sorted({f["measure"] for f in flags})))
 
 
+
+def test_runup_excluded_even_when_alignment_rejected():
+    print("\n[12] run-up excluded EVEN when the alignment is rejected")
+    # The exact production shape: a bad score read made DTW lopsided (spans
+    # 0.35s-15.12s), the sanity gate rejected it, and the even fallback then
+    # spread measures from t=0 — putting the whole run-up inside m.20's loop.
+    score = make_score()
+    played, evs = make_performance(score)
+    RUNUP = 3.0
+    noise = [{"time_sec": 0.3, "pitches": ["C4"], "confidence": 15, "cents_offset": 0},
+             {"time_sec": 1.1, "pitches": ["D4"], "confidence": 20, "cents_offset": 0}]
+    shifted = [{**e, "time_sec": e["time_sec"] + RUNUP} for e in evs]
+    aligned = w.dtw_align_to_score(noise + shifted, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Force the lopsided shape the gate rejects.
+    for e in aligned:
+        if e["time_sec"] < RUNUP:
+            e["measure"] = START
+    # Give it something to actually flag, including in the FIRST measure — that is
+    # the flag whose loop used to open on the run-up.
+    for e in aligned:
+        if e["measure"] in (START, 26, 27):
+            e["cents_offset"] = 34
+    flags = run_pipeline(score, aligned)
+    first_note = min(e["time_sec"] for e in shifted)
+    starts = [f["timestamp_start"] for f in flags if f.get("timestamp_start") is not None]
+    check("produced flags", len(flags) > 0, f"{len(flags)}")
+    check("no loop begins before the first note",
+          all(t2 >= first_note - 0.6 for t2 in starts) if starts else True,
+          f"earliest {min(starts):.2f}s vs first note {first_note:.2f}s" if starts else "none")
+
+
+def test_measure_starts_on_a_note_not_noise():
+    print("\n[13] a measure's loop starts on its note, not a blip inside it")
+    score = make_score()
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Insert a low-confidence blip early inside m.27, before its first real note.
+    m27 = [e for e in aligned if e["measure"] == 27]
+    blip_t = min(e["time_sec"] for e in m27) - 0.4
+    aligned.append({**m27[0], "time_sec": blip_t, "confidence": 12})
+    anchors = {}
+    for e in aligned:
+        if e.get("confidence", 0) >= 50:
+            m = e["measure"]
+            if m not in anchors or e["time_sec"] < anchors[m]:
+                anchors[m] = e["time_sec"]
+    tl = w.build_measure_timeline(min(anchors), max(anchors), anchors,
+                                  BEATS_PER_MEASURE * SEC_PER_BEAT,
+                                  last_event_time=max(e["time_sec"] for e in aligned))
+    start27 = [r for r in tl if r["measure"] == 27][0]["start"]
+    check("m.27 starts on its note, not the blip",
+          start27 > blip_t + 0.2, f"start {start27:.2f}s vs blip {blip_t:.2f}s")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -404,7 +458,9 @@ def main():
               test_dtw_labels, test_label_matches_loop, test_spans_merge,
               test_posture_spans, test_pathological_alignment_rejected,
               test_leading_silence_trimmed, test_measure_from_notes,
-              test_loop_always_plays_the_flagged_measure):
+              test_loop_always_plays_the_flagged_measure,
+              test_runup_excluded_even_when_alignment_rejected,
+              test_measure_starts_on_a_note_not_noise):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

@@ -1,5 +1,66 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 — Reworked the measure/time model onto one canonical timeline
+
+Asked to stop patching symptoms and rebuild this properly. Architecture note:
+`Knowledge/Analysis — measure timeline architecture.md`.
+
+**The actual defect.** `time_to_measure()` and `measure_to_time_range()` were two
+~70-line functions, each walking the same seven-tier ladder (DTW ranges → scaled
+beats → two-point map → uniform tempo → raw beats → …), kept mirrored by hand,
+with comments asserting they could never disagree. They disagreed constantly,
+because **each resolved its tier independently per call** — a flag could be
+labelled from the DTW tier while its Loop window came from the beat-grid tier.
+Every symptom this week was that one defect: wrong measure numbers, Loop not
+matching the label, Loop not cutting off correctly, posture on the wrong bar.
+Patching them one at a time never converged, and two of those patches each
+introduced a fresh off-by-one.
+
+**The rework.** `build_measure_timeline()` produces ONE contiguous,
+non-overlapping array of `{measure, start, end}` covering the played range,
+where every `end` is the next measure's `start`. The tier is chosen once, turned
+into anchors, and everything — labels, Loop windows, posture, span merging —
+reads that array. Disagreement is now structurally impossible rather than
+something to keep re-fixing. ~180 lines of duplicated ladder became ~120 lines
+with one source of truth.
+
+Measures with no anchor (rest bars, multirests, missed detections) are
+interpolated **on the measure-number axis** between neighbours, so they get real
+bounds instead of falling through to a different model — and an 11-bar multirest
+occupies eleven bars of time instead of collapsing.
+
+**The three reported issues, fixed via the framework rather than around it:**
+- *Loop not cutting off at the right measure* — a measure used to end on its last
+  note's ONSET, truncating that note and leaving a gap before the next measure.
+  It now ends exactly where the next begins; the final measure runs past its last
+  note.
+- *Posture flags on the wrong measure* — posture and technique are body
+  observations, not events; you do not slouch for one bar. Pinning them to
+  whichever measure held a timestamp (or to `measure_lo` when there was none) was
+  arbitrary by construction. They now span the passage, or an explicit range when
+  Gemini gives two timestamps.
+- *Multi-measure flags for continuous issues* — a strictly consecutive run of the
+  same type AND direction merges into one span carrying the worst magnitude in
+  the run. Deliberately conservative: an isolated measure stays separate, the
+  same fault recurring with gaps stays separate, and a flag with no direction
+  (Gemini free text) never merges — a wrong merge invents a span that was never
+  observed.
+
+**Stopped flying blind.** Added `modal_worker/test_analysis.py`: 29 ground-truth
+checks over a synthetic performance shaped like the real clarinet part (printed
+numbering from 12, a 2-bar multirest at 37→40). No audio, no API keys, no
+network. It asserts the contract the UI depends on — spans tile the timeline;
+every flag's Loop window lies inside its own measures; Loop covers the measure
+through its final note without spilling past it; printed numbering and multirests
+survive; continuous runs merge and unlike ones do not — plus degenerate anchor
+inputs (dense/sparse/single/none/inverted). **Run it before touching anything
+measure-related.** The two off-by-ones from earlier this week would each have
+been caught in seconds.
+
+Verified: 29/29 checks pass, and the seven timing scenarios (clean, late entry,
+rushed/dragged half, held note, gradual accelerando, human jitter) all still
+report the same correct root cause. Deployed to Modal.
+
 ## 2026-08-15 (final) — Score reader was overwriting the printed measure numbers
 
 Reported: "it says measure 30 while the clip shows measure 20". Diagnosed by

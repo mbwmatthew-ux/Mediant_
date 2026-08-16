@@ -2764,6 +2764,106 @@ def _group_similar_flags(flags: list) -> list:
     return result
 
 
+# ── Canonical measure timeline ─────────────────────────────────────────────
+
+def build_measure_timeline(
+    measure_lo: int,
+    measure_hi: int,
+    anchors: dict,
+    sec_per_measure: float,
+    last_event_time: float | None = None,
+    piece_len: float = 0.0,
+) -> list[dict]:
+    """
+    Build THE measure->time map: one contiguous, non-overlapping span per measure
+    covering measure_lo..measure_hi inclusive.
+
+    Why this exists. Measure labels and Loop windows used to be produced by two
+    separate ~70-line functions, each with the same seven-tier ladder (DTW ranges,
+    scaled beats, two-point map, uniform tempo, raw beats, ...), kept mirrored by
+    hand. Because each resolved its tier INDEPENDENTLY per call, a flag's label
+    could come from the DTW tier while its Loop window came from the beat-grid
+    tier — two different models of where a measure sits. That is the root cause of
+    every "the number doesn't match the clip" and "the loop doesn't stop at the
+    right measure" bug: not arithmetic, but two sources of truth.
+
+    Here the tier is chosen ONCE by the caller (it supplies whatever anchors it
+    has), and every consumer reads the single array this returns. Disagreement
+    becomes structurally impossible rather than something to keep re-fixing.
+
+    `anchors` maps measure number -> the time that measure is known to start.
+    Measures with no anchor (rest-only bars, multirests, anything the detector
+    missed) are INTERPOLATED between neighbouring anchors on the measure-number
+    axis, so they still get real bounds instead of falling through to a different
+    model. Interpolating on measure number — not on "index of measures we
+    happened to detect" — is what makes an 11-bar multirest occupy eleven bars of
+    time rather than collapsing to nothing.
+
+    Returns [{"measure": int, "start": float, "end": float}], ascending, where
+    every end == the next measure's start.
+    """
+    if measure_hi < measure_lo:
+        measure_hi = measure_lo
+    spm = float(sec_per_measure) if sec_per_measure and sec_per_measure > 0.05 else 1.0
+
+    # Keep only usable anchors, and enforce that time increases with measure
+    # number. A single mis-assigned onset would otherwise invert a segment and
+    # produce a negative-length measure.
+    pts: list[tuple[int, float]] = []
+    for m, t in sorted((int(k), float(v)) for k, v in anchors.items()
+                       if v is not None and measure_lo <= int(k) <= measure_hi):
+        if not pts or t > pts[-1][1]:
+            pts.append((m, t))
+
+    starts: dict[int, float] = {}
+    if len(pts) >= 2:
+        for m in range(measure_lo, measure_hi + 1):
+            if m <= pts[0][0]:
+                m0, t0 = pts[0]
+                m1, t1 = pts[1]
+                slope = (t1 - t0) / max(1, m1 - m0)
+                starts[m] = t0 - slope * (m0 - m)
+            elif m >= pts[-1][0]:
+                m0, t0 = pts[-2]
+                m1, t1 = pts[-1]
+                slope = (t1 - t0) / max(1, m1 - m0)
+                starts[m] = t1 + slope * (m - m1)
+            else:
+                for (ma, ta), (mb, tb) in zip(pts, pts[1:]):
+                    if ma <= m <= mb:
+                        frac = (m - ma) / max(1, mb - ma)
+                        starts[m] = ta + frac * (tb - ta)
+                        break
+    else:
+        base_m, base_t = pts[0] if pts else (measure_lo, 0.0)
+        for m in range(measure_lo, measure_hi + 1):
+            starts[m] = base_t + (m - base_m) * spm
+
+    # Strictly increasing, with a floor so no measure can be zero-length.
+    MIN_DUR = 0.12
+    ordered = sorted(starts)
+    for i, m in enumerate(ordered):
+        starts[m] = max(0.0, starts[m])
+        if i and starts[m] < starts[ordered[i - 1]] + MIN_DUR:
+            starts[m] = starts[ordered[i - 1]] + MIN_DUR
+
+    # end == next start, so the spans tile the timeline with no gaps or overlaps.
+    # The final measure has no successor: run it to the last sounded note plus a
+    # measure, which is what makes Loop include that measure's last note instead
+    # of stopping on its onset.
+    out: list[dict] = []
+    for i, m in enumerate(ordered):
+        if i + 1 < len(ordered):
+            end = starts[ordered[i + 1]]
+        else:
+            end = max(starts[m] + spm, (last_event_time or 0.0) + spm * 0.5)
+            if piece_len > 0:
+                end = min(end, piece_len)
+            end = max(end, starts[m] + MIN_DUR)
+        out.append({"measure": m, "start": round(starts[m], 4), "end": round(end, 4)})
+    return out
+
+
 def compare_and_coach_claude(
     score: dict, aligned: list[dict], alignment_ranges: list[dict],
     tempo: dict, piece_title: str, composer: str, instrument: str,
@@ -2891,186 +2991,125 @@ def compare_and_coach_claude(
     # drift a raw, uncorrected beat count would otherwise accumulate by the end.
     scaled_beat_times: list[float] | None = None
 
+    # ── THE measure<->time map ─────────────────────────────────────────────
+    # One timeline, built once, read by everything: flag labels, Loop windows,
+    # posture placement, span merging. This replaced two ~70-line functions that
+    # each walked the same seven-tier ladder (DTW ranges / scaled beats /
+    # two-point map / uniform tempo / raw beats / ...) and resolved their tier
+    # INDEPENDENTLY per call — so a flag could be labelled from the DTW tier
+    # while its Loop window came from the beat-grid tier. Two models of where a
+    # measure sits is what produced every "number doesn't match the clip" and
+    # "loop doesn't stop at the right measure" report. The tier is now chosen
+    # once, below, and turned into a single contiguous array.
+    #
+    # Built lazily: anchor_end is computed further down, and these closures are
+    # only ever called after that point.
+    _timeline_cache: dict = {}
+
+    def _timeline() -> list[dict]:
+        if "tl" in _timeline_cache:
+            return _timeline_cache["tl"]
+        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
+        bpm_grid = max(1, int(bpm_grid or 4))
+
+        lo = int(start_measure)
+        hi = int(anchor_end) if anchor_end and anchor_end > lo else None
+        seen = [int(e["measure"]) for e in (aligned or []) if e.get("measure") is not None]
+        seen += [int(r["measure"]) for r in (alignment_ranges or [])]
+        if seen:
+            lo = min(lo, min(seen))
+            hi = max(hi or lo, max(seen))
+        if hi is None:
+            hi = lo
+        hi = max(hi, lo)
+
+        last_t = max([0.0] + [float(e["time_sec"]) for e in (aligned or []) if e.get("time_sec") is not None])
+
+        # Tier choice happens HERE and only here.
+        anchors: dict[int, float] = {}
+        tier = "uniform"
+        if dtw_verified and aligned:
+            for e in aligned:
+                m, t = e.get("measure"), e.get("time_sec")
+                if m is None or t is None:
+                    continue
+                m = int(m)
+                if m not in anchors or t < anchors[m]:
+                    anchors[m] = float(t)
+            tier = "dtw_onsets"
+        if len(anchors) < 2 and alignment_ranges:
+            anchors = {int(r["measure"]): float(r["start"]) for r in alignment_ranges}
+            tier = "alignment_ranges"
+        if len(anchors) < 2 and scaled_beat_times and len(scaled_beat_times) >= 2:
+            anchors = {}
+            for m in range(lo, hi + 1):
+                idx = (m - lo) * bpm_grid
+                if 0 <= idx < len(scaled_beat_times):
+                    anchors[m] = float(scaled_beat_times[idx])
+            tier = "scaled_beats"
+        if len(anchors) < 2 and anchor_end and anchor_time and anchor_end > lo and anchor_time > 0:
+            anchors = {lo: 0.0, int(anchor_end): float(anchor_time)}
+            tier = "two_point"
+
+        spm = None
+        if len(anchors) >= 2:
+            ks = sorted(anchors)
+            spread_m, spread_t = ks[-1] - ks[0], anchors[ks[-1]] - anchors[ks[0]]
+            if spread_m > 0 and spread_t > 0:
+                spm = spread_t / spread_m
+        if not spm or spm <= 0.05:
+            spm = (60.0 / tempo_bpm * bpm_grid) if tempo_bpm and tempo_bpm > 20 else 2.0
+
+        tl = build_measure_timeline(lo, hi, anchors, spm,
+                                    last_event_time=last_t, piece_len=piece_len)
+        print(f"[measure_timeline] tier={tier} m.{lo}-{hi} ({len(tl)} measures) "
+              f"spm={spm:.2f}s anchors={len(anchors)}")
+        _timeline_cache["tl"] = tl
+        _timeline_cache["idx"] = {r["measure"]: r for r in tl}
+        return tl
+
     def time_to_measure(tsec: float | None) -> int | None:
-        """
-        Map a recording timestamp to a measure number. Gemini reliably reports WHEN
-        an issue happens (it watched the video) but often misreads the printed measure
-        number off the score photo — so we trust the timestamp and derive the measure.
-        """
+        """Recording time -> measure number. Reads the canonical timeline."""
         if tsec is None:
             return None
-        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
-        # ABSOLUTE BEST, when available: DTW-verified alignment ranges. These come from
-        # matching the ACTUAL PITCH SEQUENCE the student played against the score's note
-        # sequence (dtw_align_to_score/dtw_align_to_reference) — so a measure's boundary
-        # here reflects real note content, not beat-count arithmetic. Immune to the one
-        # failure mode nothing else can fully fix: a beat tracker miscounting a beat
-        # somewhere earlier in the piece and shifting every later boundary by that much.
-        if dtw_verified and alignment_ranges:
-            # Half-open [start, end). The ranges are contiguous — each measure's
-            # end IS the next measure's first onset — so an inclusive upper bound
-            # matches the earlier measure first and attributes every downbeat to
-            # the measure before it. The final range stays inclusive so the last
-            # note of the piece still lands somewhere.
-            for _i, r in enumerate(alignment_ranges):
-                _last = _i == len(alignment_ranges) - 1
-                if r["start"] <= tsec < r["end"] or (_last and tsec == r["end"]):
-                    return r["measure"]
-        # BEST (no DTW): real detected beats, anchor-corrected. Tracks the performance's actual
-        # tempo variation across the piece (a straight-line/constant-tempo model can't),
-        # while the rescale guarantees no drift at either end.
-        if scaled_beat_times and len(scaled_beat_times) >= 2 and bpm_grid >= 1:
-            idx = _bisect.bisect_right(scaled_beat_times, tsec) - 1
-            if idx < 0:
-                idx = 0
-            m = start_measure + idx // bpm_grid
-            return max(start_measure, min(anchor_end, m)) if anchor_end else m
-        # NEXT: two-point linear anchor. When we know the last measure (from the user or
-        # a reliable estimate) but have no usable beat-time array, map [0, duration] ->
-        # [start_measure, anchor_end] linearly. Exact at both ends, immune to tempo
-        # estimation error, but assumes constant tempo throughout.
-        if anchor_end and anchor_end > start_measure:
-            denom = anchor_time if (anchor_time and anchor_time > 0) else piece_len
-            if denom and denom > 0:
-                # Floor (not round) so this is exactly invertible by
-                # measure_to_time_range below — with round(), the measure label and
-                # the loop's time window could disagree by up to half a measure.
-                frac = min(1.0, max(0.0, tsec / denom))
-                m = start_measure + int(frac * (anchor_end - start_measure))
-                return max(start_measure, min(anchor_end, m))
-        try:
-            tempo_bpm = float((tempo or {}).get("bpm") or 0)
-        except (TypeError, ValueError):
-            tempo_bpm = 0.0
-        # Next: a UNIFORM grid from the global tempo. A raw beat-count (below) drifts
-        # high over the piece because beat trackers detect spurious beats in fast
-        # passages (e.g. sixteenth-note runs) — that over-count accumulates so the END
-        # measure comes out too high. A steady tempo grid does not accumulate that error.
-        if tempo_bpm > 20 and bpm_grid >= 1:
-            sec_per_measure = bpm_grid * 60.0 / tempo_bpm
-            if sec_per_measure > 0.2:
-                return start_measure + int(max(0.0, tsec) // sec_per_measure)
-        # Fallback: count detected beats (unscaled — no anchor was available to correct it).
-        if beat_times and len(beat_times) >= 2 and bpm_grid >= 1:
-            idx = _bisect.bisect_right(beat_times, tsec) - 1
-            if idx < 0:
-                idx = 0
-            return start_measure + idx // bpm_grid
-        for r in alignment_ranges:
-            if r["start"] <= tsec <= r["end"]:
+        tl = _timeline()
+        if not tl:
+            return None
+        if tsec < tl[0]["start"]:
+            return tl[0]["measure"]
+        for r in tl:
+            if r["start"] <= tsec < r["end"]:
                 return r["measure"]
-        if piece_len > 0 and measure_hi > measure_lo:
-            frac = min(1.0, max(0.0, tsec / piece_len))
-            return int(round(measure_lo + frac * (measure_hi - measure_lo)))
-        return None
-
-    def _raw_measure_time_range(m0: int, m1: int) -> tuple[float, float]:
-        """Same priority tiers as before — see measure_to_time_range for the margin
-        applied on top of this raw result."""
-        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
-
-        # ABSOLUTE BEST, when available: DTW-verified ranges — same source and tier
-        # time_to_measure checks first, so the label and the loop window can never
-        # disagree. Built from real detected note onsets matched to the score's actual
-        # pitch sequence, not beat-count arithmetic.
-        if dtw_verified:
-            r0, r1 = range_map.get(m0), range_map.get(m1)
-            if r0 and r1:
-                return (r0["start"], max(r0["start"], r1["end"]))
-            if r0:
-                return (r0["start"], r0["end"])
-
-        # BEST (no DTW): real detected beats, anchor-corrected — same tier and array
-        # time_to_measure checks first, so the label and the loop window can never
-        # disagree about where a measure's real (tempo-fluctuation-aware) boundary is.
-        if scaled_beat_times and len(scaled_beat_times) >= 2 and bpm_grid >= 1:
-            n = len(scaled_beat_times)
-            avg_beat = (scaled_beat_times[-1] - scaled_beat_times[0]) / max(1, n - 1)
-            idx0 = (m0 - start_measure) * bpm_grid
-            idx1 = (m1 + 1 - start_measure) * bpm_grid
-            t0 = scaled_beat_times[idx0] if 0 <= idx0 < n else scaled_beat_times[-1] + avg_beat * (idx0 - (n - 1))
-            t1 = scaled_beat_times[idx1] if 0 <= idx1 < n else scaled_beat_times[-1] + avg_beat * (idx1 - (n - 1))
-            return (max(0.0, t0), max(t0, t1))
-
-        if anchor_end and anchor_end > start_measure:
-            denom = anchor_time if (anchor_time and anchor_time > 0) else piece_len
-            total = anchor_end - start_measure
-            if denom and denom > 0 and total > 0:
-                f0 = max(0.0, (m0 - start_measure) / total)
-                f1 = min(1.0, (m1 + 1 - start_measure) / total)
-                return (f0 * denom, max(f0 * denom, f1 * denom))
-
-        try:
-            tempo_bpm = float((tempo or {}).get("bpm") or 0)
-        except (TypeError, ValueError):
-            tempo_bpm = 0.0
-        if tempo_bpm > 20 and bpm_grid >= 1:
-            sec_per_measure = bpm_grid * 60.0 / tempo_bpm
-            if sec_per_measure > 0.2:
-                start = max(0.0, (m0 - start_measure) * sec_per_measure)
-                end   = max(start, (m1 + 1 - start_measure) * sec_per_measure)
-                return (start, end)
-
-        if beat_times and len(beat_times) >= 2 and bpm_grid >= 1:
-            n = len(beat_times)
-            avg_beat = (beat_times[-1] - beat_times[0]) / max(1, n - 1)
-            idx0 = (m0 - start_measure) * bpm_grid
-            idx1 = (m1 + 1 - start_measure) * bpm_grid
-            t0 = beat_times[idx0] if 0 <= idx0 < n else beat_times[-1] + avg_beat * (idx0 - (n - 1))
-            t1 = beat_times[idx1] if 0 <= idx1 < n else beat_times[-1] + avg_beat * (idx1 - (n - 1))
-            return (max(0.0, t0), max(t0, t1))
-
-        r0, r1 = range_map.get(m0), range_map.get(m1)
-        if r0 and r1:
-            return (r0["start"], max(r0["start"], r1["end"]))
-        if r0:
-            return (r0["start"], r0["end"])
-
-        if piece_len > 0 and span_max > span_min:
-            f0 = max(0.0, (m0 - span_min) / max(1, (span_max - span_min)))
-            f1 = min(1.0, (m1 + 1 - span_min) / max(1, (span_max - span_min)))
-            return (f0 * piece_len, max(f0 * piece_len, f1 * piece_len))
-
-        return (0.0, max(1.2, est_measure_sec))
+        return tl[-1]["measure"]
 
     def measure_to_time_range(m0: int, m1: int | None = None) -> tuple[float, float]:
         """
-        EXACT inverse of time_to_measure: returns the [start_sec, end_sec) time window
-        occupied by measures m0..m1 (inclusive), using the SAME priority tiers in the
-        SAME order as time_to_measure. This is what guarantees the Loop button always
-        plays exactly the measure(s) printed on the flag — the label and the audio are
-        two views of one mapping, not two independently-computed values that can
-        silently disagree.
+        Measure(s) -> [start, end) window. The exact inverse of time_to_measure by
+        construction: same array, no parallel tier ladder to keep in sync.
 
-        Beat detection on a real (monophonic, non-percussive) performance is never
-        perfect — a beat tracker can anchor a beat's estimated time slightly ahead of
-        the true acoustic onset, and any single missed/extra detected beat anywhere
-        earlier in the piece shifts every later index-based boundary by that much. No
-        amount of downstream math can fully undo that; instead we shrink the window
-        slightly INWARD from each raw computed boundary (delay the start, pull in the
-        end by a small fraction of a beat) so a small estimation error can no longer
-        pull in a neighboring measure's notes. This trades a sliver of the true first/
-        last note for eliminating audibly wrong content from the next/previous measure
-        — the better trade-off for a practice loop.
+        The end is the NEXT measure's start, so a Loop plays the labelled measure
+        through its final note instead of stopping on that note's onset — which is
+        what made loops cut off early.
         """
-        m1 = m1 if (isinstance(m1, int) and m1 >= m0) else m0
-        bpm_grid = beats_per_measure if (beats_per_measure and beats_per_measure >= 1) else bpm
-        t0, t1 = _raw_measure_time_range(m0, m1)
-
-        n_beats = max(1, (m1 + 1 - m0) * bpm_grid)
-        spb = max(0.05, (t1 - t0) / n_beats)   # seconds per beat, estimated locally
-        margin = min(0.25, spb * 0.15)         # up to 15% of one beat, capped at 250ms
-        # The start margin exists to protect against bleeding in the TAIL of a real
-        # previous measure. The very first playable measure has no previous measure to
-        # bleed from, so delaying its start only risks clipping the true opening note
-        # for no benefit — skip the start margin there.
-        start_margin = margin if m0 > start_measure else 0.0
-        t0_adj, t1_adj = t0 + start_margin, t1 - margin
-        if t1_adj - t0_adj < 0.5:
-            # Margin would collapse an already-short window — better to risk a sliver
-            # of bleed than to under-play the labeled measure(s) entirely.
+        tl = _timeline()
+        if not tl:
+            return (0.0, 0.0)
+        idx = _timeline_cache["idx"]
+        a = idx.get(int(m0)) or tl[0]
+        b = idx.get(int(m1)) if m1 else None
+        t0, t1 = a["start"], (b or a)["end"]
+        if t1 <= t0:
+            t1 = a["end"]
+        # Shave a hair off each edge so a loop does not audibly clip the first note
+        # of the following measure. Skipped for the very first measure (nothing
+        # before it to bleed in) and whenever it would collapse a short window.
+        spb = (t1 - t0) / max(1, bpm)
+        margin = min(0.25, spb * 0.15)
+        s_adj = t0 + (margin if int(m0) > int(tl[0]["measure"]) else 0.0)
+        e_adj = t1 - margin
+        if e_adj - s_adj < 0.5:
             return (t0, t1)
-        return (t0_adj, t1_adj)
+        return (s_adj, e_adj)
 
     evidence_candidates: list[str] = []
     for m in played_measures:
@@ -3523,14 +3562,15 @@ def compare_and_coach_claude(
             _add(m, "timing",
                  f"notes land about {int(round(ms))} ms {p['direction']} against the beat here — "
                  f"count the pulse aloud and place the downbeat exactly with it",
-                 _t_of(m), confirmed=True, timing=round(ms, 1), priority=2)
+                 _t_of(m), confirmed=True, timing=round(ms, 1), priority=2,
+                 direction=p["direction"])
 
         for m, d in timing_report["drift"].items():
             _add(m, "timing",
                  f"this measure runs at about {d['local_bpm']:.0f} BPM against your "
                  f"{d['piece_bpm']:.0f} BPM — {d['pct']}% {d['direction']}; "
                  f"practise it with a metronome at {d['piece_bpm']:.0f}",
-                 _t_of(m), confirmed=True, priority=2)
+                 _t_of(m), confirmed=True, priority=2, direction=d["direction"])
 
         for m, du in timing_report["durations"].items():
             held = du["direction"] == "long"
@@ -3540,7 +3580,8 @@ def compare_and_coach_claude(
                  f"({abs(int(round(du['delta_ms'])))} ms {'too long' if held else 'too short'}) — "
                  f"{'release it on the following beat' if held else 'sustain it to its full value'}",
                  du.get("time_sec") or _t_of(m), confirmed=True,
-                 timing=round(abs(du["delta_ms"]), 1), priority=2)
+                 timing=round(abs(du["delta_ms"]), 1), priority=2,
+                 direction=f"held-{du['direction']}")
 
         ov = timing_report.get("overall")
         if ov:
@@ -3564,12 +3605,31 @@ def compare_and_coach_claude(
     def _first_ts(text: str) -> float | None:
         mt = re.search(r'(\d+:\d{2})', text)
         return parse_mmss_to_seconds(mt.group(1)) if mt else None
-    for obs in gemini_assessment.get("posture_issues", []):
-        ts = _first_ts(str(obs))
-        _add(time_to_measure(ts) or measure_lo, "posture", str(obs), ts, confirmed=True, is_global=True)
-    for obs in gemini_assessment.get("technique_issues", []):
-        ts = _first_ts(str(obs))
-        _add(time_to_measure(ts) or measure_lo, "technique", str(obs), ts, confirmed=True, is_global=True)
+    # Posture and technique are BODY observations, not events: you do not slouch
+    # for one measure. Pinning them to a single measure (whatever measure happened
+    # to contain a timestamp Gemini mentioned, or measure_lo when it mentioned
+    # none) put them on an essentially arbitrary bar — reported as "posture flags
+    # are at the wrong measure". They now span the passage they were observed
+    # over: an explicit range if Gemini gave one, otherwise the whole take, which
+    # is the honest scope for a continuous physical observation.
+    _played_lo = _timeline()[0]["measure"] if _timeline() else measure_lo
+    _played_hi = _timeline()[-1]["measure"] if _timeline() else measure_hi
+    for _cat, _ftype in (("posture_issues", "posture"), ("technique_issues", "technique")):
+        for obs in gemini_assessment.get(_cat, []):
+            text = str(obs)
+            ts_all = [parse_mmss_to_seconds(x) for x in re.findall(r'(\d+:\d{2})', text)]
+            ts_all = [t for t in ts_all if t is not None]
+            if len(ts_all) >= 2:
+                m_lo = time_to_measure(min(ts_all)) or _played_lo
+                m_hi = time_to_measure(max(ts_all)) or _played_hi
+                t0 = min(ts_all)
+            elif len(ts_all) == 1:
+                # A single timestamp marks where it was most visible, not its extent.
+                m_lo, m_hi, t0 = _played_lo, _played_hi, ts_all[0]
+            else:
+                m_lo, m_hi, t0 = _played_lo, _played_hi, None
+            _add(m_lo, _ftype, text, t0, confirmed=True, is_global=True,
+                 measure_end=m_hi if m_hi > m_lo else None)
 
     if not canonical:
         print("[compare_and_coach_claude] no canonical issues from Gemini or CREPE")
@@ -3592,6 +3652,50 @@ def compare_and_coach_claude(
         seen_keys.add(key)
         deduped_issues.append(iss)
     deduped_issues.sort(key=lambda x: (x["measure"], x["type"]))
+
+    # ── Merge genuinely CONTINUOUS issues into one multi-measure flag ──────────
+    # An issue running through m.24-27 is one problem, not four; reporting it four
+    # times buries the fact that it is sustained and makes the student fix it
+    # measure by measure. Merge only a strictly consecutive run (m, m+1, m+2...)
+    # of the SAME type AND same direction — that is what "continuous" means. An
+    # isolated measure, or the same fault recurring with gaps, stays separate:
+    # those are genuinely distinct events and collapsing them would hide where
+    # they are. Posture/technique are already whole-passage spans and skip this.
+    def _merge_key(iss: dict):
+        if iss["type"] in ("posture", "technique"):
+            return None                      # already spans; never merge further
+        if not iss.get("direction"):
+            # No direction means we cannot tell whether two adjacent flags are the
+            # same continuous fault (Gemini's free-text findings). Never merge
+            # those — a wrong merge invents a span that was never observed.
+            return None
+        return (iss["type"], iss["direction"])
+
+    merged: list[dict] = []
+    for iss in deduped_issues:
+        k = _merge_key(iss)
+        prev = merged[-1] if merged else None
+        if (
+            k is not None and prev is not None and _merge_key(prev) == k
+            and iss["measure"] == (prev.get("measure_end") or prev["measure"]) + 1
+        ):
+            prev["measure_end"] = iss["measure"]
+            prev["_span_n"] = prev.get("_span_n", 1) + 1
+            # Keep the strongest magnitude in the run so severity reflects the worst
+            # bar, and extend the window so Loop plays the whole passage.
+            for fld in ("cents", "timing"):
+                if iss.get(fld) is not None and (prev.get(fld) is None or abs(iss[fld]) > abs(prev[fld])):
+                    prev[fld] = iss[fld]
+            if iss.get("time_end_sec") or iss.get("time_sec"):
+                prev["time_end_sec"] = iss.get("time_end_sec") or iss.get("time_sec")
+            continue
+        merged.append(dict(iss))
+    _n_spans = sum(1 for m in merged if m.get("_span_n", 1) > 1)
+    if _n_spans:
+        print(f"[compare_and_coach_claude] merged {len(deduped_issues) - len(merged)} "
+              f"issue(s) into {_n_spans} continuous multi-measure span(s)")
+    deduped_issues = merged
+
     # Cover the whole piece: coach up to 40 distinct issues (was 16). The user wants
     # every played measure examined, so we do not throttle coverage here.
     deduped_issues = deduped_issues[:40]

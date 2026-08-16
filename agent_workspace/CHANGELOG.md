@@ -1,5 +1,29 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (hotfix) — score upload broke on the second upload of the same photo
+
+`Analysis failed: Sheet music upload failed: new row violates row-level security
+policy`. Self-inflicted by the content-hash change earlier today.
+
+Naming score objects by their content hash means uploading the same photo twice
+targets the same path — and I paired that with `upsert: true`. Upsert issues an
+**UPDATE** when the object exists, but the storage policies grant INSERT, SELECT
+and DELETE only (confirmed: zero UPDATE policies on `storage.objects`). So the
+first upload of a photo succeeded and every subsequent one failed RLS. The
+content-hash change is what made a repeat path possible at all, so this could not
+have happened before it.
+
+Fixed by dropping back to `upsert: false` and treating a duplicate as success —
+which is not a workaround but the correct semantics here: the path *is* the
+file's content hash, so an object already at that path is byte-identical and
+there is nothing to re-upload. Matches both shapes Storage returns (`statusCode`
+409 as string or number, and the "already exists"/"Duplicate" message), while a
+genuine RLS or network error still fails loudly. Verified the guard against all
+four error shapes, including that it does NOT swallow a real RLS message.
+
+Deliberately did not add an UPDATE policy: that would widen write permissions on
+every user's stored files to fix a case that should never write at all.
+
 ## 2026-08-16 (hard invariant) — the Loop is now guaranteed to play the flagged measure
 
 Found the remaining guaranteed-mismatch path and then made the whole class of

@@ -191,8 +191,18 @@ export default function NewRecordingModal({ open, onClose }) {
         const sp = `${user.id}/scores/${hash}-${safeSN}`
         const { error: scoreErr } = await supabase.storage
           .from('sheet-music')
-          .upload(sp, file, { contentType: file.type || 'application/octet-stream', upsert: true })
-        if (scoreErr) throw new Error(`Sheet music upload failed: ${scoreErr.message}`)
+          .upload(sp, file, { contentType: file.type || 'application/octet-stream', upsert: false })
+        // A collision here is expected and benign: the path IS the file's content
+        // hash, so an object already sitting there is byte-identical and there is
+        // nothing to re-upload. Deliberately NOT `upsert: true` — that issues an
+        // UPDATE, and the storage policies grant INSERT/SELECT/DELETE only, so it
+        // failed RLS ("new row violates row-level security policy") the moment the
+        // same photo was uploaded twice.
+        const isDuplicate = scoreErr && (
+          scoreErr.statusCode === '409' || scoreErr.statusCode === 409 ||
+          /already exists|duplicate|resource already/i.test(scoreErr.message || '')
+        )
+        if (scoreErr && !isDuplicate) throw new Error(`Sheet music upload failed: ${scoreErr.message}`)
         scorePaths.push(sp)
       }
       if (scorePaths.length) scorePath = scorePaths[0]

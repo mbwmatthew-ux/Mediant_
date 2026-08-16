@@ -1,16 +1,37 @@
 /**
- * Instrument list for the analysis form.
+ * Two exports, deliberately:
+ *
+ *   INSTRUMENTS        — the original flat list of names. Four screens (profile
+ *                        setup in AppShell, Signup, Settings, Record) render
+ *                        these directly as strings. Do NOT change its shape:
+ *                        turning it into objects made every one of those screens
+ *                        throw React error #31 ("objects are not valid as a
+ *                        React child"), because they map it straight into <option>
+ *                        and <button> children.
+ *
+ *   INSTRUMENT_OPTIONS — the detailed list used by the analysis form's
+ *                        type-ahead. It carries the transposition each part
+ *                        needs, which the flat list cannot express: "Clarinet"
+ *                        alone does not say whether it is in B♭, A or E♭, and
+ *                        that interval is the difference between a correct
+ *                        reading and a page of false wrong-note flags.
  *
  * `transpose` is how far SOUNDING pitch sits from WRITTEN pitch, in semitones.
- * A B♭ clarinet part sounds a major 2nd below what is printed, so -2. This is
- * the single thing that stopped a correctly-played transposing part from being
- * reported as a page full of wrong notes: the pitch tracker hears sounding
- * pitch, the score shows written pitch, and without this they never agree.
- *
- * Keep the `name` strings in sync with INSTRUMENT_TRANSPOSE in
- * modal_worker/worker.py — the worker matches on them.
+ * A B♭ clarinet part sounds a major 2nd below what is printed, so -2. Keep the
+ * `name` strings in sync with INSTRUMENT_TRANSPOSE in modal_worker/worker.py.
  */
+
+// Coarse preference stored on the user profile. Shape is load-bearing — strings.
 export const INSTRUMENTS = [
+  'Piano', 'Violin', 'Viola', 'Cello', 'Double Bass',
+  'Flute', 'Oboe', 'Clarinet', 'Saxophone', 'Bassoon',
+  'French Horn', 'Trumpet', 'Trombone', 'Tuba',
+  'Guitar', 'Harp', 'Percussion',
+  'Voice (Soprano)', 'Voice (Alto)', 'Voice (Tenor)', 'Voice (Bass)',
+  'Other',
+]
+
+export const INSTRUMENT_OPTIONS = [
   // Woodwinds
   { name: 'Flute',            family: 'Woodwind', transpose: 0 },
   { name: 'Piccolo',          family: 'Woodwind', transpose: 12 },
@@ -76,10 +97,10 @@ export const INSTRUMENTS = [
  */
 export function searchInstruments(query, limit = 8) {
   const q = (query || '').trim().toLowerCase().replace(/b\b/g, 'b')
-  if (!q) return INSTRUMENTS.slice(0, limit)
+  if (!q) return INSTRUMENT_OPTIONS.slice(0, limit)
   const norm = (s) => s.toLowerCase().replace(/♭/g, 'b').replace(/[()]/g, '')
   const scored = []
-  for (const inst of INSTRUMENTS) {
+  for (const inst of INSTRUMENT_OPTIONS) {
     const n = norm(inst.name)
     // Also match on any word so "sax" finds "Alto Saxophone" and "horn" finds
     // "French Horn" without the user typing the leading word.

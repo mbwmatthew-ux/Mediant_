@@ -1,5 +1,34 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (hotfix) — Settings/Signup/Record/AppShell crashed: I overwrote an existing module
+
+`Minified React error #31 ... object with keys {name, family, transpose}` on
+Settings. Straightforwardly my fault: `src/lib/instruments.js` **already
+existed**, exporting `INSTRUMENTS` as a flat array of name strings, and four
+screens (Settings, Signup, Record, and AppShell's profile prompt) render those
+directly with `INSTRUMENTS.map(i => <option key={i}>{i}</option>)`. I replaced
+the file wholesale with an array of objects, so every one of them tried to render
+an object as a React child.
+
+The build passed and the analysis form worked, because this is a runtime type
+mismatch in screens I had not opened. I should have checked who imported the
+module before rewriting it — the editor even reported the file as *updated*
+rather than created, which was the signal I missed.
+
+Fixed by keeping both, with the reason written into the file so the next person
+does not repeat it:
+- `INSTRUMENTS` — restored verbatim to the original strings. Shape is
+  load-bearing; the four screens above map it straight into children.
+- `INSTRUMENT_OPTIONS` — the detailed list (name/family/transpose) behind the
+  analysis form's type-ahead. It has to be separate because the flat list cannot
+  express transposition: "Clarinet" alone does not say B♭, A or E♭, and that
+  interval is the difference between a correct reading and a page of false
+  wrong-note flags.
+
+Verified all four consumers use the value as a string, and that the public pages
+(including Signup, which uses `INSTRUMENTS` identically to Settings) render with
+no page errors.
+
 ## 2026-08-16 — Required instrument field with type-ahead; fixes wrong-note flags at the source
 
 The submission form never sent an instrument at all. The analysis therefore had

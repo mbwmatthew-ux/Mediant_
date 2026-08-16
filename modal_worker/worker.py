@@ -2653,11 +2653,21 @@ def find_wrong_note_candidates(
     """
     Direct CREPE-vs-score comparison to surface wrong note candidates.
 
-    For each aligned audio event, compute the distance (in semitones) to the
-    nearest expected note in that measure. Events that are ≥2 semitones from
-    every expected note — and not explained by octave transposition — are
-    flagged as wrong note candidates and formatted as evidence strings for
-    the Claude coaching prompt.
+    These become CONFIRMED "error" flags shown to the student as fact, so the
+    bar for calling a note wrong is deliberately high — a false "you played the
+    wrong note" against correct playing costs far more trust than a missed one.
+    A candidate must survive all of:
+
+      * confidently tracked (conf ≥ 65) and pitch-stable (spread ≤ 40¢)
+      * long enough to be a note rather than a click or scrape
+      * ≥2 semitones from every pitch in its measure AND its neighbours, so
+        alignment slop is not blamed on the student
+      * not an octave displacement (pitch-class distance ≥ 2)
+      * measured or declared instrument transposition already applied
+
+    and then the whole set must survive a global sanity gate: if a quarter of
+    the notes look wrong, the score read or alignment is broken rather than the
+    playing, and nothing is reported at all.
     """
     if not aligned or not score.get("measures"):
         return []
@@ -2732,41 +2742,117 @@ def find_wrong_note_candidates(
     if transpose:
         score_by_measure = {m: [p + transpose for p in ps] for m, ps in score_by_measure.items()}
 
-    # Track one candidate per measure (highest confidence)
-    best: dict[int, tuple[int, str]] = {}  # measure → (confidence, evidence_string)
+    # ── Evidence gates ─────────────────────────────────────────────────────
+    # These flags are emitted as CONFIRMED and shown as fact, so the bar for
+    # calling a note wrong is deliberately high. A wrong note is a sustained,
+    # confidently-tracked pitch that does not belong. Anything transient is a
+    # key click, a bow scrape, a breath, a reverb tail or a CREPE octave slip —
+    # none of which are the student playing a wrong note.
+    MIN_CONF    = 65     # well above the 50 used for softer flags
+    # `end_sec` is the NEXT onset, so this is an inter-onset interval, not a
+    # true note length. Keep the floor under a 16th at 120bpm (0.125s) or fast
+    # passages would become invisible to the detector; genuine key clicks, bow
+    # scrapes and transients sit well below 80ms.
+    MIN_DUR_SEC = 0.08
+    MAX_SPREAD  = 40     # a sliding/unstable reading has no pitch to judge
+
+    # First and last onset of each measure — the only places where an off-by-one
+    # alignment can plausibly put a correctly-played note in the wrong bar.
+    _by_measure: dict[int, list[float]] = {}
+    for ev in aligned:
+        if ev.get("measure") is not None and ev.get("time_sec") is not None:
+            _by_measure.setdefault(ev["measure"], []).append(ev["time_sec"])
+    _measure_edges = {m: {min(ts), max(ts)} for m, ts in _by_measure.items() if ts}
+
+    considered = 0                       # notes that passed the gates
+    suspects: list[dict] = []
     for ev in aligned:
         m_num   = ev.get("measure")
-        ev_midi = ev.get("midi_raw", ev.get("midi"))  # prefer unclamped for accurate comparison
+        ev_midi = ev.get("midi_raw", ev.get("midi"))  # unclamped — accurate comparison
         ev_conf = ev.get("confidence", 0)
-        if m_num is None or ev_midi is None or ev_conf < 50:
+        if m_num is None or ev_midi is None:
             continue
-        expected = score_by_measure.get(m_num)
-        if not expected:
+        # Duration is unknown on some paths. Skip the gate rather than the note:
+        # treating "unknown" as "too short" silently switched the whole detector
+        # off, which a test caught only because it asserted real notes ARE found.
+        t0, t1 = ev.get("time_sec"), ev.get("end_sec")
+        dur = (float(t1) - float(t0)) if (t0 is not None and t1) else None
+        if (ev_conf < MIN_CONF
+                or (dur is not None and dur < MIN_DUR_SEC)
+                or ev.get("cents_spread", 0) > MAX_SPREAD):
             continue
+        own = score_by_measure.get(m_num)
+        if not own:
+            continue
+        considered += 1
 
-        raw_dists = [abs(ev_midi - e) for e in expected]
-        min_dist  = min(raw_dists)
+        # A note sitting one bar off in the alignment is an alignment error, not
+        # a wrong note. But alignment slop is a BOUNDARY phenomenon, so only the
+        # first and last note of a measure get the neighbouring bars' pitches
+        # added. Extending it to every note was far too permissive: on
+        # scale-like writing three bars of pitches cover most of the scale, and
+        # nothing can ever be called wrong. A test caught that immediately.
+        expected = list(own)
+        if ev.get("time_sec") in _measure_edges.get(m_num, ()):
+            for nb in (m_num - 1, m_num + 1):
+                expected.extend(score_by_measure.get(nb, []))
 
-        # Pitch-class distance (mod 12, circular) — octave transpositions have
-        # pc_dist == 0 and must not be flagged as wrong notes.
+        min_dist = min(abs(ev_midi - e) for e in expected)
+
+        # Pitch-class distance (mod 12, circular) — octave displacement has
+        # pc_dist == 0 and is not a wrong note.
         ev_pc       = ev_midi % 12
-        pc_dists    = [min(abs(ev_pc - (e % 12)), 12 - abs(ev_pc - (e % 12))) for e in expected]
-        min_pc_dist = min(pc_dists)
+        min_pc_dist = min(min(abs(ev_pc - (e % 12)), 12 - abs(ev_pc - (e % 12)))
+                          for e in expected)
 
         if min_dist >= 2 and min_pc_dist >= 2:
-            nearest = min(expected, key=lambda e: abs(ev_midi - e))
-            desc = (
-                f"wrong_note | measure {m_num} | "
-                f"CREPE detected {midi_to_scientific(ev_midi)} ({ev.get('pitch_hz', 0):.0f} Hz, conf={ev_conf}%), "
-                f"closest expected {midi_to_scientific(nearest)} ({min_dist} semitones away) "
-                f"at t={ev['time_sec']:.2f}s"
-            )
-            prev = best.get(m_num)
-            if prev is None or ev_conf > prev[0]:
-                best[m_num] = (ev_conf, desc)
+            # Report against the note DTW actually matched where we have it —
+            # that names what should have sounded at this instant, rather than
+            # whichever note in the bar happens to be closest to the mistake.
+            matched  = midi_from_name(ev.get("score_pitch") or "")
+            in_bar   = min(own, key=lambda e: abs(ev_midi - e))
+            ref      = matched if matched is not None else in_bar
+            suspects.append({
+                "measure": m_num, "conf": ev_conf,
+                "dur": dur if dur is not None else 0.25,
+                "dist": min_dist, "time": ev.get("time_sec") or 0.0,
+                "played": ev_midi, "expected": ref, "hz": ev.get("pitch_hz", 0),
+            })
 
-    candidates = [v[1] for v in sorted(best.values(), key=lambda x: -x[0])]
-    return candidates[:20]
+    # ── Global sanity gate ─────────────────────────────────────────────────
+    # A student does not play a quarter of their notes wrong. If the detector
+    # thinks they did, the detector is broken — a misread score, a bad DTW
+    # alignment, or a transposition we failed to measure — and every flag it
+    # produces is noise. Staying silent is strictly better than filling the
+    # page with confident wrong-note claims about correct playing, which is
+    # exactly what was reported.
+    if considered >= 12 and len(suspects) > 0.25 * considered:
+        print(f"[find_wrong_note_candidates] SUPPRESSED — {len(suspects)}/{considered} "
+              f"notes ({100 * len(suspects) / considered:.0f}%) look wrong, which means "
+              f"the score read, alignment or transposition is off, not the playing")
+        return []
+
+    # One per measure, keeping the most certain: longest and most confident,
+    # then furthest from the written pitch.
+    best: dict[int, dict] = {}
+    for sp in suspects:
+        prev = best.get(sp["measure"])
+        key  = (sp["conf"] * min(sp["dur"], 0.5), sp["dist"])
+        if prev is None or key > (prev["conf"] * min(prev["dur"], 0.5), prev["dist"]):
+            best[sp["measure"]] = sp
+
+    ranked = sorted(best.values(),
+                    key=lambda x: -(x["conf"] * min(x["dur"], 0.5)))
+    # Capped low on purpose: a handful of certain calls is more useful, and more
+    # believable, than twenty marginal ones.
+    return [
+        f"wrong_note | measure {sp['measure']} | "
+        f"CREPE detected {midi_to_scientific(sp['played'])} "
+        f"({sp['hz']:.0f} Hz, conf={sp['conf']}%, {sp['dur']:.2f}s), "
+        f"score has {midi_to_scientific(sp['expected'])} "
+        f"({sp['dist']} semitones away) at t={sp['time']:.2f}s"
+        for sp in ranked[:6]
+    ]
 
 
 # ── Change 2: severity-weighted score formula ─────────────────────────────────

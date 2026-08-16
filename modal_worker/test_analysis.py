@@ -91,8 +91,12 @@ def make_performance(score, warp=None):
             t = (mi * BEATS_PER_MEASURE + bi) * SEC_PER_BEAT
             if warp:
                 t = warp(m["number"], bi, t)
-            evs.append({"time_sec": t, "pitches": [note["pitch"]],
-                        "confidence": 90, "cents_offset": 0, "loudness": "medium"})
+            # Real events carry end_sec (the next onset) and cents_spread; the
+            # wrong-note gates read both, so the fixture must have them or it
+            # exercises a path production never takes.
+            evs.append({"time_sec": t, "end_sec": t + SEC_PER_BEAT,
+                        "pitches": [note["pitch"]], "confidence": 90,
+                        "cents_offset": 0, "cents_spread": 8, "loudness": "medium"})
     return played, evs
 
 
@@ -474,6 +478,122 @@ def test_transposing_instrument_not_flagged_as_wrong_notes():
     check("genuinely wrong notes are still caught", len(cands2) > 0, f"{len(cands2)} candidate(s)")
 
 
+def test_wrong_notes_reject_false_positives():
+    print("\n[18] wrong-note flags: the ways they used to be wrong")
+    score = make_score()
+
+    def perf():
+        played, evs = make_performance(score)
+        al = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+        for e in al:
+            e["midi_raw"] = e["midi"] = w.midi_from_name(e["pitches"][0])
+            e["confidence"] = 90
+            e["cents_spread"] = 8
+        return al
+
+    base = perf()
+    check("clean playing produces no wrong notes at all",
+          len(w.find_wrong_note_candidates(base, score)) == 0)
+
+    # A low-confidence reading is CREPE failing to track, not a wrong note.
+    al = perf()
+    for e in al:
+        if e["measure"] == 26:
+            e["midi_raw"] = e["midi"] = e["midi"] + 5
+            e["confidence"] = 40
+    check("a low-confidence reading is not called a wrong note",
+          len(w.find_wrong_note_candidates(al, score)) == 0)
+
+    # A blip: right measure, wildly wrong pitch, but 30ms long. Key click, bow
+    # scrape, page turn — not a note the student played.
+    al = perf()
+    for e in al:
+        if e["measure"] == 26:
+            e["midi_raw"] = e["midi"] = e["midi"] + 5
+            e["end_sec"] = e["time_sec"] + 0.03
+    check("a 30ms blip is not called a wrong note",
+          len(w.find_wrong_note_candidates(al, score)) == 0)
+
+    # A sliding / unstable pitch has no single pitch to judge as wrong.
+    al = perf()
+    for e in al:
+        if e["measure"] == 26:
+            e["midi_raw"] = e["midi"] = e["midi"] + 5
+            e["cents_spread"] = 120
+    check("an unstable pitch reading is not called a wrong note",
+          len(w.find_wrong_note_candidates(al, score)) == 0)
+
+    # Octave displacement is a different mistake, not a wrong note.
+    al = perf()
+    for e in al:
+        if e["measure"] == 26:
+            e["midi_raw"] = e["midi"] = e["midi"] + 12
+    check("an octave displacement is not called a wrong note",
+          len(w.find_wrong_note_candidates(al, score)) == 0)
+
+    # A uniform offset is absorbed by the transposition guard before anything
+    # is judged wrong (this is the transposing-instrument case from [14]).
+    al = perf()
+    for e in al:
+        e["midi_raw"] = e["midi"] = e["midi"] + 5
+    check("a uniform offset is read as transposition, not wrong notes",
+          len(w.find_wrong_note_candidates(al, score)) == 0)
+
+    # THE headline guard, and the one the user actually hit. A misread score or
+    # a bad alignment scatters mismatches with NO consistent interval, so the
+    # transposition guard cannot absorb them and every one looks like a wrong
+    # note. Report nothing rather than a page of confident false accusations.
+    #
+    # Built on a purpose-made sparse score rather than the shared scale fixture:
+    # on diatonic scale writing a shifted note usually lands on another scale
+    # tone in the same bar, so corrupting half the notes only makes ~15% of them
+    # LOOK wrong and the gate correctly does not fire. Measuring that is what
+    # showed the shared fixture was the wrong vehicle for this test.
+    sparse = {"time_signature": "4/4", "measures": [
+        {"number": m, "notes": [{"pitch": "C4", "beat": 1.0, "duration_beats": 2.0},
+                                {"pitch": "G4", "beat": 3.0, "duration_beats": 2.0}]}
+        for m in range(1, 21)]}
+
+    def sparse_perf(corrupt_every=0):
+        evs, t = [], 0.0
+        for i, m in enumerate(sparse["measures"]):
+            for j, n in enumerate(m["notes"]):
+                midi = w.midi_from_name(n["pitch"])
+                if corrupt_every and (i * 2 + j) % corrupt_every == 0:
+                    # Varied, with no common interval (so the transposition
+                    # guard cannot absorb them), and each ≥2 semitones from BOTH
+                    # C4 and G4 — a note 1 semitone off is intonation, not a
+                    # wrong note, and is deliberately not flagged as one.
+                    midi += (3, 10, 4, 9)[(i + j) % 4]
+                evs.append({"measure": m["number"], "time_sec": t, "end_sec": t + 1.0,
+                            "midi_raw": midi, "midi": midi, "confidence": 90,
+                            "cents_spread": 8, "pitch_hz": 440.0})
+                t += 1.0
+        return evs
+
+    check("the sparse fixture is clean when uncorrupted",
+          len(w.find_wrong_note_candidates(sparse_perf(), sparse)) == 0)
+    cands = w.find_wrong_note_candidates(sparse_perf(corrupt_every=2), sparse)
+    check("a scattered broken read is suppressed, not reported as many wrong notes",
+          len(cands) == 0, f"{len(cands)} candidate(s)")
+    # One genuine mistake in twenty bars is well under the gate and must survive.
+    cands = w.find_wrong_note_candidates(sparse_perf(corrupt_every=40), sparse)
+    check("an isolated wrong note survives the sanity gate",
+          len(cands) == 1, f"{len(cands)} candidate(s)")
+
+    # ...but suppression must not swallow a realistic number of real mistakes.
+    al = perf()
+    for e in al:
+        if e["measure"] in (26, 31):
+            e["midi_raw"] = e["midi"] = e["midi"] + 5
+    cands = w.find_wrong_note_candidates(al, score)
+    check("a few real wrong notes still get through",
+          len(cands) > 0, f"{len(cands)} candidate(s)")
+    check("output stays small enough to be believable", len(cands) <= 6)
+    check("evidence names both what was played and what was written",
+          all("score has" in c and "CREPE detected" in c for c in cands))
+
+
 def test_form_time_signature_wins():
     print("\n[15] the form's time signature beats the vision read")
     # beats_per_measure drives the whole beat axis; 3/4 must yield 3, not the
@@ -619,7 +739,8 @@ def main():
               test_transposing_instrument_not_flagged_as_wrong_notes,
               test_form_time_signature_wins,
               test_pitch_measurement_is_unbiased,
-              test_tuning_center_normalisation):
+              test_tuning_center_normalisation,
+              test_wrong_notes_reject_false_positives):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

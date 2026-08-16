@@ -1,5 +1,42 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (later) — Wrong-note flags: conservative, and silent when unsure
+
+`find_wrong_note_candidates()` authors its own `error` flags with
+`confirmed=True`, so the UI states them as fact. A false "you played the wrong
+note" against correct playing costs far more trust than a missed one, so the
+detector is now tuned to be conservative and to stay silent when it cannot tell.
+
+**Was wrong:** a single event could flag a measure (no duration floor, no
+stability check, confidence ≥50) — so a key click, breath, reverb tail or one
+CREPE octave slip became a confident flag. There was no global sanity check, so
+a bad score read or alignment made *every* note mismatch and filled the page
+with false accusations. Alignment slop was blamed on the student. Evidence named
+the nearest note in the bar rather than the note DTW matched.
+
+**Now** a candidate must pass all of: confidence ≥65, `cents_spread` ≤40¢,
+inter-onset duration ≥80ms, ≥2 semitones from every pitch in its bar,
+pitch-class distance ≥2 (octave displacement is not a wrong note), with
+transposition already applied. Then the **global sanity gate**: if ≥12 notes
+qualified and >25% look wrong, report nothing and log why — a student does not
+play a quarter of their notes wrong, so the detector is what's broken. Output is
+capped at 6, ranked by confidence × duration.
+
+**Three design errors the tests caught**, each a plausible idea measurement
+killed:
+- Judging every note against its bar *plus both neighbours* was far too
+  permissive — on scale writing, three bars of pitches cover most of the scale
+  and nothing could ever be wrong. Only the first/last onset of a measure gets
+  the neighbours now; alignment slop is a boundary phenomenon.
+- The duration gate silently disabled the whole detector, because `end_sec` is
+  absent on some paths so `dur` computed as 0. Unknown duration now skips the
+  gate, not the note. Only caught because a test asserted real wrong notes ARE
+  still found.
+- `end_sec` is the *next onset*, not note length, so my first 120ms floor would
+  have blinded anything faster than a 16th at 120bpm.
+
+10 new checks in `test_analysis.py` [18]; 71/71 pass.
+
 ## 2026-08-16 — Concise flag bodies, descriptive sharp/flat titles, real intonation accuracy
 
 ### Intonation accuracy (the substantive one)

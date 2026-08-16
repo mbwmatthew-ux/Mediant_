@@ -1,5 +1,50 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (four fixes) — form wins, transposition, run-up in timing, hand naming
+
+**1. The form's time signature and measure range now win over the vision read.**
+The reader is a probabilistic look at a photo and had returned 2/4 for a page
+that plainly reads 3/4; a wrong beats-per-measure corrupts the beat axis, the
+timeline and every derived measure number. The typed value is used whenever it
+parses, the read only fills in when nothing usable was supplied, and a
+disagreement is logged. The score is also windowed to the typed measure range, so
+a read that invents measures outside what was played cannot widen what DTW aligns
+against.
+
+**2. Wrong-note flags on a transposing part.** `find_wrong_note_candidates`
+compared CREPE's SOUNDING pitch against the score's WRITTEN pitch. This part is
+"B♭ CLARINET 1" — written pitch sounds a major 2nd lower — so essentially every
+correctly-played note read as ~2 semitones wrong. Rather than hard-code an
+instrument table (which breaks on octave choices, capos, or a student reading a
+concert-pitch part), the offset is now measured: the median semitone difference
+between each played note and the score note DTW matched it to. A real
+transposition is a tight cluster; scattered wrong notes leave the median at 0,
+and it only applies when ≥60% of notes agree, so genuine mistakes are not masked.
+
+*Worth remembering:* the first version compared against the NEAREST note in the
+bar and silently failed — on stepwise writing a 2-semitone shift lands on a
+neighbouring scale degree that is also in that measure, so the difference reads 0
+and the transposition stays invisible (diffs split evenly between -2 and 0,
+median 0). Using the DTW-matched note gives a clean -2. The test caught this.
+
+**3. "Late arrival" on the opening downbeat.** The timing analysis was fed events
+captured while the player was still getting ready; they sit before the first note
+but still match a score note, so the tempo fit began early and the opening was
+judged late against the run-up rather than against the playing. It now receives
+only events at or after where `_timeline()` says the music starts — reusing that
+one definition rather than inventing a second.
+
+**4. Naming the wrong hand.** Gemini reported tension in the "right hand" when
+only the left was in frame. Screen position cannot settle this — a camera facing
+the player mirrors them, and phone front cameras often mirror again. The prompt
+now requires the hand to be identified by its position ON THE INSTRUMENT, which
+is invariant to camera angle (for clarinet/sax/flute/oboe/recorder the upper hand
+is the left), to say left/right from the player's own perspective, never to
+describe a hand that is not visible, and to say "the visible hand" rather than
+guess a side.
+
+Suite: 47 checks.
+
 ## 2026-08-16 (run-up) — the loop still opened on the preparation. Root cause found in the logs.
 
 The lead-in trim shipped earlier today did not take effect, and the reason was

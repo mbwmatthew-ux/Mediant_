@@ -450,6 +450,46 @@ def test_measure_starts_on_a_note_not_noise():
           start27 > blip_t + 0.2, f"start {start27:.2f}s vs blip {blip_t:.2f}s")
 
 
+
+def test_transposing_instrument_not_flagged_as_wrong_notes():
+    print("\n[14] a transposing part is not reported as wrong notes")
+    score = make_score()
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # A Bb clarinet sounds a major 2nd BELOW the written pitch. Everything is
+    # played correctly; only the written/sounding convention differs.
+    for e in aligned:
+        base = w.midi_from_name(e["pitches"][0])
+        e["midi_raw"] = e["midi"] = base - 2
+        e["confidence"] = 90
+    cands = w.find_wrong_note_candidates(aligned, score)
+    check("correct playing on a transposing part yields no wrong notes",
+          len(cands) == 0, f"{len(cands)} candidate(s)")
+
+    # Genuine wrong notes must still be caught: shift only a few, scattered.
+    for e in aligned:
+        if e["measure"] in (26, 31):
+            e["midi_raw"] = e["midi"] = e["midi"] + 5
+    cands2 = w.find_wrong_note_candidates(aligned, score)
+    check("genuinely wrong notes are still caught", len(cands2) > 0, f"{len(cands2)} candidate(s)")
+
+
+def test_form_time_signature_wins():
+    print("\n[15] the form's time signature beats the vision read")
+    # beats_per_measure drives the whole beat axis; 3/4 must yield 3, not the
+    # 2 a misread page produced.
+    check("3/4 -> 3 beats", w.beats_per_measure_from_time_sig("3/4") == 3)
+    check("2/4 -> 2 beats", w.beats_per_measure_from_time_sig("2/4") == 2)
+    check("6/8 compound -> 2 beats", w.beats_per_measure_from_time_sig("6/8") == 2)
+    score = make_score()
+    notes3 = w.flatten_score_notes(score, START, END, 3)
+    notes2 = w.flatten_score_notes(score, START, END, 2)
+    b3 = [n["abs_beat"] for n in notes3 if n["measure"] == START + 1][0]
+    b2 = [n["abs_beat"] for n in notes2 if n["measure"] == START + 1][0]
+    check("beats-per-measure changes the beat axis (so a misread corrupts it)",
+          b3 != b2, f"3/4 -> {b3}, 2/4 -> {b2}")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -460,7 +500,9 @@ def main():
               test_leading_silence_trimmed, test_measure_from_notes,
               test_loop_always_plays_the_flagged_measure,
               test_runup_excluded_even_when_alignment_rejected,
-              test_measure_starts_on_a_note_not_noise):
+              test_measure_starts_on_a_note_not_noise,
+              test_transposing_instrument_not_flagged_as_wrong_notes,
+              test_form_time_signature_wins):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

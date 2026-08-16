@@ -1976,6 +1976,12 @@ MANDATORY — address all seven categories. Do not skip any:
 
 7. TECHNIQUE (visual): {technique_guidance} If not clearly observable from this camera angle, write "not visible".
 
+NAMING A HAND — read this before writing "left" or "right":
+- Say left/right from the PLAYER'S OWN perspective, never the viewer's. A camera facing the player mirrors them: the hand appearing on the RIGHT of your view is usually the player's LEFT hand. Front-facing phone cameras often mirror the image as well, so screen position alone cannot settle it.
+- Do not infer the hand from screen position. Use where the hand sits ON THE INSTRUMENT, which does not change with camera angle: for clarinet, oboe, saxophone, recorder and flute the UPPER hand (closer to the mouthpiece/headjoint) is the LEFT hand and the LOWER hand is the RIGHT. For guitar the fretting hand is usually the left. For piano, lower pitches are the left hand.
+- If only ONE hand is visible, work out which one it is from that rule and say so explicitly (e.g. "left hand (upper, nearest the mouthpiece)"). Never describe a hand that is not in the frame.
+- If you cannot tell which hand it is, say "the visible hand" rather than guessing a side. Naming the wrong hand makes the whole observation useless to the student.
+
 Be specific. For each issue include:
 - The PRINTED measure number from the score (e.g. "m.14") — read it directly off the page if the score is provided
 - The timestamp in the recording (e.g. "0:08")
@@ -2538,6 +2544,49 @@ def find_wrong_note_candidates(
 
     if not score_by_measure:
         return []
+
+    # ── Transposition guard ────────────────────────────────────────────────
+    # CREPE hears SOUNDING pitch; the score shows WRITTEN pitch. For a
+    # transposing instrument those differ by a fixed interval — a B-flat
+    # clarinet (this repertoire) sounds a major 2nd BELOW what is written, an
+    # E-flat alto sax a major 6th below. Comparing the two directly makes every
+    # correctly-played note look ~2 semitones wrong, which is exactly the
+    # "wrong note flags are mostly wrong, the notes I played are right" report.
+    #
+    # Rather than hard-code a table of instruments (and get it wrong for octave
+    # choices, capos, or a student reading a concert-pitch part), measure the
+    # offset: take the median semitone difference between each played note and
+    # the note DTW matched it to. A real transposition shows up as a tight
+    # cluster; genuinely wrong notes are scattered and leave the median at 0.
+    # Measure the offset against the note DTW actually MATCHED, not the nearest
+    # note in the bar. "Nearest in the bar" hides the very thing we are looking
+    # for: on a stepwise passage a 2-semitone shift usually lands exactly on a
+    # neighbouring scale degree that is also in that measure, so the difference
+    # reads as 0 and the transposition stays invisible. (Measured on a synthetic
+    # B-flat part: nearest-in-bar gave a median of 0 with the diffs split evenly
+    # between -2 and 0; the matched note gives a clean -2.)
+    diffs: list[int] = []
+    for ev in aligned:
+        ev_midi = ev.get("midi_raw", ev.get("midi"))
+        matched = midi_from_name(ev.get("score_pitch") or "")
+        if ev_midi is None or matched is None or ev.get("confidence", 0) < 50:
+            continue
+        diffs.append(int(ev_midi) - matched)
+    transpose = 0
+    if len(diffs) >= 8:
+        ordered = sorted(diffs)
+        median = ordered[len(ordered) // 2]
+        # Only trust it if most notes agree — otherwise this is just bad playing,
+        # not a transposition, and shifting would hide the real errors.
+        agree = sum(1 for d in diffs if abs(d - median) <= 1)
+        if abs(median) >= 1 and agree >= 0.6 * len(diffs):
+            transpose = median
+            print(f"[find_wrong_note_candidates] detected a constant "
+                  f"{transpose:+d}-semitone offset between performance and score "
+                  f"({agree}/{len(diffs)} notes agree) — treating the part as "
+                  f"transposed and comparing against sounding pitch")
+    if transpose:
+        score_by_measure = {m: [p + transpose for p in ps] for m, ps in score_by_measure.items()}
 
     # Track one candidate per measure (highest confidence)
     best: dict[int, tuple[int, str]] = {}  # measure → (confidence, evidence_string)
@@ -3290,7 +3339,25 @@ def compare_and_coach_claude(
     timing_report = None
     if score.get("measures") and any(ev.get("score_idx") is not None for ev in aligned):
         try:
-            timing_report = analyze_timing_vs_score(aligned, score, bpm)
+            # Feed it only the MUSIC. Events picked up while the player was still
+            # getting ready sit before the first note but still get matched to a
+            # score note, so the tempo fit starts the piece early and the opening
+            # downbeat is then reported as a "late arrival" — it was late relative
+            # to the run-up, not to the playing. _timeline() already works out
+            # where the music starts; reuse that single definition rather than
+            # inventing a second one here.
+            _tl = _timeline()
+            _music_start = _tl[0]["start"] if _tl else None
+            _musical = [
+                ev for ev in aligned
+                if _music_start is None or (ev.get("time_sec") is None
+                                            or float(ev["time_sec"]) >= _music_start - 0.05)
+            ]
+            if len(_musical) < len(aligned):
+                print(f"[compare_and_coach_claude] timing: ignoring "
+                      f"{len(aligned) - len(_musical)} pre-music event(s) before "
+                      f"{_music_start:.2f}s so the opening is not judged late")
+            timing_report = analyze_timing_vs_score(_musical, score, bpm)
         except Exception as e:                      # never fail the whole analysis
             print(f"[compare_and_coach_claude] timing analysis error: {e}")
             timing_report = None
@@ -4205,17 +4272,51 @@ def run_full_analysis(payload: dict) -> None:
         if n_discarded:
             debug_steps.append(f"gemini_validate: discarded {n_discarded} out-of-range measure refs")
 
-        # Override bpm_int if the score parser detected a time signature
+        # Time signature: the value the student typed WINS over the vision read.
+        # The reader is a probabilistic look at a photo — it returned 2/4 for a
+        # page that plainly reads 3/4, and a wrong beats-per-measure corrupts the
+        # beat axis, the timeline and every derived measure number. The student is
+        # looking at the actual sheet music, so their answer is the better prior.
+        # The read is only consulted when no usable value was supplied.
+        _user_ts = (time_sig_hint or "").strip()
         detected_ts = score.get("time_signature")
-        if detected_ts:
+        chosen_ts, ts_source = (None, None)
+        if re.match(r'^\d+\s*/\s*\d+$', _user_ts):
+            chosen_ts, ts_source = _user_ts, "form"
+            if detected_ts and str(detected_ts).replace(" ", "") != _user_ts.replace(" ", ""):
+                print(f"[run_full_analysis] score read said time_sig={detected_ts!r} but the "
+                      f"form says {_user_ts!r} — using the form")
+                debug_steps.append(f"time_sig: form={_user_ts} overrode score read={detected_ts}")
+            score["time_signature"] = _user_ts
+        elif detected_ts:
+            chosen_ts, ts_source = str(detected_ts), "score"
+        if chosen_ts:
             try:
-                ts_num, ts_denom = map(int, detected_ts.split("/"))
+                ts_num, ts_denom = map(int, chosen_ts.split("/"))
                 is_cpd = ts_num % 3 == 0 and ts_num // 3 >= 2 and ts_denom >= 8
                 bpm_int = ts_num // 3 if is_cpd else ts_num
-                debug_steps.append(f"bpm_int_override: {detected_ts} → bpm_int={bpm_int}")
-                print(f"[run_full_analysis] bpm_int overridden to {bpm_int} from score time_sig={detected_ts}")
+                debug_steps.append(f"bpm_int: {chosen_ts} (from {ts_source}) → bpm_int={bpm_int}")
+                print(f"[run_full_analysis] bpm_int={bpm_int} from {ts_source} time_sig={chosen_ts}")
             except Exception:
                 pass
+
+        # Measure range: the form bounds the score, not the other way round. A
+        # read that hallucinates measures outside what the student says they
+        # played must not widen the window DTW aligns against.
+        if score.get("measures"):
+            _before = len(score["measures"])
+            _lo, _hi = start_measure, (end_measure or None)
+            score["measures"] = [
+                m for m in score["measures"]
+                if isinstance(m.get("number"), int)
+                and m["number"] >= _lo and (_hi is None or m["number"] <= _hi)
+            ] or score["measures"]
+            if len(score["measures"]) != _before:
+                debug_steps.append(
+                    f"score_window: kept {len(score['measures'])}/{_before} measures "
+                    f"inside m.{_lo}-{_hi if _hi else 'end'}")
+                print(f"[run_full_analysis] score windowed to the form's range "
+                      f"m.{_lo}-{_hi}: {len(score['measures'])}/{_before} measures")
 
         events_with_measures = assign_events_to_measures(raw_events, beats["beat_times"], bpm_int, start_measure)
 

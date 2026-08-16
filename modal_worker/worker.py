@@ -2515,9 +2515,47 @@ def _cross_check_gemini_tier_b(
     return annotated
 
 
+# Sounding pitch relative to WRITTEN pitch, in semitones. Keep in sync with
+# src/lib/instruments.js — the form sends these exact names.
+INSTRUMENT_TRANSPOSE = {
+    "piccolo": 12, "flute": 0, "oboe": 0, "english horn": -7, "cor anglais": -7,
+    "bassoon": 0, "contrabassoon": -12,
+    "clarinet (b\u266d)": -2, "clarinet (bb)": -2, "bb clarinet": -2, "clarinet": -2,
+    "clarinet (a)": -3, "a clarinet": -3,
+    "clarinet (e\u266d)": 3, "clarinet (eb)": 3, "eb clarinet": 3,
+    "bass clarinet": -14,
+    "soprano saxophone": -2, "alto saxophone": -9, "tenor saxophone": -14,
+    "baritone saxophone": -21, "saxophone": -9, "alto sax": -9, "tenor sax": -14,
+    "recorder": 0,
+    "trumpet (b\u266d)": -2, "trumpet (bb)": -2, "trumpet": -2, "trumpet (c)": 0,
+    "cornet (b\u266d)": -2, "cornet": -2, "flugelhorn": -2,
+    "french horn (f)": -7, "french horn": -7, "horn": -7,
+    "trombone": 0, "bass trombone": 0, "euphonium": 0, "tuba": 0,
+    "violin": 0, "viola": 0, "cello": 0, "double bass": -12, "harp": 0,
+    "classical guitar": -12, "electric guitar": -12, "guitar": -12,
+    "bass guitar": -12, "ukulele": 0, "mandolin": 0, "banjo": 0,
+    "piano": 0, "organ": 0, "harpsichord": 0, "voice": 0,
+    "marimba": 0, "vibraphone": 0, "xylophone": 12, "glockenspiel": 24,
+    "timpani": 0, "snare drum": 0, "drum set": 0,
+}
+
+
+def transpose_for_instrument(instrument: str) -> int | None:
+    """Declared-instrument transposition, or None when we do not recognise it."""
+    key = (instrument or "").strip().lower()
+    if not key:
+        return None
+    if key in INSTRUMENT_TRANSPOSE:
+        return INSTRUMENT_TRANSPOSE[key]
+    # Longest-substring match so "Bb Clarinet 1" or "Alto Saxophone (Eb)" resolve.
+    hits = [(len(k), v) for k, v in INSTRUMENT_TRANSPOSE.items() if k in key]
+    return max(hits)[1] if hits else None
+
+
 def find_wrong_note_candidates(
     aligned: list[dict],
     score: dict,
+    instrument: str = "",
 ) -> list[str]:
     """
     Direct CREPE-vs-score comparison to surface wrong note candidates.
@@ -2573,6 +2611,7 @@ def find_wrong_note_candidates(
             continue
         diffs.append(int(ev_midi) - matched)
     transpose = 0
+    declared = transpose_for_instrument(instrument)
     if len(diffs) >= 8:
         ordered = sorted(diffs)
         median = ordered[len(ordered) // 2]
@@ -2581,10 +2620,22 @@ def find_wrong_note_candidates(
         agree = sum(1 for d in diffs if abs(d - median) <= 1)
         if abs(median) >= 1 and agree >= 0.6 * len(diffs):
             transpose = median
-            print(f"[find_wrong_note_candidates] detected a constant "
+            print(f"[find_wrong_note_candidates] measured a constant "
                   f"{transpose:+d}-semitone offset between performance and score "
-                  f"({agree}/{len(diffs)} notes agree) — treating the part as "
-                  f"transposed and comparing against sounding pitch")
+                  f"({agree}/{len(diffs)} notes agree)")
+    if transpose == 0 and declared:
+        # Not enough evidence to measure it, but the student told us what they
+        # play. A declared B-flat instrument reading a B-flat part is by far the
+        # common case, and without this every correct note reads as wrong.
+        transpose = declared
+        print(f"[find_wrong_note_candidates] using the declared instrument "
+              f"({instrument!r}) transposition of {transpose:+d} semitones")
+    elif declared is not None and transpose and abs(transpose - declared) > 1:
+        # Measured evidence wins — a student may be reading a concert-pitch part
+        # on a transposing instrument, or vice versa — but say so, because one of
+        # the two is wrong and it is worth being able to see which.
+        print(f"[find_wrong_note_candidates] measured {transpose:+d} but "
+              f"{instrument!r} implies {declared:+d}; trusting the measurement")
     if transpose:
         score_by_measure = {m: [p + transpose for p in ps] for m, ps in score_by_measure.items()}
 
@@ -3334,7 +3385,7 @@ def compare_and_coach_claude(
     strongest = sorted(evidence_candidates, key=_evidence_magnitude, reverse=True)[:16]
 
     # Add direct CREPE-vs-score wrong note candidates
-    wrong_note_candidates = find_wrong_note_candidates(aligned, score)
+    wrong_note_candidates = find_wrong_note_candidates(aligned, score, instrument)
 
     # Objective timing must be computed BEFORE the no-evidence guard below and
     # counted as evidence in its own right. A performance that is in tune, on the

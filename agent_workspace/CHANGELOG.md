@@ -1,5 +1,38 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 — Required instrument field with type-ahead; fixes wrong-note flags at the source
+
+The submission form never sent an instrument at all. The analysis therefore had
+no idea what was being played — which matters twice over: it sets CREPE's
+expected pitch range, and it determines whether the part is **transposing**. A
+B♭ clarinet sounds a major 2nd below what is printed, so a correctly-played part
+read as a page full of wrong notes.
+
+**Form.** New required Instrument combobox, `src/lib/instruments.js` (46
+instruments across woodwind/brass/strings/keyboard/voice/percussion, each with
+its written→sounding offset):
+- Ranked type-ahead: names that START with the query come first, then a match on
+  any word, then a substring, then the family. So "c" gives Cello and the three
+  clarinets before Bass Clarinet; "clarinet" gives all four; "sax" gives all four
+  saxophones; "horn" finds English Horn and Flugelhorn.
+- Plain "b" matches "♭", so nobody has to hunt for the flat sign.
+- Full keyboard support (up/down/enter/escape), click-to-select, outside-click to
+  dismiss, family shown on the right, tick when set. Analyze stays disabled until
+  an instrument is chosen. Free text is still allowed for anything not listed.
+
+**Worker.** `INSTRUMENT_TRANSPOSE` + `transpose_for_instrument()`, matched against
+the same names the form sends and tolerant of free text ("Bb Clarinet 1" → -2).
+The declared instrument is used as a **prior**, not an override: the measured
+offset (median difference against the DTW-matched note) still wins when there is
+enough evidence, since a student may be reading a concert-pitch part on a
+transposing instrument. The declared value fills in when the measurement cannot
+be made, and a disagreement between the two is logged rather than hidden.
+
+Verified: search ranking across nine queries, transposition lookup across twelve
+instruments including free text and unknowns, and the form end-to-end in a
+browser (Analyze correctly disabled until an instrument is picked; keyboard
+selection sets the value). Suite: 48 checks.
+
 ## 2026-08-16 (hotfix) — NameError shipped; added a static check that would have caught it
 
 `Analysis failed: name 'time_sig_hint' is not defined`. My time-signature change

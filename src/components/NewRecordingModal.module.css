@@ -91,6 +91,33 @@
 }
 .textInput:focus { outline: none; border-color: var(--accent); }
 
+/* ── Instrument combobox ── */
+.instrumentRow { margin-bottom: 14px; }
+.comboWrap { position: relative; }
+.comboCheck {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--score-good); display: flex; pointer-events: none;
+}
+.comboList {
+  position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 6px);
+  margin: 0; padding: 6px; list-style: none;
+  max-height: 268px; overflow-y: auto;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-lg);
+}
+.comboItem {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 11px; border-radius: 8px; cursor: pointer;
+  transition: background 110ms ease;
+}
+.comboItemActive { background: var(--surface-hover, rgba(233,112,39,0.10)); }
+.comboName { font-size: 0.9rem; color: var(--text); font-weight: 500; }
+.comboFamily {
+  font-size: 0.7rem; color: var(--text-faint); text-transform: uppercase;
+  letter-spacing: 0.07em; flex-shrink: 0;
+}
+.comboEmpty { padding: 10px 11px; font-size: 0.84rem; color: var(--text-muted); }
+
 /* ── Section headers ── */
 .sectionHead {
   display: flex;

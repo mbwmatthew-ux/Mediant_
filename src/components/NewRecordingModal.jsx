@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { extractAudioFeatures, extractScoreFacts } from '../lib/analysisEvidence'
 import styles from './NewRecordingModal.module.css'
 import { playDrop, playTick, playAnalyzeStart, playAnalyzeComplete } from '../utils/sounds'
+import { searchInstruments } from '../lib/instruments'
 
 
 /* Extract sampled video frames for the analysis engine (best-effort, non-fatal). */
@@ -77,6 +78,11 @@ export default function NewRecordingModal({ open, onClose }) {
   const [startMeasure, setStartMeasure] = useState('')
   const [endMeasure, setEndMeasure] = useState('')
   const [timeSig, setTimeSig] = useState('4/4')
+  const [instrument, setInstrument] = useState('')
+  const [instQuery, setInstQuery] = useState('')
+  const [instOpen, setInstOpen] = useState(false)
+  const [instHi, setInstHi] = useState(0)
+  const instBoxRef = useRef(null)
 
   // Performance: one of video OR audio required
   const [videoFile, setVideoFile] = useState(null)
@@ -94,7 +100,7 @@ export default function NewRecordingModal({ open, onClose }) {
   const performanceFile = videoFile || audioFile
   // Everything is required now: a performance (video OR audio) AND at least one
   // sheet-music page. The score used to be optional-but-recommended.
-  const readyToAnalyze = Boolean(performanceFile) && scoreFiles.length > 0
+  const readyToAnalyze = Boolean(performanceFile) && scoreFiles.length > 0 && Boolean(instrument.trim())
 
   // Reset when closed
   useEffect(() => {
@@ -102,6 +108,16 @@ export default function NewRecordingModal({ open, onClose }) {
       setPhase('idle'); setProgress(0); setErrorMsg('')
     }
   }, [open])
+
+  // Close the instrument dropdown when clicking elsewhere
+  useEffect(() => {
+    if (!instOpen) return
+    function onDown(e) {
+      if (instBoxRef.current && !instBoxRef.current.contains(e.target)) setInstOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [instOpen])
 
   // Close on Escape (unless mid-analysis)
   useEffect(() => {
@@ -240,6 +256,7 @@ export default function NewRecordingModal({ open, onClose }) {
             scorePath:     scorePath || undefined,
             scorePaths:    scorePaths.length ? scorePaths : undefined,
             scoreMimeType: scoreFiles[0]?.type || undefined,
+            instrument:    instrument.trim(),
             pieceTitle:    pieceName.trim() || undefined,
             timeSig:       timeSig.trim() || '4/4',
             startMeasure:  startMeasure ? parseInt(startMeasure, 10) : 1,
@@ -359,6 +376,82 @@ export default function NewRecordingModal({ open, onClose }) {
               )}
 
               {/* Piece name + tags */}
+              {/* Instrument — required. Without it the analysis cannot know the
+                  part is transposing, and a correctly-played B-flat clarinet
+                  reads as a page full of wrong notes. */}
+              <div className={styles.instrumentRow} ref={instBoxRef}>
+                <label className={styles.fieldLabel} htmlFor="instrument-input">Instrument</label>
+                <div className={styles.comboWrap}>
+                  <input
+                    id="instrument-input"
+                    className={styles.textInput}
+                    value={instQuery || instrument}
+                    placeholder="Start typing — e.g. clarinet, sax, violin"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-expanded={instOpen}
+                    aria-controls="instrument-listbox"
+                    aria-autocomplete="list"
+                    onChange={e => {
+                      setInstQuery(e.target.value)
+                      setInstrument('')
+                      setInstOpen(true)
+                      setInstHi(0)
+                    }}
+                    onFocus={() => setInstOpen(true)}
+                    onKeyDown={e => {
+                      const list = searchInstruments(instQuery || instrument)
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault(); setInstOpen(true)
+                        setInstHi(h => Math.min(h + 1, Math.max(0, list.length - 1)))
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault(); setInstHi(h => Math.max(0, h - 1))
+                      } else if (e.key === 'Enter' && instOpen && list[instHi]) {
+                        e.preventDefault()
+                        playTick()
+                        setInstrument(list[instHi].name); setInstQuery(''); setInstOpen(false)
+                      } else if (e.key === 'Escape') {
+                        setInstOpen(false)
+                      }
+                    }}
+                  />
+                  {instrument && !instOpen && <span className={styles.comboCheck}><CheckIcon /></span>}
+                  {instOpen && (() => {
+                    const list = searchInstruments(instQuery || instrument)
+                    if (!list.length) {
+                      return (
+                        <ul className={styles.comboList} id="instrument-listbox" role="listbox">
+                          <li className={styles.comboEmpty}>
+                            No match — you can still type your instrument in full
+                          </li>
+                        </ul>
+                      )
+                    }
+                    return (
+                      <ul className={styles.comboList} id="instrument-listbox" role="listbox">
+                        {list.map((inst, i) => (
+                          <li
+                            key={inst.name}
+                            role="option"
+                            aria-selected={i === instHi}
+                            className={`${styles.comboItem} ${i === instHi ? styles.comboItemActive : ''}`}
+                            onMouseEnter={() => setInstHi(i)}
+                            onMouseDown={e => {
+                              e.preventDefault()
+                              playTick()
+                              setInstrument(inst.name); setInstQuery(''); setInstOpen(false)
+                            }}
+                          >
+                            <span className={styles.comboName}>{inst.name}</span>
+                            <span className={styles.comboFamily}>{inst.family}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  })()}
+                </div>
+              </div>
+
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                 <div style={{ flex: 1 }}>
                   <label className={styles.fieldLabel}>Piece name</label>

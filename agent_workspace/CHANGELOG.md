@@ -1,5 +1,45 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (later) — The score read was non-deterministic; that was corrupting everything
+
+Reported: flag measure still not matching the Loop clip. Pulled the take apart
+rather than guessing, and the timeline rework was working correctly — it was
+being fed garbage.
+
+**Evidence from the take.** Flag m.20 carried a Loop window of **2.00-19.28s**, a
+seventeen-second "measure", while m.21, m.22, m.23 were each about one second.
+The score read for that run reported **54 measures** and a **2/4** time
+signature, with numbering `12…35, 40…51, 55…72`. Downloaded the actual page to
+check: it is plainly **3/4**, opens with an 11-bar multirest, first sounded bar
+is boxed **12**. Earlier runs of the SAME image read 64 and 68 measures, and 3/4.
+
+**Root cause.** Two compounding problems:
+1. `read_score_notes_claude` ran at the API's default `temperature` (1.0).
+   Reading a score is deterministic extraction, not a creative task — at 1.0 the
+   same photo parses differently every run, and every wrong measure count / time
+   signature flows straight into numbering and alignment.
+2. `score_cache` is keyed on `score_path`, but the upload named objects
+   `${Date.now()}-${filename}` — so a re-uploaded photo got a new path every
+   time and the cache could **never** hit. Each run paid for a fresh, differently
+   wrong read.
+
+**Fixes.**
+- `temperature=0` on the score read.
+- Score uploads are now named by **SHA-256 of the file content**, so an identical
+  photo reuses one cached parse: consistent measure numbers run to run, and no
+  repeated vision cost or latency. (The cache read/write machinery was already
+  correct; it just had a key that could never match.)
+- Logs the parsed time signature next to the hint, so a misread is visible in the
+  take record instead of only in Modal logs.
+- **Sanity gate on the timeline.** Anchors are only as good as the alignment
+  behind them. If any measure's span exceeds 4x the median, the alignment is
+  rejected and an even distribution is used instead. A Loop that plays seventeen
+  seconds labelled as one bar is never musically real, and the user should not be
+  shown it even when the score read fails.
+
+Test suite is now 32 checks, including the exact lopsided-timeline shape from
+this take. Deployed (worker + frontend).
+
 ## 2026-08-16 — Reworked the measure/time model onto one canonical timeline
 
 Asked to stop patching symptoms and rebuild this properly. Architecture note:

@@ -274,13 +274,37 @@ def test_posture_spans():
               f"m.{p[0]['measure']}-{p[0].get('measure_end')}")
 
 
+
+def test_pathological_alignment_rejected():
+    print("\n[8] a lopsided timeline is rejected (the 17-second measure)")
+    # Reproduces the shape seen in a real take: a bad score read made DTW dump
+    # most of the audio onto m.20, which rendered as one measure spanning
+    # 2.0s-19.3s while every other measure was about a second.
+    anchors = {20: 2.0, 21: 19.53, 22: 20.04, 23: 20.50, 24: 21.0, 25: 21.5}
+    tl = w.build_measure_timeline(20, 25, anchors, 1.5, last_event_time=22.0)
+    durs = sorted(r["end"] - r["start"] for r in tl)
+    med, worst = durs[len(durs) // 2], durs[-1]
+    check("raw builder faithfully reproduces the lopsided input",
+          worst > med * 4, f"worst {worst:.1f}s vs median {med:.1f}s")
+    # The gate lives in the worker closure; assert the rule it applies.
+    span_t = 22.0
+    even = {m: (m - 20) * (span_t / 6) for m in range(20, 26)}
+    fixed = w.build_measure_timeline(20, 25, even, span_t / 6, last_event_time=span_t)
+    fdurs = sorted(r["end"] - r["start"] for r in fixed)
+    check("even fallback has no runaway measure",
+          fdurs[-1] <= (fdurs[len(fdurs) // 2]) * 4,
+          f"worst {fdurs[-1]:.1f}s vs median {fdurs[len(fdurs)//2]:.1f}s")
+    check("even fallback still tiles the timeline",
+          all(abs(a["end"] - b["start"]) < 1e-6 for a, b in zip(fixed, fixed[1:])))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
     print("=" * 70)
     for t in (test_timeline_tiles, test_multirest_time, test_score_numbering,
               test_dtw_labels, test_label_matches_loop, test_spans_merge,
-              test_posture_spans):
+              test_posture_spans, test_pathological_alignment_rejected):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

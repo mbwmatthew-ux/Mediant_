@@ -2190,6 +2190,13 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
         with client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=32000,
+            # Reading a score is a deterministic extraction task, not a creative
+            # one. This ran at the API default (1.0), so the SAME photo produced
+            # materially different parses run to run — 54 vs 64 vs 68 measures,
+            # and a time signature of 2/4 on one run and 3/4 on the next for a
+            # page that plainly reads 3/4. Every one of those wrong values then
+            # propagates into measure numbering and alignment.
+            temperature=0,
             messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
         ) as stream:
             msg = stream.get_final_message()
@@ -2268,6 +2275,8 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
             print(f"[read_score_notes_claude] {len(measures)} measures "
                   f"m.{_nums[0]}-{_nums[-1]}, {total_notes} notes, {_gaps} numbering gap(s) "
                   f"(gaps are expected wherever the part has multirests)")
+            print(f"[read_score_notes_claude] time_signature="
+                  f"{parsed.get('time_signature')!r} (hint was {time_sig!r})")
             if _gaps == 0 and _nums[0] == start_measure and len(_nums) > 8:
                 print("[read_score_notes_claude] WARNING: numbering is perfectly "
                       "consecutive from start_measure — printed numbers may have been "
@@ -3062,6 +3071,30 @@ def compare_and_coach_claude(
 
         tl = build_measure_timeline(lo, hi, anchors, spm,
                                     last_event_time=last_t, piece_len=piece_len)
+
+        # Sanity gate. Anchors are only as good as the alignment behind them, and
+        # the alignment is only as good as the score read. A bad read (wrong
+        # measure count, hallucinated numbering) makes DTW dump most of the audio
+        # onto one measure, and the timeline faithfully renders that as a single
+        # measure spanning half the recording — a real take shipped m.20 running
+        # 2.0s-19.3s while every other measure was ~1s. That is never musically
+        # real, and it is better to fall back to an even distribution than to show
+        # a Loop that plays seventeen seconds of music labelled as one bar.
+        durs = sorted(r["end"] - r["start"] for r in tl)
+        if len(durs) >= 4:
+            med = durs[len(durs) // 2]
+            worst = durs[-1]
+            if med > 0 and worst > med * 4.0:
+                print(f"[measure_timeline] REJECTED tier={tier}: measure spans "
+                      f"range {durs[0]:.2f}-{worst:.2f}s against a median of "
+                      f"{med:.2f}s — alignment is untrustworthy (usually a bad "
+                      f"score read). Falling back to an even distribution.")
+                span_t = max(last_t, spm * max(1, hi - lo + 1))
+                even = {m: (m - lo) * (span_t / max(1, hi - lo + 1)) for m in range(lo, hi + 1)}
+                tl = build_measure_timeline(lo, hi, even, span_t / max(1, hi - lo + 1),
+                                            last_event_time=last_t, piece_len=piece_len)
+                tier += "+rejected_uneven"
+
         print(f"[measure_timeline] tier={tier} m.{lo}-{hi} ({len(tl)} measures) "
               f"spm={spm:.2f}s anchors={len(anchors)}")
         _timeline_cache["tl"] = tl

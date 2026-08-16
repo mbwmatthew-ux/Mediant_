@@ -176,10 +176,22 @@ export default function NewRecordingModal({ open, onClose }) {
       const scorePaths = []
       for (const file of scoreFiles) {
         const safeSN = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
-        const sp = `${user.id}/scores/${Date.now()}-${safeSN}`
+        // Name the object by its CONTENT hash, not Date.now(). The analysis
+        // pipeline caches its (slow, expensive, AI-vision) score parse in
+        // score_cache keyed on this path — with a timestamp in the name, the
+        // same photo got a new path every upload, so the cache could never hit
+        // and every run re-read the page from scratch. Those re-reads are not
+        // identical: the same image yielded 54 / 64 / 68 measures and a 2/4 vs
+        // 3/4 time signature on different runs, and each wrong value flows
+        // straight into measure numbering. Hashing makes an identical photo
+        // reuse one parse — consistent measure numbers, and no repeat cost.
+        const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+        const hash = Array.from(new Uint8Array(digest))
+          .map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32)
+        const sp = `${user.id}/scores/${hash}-${safeSN}`
         const { error: scoreErr } = await supabase.storage
           .from('sheet-music')
-          .upload(sp, file, { contentType: file.type || 'application/octet-stream', upsert: false })
+          .upload(sp, file, { contentType: file.type || 'application/octet-stream', upsert: true })
         if (scoreErr) throw new Error(`Sheet music upload failed: ${scoreErr.message}`)
         scorePaths.push(sp)
       }

@@ -1,5 +1,37 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 (later still) — Wrong notes: the B♭ transposition, and making it visible
+
+User's diagnosis was right. A take reported "2 semitones away" at m.29 — exactly
+the B♭ clarinet interval. CREPE hears *sounding* pitch, the score shows *written*
+pitch, and on a B♭ instrument those differ by −2.
+
+The instrument field itself was fine (recent takes hold `Clarinet (B♭)`, the
+lookup resolves it to −2, codepoints match). The problem was that **the
+transposition decision was invisible**, so diagnosing this meant guessing.
+
+- `pipeline_debug` now carries a `transposition:` line — `declared=… measured=…
+  applied=…`, or `CONFLICT …`. Anything that silently rewrites pitches must say
+  what it did.
+- **The declared instrument now wins** over the DTW-measured offset. The
+  declaration is a required, stated fact; the measurement is inferred from an
+  alignment that may itself be wrong. Previously the measurement won.
+- **Declared vs measured disagreeing by >1 semitone suppresses wrong-note
+  detection entirely.** A B♭ player reading a concert score is indistinguishable
+  from a broken alignment, and guessing means accusing someone of mistakes they
+  did not make.
+- A note *exactly* right under the untransposed reading is skipped — that is the
+  fingerprint of a transposition artifact, not a mistake.
+- Fixed a bug I introduced in the previous pass: `ev["score_pitch"]` is the
+  WRITTEN pitch and was not transposed, so evidence could name a note the student
+  never saw with a distance that did not match it.
+
+11 new checks in `test_analysis.py` [19]; 82/82 pass.
+
+**Note on the investigation:** I first queried `instrument` on takes, saw NULLs,
+and concluded the field was broken. Those were older rows predating the required
+instrument box — recent takes were fine. Read the timestamps.
+
 ## 2026-08-16 (later) — Wrong-note flags: conservative, and silent when unsure
 
 `find_wrong_note_candidates()` authors its own `error` flags with

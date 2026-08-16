@@ -2633,6 +2633,18 @@ INSTRUMENT_TRANSPOSE = {
 }
 
 
+# Set by find_wrong_note_candidates, read by run_full_analysis so the
+# transposition decision reaches pipeline_debug. This was invisible, which is
+# exactly why a "wrong note" that was really a B-flat transposition took a
+# round of guesswork to pin down instead of being readable off the take.
+_LAST_TRANSPOSE_DEBUG: str = ""
+
+
+def _note_transposition_debug(msg: str) -> None:
+    global _LAST_TRANSPOSE_DEBUG
+    _LAST_TRANSPOSE_DEBUG = msg
+
+
 def transpose_for_instrument(instrument: str) -> int | None:
     """Declared-instrument transposition, or None when we do not recognise it."""
     key = (instrument or "").strip().lower()
@@ -2669,6 +2681,7 @@ def find_wrong_note_candidates(
     the notes look wrong, the score read or alignment is broken rather than the
     playing, and nothing is reported at all.
     """
+    _note_transposition_debug("not evaluated")
     if not aligned or not score.get("measures"):
         return []
 
@@ -2713,33 +2726,40 @@ def find_wrong_note_candidates(
         if ev_midi is None or matched is None or ev.get("confidence", 0) < 50:
             continue
         diffs.append(int(ev_midi) - matched)
-    transpose = 0
     declared = transpose_for_instrument(instrument)
+    measured = None
     if len(diffs) >= 8:
         ordered = sorted(diffs)
-        median = ordered[len(ordered) // 2]
+        median  = ordered[len(ordered) // 2]
         # Only trust it if most notes agree — otherwise this is just bad playing,
         # not a transposition, and shifting would hide the real errors.
         agree = sum(1 for d in diffs if abs(d - median) <= 1)
-        if abs(median) >= 1 and agree >= 0.6 * len(diffs):
-            transpose = median
-            print(f"[find_wrong_note_candidates] measured a constant "
-                  f"{transpose:+d}-semitone offset between performance and score "
-                  f"({agree}/{len(diffs)} notes agree)")
-    if transpose == 0 and declared:
-        # Not enough evidence to measure it, but the student told us what they
-        # play. A declared B-flat instrument reading a B-flat part is by far the
-        # common case, and without this every correct note reads as wrong.
-        transpose = declared
-        print(f"[find_wrong_note_candidates] using the declared instrument "
-              f"({instrument!r}) transposition of {transpose:+d} semitones")
-    elif declared is not None and transpose and abs(transpose - declared) > 1:
-        # Measured evidence wins — a student may be reading a concert-pitch part
-        # on a transposing instrument, or vice versa — but say so, because one of
-        # the two is wrong and it is worth being able to see which.
-        print(f"[find_wrong_note_candidates] measured {transpose:+d} but "
-              f"{instrument!r} implies {declared:+d}; trusting the measurement")
+        if agree >= 0.6 * len(diffs):
+            measured = median
+
+    if declared is not None and measured is not None and abs(measured - declared) > 1:
+        # The student said one thing and the audio says another. One of them is
+        # wrong and we cannot tell which — a B-flat player reading a concert
+        # score looks identical to a broken alignment from here. Guessing means
+        # accusing someone of wrong notes they did not play, so say nothing.
+        _note_transposition_debug(
+            f"CONFLICT declared={declared:+d} ({instrument}) vs measured="
+            f"{measured:+d} — wrong-note detection disabled for this take")
+        print(f"[find_wrong_note_candidates] SUPPRESSED — {instrument!r} implies "
+              f"{declared:+d} semitones but the audio measures {measured:+d}. "
+              f"Cannot tell which reading is right, so no wrong notes are reported.")
+        return []
+
+    # The student's declaration is now a required field, so prefer it: it is a
+    # stated fact, where the measurement is inferred from a DTW alignment that
+    # may itself be wrong. They agree in the normal case anyway.
+    transpose = declared if declared is not None else (measured or 0)
+    _note_transposition_debug(
+        f"declared={declared if declared is not None else 'none'} "
+        f"measured={measured if measured is not None else 'none'} applied={transpose:+d}")
     if transpose:
+        print(f"[find_wrong_note_candidates] applying {transpose:+d} semitones "
+              f"(declared={declared}, measured={measured}) for {instrument!r}")
         score_by_measure = {m: [p + transpose for p in ps] for m, ps in score_by_measure.items()}
 
     # ── Evidence gates ─────────────────────────────────────────────────────
@@ -2805,13 +2825,25 @@ def find_wrong_note_candidates(
         min_pc_dist = min(min(abs(ev_pc - (e % 12)), 12 - abs(ev_pc - (e % 12)))
                           for e in expected)
 
+        # If the note is exactly right under the UNtransposed reading, that is
+        # the fingerprint of a transposition artifact rather than a mistake —
+        # the shape the user saw as "wrong note" flags on correct playing.
+        # Requiring an exact match keeps this narrow: it will not swallow a
+        # genuine wrong note, which lands on no reading in particular.
+        if transpose and any(ev_midi == p - transpose for p in own):
+            continue
+
         if min_dist >= 2 and min_pc_dist >= 2:
             # Report against the note DTW actually matched where we have it —
             # that names what should have sounded at this instant, rather than
             # whichever note in the bar happens to be closest to the mistake.
+            # score_pitch is the WRITTEN pitch straight off the page, so it
+            # needs the same transposition as everything else in
+            # score_by_measure. Mixing the two named a note the student never
+            # saw and reported a distance that did not match it.
             matched  = midi_from_name(ev.get("score_pitch") or "")
             in_bar   = min(own, key=lambda e: abs(ev_midi - e))
-            ref      = matched if matched is not None else in_bar
+            ref      = (matched + transpose) if matched is not None else in_bar
             suspects.append({
                 "measure": m_num, "conf": ev_conf,
                 "dur": dur if dur is not None else 0.25,
@@ -4754,6 +4786,11 @@ def run_full_analysis(payload: dict) -> None:
                 dtw_verified=(alignment_method_used in ("score_dtw", "reference_midi_dtw")),
             )
             debug_steps.append(f"claude_coaching: {len(flags)} flags")
+            # Make the transposition decision readable off the take. Without it,
+            # diagnosing "wrong note flags on correct playing" means guessing at
+            # whether the B-flat offset was applied.
+            if _LAST_TRANSPOSE_DEBUG:
+                debug_steps.append(f"transposition: {_LAST_TRANSPOSE_DEBUG}")
         else:
             raise RuntimeError("ANTHROPIC_API_KEY not provided")
 

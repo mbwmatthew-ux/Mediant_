@@ -594,6 +594,54 @@ def test_wrong_notes_reject_false_positives():
           all("score has" in c and "CREPE detected" in c for c in cands))
 
 
+def test_bflat_clarinet_transposition():
+    print("\n[19] a B-flat clarinet part is never reported as wrong notes")
+    score = make_score()
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Correct playing: a Bb clarinet SOUNDS a major 2nd below the written pitch.
+    for e in aligned:
+        e["midi_raw"] = e["midi"] = w.midi_from_name(e["pitches"][0]) - 2
+        e["confidence"] = 90
+        e["cents_spread"] = 8
+
+    # The exact string the form stores and the DB holds.
+    for name in ("Clarinet (B\u266d)", "clarinet", "Bb Clarinet", "Clarinet (Bb)"):
+        check(f"{name!r} resolves to -2 semitones",
+              w.transpose_for_instrument(name) == -2)
+
+    for name in ("Clarinet (B\u266d)", "clarinet", ""):
+        cands = w.find_wrong_note_candidates(aligned, score, name)
+        check(f"correct Bb playing yields no wrong notes (instrument={name!r})",
+              len(cands) == 0, f"{len(cands)} candidate(s)")
+
+    # The decision must be visible on the take, not a guess.
+    w.find_wrong_note_candidates(aligned, score, "Clarinet (B\u266d)")
+    check("the transposition decision is recorded for pipeline_debug",
+          "applied=-2" in w._LAST_TRANSPOSE_DEBUG, w._LAST_TRANSPOSE_DEBUG)
+
+    # Declared and measured disagreeing means we cannot tell which reading is
+    # right. Accusing the student either way is worse than staying silent.
+    concert = []
+    for e in aligned:
+        c = dict(e)
+        c["midi_raw"] = c["midi"] = w.midi_from_name(e["pitches"][0])  # sounds as written
+        concert.append(c)
+    cands = w.find_wrong_note_candidates(concert, score, "Clarinet (B\u266d)")
+    check("a declared/measured conflict suppresses wrong notes entirely",
+          len(cands) == 0, f"{len(cands)} candidate(s)")
+    check("the conflict is recorded for pipeline_debug",
+          "CONFLICT" in w._LAST_TRANSPOSE_DEBUG, w._LAST_TRANSPOSE_DEBUG)
+
+    # A real mistake on a declared Bb clarinet must still be caught.
+    for e in aligned:
+        if e["measure"] in (26, 31):
+            e["midi_raw"] = e["midi"] = e["midi"] + 5
+    cands = w.find_wrong_note_candidates(aligned, score, "Clarinet (B\u266d)")
+    check("a real wrong note on a Bb part is still caught",
+          len(cands) > 0, f"{len(cands)} candidate(s)")
+
+
 def test_form_time_signature_wins():
     print("\n[15] the form's time signature beats the vision read")
     # beats_per_measure drives the whole beat axis; 3/4 must yield 3, not the
@@ -740,7 +788,8 @@ def main():
               test_form_time_signature_wins,
               test_pitch_measurement_is_unbiased,
               test_tuning_center_normalisation,
-              test_wrong_notes_reject_false_positives):
+              test_wrong_notes_reject_false_positives,
+              test_bflat_clarinet_transposition):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

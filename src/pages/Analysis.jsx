@@ -9,6 +9,29 @@ import { playTick, playPop, playNav } from '../utils/sounds'
 
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
 
+/**
+ * Render the coach's explanation text: paragraphs on blank lines, **bold** for
+ * the section labels the Explain prompt asks for. Deliberately tiny — this is
+ * one known text shape from our own prompt, not arbitrary markdown, so pulling
+ * in a markdown library would be weight for nothing. Everything is rendered as
+ * text nodes, never dangerouslySetInnerHTML.
+ */
+function renderExplainText(text) {
+  return String(text || '')
+    .split(/\n{2,}|\n/)
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map((para, pi) => (
+      <p key={pi}>
+        {para.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, si) =>
+          part.startsWith('**') && part.endsWith('**')
+            ? <strong key={si}>{part.slice(2, -2)}</strong>
+            : <span key={si}>{part}</span>
+        )}
+      </p>
+    ))
+}
+
 const HEADER_WAVE_BARS = [
   22, 40, 58, 30, 75, 48, 90, 62, 38, 55,
   70, 42, 65, 32, 52, 80, 58, 36, 68, 44,
@@ -494,6 +517,16 @@ const videoRef    = useRef(null)
 
   // Song-thread persistence state
   const [activeSongId, setActiveSongId] = useState(null)
+
+  // ── "Explain" screen ────────────────────────────────────────────────────
+  // A focused view for one flag: a deeper explanation, then follow-up
+  // questions. Held here rather than in a route so returning is instant and
+  // the analysis behind it keeps its scroll position and open card.
+  const [explainFlag, setExplainFlag]       = useState(null)   // the flag being explained
+  const [explainTurns, setExplainTurns]     = useState([])     // [{role, content}]
+  const [explainLoading, setExplainLoading] = useState(false)
+  const [explainInput, setExplainInput]     = useState('')
+  const explainScrollRef = useRef(null)
 
   // AI-context note (per-take) + re-analyze state
   const [noteDraft, setNoteDraft]   = useState('')
@@ -1213,6 +1246,94 @@ const videoRef    = useRef(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [take?.id])
 
+  // ── Explain screen: ask the coach about one flag ────────────────────────
+  // `mode: 'explain'` on the first turn switches the edge function to a deeper,
+  // structured answer; follow-ups are ordinary chat turns about the same flag.
+  const askExplain = useCallback(async (flag, question, turnsSoFar) => {
+    const flagContext = {
+      measure:     flag.measure,
+      measure_end: flag.measure_end ?? null,
+      type:        flag.type,
+      title:       flag.title,
+      detail:      flag.detail ?? flag.body ?? '',
+    }
+    setExplainLoading(true)
+    try {
+      if (!user?.id || isDemo) {
+        // Demo has no backend. Say so plainly rather than inventing coaching
+        // that would look real but be made up.
+        await new Promise(r => setTimeout(r, 500))
+        setExplainTurns(prev => [...prev, { role: 'assistant', content:
+          `**What happened** — ${flagContext.detail || flagContext.title}\n\n` +
+          '**Why it happens** — Sign in to get a full explanation for your own take; ' +
+          'the demo does not run the coaching model.\n\n' +
+          '**How to fix it** — Record a take and open this screen again for a real answer.' }])
+        return
+      }
+      const { data, error } = await supabase.functions.invoke('coach-chat', {
+        body: {
+          message: question,
+          context: {
+            pieceTitle:    activeThreadTitle,
+            pieceComposer: activeThread?.piece_composer ?? '',
+            instrument:    activeThread?.instrument ?? take?.instrument ?? null,
+            flags:         take?.flags ?? [],
+            activeFlag:    flagContext,
+            mode:          turnsSoFar.length === 0 ? 'explain' : undefined,
+          },
+          history: turnsSoFar,
+          songId:  activeSongId ?? null,
+        },
+      })
+      if (error) throw new Error(error.message)
+      setExplainTurns(prev => [...prev, { role: 'assistant', content: data?.reply ?? '' }])
+    } catch {
+      setExplainTurns(prev => [...prev, { role: 'assistant', content:
+        "I couldn't reach the coaching engine. Please try again." }])
+    } finally {
+      setExplainLoading(false)
+    }
+  }, [user?.id, isDemo, activeThreadTitle, activeThread, take, activeSongId])
+
+  const openExplain = useCallback((flag) => {
+    playTick()
+    stopLoop()
+    setExplainFlag(flag)
+    setExplainTurns([])
+    setExplainInput('')
+    askExplain(flag, `Explain this issue in more depth: "${flag.title}".`, [])
+  }, [askExplain, stopLoop])
+
+  const closeExplain = useCallback(() => {
+    playTick()
+    setExplainFlag(null)
+    setExplainTurns([])
+    setExplainInput('')
+  }, [])
+
+  const sendExplainQuestion = useCallback(() => {
+    const q = explainInput.trim()
+    if (!q || explainLoading || !explainFlag) return
+    setExplainInput('')
+    const next = [...explainTurns, { role: 'user', content: q }]
+    setExplainTurns(next)
+    askExplain(explainFlag, q, next.slice(0, -1))
+  }, [explainInput, explainLoading, explainFlag, explainTurns, askExplain])
+
+  // Keep the newest turn in view as answers stream in.
+  useEffect(() => {
+    const el = explainScrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [explainTurns, explainLoading])
+
+  // Escape returns to the analysis, matching the back button.
+  useEffect(() => {
+    if (!explainFlag) return
+    const onKey = (e) => { if (e.key === 'Escape') closeExplain() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [explainFlag, closeExplain])
+
   // ChatGPT conversational questioning loop
   async function sendMessage(chipText) {
     const msg = (chipText ?? chatInput).trim()
@@ -1691,7 +1812,7 @@ const videoRef    = useRef(null)
           left arrow while viewing the summary. Fixed to the viewport edge. The page
           itself never scrolls, so this swaps which panel is shown instead of
           scrolling to an anchor. */}
-      {take?.flags?.length > 0 && (
+      {take?.flags?.length > 0 && !explainFlag && (
         <button
           type="button"
           className={`${aStyles.sectionNavArrow} ${inSummaryView ? aStyles.sectionNavArrowLeft : aStyles.sectionNavArrowRight}`}
@@ -2059,6 +2180,14 @@ const videoRef    = useRef(null)
                             </div>
                           )}
                           <p className={aStyles.issueDetailText}>{f.detail ?? f.body}</p>
+                          <div className={aStyles.issueActions}>
+                            <button className={aStyles.explainBtn} onClick={() => openExplain(f)}>
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="10" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                            Explain
+                          </button>
+                          </div>
                           <div className={aStyles.occurrenceList}>
                             {f.occurrences.map(occ => {
                               const occLooping = isLooping && loopRef.current?.start === Number(occ.timestamp_start)
@@ -2167,15 +2296,23 @@ const videoRef    = useRef(null)
                           </div>
                         )}
                         <p className={aStyles.issueDetailText}>{f.detail ?? f.body}</p>
-                        {f.timestamp_start != null && (
-                          <button className={`${aStyles.loopBtn} ${isThisLooping ? aStyles.loopBtnActive : ''}`}
-                            onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}>
+                        <div className={aStyles.issueActions}>
+                          {f.timestamp_start != null && (
+                            <button className={`${aStyles.loopBtn} ${isThisLooping ? aStyles.loopBtnActive : ''}`}
+                              onClick={() => { playTick(); isThisLooping ? stopLoop() : startLoop(f) }}>
+                              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                              </svg>
+                              {isThisLooping ? 'Stop' : 'Loop'}
+                            </button>
+                          )}
+                          <button className={aStyles.explainBtn} onClick={() => openExplain(f)}>
                             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                              <circle cx="12" cy="12" r="10" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
                             </svg>
-                            {isThisLooping ? 'Stop' : 'Loop'}
+                            Explain
                           </button>
-                        )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2314,6 +2451,69 @@ const videoRef    = useRef(null)
       </div>
 
       </div>
+
+      {/* ── Explain screen ──────────────────────────────────────────────────
+          Absolutely positioned inside .page (which is position:relative), NOT
+          fixed: a fixed overlay would sit under AppShell's 72px sidebar, and
+          /#/demo renders outside AppShell so that bug would not show up in the
+          demo. Covering the analysis area is also the right scope — the back
+          button returns you to the analysis, not out of the app. */}
+      {explainFlag && (
+        <div className={aStyles.explainScreen} role="dialog" aria-modal="true"
+             aria-label={`Explanation: ${explainFlag.title}`}>
+          <div className={aStyles.explainHeader}>
+            <button className={aStyles.explainBack} onClick={closeExplain}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                   strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+              Back
+            </button>
+            <div className={aStyles.explainHeaderInfo}>
+              <span className={aStyles.explainMeta}>
+                M. {explainFlag.measure}{explainFlag.measure_end ? `–${explainFlag.measure_end}` : ''}
+                {' · '}{(explainFlag.type ?? '').toUpperCase()}
+              </span>
+              <h2 className={aStyles.explainTitle}>{explainFlag.title}</h2>
+            </div>
+          </div>
+
+          <div className={aStyles.explainBody} ref={explainScrollRef}>
+            {explainTurns.map((t, i) => (
+              t.role === 'user' ? (
+                <div key={i} className={aStyles.explainQuestion}>{t.content}</div>
+              ) : (
+                <div key={i} className={aStyles.explainAnswer}>{renderExplainText(t.content)}</div>
+              )
+            ))}
+            {explainLoading && (
+              <div className={aStyles.explainThinking}>
+                <span className={aStyles.explainDot} /><span className={aStyles.explainDot} />
+                <span className={aStyles.explainDot} />
+              </div>
+            )}
+          </div>
+
+          <div className={aStyles.explainAsk}>
+            <input
+              className={aStyles.explainInput}
+              value={explainInput}
+              onChange={e => setExplainInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendExplainQuestion() } }}
+              placeholder="Ask a follow-up about this issue…"
+              disabled={explainLoading}
+            />
+            <button className={aStyles.explainSend}
+                    onClick={sendExplainQuestion}
+                    disabled={explainLoading || !explainInput.trim()}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                   strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {showAnalysisIntro && (
         <AnalysisOnboarding onClose={() => setShowAnalysisIntro(false)} />

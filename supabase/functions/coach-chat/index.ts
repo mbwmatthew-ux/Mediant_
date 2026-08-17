@@ -72,7 +72,7 @@ serve(async (req) => {
     const { message, context, history, songId } = await req.json()
     if (!message) throw new Error('message is required')
 
-    const { pieceTitle, pieceComposer, instrument, flags, activeFlag, coachingStyle } = context ?? {}
+    const { pieceTitle, pieceComposer, instrument, flags, activeFlag, coachingStyle, mode } = context ?? {}
 
     const flagsSummary = Array.isArray(flags) && flags.length > 0
       ? flags.map((f: Record<string, unknown>) =>
@@ -81,8 +81,24 @@ serve(async (req) => {
       : 'No issues flagged.'
 
     const activeFlagLine = activeFlag
-      ? `\nThe student is currently asking about: measure ${activeFlag.measure}, issue type "${activeFlag.type}" — "${activeFlag.title}".`
+      ? `\nThe student is currently asking about: measure ${activeFlag.measure}${activeFlag.measure_end ? `-${activeFlag.measure_end}` : ''}, `
+        + `issue type "${activeFlag.type}" — "${activeFlag.title}".`
+        + (activeFlag.detail ? `\nThe analysis said: "${activeFlag.detail}"` : '')
+        + `\nThis was measured from their actual recording, so treat it as established fact. `
+        + `Never ask what they played, and never ask them to describe the passage — you have the analysis.`
       : ''
+
+    // The "Explain" screen. The student already read the one-line coaching and
+    // tapped for more, so repeating it back is worthless — go deeper into cause
+    // and remedy. Depth here means specificity, NOT length: a wall of text is
+    // the failure mode this button invites, so the budget is stated up front.
+    const explainInstruction = [
+      '\nThe student has asked you to EXPLAIN this issue in more depth. Structure your answer as exactly three short labelled parts:',
+      '**What happened** — one sentence restating the specific observation in plain language.',
+      '**Why it happens** — two sentences on the physical or musical cause on their instrument. This is the part they came for: be concrete about embouchure, air, fingers, bow, hands, or ears as appropriate.',
+      '**How to fix it** — two sentences with one specific drill, including a tempo, a rhythm, or a number of repetitions.',
+      'Hard limit: 120 words total. Depth means being specific, not being long. No preamble, no summary sentence at the end, no praise.',
+    ].join(' ')
 
     const styleKey = (coachingStyle ?? 'Balanced') as string
     const styleInstruction = STYLE_INSTRUCTIONS[styleKey] ?? STYLE_INSTRUCTIONS.Balanced
@@ -93,9 +109,14 @@ serve(async (req) => {
       `\nAnalysis flagged these issues:\n${flagsSummary}`,
       activeFlagLine,
       `\nCoaching style: ${styleInstruction}`,
-      'Keep responses to 2–4 sentences unless a longer explanation is clearly needed.',
+      mode === 'explain'
+        ? explainInstruction
+        : 'Keep responses to 2–4 sentences unless a longer explanation is clearly needed.',
       'Focus on technique and musicality, not theory for its own sake.',
-    ].join(' ')
+      // Follow-ups inside the Explain screen are about one specific flag, so
+      // keep them tight too — this screen should never become a wall of text.
+      mode === 'explain' ? '' : 'Be specific to this piece and this student.',
+    ].filter(Boolean).join(' ')
 
     // ── Build conversation history for Anthropic ──────────────────────────────
     // Anthropic requires messages to start with 'user' and strictly alternate.

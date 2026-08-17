@@ -1,5 +1,38 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-16 — "Explain" screen on every flagged issue
+
+An **Explain** button at the bottom of each flagged issue (single-flag and
+grouped multi-occurrence cards both), opening a focused screen: a deeper
+explanation of that one flag, then a box for follow-up questions. Back button
+top-left, Escape also returns. The analysis keeps its scroll position and open
+card underneath.
+
+**Depth without length.** A button like this invites a wall of text, so the
+prompt states the budget up front: three labelled parts (What happened / Why it
+happens / How to fix it), **120 words hard cap**, no preamble, no closing
+summary, no praise. "Why it happens" gets the most room — it is the reason the
+student tapped — and must be concrete about embouchure, air, fingers, bow or
+hands rather than generic.
+
+`activeFlag` now carries the flag's `detail` plus an instruction that the
+analysis is measured fact, so the coach can never ask the student what they
+played. That is a standing product rule that had only been enforced for the main
+chat.
+
+**Implementation notes.** The screen is `position: absolute` inside `.page`, not
+`fixed` — a fixed layer slides under AppShell's 72px sidebar, and `/#/demo`
+renders outside AppShell so that bug would not show up in the demo. The
+animation uses `fill-mode: backwards`, never `both`, because `both` leaves a
+permanent transform that would trap any `position: fixed` descendant.
+
+**Three bugs the build could not catch, found by running it:**
+- `placeholder="…"` — a `\u` escape in a JSX string *attribute* is not an
+  escape and printed literally. It works inside `{}` template literals, which is
+  why only the placeholder broke and the header's `·`/`–` were fine.
+- The floating orange section-nav arrow rendered on top of the Explain screen.
+- Content sat flush against the window edge instead of lining up with the page.
+
 ## 2026-08-16 (later still) — Wrong notes: the B♭ transposition, and making it visible
 
 User's diagnosis was right. A take reported "2 semitones away" at m.29 — exactly

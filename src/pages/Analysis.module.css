@@ -511,3 +511,119 @@
   .scoreBreakdownRow { gap: 8px; }
   .scoreBreakdownCard { min-width: 90px; }
 }
+
+/* ── Explain: button on each flag ───────────────────────────────────────── */
+/* Sits beside Loop. Gold (structural/CTA) rather than red — red is reserved
+   for semantic error state per DESIGN_RULES. */
+.issueActions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.explainBtn {
+  align-items: center; background: var(--accent-bg, rgba(192,144,64,0.10));
+  border: 1px solid var(--accent-border, rgba(192,144,64,0.32)); border-radius: 7px;
+  color: var(--accent); cursor: pointer; display: inline-flex; font: inherit;
+  font-size: 0.78rem; font-weight: 600; gap: 5px; padding: 6px 14px;
+  transition: background 130ms ease, border-color 130ms ease;
+}
+.explainBtn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── Explain: the screen ────────────────────────────────────────────────── */
+/* Absolute, not fixed — .page is position:relative and a fixed layer would
+   slide under AppShell's 72px sidebar. */
+.explainScreen {
+  position: absolute; inset: 0; z-index: 40;
+  display: flex; flex-direction: column;
+  background: var(--bg, #F7F4EF);
+  /* .page's own horizontal padding, so the screen lines up with the analysis
+     it replaces instead of sitting flush against the window edge. */
+  padding: 0 76px;
+  animation: explainIn 180ms ease backwards;
+}
+/* `backwards`, never `both`: a lingering transform on this element would make
+   it a containing block for any position:fixed descendant. */
+@keyframes explainIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.explainHeader {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding: 14px 0 16px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.explainBack {
+  align-items: center; background: transparent; border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text-soft, #7A6F64); cursor: pointer;
+  display: inline-flex; flex-shrink: 0; font: inherit; font-size: 0.82rem;
+  font-weight: 600; gap: 6px; padding: 7px 13px;
+  transition: background 130ms ease, color 130ms ease, border-color 130ms ease;
+}
+.explainBack:hover { background: var(--surface-hover); color: var(--text); border-color: var(--accent-border); }
+.explainHeaderInfo { min-width: 0; }
+.explainMeta {
+  /* Measure numbers are data, not prose — monospace per DESIGN_RULES. */
+  font-family: 'Geist Mono', 'SF Mono', ui-monospace, monospace;
+  font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em;
+  color: var(--text-faint); display: block;
+}
+.explainTitle {
+  font-size: 1.15rem; font-weight: 700; color: var(--text);
+  letter-spacing: -0.02em; line-height: 1.25; margin: 3px 0 0;
+}
+
+.explainBody {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 24px 0 28px; display: flex; flex-direction: column; gap: 16px;
+}
+.explainAnswer {
+  color: var(--text); font-size: 0.94rem; line-height: 1.62;
+  max-width: 70ch;
+}
+/* .explainAnswer's 70ch cap is what keeps lines readable on a wide screen;
+   the screen's own padding handles the edge. No centring wrapper needed. */
+.explainAnswer p { margin: 0 0 11px; }
+.explainAnswer p:last-child { margin-bottom: 0; }
+.explainAnswer strong { color: var(--text); font-weight: 700; }
+.explainQuestion {
+  align-self: flex-end; max-width: 80%;
+  background: var(--accent); color: #fff;
+  border-radius: 14px 14px 4px 14px; padding: 10px 14px;
+  font-size: 0.9rem; line-height: 1.5;
+}
+
+.explainThinking { display: flex; gap: 5px; padding: 4px 0; }
+.explainDot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint);
+  animation: explainPulse 1.1s ease-in-out infinite;
+}
+.explainDot:nth-child(2) { animation-delay: 0.16s; }
+.explainDot:nth-child(3) { animation-delay: 0.32s; }
+@keyframes explainPulse {
+  0%, 60%, 100% { opacity: 0.28; transform: translateY(0); }
+  30%           { opacity: 1;    transform: translateY(-3px); }
+}
+
+.explainAsk {
+  display: flex; gap: 9px; align-items: center;
+  padding: 14px 0 4px; border-top: 1px solid var(--border); flex-shrink: 0;
+}
+.explainInput {
+  flex: 1; min-width: 0; padding: 11px 14px;
+  border: 1px solid var(--input-border); border-radius: 10px;
+  background: var(--input-bg); color: var(--text); font: inherit; font-size: 0.9rem;
+}
+.explainInput:focus { outline: none; border-color: var(--accent); }
+.explainInput:disabled { opacity: 0.6; }
+.explainSend {
+  align-items: center; background: var(--accent); border: none; border-radius: 10px;
+  color: #fff; cursor: pointer; display: flex; flex-shrink: 0;
+  height: 40px; justify-content: center; width: 44px;
+  transition: opacity 130ms ease;
+}
+.explainSend:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  .explainScreen { padding: 0 20px; }
+}
+@media (max-width: 720px) {
+  .explainHeader { flex-direction: column; gap: 10px; }
+  .explainQuestion { max-width: 92%; }
+}

@@ -1,5 +1,36 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-18 (fifth pass) — Mascot rebuilt with the image-to-svg skill
+
+Installed `image-to-svg` (shhac/skills) plus the toolchain it needs —
+ImageMagick 7, librsvg, xmllint, and vtracer in a shared skill venv — and used
+its workflow on the mascot: crop at 4×, posterise, auto-trace, rebuild each
+feature, then **render → diff → iterate**.
+
+**Auto-tracing revealed construction the eye had missed**, notably that the two
+arms are *different*: a thumbs-up on the left and a dark crescent arm on the
+right. Both had been drawn as matching limbs. It also confirmed the pear body
+and the large angled ear cups with pale inner pads.
+
+**The measurement trap, which cost two iterations:** the RMSE would not move —
+0.408 → 0.402 across a full rebuild. The fault was the comparison, not the SVG.
+A cut-out mascot was being diffed against a flat background, so the score was
+dominated by background pixels. Compositing the render onto the reference's own
+backdrop and diffing against the untouched original made it meaningful at once:
+**0.402 → 0.108 → 0.096**, converging under the skill's 0.15 target. *If a diff
+score refuses to move while the image visibly changes, suspect the harness
+before the artwork.*
+
+**What the tracer could not do:** isolate the character. The mascot's body and
+the blob behind it are nearly the same colour, so no colour mask separates them
+and vtracer traced them as one region — a property of the source image, not a
+tool gap. The final mascot is therefore traced-*informed* but hand-built, and
+verified by diff rather than by eye.
+
+Also fixed: the headband was invisible because it was drawn behind the body with
+its apex below the crown. The viewBox now carries headroom above y=0 so it arcs
+over the head as the reference shows.
+
 ## 2026-08-18 (fourth pass) — Asset shapes traced from the reference
 
 The shapes were still wrong, because they were drawn by eye from a full-page

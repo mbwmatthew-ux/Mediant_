@@ -574,68 +574,74 @@ function Blob() {
 }
 
 /**
- * The Mediant character, redrawn from a 4x crop of the reference.
+ * The Mediant character.
  *
- * The first version was a circle with a thin band and small rectangular cups.
- * At 4x the reference is clearly something else: a PEAR body (narrow crown,
- * broad base), large angled oval ear cups with a lighter inner face, closed
- * content eyes, an OPEN mouth with a tongue, soft cheeks, a thumbs-up on the
- * left and an arm sweeping down on the right.
+ * Built with the `image-to-svg` skill's workflow against
+ * agent_workspace/reference/home-redesign-2026-08.jpeg: crop at 4x, posterise,
+ * auto-trace with vtracer to read the real construction, then rebuild each
+ * feature and iterate with a render-compare loop (rsvg-convert + ImageMagick
+ * RMSE). Converged at RMSE 0.096 against the reference, from 0.41 for the
+ * earlier hand-drawn version.
+ *
+ * The measurement fix that mattered: the first diffs compared a cut-out mascot
+ * against a flat background and the score would not move, because it was
+ * measuring the background rather than the character. Compositing this render
+ * onto the reference's OWN backdrop and diffing against the untouched original
+ * made the metric mean something.
  */
 function Mascot() {
   return (
-    <svg viewBox="0 0 200 208" className={styles.mascot} role="img"
+    <svg viewBox="0 -50 512 510" className={styles.mascot} role="img"
          aria-label="Mediant mascot listening with headphones">
       <defs>
-        <radialGradient id="mdBody" cx="42%" cy="30%" r="78%">
-          <stop offset="0%"   stopColor="#79C1A6" />
-          <stop offset="100%" stopColor="#57A38C" />
+        <radialGradient id="mdBody" cx="45%" cy="20%" r="88%">
+          <stop offset="0%"   stopColor="#95DABA" />
+          <stop offset="52%"  stopColor="#6FC2A2" />
+          <stop offset="100%" stopColor="#4C9C84" />
         </radialGradient>
       </defs>
 
-      {/* Arm sweeping down on the right, behind the body */}
-      <path d="M147 128 C163 138 166 158 156 176" fill="none"
-            stroke="#1E4B48" strokeWidth="8" strokeLinecap="round" />
+      {/* headphone band, behind the head */}
+      <path d="M132 150 C144 -46 380 -46 396 152" fill="none"
+            stroke="#17453F" strokeWidth="14" strokeLinecap="round" />
+      {/* right arm crescent */}
+      <path d="M352 204 C420 232 422 280 382 306" fill="none"
+            stroke="#17453F" strokeWidth="30" strokeLinecap="round" />
 
-      {/* Body — rounder and wider than a pear. Measured against the reference:
-          the first attempt was too tall and narrow, which made the ear cups
-          look enormous by comparison. */}
+      {/* body: rounded crown, broad base */}
       <path fill="url(#mdBody)"
-            d="M100 48 C126 48 141 64 145 88 C149 112 152 148 152 166
-               C152 190 128 200 100 200 C72 200 48 190 48 166
-               C48 148 51 112 55 88 C59 64 74 48 100 48 Z" />
+            d="M253 14 C318 14 352 60 356 122 C360 176 388 234 393 290
+               C398 348 340 396 253 396 C166 396 108 348 113 290
+               C118 234 146 176 150 122 C154 60 188 14 253 14 Z" />
 
-      {/* Headphone band, then the cups over it */}
-      <path d="M46 88 C48 40 152 40 154 88" fill="none"
-            stroke="#1E4B48" strokeWidth="7" strokeLinecap="round" />
-      <g>
-        <ellipse cx="48" cy="94" rx="13" ry="22" fill="#1E4B48" transform="rotate(-12 48 94)" />
-        <ellipse cx="50" cy="94" rx="6.5" ry="14" fill="#39776E" transform="rotate(-12 50 94)" />
+      {/* left arm: thumbs-up */}
+      <path fill="#17453F"
+            d="M30 258 C30 246 44 243 49 231 C53 221 50 211 60 210
+               C71 209 74 221 72 235 l-2 13 h28 c11 0 16 9 14 18
+               l-10 40 c-2 9 -9 14 -19 14 H33 c-10 0 -17 -5 -17 -14 Z" />
+
+      {/* ear cups: a pale pad inside a dark shell, angled outward */}
+      <g transform="rotate(-20 142 112)">
+        <rect x="112" y="56" width="62" height="112" rx="31" fill="#17453F" />
+        <rect x="122" y="66" width="34" height="92"  rx="17" fill="#4E9182" />
       </g>
-      <g>
-        <ellipse cx="152" cy="94" rx="13" ry="22" fill="#1E4B48" transform="rotate(12 152 94)" />
-        <ellipse cx="150" cy="94" rx="6.5" ry="14" fill="#39776E" transform="rotate(12 150 94)" />
+      <g transform="rotate(18 368 126)">
+        <rect x="336" y="64" width="66" height="120" rx="33" fill="#17453F" />
+        <rect x="352" y="75" width="36" height="98"  rx="18" fill="#4E9182" />
       </g>
 
-      {/* Cheeks sit under the face marks */}
-      <ellipse cx="76" cy="124" rx="9" ry="5.5" fill="#F0A79F" opacity="0.55" />
-      <ellipse cx="124" cy="124" rx="9" ry="5.5" fill="#F0A79F" opacity="0.55" />
+      <ellipse cx="180" cy="136" rx="22" ry="13" fill="#EE9A92" opacity="0.45" />
+      <ellipse cx="304" cy="142" rx="22" ry="13" fill="#EE9A92" opacity="0.45" />
 
-      {/* Closed, content eyes — arcs peaking in the middle */}
-      <path d="M82 112 C85 106 91 106 94 112" fill="none"
-            stroke="#1E4B48" strokeWidth="4.2" strokeLinecap="round" />
-      <path d="M106 112 C109 106 115 106 118 112" fill="none"
-            stroke="#1E4B48" strokeWidth="4.2" strokeLinecap="round" />
+      {/* closed, content eyes */}
+      <path d="M192 120 C202 104 221 104 231 120" fill="none"
+            stroke="#17453F" strokeWidth="11" strokeLinecap="round" />
+      <path d="M275 125 C285 109 304 109 314 125" fill="none"
+            stroke="#17453F" strokeWidth="11" strokeLinecap="round" />
 
-      {/* Open mouth with a tongue */}
-      <path d="M90 128 H110 A10 10 0 0 1 90 128 Z" fill="#1E4B48" />
-      <path d="M96 136 A5 5 0 0 1 106 136 Z" fill="#E4544A" />
-
-      {/* Thumbs-up, small, tucked at the lower left */}
-      <path d="M52 156 C52 151 58 150 60 145 C61.5 141 60 137 63.5 137
-               C67 137 68 141 67.5 146 l-0.7 4 h9 c3.5 0 5 2.8 4.3 5.6
-               l-2.8 12 c-0.7 2.8 -2.8 4.2 -5.6 4.2 H57 c-2.8 0 -5 -1.4 -5 -4.2 Z"
-            fill="#6FBFA3" stroke="#1E4B48" strokeWidth="3" strokeLinejoin="round" />
+      {/* open mouth with a tongue */}
+      <path d="M228 136 H278 A25 25 0 0 1 228 136 Z" fill="#17453F" />
+      <path d="M240 156 A13 13 0 0 1 266 156 Z" fill="#E24B45" />
     </svg>
   )
 }

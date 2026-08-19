@@ -1,5 +1,31 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-18 (sixth pass) — Home content measured against the reference
+
+Stopped eyeballing the layout and measured it. Anchored on features the mockup
+makes findable — the dark "Most improved" card, the coral CTA, and the strong
+vertical edges at x=220/782/1073 — then compared every block numerically against
+the running page.
+
+| Block | Reference | Was | Now |
+|---|---|---|---|
+| Middle card width | 289 | 340 | 290 |
+| Progress card width | ~479 | 466 | 483 |
+| Progress card height | ~241 | 309 | 265 |
+| CTA height | 63 | 56 | 62 |
+
+The grid columns are now `1.20 / 0.72 / 1.10`, matching the reference's measured
+479 / 289 / 439 within its 1246px content band. Card padding, ring diameter,
+metric spacing, sparkline height and the hero's vertical rhythm were all trimmed
+— the cards had been running ~28% taller than the design.
+
+**Two differences remain, both in shared AppShell chrome rather than Home:** the
+design shows a 220px labelled sidebar (Home/Sessions/Progress/Library/Insights,
+tip card, profile) where the app has a 72px hover rail, and it has **no top bar**
+where the app has a 56px one. Those are the same components the sidebar work was
+reverted from, so they are left alone pending a call on whether to change them
+app-wide.
+
 ## 2026-08-18 (fifth pass) — Mascot rebuilt with the image-to-svg skill
 
 Installed `image-to-svg` (shhac/skills) plus the toolchain it needs —

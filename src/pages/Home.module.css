@@ -39,7 +39,7 @@
 
   max-width: 1320px;
   margin: 0 auto;
-  padding: 26px 34px 56px;
+  padding: 16px 34px 48px;
   color: var(--h-ink);
   position: relative;
 }
@@ -115,7 +115,7 @@
   font-size: 1.06rem;
   font-weight: 650;
   letter-spacing: -0.01em;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   display: flex; align-items: center; gap: 8px;
 }
 .wave {
@@ -131,11 +131,11 @@
 
 .heroTitle {
   font-family: 'Instrument Serif', 'Newsreader', 'Playfair Display', Georgia, serif;
-  font-size: clamp(2.6rem, 4.4vw, 3.7rem);
+  font-size: clamp(2.5rem, 4.1vw, 3.4rem);
   font-weight: 400;
   letter-spacing: -0.022em;
   line-height: 1.06;
-  margin: 0 0 18px;
+  margin: 0 0 14px;
   color: var(--h-ink);
 }
 .underlined { position: relative; display: inline-block; white-space: nowrap; }
@@ -156,7 +156,7 @@
   color: var(--h-ink-soft);
   font-size: 1.02rem;
   line-height: 1.62;
-  margin: 0 0 26px;
+  margin: 0 0 22px;
 }
 
 .heroActions { display: flex; flex-wrap: wrap; gap: 13px; }
@@ -169,7 +169,7 @@
 }
 .btnPrimary {
   background: var(--h-coral); border: none; color: #fff;
-  font-size: 1rem; padding: 15px 30px;
+  font-size: 1rem; padding: 18px 30px;
   box-shadow: 0 10px 22px -10px rgba(232,97,60,0.75);
   position: relative; overflow: hidden;
 }
@@ -187,7 +187,7 @@
 
 .btnGhost {
   background: var(--h-surface); border: 1px solid var(--h-line); color: var(--h-ink);
-  font-size: 1rem; padding: 15px 26px; box-shadow: var(--h-shadow);
+  font-size: 1rem; padding: 18px 26px; box-shadow: var(--h-shadow);
 }
 .btnGhost:hover { transform: translateY(-2px); box-shadow: var(--h-shadow-lift); border-color: rgba(31,42,36,0.16); }
 
@@ -289,7 +289,7 @@
 /* ══ GRID ═══════════════════════════════════════════════════════════════ */
 .grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.86fr) minmax(0, 1.04fr);
+  grid-template-columns: minmax(0, 1.20fr) minmax(0, 0.72fr) minmax(0, 1.10fr);
   gap: 18px;
   align-items: start;
 }
@@ -304,7 +304,7 @@
   --card-radius: 22px;
   border: 1px solid var(--h-line);
   border-radius: 22px;
-  padding: 22px;
+  padding: 18px 19px;
   box-shadow: var(--h-shadow);
   position: relative;
   overflow: hidden;
@@ -312,7 +312,7 @@
 }
 .card:hover { transform: translateY(-3px); box-shadow: var(--h-shadow-lift); }
 
-.cardHead { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.cardHead { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .cardIcon {
   width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -323,9 +323,9 @@
 .cardSub   { font-size: 0.78rem; color: var(--h-ink-faint); margin: 2px 0 0; }
 
 /* ── Your progress ── */
-.progressBody { display: flex; align-items: center; gap: 22px; }
+.progressBody { display: flex; align-items: center; gap: 18px; }
 
-.ringWrap { position: relative; width: 156px; height: 156px; flex-shrink: 0; }
+.ringWrap { position: relative; width: 132px; height: 132px; flex-shrink: 0; }
 .ring { width: 100%; height: 100%; transform: rotate(-90deg); }
 .ringTrack { fill: none; stroke: var(--h-track); stroke-width: 14; }
 .ringFill {
@@ -337,13 +337,13 @@
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .ringValue {
-  font-size: 2.15rem; font-weight: 780; letter-spacing: -0.035em;
+  font-size: 1.9rem; font-weight: 780; letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums; line-height: 1;
 }
 .ringPct { font-size: 0.95rem; font-weight: 650; }
 .ringLabel { font-size: 0.72rem; color: var(--h-ink-faint); margin-top: 3px; }
 
-.metrics { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 13px; }
+.metrics { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .metric  { display: flex; align-items: center; gap: 10px; }
 .metricIcon {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
@@ -387,7 +387,7 @@
 .metricTrail { font-size: 0.92rem; line-height: 1; flex-shrink: 0; }
 
 .progressNote {
-  margin: 18px 0 0; padding: 11px 12px; border-radius: 13px;
+  margin: 12px 0 0; padding: 9px 12px; border-radius: 12px;
   background: var(--h-green-tint); color: var(--h-green-ink);
   font-size: 0.86rem; text-align: center; font-weight: 600;
 }
@@ -403,7 +403,7 @@
   color: rgba(255,255,255,0.62);
 }
 .improvedTitle {
-  font-size: 1.24rem; font-weight: 700; letter-spacing: -0.02em;
+  font-size: 1.18rem; font-weight: 700; letter-spacing: -0.02em;
   margin: 7px 0 0; color: #fff;
 }
 .improvedDelta {
@@ -411,11 +411,11 @@
   color: #9FD6BE; font-weight: 600;
 }
 .improvedBody {
-  font-size: 0.82rem; line-height: 1.5; margin: 10px 0 0;
+  font-size: 0.82rem; line-height: 1.45; margin: 8px 0 0;
   color: rgba(255,255,255,0.78);
 }
-.spark { width: 100%; height: 62px; margin: 14px 0 4px; overflow: visible; }
-.sparkEmpty { height: 62px; margin: 14px 0 4px; }
+.spark { width: 100%; height: 50px; margin: 10px 0 2px; overflow: visible; }
+.sparkEmpty { height: 50px; margin: 10px 0 2px; }
 .sparkLine {
   fill: none; stroke: #B7E2CB; stroke-width: 2.5;
   stroke-linecap: round; stroke-linejoin: round;
@@ -428,7 +428,7 @@
   align-items: center; align-self: flex-start; background: rgba(255,255,255,0.14);
   border: 1px solid rgba(255,255,255,0.20); border-radius: 999px; color: #fff;
   cursor: pointer; display: inline-flex; font: inherit; font-size: 0.8rem;
-  font-weight: 600; gap: 7px; margin-top: auto; padding: 9px 16px;
+  font-weight: 600; gap: 7px; margin-top: auto; padding: 8px 15px;
   transition: background 200ms ease, transform 220ms var(--ease);
 }
 .improvedBtn:hover { background: rgba(255,255,255,0.24); transform: translateX(2px); }

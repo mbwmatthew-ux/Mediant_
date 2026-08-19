@@ -1,5 +1,41 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-18 — New Home screen (design exploration, shipped as final)
+
+`/home` rebuilt from the user's mockup: sage green + lavender palette, serif
+display headline with a hand-drawn underline, illustrated mascot, and a card
+grid (progress ring / most improved / up next, then "what Mediant is hearing" +
+recent sessions). Every number is real — sessions this month, average score,
+streak, score trend, and recurring flag types come from `useTakes`, nothing is
+hard-coded from the mockup.
+
+**The new palette is scoped to `.page` in `Home.module.css`, not `index.css`.**
+This is an exploration; putting sage/lavender in `:root` would silently restyle
+every other screen with no clean way back. The diff is two files plus one new
+hook — the rest of the app is provably untouched. `DESIGN_RULES.md` now carries
+a note explaining that Home knowingly breaks its "no purple" and "one accent per
+screen" rules, so a future agent does not "fix" it back.
+
+**Scope held:** the mockup's 220px labelled sidebar (with tip card and profile
+block) was NOT built. The real sidebar is a 72px rail shared by every page, so
+changing it is a global change rather than a home-screen one.
+
+**Animation:** one shared `riseIn` keyframe staggered via a `--d` custom
+property; dynamic values (ring sweep, bar fills, sparkline draw-in) use CSS
+transitions driven by a `useMounted()` flag rather than keyframes. `useMounted`
+waits **two** animation frames — with one, React can batch the "from" and "to"
+into a single paint and the transition silently never runs.
+
+`prefers-reduced-motion` renders the **finished** state, not a frozen one —
+verified the ring reads its real percentage, bars have real width, and cards are
+visible. Disabling the animation alone would have left the ring at 0%.
+
+**Mobile bug caught by screenshotting, not building:** the organic blob is a
+background SVG behind the help panel. Once the hero stacked, the panel outgrew
+the blob's safe area and white text spilled onto the cream page, unreadable.
+Below 760px the panel now carries its own gradient background and the SVG is
+hidden. Verified no horizontal overflow at 430px.
+
 ## 2026-08-16 — "Explain" screen on every flagged issue
 
 An **Explain** button at the bottom of each flagged issue (single-flag and

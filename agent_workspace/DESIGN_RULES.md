@@ -1,5 +1,18 @@
 # Design Rules — Mediant
 
+> **2026-08-18 — Home screen is running a different palette on purpose.**
+> `/home` is an approved exploration of a new visual direction: sage green,
+> lavender, a serif display face, and an illustrated mascot. Those tokens are
+> declared **inside `Home.module.css`, scoped to `.page`** — deliberately NOT in
+> `index.css` — so the rest of the app still follows the rules below and the
+> exploration cannot leak.
+>
+> Two rules below are knowingly broken *on that screen only*: the "no purple"
+> rule (the lavender "Up next" card) and the single-accent rule (coral, green
+> and lavender all appear). Do not "fix" the Home screen back to the cream/gold
+> palette — it is intentional and the user asked for it. If the direction is
+> adopted app-wide, move those tokens up into `:root` and rewrite this file.
+
 Last updated: 2026-06-05
 
 This file is the source of truth for Mediant's visual system.

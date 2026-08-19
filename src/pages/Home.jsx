@@ -96,13 +96,28 @@ export default function Home() {
     return s.length >= 2 ? s : []
   }, [sessions])
 
+  /* Scored takes inside the current calendar month, oldest→newest. Kept
+     separate from scoreTrend so the card can say "this month" and have it be
+     true — the sparkline window is the last 8 takes regardless of date. */
+  const monthTrend = useMemo(() => {
+    const now = new Date()
+    const s = sessions
+      .filter(t => {
+        if (t.score == null) return false
+        const d = new Date(t.created_at || t.date || '')
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+      })
+      .map(t => t.score).reverse()
+    return s.length >= 2 ? s : []
+  }, [sessions])
+
   /* "Most improved": the issue type whose share of takes fell the most between
      the older half of the window and the recent half. Falls back to the score
      trend when there is not enough history to compare halves. */
   const improved = useMemo(() => {
     const withFlags = sessions.filter(t => Array.isArray(t.flags))
-    const delta = scoreTrend.length >= 2
-      ? Math.round(scoreTrend[scoreTrend.length - 1] - scoreTrend[0]) : null
+    const delta = monthTrend.length >= 2
+      ? Math.round(monthTrend[monthTrend.length - 1] - monthTrend[0]) : null
     if (withFlags.length < 4) return { label: null, delta }
 
     const half = Math.floor(withFlags.length / 2)
@@ -122,7 +137,7 @@ export default function Home() {
       if (drop > 0.15 && (!best || drop > best.drop)) best = { type: ty, drop }
     }
     return { label: best ? TYPE_LABEL[best.type] : null, delta }
-  }, [sessions, scoreTrend])
+  }, [sessions, monthTrend])
 
   /* What Mediant keeps hearing — top issue types with an honest frequency word. */
   const hearing = useMemo(() => {
@@ -264,20 +279,21 @@ export default function Home() {
             <div className={styles.metrics}>
               <Metric
                 icon={<CheckIcon />} tone="green" label="Sessions recorded"
-                value={`${Math.round(countValue)} / ${MONTHLY_GOAL}`}
+                value={Math.round(countValue)} suffix={`/ ${MONTHLY_GOAL}`}
                 fill={shown ? Math.min(100, (monthCount / MONTHLY_GOAL) * 100) : 0}
                 delay={260}
               />
               <Metric
                 icon={<StarIcon />} tone="gold" label="Average score"
-                value={avgScore != null ? `${Math.round(scoreValue)} / 100` : '—'}
+                value={avgScore != null ? Math.round(scoreValue) : '—'}
+                suffix={avgScore != null ? '/ 100' : null}
                 fill={shown && avgScore != null ? avgScore : 0}
                 delay={340}
               />
               <Metric
-                icon={<TargetIcon />} tone="coral" label="Streak"
-                value={`${streak} ${streak === 1 ? 'day' : 'days'}`}
-                suffix={streak >= 3 ? '🔥' : null}
+                icon={<TargetIcon />} tone="lav" label="Streak"
+                value={streak} suffix={streak === 1 ? 'day' : 'days'}
+                trailing={streak >= 3 ? '🔥' : null}
                 fill={shown ? Math.min(100, (streak / 7) * 100) : 0}
                 delay={420}
               />
@@ -300,9 +316,7 @@ export default function Home() {
             {improved.label ?? (scoreTrend.length ? 'Overall score' : 'Getting started')}
           </h2>
           {improved.delta != null && improved.delta > 0 && (
-            <span className={styles.improvedDelta}>
-              +{improved.delta} points over your last {scoreTrend.length} sessions
-            </span>
+            <span className={styles.improvedDelta}>+{improved.delta} points this month</span>
           )}
           <p className={styles.improvedBody}>
             {improved.label
@@ -346,7 +360,7 @@ export default function Home() {
         {/* ── What Mediant is hearing ── */}
         <article className={`${styles.card} ${styles.hearingCard}`} style={{ '--d': '390ms' }}>
           <header className={styles.cardHead}>
-            <span className={styles.cardIcon}><EarIcon /></span>
+            <span className={`${styles.cardIcon} ${styles.cardIconCoral}`}><EarIcon /></span>
             <div>
               <h2 className={styles.cardTitle}>What Mediant is hearing</h2>
               <p className={styles.cardSub}>Recurring themes from your recent sessions</p>
@@ -365,11 +379,15 @@ export default function Home() {
             <div className={styles.chipRow}>
               {hearing.map((h, i) => (
                 <div key={h.type} className={styles.chip} style={{ '--d': `${460 + i * 70}ms` }}>
-                  <span className={`${styles.chipIcon} ${styles[`type_${h.type}`] || styles.type_other}`}>
-                    <TypeIcon type={h.type} />
-                  </span>
-                  <span className={styles.chipName}>{TYPE_LABEL[h.type]}</span>
-                  <span className={styles.chipDesc}>{h.example || 'Seen across recent takes'}</span>
+                  <div className={styles.chipTop}>
+                    <span className={`${styles.chipIcon} ${styles[`type_${h.type}`] || styles.type_other} ${i === 0 ? styles.chipLead : ''}`}>
+                      <TypeIcon type={h.type} />
+                    </span>
+                    <span className={styles.chipText}>
+                      <span className={styles.chipName}>{TYPE_LABEL[h.type]}</span>
+                      <span className={styles.chipDesc}>{h.example || 'Seen across recent takes'}</span>
+                    </span>
+                  </div>
                   <span className={`${styles.chipFreq} ${styles[`freq_${h.tone}`]}`}>{h.freq}</span>
                 </div>
               ))}
@@ -377,7 +395,7 @@ export default function Home() {
           )}
 
           <button className={styles.textLink} onClick={() => { playPop(); nav('/reports') }}>
-            View all insights <ArrowIcon />
+            View all insights <ChevronIcon />
           </button>
         </article>
 
@@ -459,7 +477,7 @@ function Ring({ pct, label, shown, reduced }) {
   )
 }
 
-function Metric({ icon, tone, label, value, fill, suffix, delay }) {
+function Metric({ icon, tone, label, value, suffix, trailing, fill, delay }) {
   return (
     <div className={styles.metric} style={{ '--d': `${delay}ms` }}>
       <span className={`${styles.metricIcon} ${styles[`tone_${tone}`]}`}>{icon}</span>
@@ -467,14 +485,17 @@ function Metric({ icon, tone, label, value, fill, suffix, delay }) {
         <div className={styles.metricTop}>
           <span className={styles.metricLabel}>{label}</span>
           <span className={styles.metricValue}>
-            {value}{suffix ? <span className={styles.metricSuffix}>{suffix}</span> : null}
+            {value}{suffix ? <span className={styles.metricValueSuffix}> {suffix}</span> : null}
           </span>
         </div>
-        <div className={styles.metricTrack}>
-          <div
-            className={`${styles.metricFill} ${styles[`fill_${tone}`]}`}
-            style={{ width: `${Math.max(0, Math.min(100, fill))}%`, transitionDelay: `${delay}ms` }}
-          />
+        <div className={styles.metricBarRow}>
+          <div className={styles.metricTrack}>
+            <div
+              className={styles.metricFill}
+              style={{ width: `${Math.max(0, Math.min(100, fill))}%`, transitionDelay: `${delay}ms` }}
+            />
+          </div>
+          {trailing ? <span className={styles.metricTrail}>{trailing}</span> : null}
         </div>
       </div>
     </div>
@@ -535,9 +556,9 @@ function Blob() {
     <svg className={styles.blob} viewBox="0 0 620 400" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id="mdBlob" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%"   stopColor="#8FC5A8" />
-          <stop offset="55%"  stopColor="#6FB295" />
-          <stop offset="100%" stopColor="#57A184" />
+          <stop offset="0%"   stopColor="#93BFAC" />
+          <stop offset="55%"  stopColor="#85B5A5" />
+          <stop offset="100%" stopColor="#6FAA98" />
         </linearGradient>
       </defs>
       {/* Asymmetric on purpose: a plain ellipse reads as a stock shape, and the
@@ -554,8 +575,8 @@ function Mascot() {
     <svg viewBox="0 0 200 190" className={styles.mascot} role="img" aria-label="Mediant mascot listening with headphones">
       <defs>
         <linearGradient id="mdBody" x1="0.2" y1="0" x2="0.8" y2="1">
-          <stop offset="0%"   stopColor="#C9E7D6" />
-          <stop offset="100%" stopColor="#9CD0B6" />
+          <stop offset="0%"   stopColor="#CBE7D8" />
+          <stop offset="100%" stopColor="#9FCDB8" />
         </linearGradient>
       </defs>
       {/* body */}
@@ -581,13 +602,30 @@ function Mascot() {
 
 function Clipboard() {
   return (
-    <svg viewBox="0 0 92 106" aria-hidden="true">
-      <rect x="6" y="12" width="80" height="88" rx="10" fill="#fff" stroke="#B9A9E0" strokeWidth="3" />
-      <rect x="30" y="2" width="32" height="18" rx="7" fill="#C9BCEC" stroke="#9E8BD4" strokeWidth="3" />
-      {[34, 52, 70].map((y, i) => (
+    <svg viewBox="0 0 128 132" aria-hidden="true">
+      {/* Motion ticks on the left, as in the reference. */}
+      <g stroke="#7FCBC8" strokeWidth="5" strokeLinecap="round">
+        <path d="M6 34 L14 26" /><path d="M4 54 L15 54" /><path d="M8 74 L17 80" />
+      </g>
+      {/* Board */}
+      <rect x="28" y="14" width="94" height="112" rx="16" fill="#8C74C0" />
+      <rect x="36" y="24" width="78" height="92" rx="10" fill="#FBF3E2" />
+      {/* Clip */}
+      <rect x="60" y="4" width="30" height="18" rx="8" fill="#A48FD4" />
+      <circle cx="75" cy="9" r="5" fill="#8C74C0" />
+      {/* Face — the board is a character in the reference, not a plain icon. */}
+      <path d="M58 44c3 4 9 4 12 0" fill="none" stroke="#3A3550" strokeWidth="3.4" strokeLinecap="round" />
+      <path d="M84 44c3 4 9 4 12 0" fill="none" stroke="#3A3550" strokeWidth="3.4" strokeLinecap="round" />
+      <path d="M68 56c5 5 13 5 18 0" fill="none" stroke="#3A3550" strokeWidth="3.4" strokeLinecap="round" />
+      <ellipse cx="53" cy="52" rx="5" ry="3.2" fill="#F3A8A0" opacity="0.7" />
+      <ellipse cx="101" cy="52" rx="5" ry="3.2" fill="#F3A8A0" opacity="0.7" />
+      {/* Checklist */}
+      {[74, 92, 110].map((y, i) => (
         <g key={y}>
-          <path d={`M20 ${y}l6 6 10-12`} fill="none" stroke="#7FB89A" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-          <rect x="44" y={y - 4} width={i === 1 ? 26 : 32} height="6" rx="3" fill="#E6DFF6" />
+          <path d={`M46 ${y}l5 6 9-13`} fill="none"
+                stroke={['#E2703F', '#6FA85C', '#E2703F'][i]}
+                strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" />
+          <rect x="66" y={y - 3} width={i === 1 ? 30 : 38} height="6" rx="3" fill="#EADFC9" />
         </g>
       ))}
     </svg>

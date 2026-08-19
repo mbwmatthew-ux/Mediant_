@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-18 (third pass) — Home matched against the actual reference file
+
+**Sidebar reverted.** The 232px Home rail is gone; every route is back to the
+72px hover rail it had before.
+
+**The real change: the reference image is now a file on disk.** Pasted images are
+visible to the agent in-conversation but are not files, so they cannot be
+colour-picked or measured — which is why the first two passes guessed the palette
+and got it wrong. `agent_workspace/extract_pasted_images.py` recovers them from
+the session transcript, and the mockup now lives at
+`agent_workspace/reference/home-redesign-2026-08.jpeg`.
+
+Sampling it changed real decisions:
+
+| Element | Guessed | Sampled |
+|---|---|---|
+| "Up next" card | `#EAE4F8` (purple) | `#F1EAF6` (pale mauve) |
+| Dark card | `#2E6349` (olive) | `#1D5C51` (teal) |
+| Hero blob | `#6FB295` (saturated) | `#85B5A5` (muted sage) |
+| Page background | `#F5F0E8` | `#FCF9F4` |
+| Bar/ring track | green tint | `#F1EAE1` warm cream |
+
+Structural corrections that only became visible by cropping and zooming the
+reference:
+- **All three progress bars are the same green.** I had invented a
+  green/gold/coral gradient per row.
+- **The streak icon is lavender, not coral**, and the flame sits at the end of
+  the bar rather than beside the value.
+- **Values are split**: bold achieved number, muted target — "**18** / 25".
+- **Chip icons sit beside the text**, not above it, and the leading chip gets a
+  solid coral fill while the rest stay tinted.
+- The "Up next" heading is near-black, not purple; the clipboard is a character
+  with a face and motion ticks, sized to sit inside the card.
+
+"Most improved" now computes its delta over the **current calendar month**, so
+the reference's short "+N points this month" wording is actually true. The
+sparkline still shows the last 8 takes regardless of date — two different
+windows, kept deliberately separate.
+
 ## 2026-08-18 (second pass) — Home screen: sidebar + decorative layer
 
 First pass shipped the layout but not the things that actually make the mockup

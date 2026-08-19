@@ -226,8 +226,12 @@
 .note { position: absolute; z-index: 3; display: block; }
 .note svg { width: 100%; height: auto; display: block; }
 .noteGreen {
-  width: 26px; left: 6%; top: 16%; color: #3E7A5F;
+  width: 24px; left: 9%; top: 22%; color: #2F6152;
   animation: drift 7s ease-in-out infinite;
+}
+.noteGreen2 {
+  width: 17px; left: 15%; top: 32%; color: #2F6152;
+  animation: drift 8s ease-in-out infinite 0.7s;
 }
 .noteCoral {
   width: 30px; right: 3%; top: 2%; color: #E8613C;
@@ -239,16 +243,16 @@
 }
 .sparkle { position: absolute; z-index: 5; display: block; color: #FFFDF6; }
 .sparkle svg { width: 100%; height: auto; display: block; }
-.sparkleA { width: 22px; left: 26%; top: 17%; animation: twinkle 3.4s ease-in-out infinite; }
-.sparkleB { width: 14px; left: 17%; top: 30%; animation: twinkle 4.2s ease-in-out infinite 0.9s; }
+.sparkleA { width: 20px; left: 29%; top: 22%; color: #FCE9A8; animation: twinkle 3.4s ease-in-out infinite; }
+.sparkleB { width: 15px; left: 21%; top: 38%; animation: twinkle 4.2s ease-in-out infinite 0.9s; }
 @keyframes twinkle {
   0%, 100% { opacity: 0.35; transform: scale(0.82); }
   50%      { opacity: 1;    transform: scale(1.1); }
 }
 
 .mascotWrap {
-  position: absolute; left: 7%; top: 50%; z-index: 4;
-  width: 190px; margin-top: -95px;
+  position: absolute; left: 19%; top: 44%; z-index: 4;
+  width: 166px; margin-top: -86px;
   animation: float 6s ease-in-out infinite;
 }
 .mascot { width: 100%; height: auto; display: block; }

@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-18 (fourth pass) — Asset shapes traced from the reference
+
+The shapes were still wrong, because they were drawn by eye from a full-page
+view where the mascot is 200px inside a 1672px image. Two fixes, plus a tool so
+this does not recur.
+
+**`agent_workspace/trace_asset.py`** — masks a flat-coloured region of a
+reference image, walks its boundary, simplifies (RDP) and smooths into cubic
+béziers. The hero blob is now the reference's actual silhouette: hand-drawing it
+had produced an ellipse and lost the deep concave sweep along the bottom-left,
+which is the shape's entire character.
+
+**The mascot was redrawn from a 4× crop.** At that magnification it is plainly
+not what was implemented: a pear body (narrow crown, broad base), large angled
+oval ear cups with a lighter inner face, closed content eyes, an **open mouth
+with a tongue**, soft cheeks, a thumbs-up and an arm sweeping down the right. It
+had been a circle with a thin band and small rectangular cups. Proportions were
+then measured against the reference — the first redraw was ~30% oversized, which
+made the ear cups dominate.
+
+**Three traps worth recording:**
+- **RDP collapses a closed contour.** First and last vertices coincide, so the
+  baseline has zero length and every distance measures ~0 — the ring simplified
+  to one point. Split at the vertex farthest from the start, simplify each half
+  as an open polyline, rejoin.
+- **Segmentation needs two axes.** Mascot and blob share a hue; saturation alone
+  selected both. Body is darker *and* more saturated.
+- **Always render the mask.** The first blob trace used light morphological
+  closing, a sparkle broke the silhouette, and the walk traced a visible spike
+  through the notch.
+
+Tracing works for flat shapes on contrasting ground. It could **not** separate
+the mascot from the blob's gradient, so that one is a hand redraw guided by the
+zoom — an interpretation, not a reproduction. For exact fidelity the right input
+is a vector export of the assets, not a screenshot.
+
+Method written up in the vault: *Working from a design mockup — the accurate
+workflow*.
+
 ## 2026-08-18 (third pass) — Home matched against the actual reference file
 
 **Sidebar reverted.** The 232px Home rail is gone; every route is back to the

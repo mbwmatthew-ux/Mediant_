@@ -238,6 +238,7 @@ export default function Home() {
           <span className={styles.blobSun} aria-hidden="true" />
           <span className={styles.blobMint} aria-hidden="true" />
           <span className={`${styles.note} ${styles.noteGreen}`} aria-hidden="true"><NoteIcon /></span>
+          <span className={`${styles.note} ${styles.noteGreen2}`} aria-hidden="true"><NoteIcon /></span>
           <span className={`${styles.note} ${styles.noteCoral}`} aria-hidden="true"><NoteIcon /></span>
           <span className={`${styles.sparkle} ${styles.sparkleA}`} aria-hidden="true"><SparkleIcon /></span>
           <span className={`${styles.sparkle} ${styles.sparkleB}`} aria-hidden="true"><SparkleIcon /></span>
@@ -553,7 +554,7 @@ function Squiggle() {
 /** Organic backdrop for the hero panel. */
 function Blob() {
   return (
-    <svg className={styles.blob} viewBox="0 0 620 400" preserveAspectRatio="none" aria-hidden="true">
+    <svg className={styles.blob} viewBox="0 0 620 347" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id="mdBlob" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%"   stopColor="#93BFAC" />
@@ -561,41 +562,80 @@ function Blob() {
           <stop offset="100%" stopColor="#6FAA98" />
         </linearGradient>
       </defs>
-      {/* Asymmetric on purpose: a plain ellipse reads as a stock shape, and the
-          first pass looked exactly like one. The dip on the lower left is what
-          makes it feel hand-drawn. */}
-      <path fill="url(#mdBlob)" d="M118 44C186 6 292-6 380 10c94 17 168 60 202 124 34 65 22 145-28 196-48 49-132 74-214 68-70-5-126-33-170-72-22-20-52-30-78-52-30-25-52-58-56-98-5-52 22-96 82-132Z" />
+      {/* Traced from agent_workspace/reference/home-redesign-2026-08.jpeg with
+          agent_workspace/trace_asset.py. Hand-drawing this produced an ellipse
+          and missed the deep concave sweep along the bottom-left, which is the
+          shape's whole character. Traced with heavy morphological closing —
+          a lighter pass let a sparkle break the silhouette and the walk traced
+          a visible spike through the notch. */}
+      <path fill="url(#mdBlob)" d="M360.6,19.6 C380.6,18.6 448.1,31.7 461.7,38.3 C475.4,44.9 516.9,85.7 524.6,98.7 C532.2,111.8 551.0,181.8 553.1,195.0 C555.2,208.2 552.1,247.5 549.8,257.0 C547.6,266.4 531.2,302.2 526.2,308.4 C521.2,314.6 496.5,328.9 489.5,331.2 C482.5,333.5 463.0,339.8 442.2,336.1 C421.3,332.4 264.5,288.7 239.0,286.3 C213.5,284.0 147.2,306.4 136.2,307.6 C125.3,308.7 111.7,303.5 107.7,300.2 C103.7,296.9 90.0,277.4 88.1,267.6 C86.2,257.8 85.9,190.8 84.8,182.7 C84.0,173.8 87.6,167.4 91.4,163.2 C95.0,158.3 108.3,122.8 119.1,113.4 C129.9,103.9 201.0,57.6 221.1,49.8 C241.2,41.9 340.5,20.5 360.6,19.6 Z" />
     </svg>
   )
 }
 
-/** The Mediant character: a soft blob wearing headphones, eyes closed, happy. */
+/**
+ * The Mediant character, redrawn from a 4x crop of the reference.
+ *
+ * The first version was a circle with a thin band and small rectangular cups.
+ * At 4x the reference is clearly something else: a PEAR body (narrow crown,
+ * broad base), large angled oval ear cups with a lighter inner face, closed
+ * content eyes, an OPEN mouth with a tongue, soft cheeks, a thumbs-up on the
+ * left and an arm sweeping down on the right.
+ */
 function Mascot() {
   return (
-    <svg viewBox="0 0 200 190" className={styles.mascot} role="img" aria-label="Mediant mascot listening with headphones">
+    <svg viewBox="0 0 200 208" className={styles.mascot} role="img"
+         aria-label="Mediant mascot listening with headphones">
       <defs>
-        <linearGradient id="mdBody" x1="0.2" y1="0" x2="0.8" y2="1">
-          <stop offset="0%"   stopColor="#CBE7D8" />
-          <stop offset="100%" stopColor="#9FCDB8" />
-        </linearGradient>
+        <radialGradient id="mdBody" cx="42%" cy="30%" r="78%">
+          <stop offset="0%"   stopColor="#79C1A6" />
+          <stop offset="100%" stopColor="#57A38C" />
+        </radialGradient>
       </defs>
-      {/* body */}
-      <path fill="url(#mdBody)" d="M100 24c34 0 58 22 62 52 4 30-6 60-24 74-18 14-58 16-80 4S30 112 32 84C34 56 66 24 100 24Z" />
-      {/* headphone band + cups */}
-      <path className={styles.mascotBand} d="M38 78a62 62 0 0 1 124 0" />
-      <rect className={styles.mascotCup} x="24" y="72" width="24" height="38" rx="12" />
-      <rect className={styles.mascotCup} x="152" y="72" width="24" height="38" rx="12" />
-      {/* closed, content eyes */}
-      <path className={styles.mascotFace} d="M74 106c4 5 12 5 16 0" />
-      <path className={styles.mascotFace} d="M110 106c4 5 12 5 16 0" />
-      {/* smile */}
-      <path className={styles.mascotFace} d="M88 124c6 7 18 7 24 0" />
-      {/* cheeks */}
-      <ellipse cx="70" cy="120" rx="7" ry="4.5" fill="#F2A9A0" opacity="0.55" />
-      <ellipse cx="130" cy="120" rx="7" ry="4.5" fill="#F2A9A0" opacity="0.55" />
-      {/* thumbs up */}
-      <path fill="#8FC9AC" stroke="#4E9375" strokeWidth="3" strokeLinejoin="round"
-            d="M132 146c0-6 6-8 8-14 1-4 0-9 4-9s6 5 5 11l-1 6h12c4 0 6 3 5 7l-4 16c-1 4-4 6-8 6h-16c-3 0-5-2-5-5Z" />
+
+      {/* Arm sweeping down on the right, behind the body */}
+      <path d="M147 128 C163 138 166 158 156 176" fill="none"
+            stroke="#1E4B48" strokeWidth="8" strokeLinecap="round" />
+
+      {/* Body — rounder and wider than a pear. Measured against the reference:
+          the first attempt was too tall and narrow, which made the ear cups
+          look enormous by comparison. */}
+      <path fill="url(#mdBody)"
+            d="M100 48 C126 48 141 64 145 88 C149 112 152 148 152 166
+               C152 190 128 200 100 200 C72 200 48 190 48 166
+               C48 148 51 112 55 88 C59 64 74 48 100 48 Z" />
+
+      {/* Headphone band, then the cups over it */}
+      <path d="M46 88 C48 40 152 40 154 88" fill="none"
+            stroke="#1E4B48" strokeWidth="7" strokeLinecap="round" />
+      <g>
+        <ellipse cx="48" cy="94" rx="13" ry="22" fill="#1E4B48" transform="rotate(-12 48 94)" />
+        <ellipse cx="50" cy="94" rx="6.5" ry="14" fill="#39776E" transform="rotate(-12 50 94)" />
+      </g>
+      <g>
+        <ellipse cx="152" cy="94" rx="13" ry="22" fill="#1E4B48" transform="rotate(12 152 94)" />
+        <ellipse cx="150" cy="94" rx="6.5" ry="14" fill="#39776E" transform="rotate(12 150 94)" />
+      </g>
+
+      {/* Cheeks sit under the face marks */}
+      <ellipse cx="76" cy="124" rx="9" ry="5.5" fill="#F0A79F" opacity="0.55" />
+      <ellipse cx="124" cy="124" rx="9" ry="5.5" fill="#F0A79F" opacity="0.55" />
+
+      {/* Closed, content eyes — arcs peaking in the middle */}
+      <path d="M82 112 C85 106 91 106 94 112" fill="none"
+            stroke="#1E4B48" strokeWidth="4.2" strokeLinecap="round" />
+      <path d="M106 112 C109 106 115 106 118 112" fill="none"
+            stroke="#1E4B48" strokeWidth="4.2" strokeLinecap="round" />
+
+      {/* Open mouth with a tongue */}
+      <path d="M90 128 H110 A10 10 0 0 1 90 128 Z" fill="#1E4B48" />
+      <path d="M96 136 A5 5 0 0 1 106 136 Z" fill="#E4544A" />
+
+      {/* Thumbs-up, small, tucked at the lower left */}
+      <path d="M52 156 C52 151 58 150 60 145 C61.5 141 60 137 63.5 137
+               C67 137 68 141 67.5 146 l-0.7 4 h9 c3.5 0 5 2.8 4.3 5.6
+               l-2.8 12 c-0.7 2.8 -2.8 4.2 -5.6 4.2 H57 c-2.8 0 -5 -1.4 -5 -4.2 Z"
+            fill="#6FBFA3" stroke="#1E4B48" strokeWidth="3" strokeLinejoin="round" />
     </svg>
   )
 }

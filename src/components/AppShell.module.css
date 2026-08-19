@@ -413,3 +413,141 @@
     width: 36px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Home variant of the rail — 2026-08 design direction.
+
+   Applied ONLY on /home (see `isHome` in AppShell.jsx). Every other route keeps
+   the 72px hover rail, so this cannot restyle the rest of the app while the
+   direction is being explored.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sidebarHome {
+  width: 232px;
+  padding: 20px 16px 18px;
+  background: #FBF8F3;
+  border-right: 1px solid rgba(31,42,36,0.07);
+}
+/* The rail normally grows on hover; on Home it is already open, so the hover
+   rule must not fight it (or the shadow flickers as the pointer crosses). */
+.sidebarHome:hover { width: 232px; box-shadow: none; }
+
+.sidebarHome .sidebarLogo { padding-left: 6px; }
+.sidebarHome .sidebarWordmark {
+  font-family: 'SF Pro Display', 'Geist Sans', system-ui, sans-serif;
+  font-size: 1.16rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  margin-left: 10px;
+  max-width: none;
+  opacity: 1;
+  text-transform: none;
+  color: #1F2A24;
+}
+.sidebarHome .ctaLabel,
+.sidebarHome .navLabel { opacity: 1; }
+/* The collapsed rail hides these with max-width:0, so opacity alone leaves the
+   button a bare icon — which is exactly how it first rendered. */
+.sidebarHome .ctaLabel { max-width: 220px; margin-left: 9px; }
+.sidebarHome .recordCta { justify-content: flex-start; padding: 13px 16px; }
+
+/* Icon sits in a rounded tile, the way the mockup draws it. */
+.sidebarHome .navItem {
+  border-radius: 14px;
+  gap: 13px;
+  height: 46px;
+  padding: 0 10px;
+  color: #6B7A72;
+  font-weight: 550;
+}
+.sidebarHome .navIcon {
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgba(31,42,36,0.07);
+  border-radius: 11px;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.sidebarHome .navItem:hover { background: rgba(79,147,117,0.07); color: #1F2A24; }
+.sidebarHome .navItemActive {
+  background: #E4F1EA !important;
+  color: #24513C !important;
+  font-weight: 650;
+}
+.sidebarHome .navItemActive .navIcon {
+  background: #fff;
+  border-color: transparent;
+  color: #4E9375;
+}
+.sidebarHome .navLabel { font-size: 0.92rem; }
+
+/* Record CTA reads as one of the tiles rather than a separate coral slab. */
+.sidebarHome .recordCta { border-radius: 14px; }
+
+/* ── Foot: tip card + profile ── */
+.railFoot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; padding-top: 16px; }
+
+.tipCard {
+  background: #fff;
+  border: 1px solid rgba(31,42,36,0.07);
+  border-radius: 18px;
+  padding: 14px 14px 12px;
+  position: relative;
+  text-align: left;
+}
+.tipMascot { width: 62px; height: auto; display: block; margin: 0 auto 6px; }
+.tipTitle { display: block; font-size: 0.84rem; font-weight: 700; color: #1F2A24; }
+.tipBody  { font-size: 0.76rem; line-height: 1.45; color: #6B7A72; margin: 4px 0 0; }
+.tipDots  { display: flex; gap: 5px; margin-top: 10px; }
+.tipDots i {
+  width: 5px; height: 5px; border-radius: 99px; background: rgba(31,42,36,0.16);
+}
+.tipDots .tipDotOn { width: 16px; background: #7FB89A; }
+
+.profileRow {
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 14px;
+  color: #6B7A72;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 10px;
+  padding: 8px 8px;
+  text-align: left;
+  transition: background 160ms ease;
+  width: 100%;
+}
+.profileRow:hover { background: rgba(79,147,117,0.08); }
+.profileAvatar {
+  align-items: center;
+  background: #24513C;
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  flex-shrink: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+.profileText { flex: 1; min-width: 0; }
+.profileName {
+  color: #1F2A24; display: block; font-size: 0.86rem; font-weight: 650;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.profileLink { display: block; font-size: 0.74rem; color: #9AA8A1; margin-top: 1px; }
+
+/* The rail is a fixed-width column on Home, so the grid must reserve it. */
+.bodyHome { grid-template-columns: 232px minmax(0, 1fr); }
+
+@media (max-width: 900px) {
+  .sidebarHome { width: 72px; padding: 18px 14px; }
+  .sidebarHome .railFoot { display: none; }
+  .sidebarHome .sidebarWordmark { max-width: 0; opacity: 0; margin-left: 0; }
+  .sidebarHome .navLabel, .sidebarHome .ctaLabel { opacity: 0; }
+}

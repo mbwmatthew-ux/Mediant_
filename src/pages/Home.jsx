@@ -171,6 +171,18 @@ export default function Home() {
   return (
     <div className={`${styles.page} ${reduced ? styles.noMotion : ''}`}>
 
+      {/* Decorative layer. Purely atmospheric, aria-hidden, pointer-events
+          none — it must never intercept a click or be read aloud. */}
+      <div className={styles.decor} aria-hidden="true">
+        <span className={styles.decorPeach} />
+        <span className={styles.decorDots} />
+        <span className={styles.decorTicks}>
+          <svg viewBox="0 0 34 30" fill="none" stroke="#7FB89A" strokeWidth="3" strokeLinecap="round">
+            <path d="M4 20 L10 12" /><path d="M14 25 L18 15" /><path d="M2 29 L6 26" />
+          </svg>
+        </span>
+      </div>
+
       {/* ══ HERO ══════════════════════════════════════════════════════════ */}
       <section className={styles.hero}>
         <div className={styles.heroLeft} style={{ '--d': '0ms' }}>
@@ -208,6 +220,12 @@ export default function Home() {
 
         <div className={styles.heroRight} style={{ '--d': '90ms' }}>
           <Blob />
+          <span className={styles.blobSun} aria-hidden="true" />
+          <span className={styles.blobMint} aria-hidden="true" />
+          <span className={`${styles.note} ${styles.noteGreen}`} aria-hidden="true"><NoteIcon /></span>
+          <span className={`${styles.note} ${styles.noteCoral}`} aria-hidden="true"><NoteIcon /></span>
+          <span className={`${styles.sparkle} ${styles.sparkleA}`} aria-hidden="true"><SparkleIcon /></span>
+          <span className={`${styles.sparkle} ${styles.sparkleB}`} aria-hidden="true"><SparkleIcon /></span>
           <div className={styles.mascotWrap}>
             <Mascot />
           </div>
@@ -347,7 +365,7 @@ export default function Home() {
             <div className={styles.chipRow}>
               {hearing.map((h, i) => (
                 <div key={h.type} className={styles.chip} style={{ '--d': `${460 + i * 70}ms` }}>
-                  <span className={`${styles.chipIcon} ${styles[`tone_${h.tone}`]}`}>
+                  <span className={`${styles.chipIcon} ${styles[`type_${h.type}`] || styles.type_other}`}>
                     <TypeIcon type={h.type} />
                   </span>
                   <span className={styles.chipName}>{TYPE_LABEL[h.type]}</span>
@@ -522,7 +540,10 @@ function Blob() {
           <stop offset="100%" stopColor="#57A184" />
         </linearGradient>
       </defs>
-      <path fill="url(#mdBlob)" d="M96 62C150 14 250 2 342 6c92 4 176 26 224 76 48 50 46 128 20 190-26 62-76 108-152 120-76 12-178-10-256-44C100 314 44 268 26 208 8 148 42 110 96 62Z" />
+      {/* Asymmetric on purpose: a plain ellipse reads as a stock shape, and the
+          first pass looked exactly like one. The dip on the lower left is what
+          makes it feel hand-drawn. */}
+      <path fill="url(#mdBlob)" d="M118 44C186 6 292-6 380 10c94 17 168 60 202 124 34 65 22 145-28 196-48 49-132 74-214 68-70-5-126-33-170-72-22-20-52-30-78-52-30-25-52-58-56-98-5-52 22-96 82-132Z" />
     </svg>
   )
 }
@@ -617,6 +638,12 @@ function PlayIcon() {
 }
 function ClipIcon() {
   return <svg width="15" height="15" viewBox="0 0 24 24" {...stroke}><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 3h6v3H9z"/><polyline points="9 12 11 14 15 10"/></svg>
+}
+function NoteIcon() {
+  return <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 18.5A3.5 3.5 0 1 1 12 15.3V5.6l8-1.6v8.9a3.5 3.5 0 1 1-2-3.2V6.4l-4 .8v11.3Z"/></svg>
+}
+function SparkleIcon() {
+  return <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c.6 4.6 2.6 6.6 7.2 7.2-4.6.6-6.6 2.6-7.2 7.2-.6-4.6-2.6-6.6-7.2-7.2C9.4 8.6 11.4 6.6 12 2Z"/></svg>
 }
 function TypeIcon({ type }) {
   if (type === 'rhythm' || type === 'timing')

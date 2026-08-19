@@ -1,5 +1,42 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-18 (second pass) — Home screen: sidebar + decorative layer
+
+First pass shipped the layout but not the things that actually make the mockup
+look like the mockup. Two gaps, both mine:
+
+**The sidebar.** I had scoped it out as "shared, therefore not a home-screen
+change". Wrong call — it is the largest thing on screen. `/home` now renders the
+rail expanded at 232px with labels, icon tiles, a green active pill, a "Tip of
+the day" card with the mascot, and a profile row. Gated on `isHome`, so every
+other route keeps the 72px hover rail and this cannot restyle the app.
+
+**The decorative layer** — a warm radial wash top-right, a dot field bottom-left,
+hand-drawn ticks by the CTA, floating music notes, sparkles, and the sun/mint
+shapes tucked behind the blob's lower-left edge. Notes and sparkles drift on
+different cycles so they never pulse in lockstep. The whole layer is
+`aria-hidden` and `pointer-events: none`, and is hidden below 760px where it
+would land on top of text rather than beside it. The hero blob was also redrawn
+asymmetric — the first path was effectively an ellipse and read as a stock shape.
+
+Chip icons are now coloured **by issue type** (intonation coral, rhythm blue,
+dynamics green, articulation purple) with the frequency pill keeping its own
+scale. Keying both to frequency had made three of four chips identical coral.
+
+**Two CSS bugs worth remembering:**
+- `radial-gradient(circle at 40% 45%, …)` defaults to `farthest-corner` sizing,
+  so with an off-centre origin the paint was still part-opaque when it reached
+  the near box edge — the browser cut it there and left a hard vertical seam down
+  the page. `circle closest-side at 50% 50%` guarantees transparency by every
+  edge. Found by cropping the corner, not by reading the code.
+- The rail's collapsed state hides labels with `max-width: 0`, so setting
+  `opacity: 1` alone left the Record CTA as a bare icon. Both properties must be
+  released.
+
+**Known deviation:** nav labels stay Overview / Analysis / Sessions / Reports.
+The mockup shows Home / Sessions / Progress / Library / Insights; those last two
+are not real routes, and inventing dead links would be worse than the mismatch.
+
 ## 2026-08-18 — New Home screen (design exploration, shipped as final)
 
 `/home` rebuilt from the user's mockup: sage green + lavender palette, serif

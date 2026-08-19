@@ -32,6 +32,7 @@
   margin: 0 auto;
   padding: 26px 34px 56px;
   color: var(--h-ink);
+  position: relative;
 }
 
 /* Every animated block shares one entrance. `--d` staggers it; the transform
@@ -45,6 +46,42 @@
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: none; }
 }
+
+/* ══ Decorative layer ═══════════════════════════════════════════════════
+   Atmosphere only: a warm blob top-right, a dotted field bottom-left, and a
+   few hand-drawn ticks by the CTA. Fixed behind the content and click-through
+   — decoration must never eat a click. */
+.decor {
+  position: absolute; top: 0; bottom: 0;
+  left: 50%; width: 100vw; transform: translateX(-50%);
+  overflow: hidden; pointer-events: none; z-index: 0;
+}
+.page > *:not(.decor) { position: relative; z-index: 1; }
+
+.decorPeach {
+  position: absolute; top: -200px; right: -130px;
+  width: 560px; height: 520px;
+  /* `closest-side`, centred, is load-bearing. A default radial-gradient sizes to
+     farthest-corner, so with an off-centre origin it was still part-opaque when
+     it hit the near box edge — the browser cut it there and left a hard vertical
+     seam down the page. Ending the ramp at the closest side guarantees the paint
+     is already transparent by every edge, so no seam can exist. */
+  background: radial-gradient(circle closest-side at 50% 50%,
+              rgba(247,216,195,0.95) 0%,
+              rgba(249,228,212,0.55) 58%,
+              rgba(250,235,224,0) 100%);
+}
+.decorDots {
+  position: absolute; left: -6px; top: 430px;
+  width: 210px; height: 210px;
+  background-image: radial-gradient(#EFC59F 2px, transparent 2px);
+  background-size: 12px 12px;
+  opacity: 0.75;
+  mask-image: radial-gradient(circle at 20% 78%, #000 8%, transparent 68%);
+  -webkit-mask-image: radial-gradient(circle at 20% 78%, #000 8%, transparent 68%);
+}
+.decorTicks { position: absolute; left: 8px; top: 300px; width: 34px; opacity: 0.85; }
+.decorTicks svg { width: 100%; height: auto; display: block; }
 
 /* ══ HERO ═══════════════════════════════════════════════════════════════ */
 .hero {
@@ -155,8 +192,45 @@
   z-index: 0;
   filter: drop-shadow(0 24px 48px rgba(78,147,117,0.28));
 }
+/* Soft shapes tucked behind the mascot, as in the mockup. */
+.blobSun {
+  position: absolute; left: 0; bottom: 19%; z-index: 0;
+  width: 76px; height: 76px; border-radius: 50%;
+  background: #FBE6BE; opacity: 0.9;
+}
+.blobMint {
+  position: absolute; left: -2%; bottom: 5%; z-index: 0;
+  width: 124px; height: 84px; border-radius: 54% 46% 38% 62% / 58% 52% 48% 42%;
+  background: #DCEFE4; opacity: 0.95;
+}
+
+/* Floating notes and sparkles. Each drifts on its own cycle so they never
+   pulse in lockstep, which reads as mechanical. */
+.note { position: absolute; z-index: 3; display: block; }
+.note svg { width: 100%; height: auto; display: block; }
+.noteGreen {
+  width: 26px; left: 6%; top: 16%; color: #3E7A5F;
+  animation: drift 7s ease-in-out infinite;
+}
+.noteCoral {
+  width: 30px; right: 3%; top: 2%; color: #E8613C;
+  animation: drift 8.5s ease-in-out infinite 1.2s;
+}
+@keyframes drift {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50%      { transform: translateY(-14px) rotate(6deg); }
+}
+.sparkle { position: absolute; z-index: 5; display: block; color: #FFFDF6; }
+.sparkle svg { width: 100%; height: auto; display: block; }
+.sparkleA { width: 22px; left: 26%; top: 17%; animation: twinkle 3.4s ease-in-out infinite; }
+.sparkleB { width: 14px; left: 17%; top: 30%; animation: twinkle 4.2s ease-in-out infinite 0.9s; }
+@keyframes twinkle {
+  0%, 100% { opacity: 0.35; transform: scale(0.82); }
+  50%      { opacity: 1;    transform: scale(1.1); }
+}
+
 .mascotWrap {
-  position: absolute; left: 7%; top: 50%; z-index: 1;
+  position: absolute; left: 7%; top: 50%; z-index: 4;
   width: 190px; margin-top: -95px;
   animation: float 6s ease-in-out infinite;
 }
@@ -260,6 +334,15 @@
 .tone_high  { background: var(--h-coral-soft); color: var(--h-coral); }
 .tone_mid   { background: #FBEFD9; color: #C98A24; }
 .tone_low   { background: var(--h-green-soft); color: var(--h-green); }
+
+/* Per-type chip colours. */
+.type_intonation   { background: #FDE8E1; color: #E06844; }
+.type_rhythm       { background: #E3EDFA; color: #4C79B8; }
+.type_timing       { background: #E3EDFA; color: #4C79B8; }
+.type_dynamics     { background: #DFF0E6; color: #4E9375; }
+.type_articulation { background: #EDE6F9; color: #7B62B8; }
+.type_tone         { background: #FBEFD9; color: #C98A24; }
+.type_other        { background: #ECEFEE; color: #6B7A72; }
 
 .metricBody { flex: 1; min-width: 0; }
 .metricTop  { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
@@ -478,6 +561,9 @@
 }
 @media (max-width: 760px) {
   .page { padding: 18px 18px 44px; }
+  /* The decorations are positioned against the desktop layout; once things
+     stack they land on top of text instead of beside it. */
+  .decorDots, .decorTicks, .blobSun, .blobMint, .note, .sparkle { display: none; }
   .grid { grid-template-columns: minmax(0, 1fr); }
   .progressCard, .improvedCard, .nextCard, .recentCard, .hearingCard {
     grid-column: 1; grid-row: auto;

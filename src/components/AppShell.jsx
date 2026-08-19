@@ -76,6 +76,21 @@ function InstrumentModal({ onSave }) {
   )
 }
 
+/** Small mascot for the sidebar tip card — same character as the Home hero. */
+function TipMascot() {
+  return (
+    <svg viewBox="0 0 80 66" className={styles.tipMascot} aria-hidden="true">
+      <path fill="#BFE3CF" d="M40 6c15 0 26 9 27 22 1 13-4 26-11 32-7 6-25 7-34 1S12 40 13 28C14 16 25 6 40 6Z" />
+      <path fill="none" stroke="#3E7A5F" strokeWidth="3" strokeLinecap="round" d="M28 34c2 3 6 3 8 0" />
+      <path fill="none" stroke="#3E7A5F" strokeWidth="3" strokeLinecap="round" d="M44 34c2 3 6 3 8 0" />
+      <path fill="none" stroke="#3E7A5F" strokeWidth="3" strokeLinecap="round" d="M34 44c4 4 10 4 14 0" />
+      <ellipse cx="25" cy="41" rx="4" ry="2.6" fill="#F2A9A0" opacity="0.6" />
+      <ellipse cx="57" cy="41" rx="4" ry="2.6" fill="#F2A9A0" opacity="0.6" />
+      <path fill="#F3C969" d="M66 10l1.6 4.2L72 16l-4.4 1.8L66 22l-1.6-4.2L60 16l4.4-1.8Z" />
+    </svg>
+  )
+}
+
 export default function AppShell() {
   const { user } = useAuth()
   const nav = useNavigate()
@@ -126,6 +141,11 @@ export default function AppShell() {
   }
   const pageTitle = PAGE_TITLES[location.pathname] ?? ''
 
+  /* The Home screen runs the 2026-08 design direction, which shows the rail
+     permanently expanded with labels, a tip card and a profile block. Other
+     routes keep the 72px hover rail, so this cannot restyle the whole app. */
+  const isHome = location.pathname === '/home'
+
   return (
     <div className={styles.shell}>
       <NewRecordingModal open={showRecord} onClose={() => setShowRecord(false)} />
@@ -148,13 +168,13 @@ export default function AppShell() {
         </button>
       </header>
 
-      <div className={styles.body}>
+      <div className={`${styles.body} ${isHome ? styles.bodyHome : ''}`}>
         {/* Sidebar */}
-        <aside className={styles.sidebar}>
+        <aside className={`${styles.sidebar} ${isHome ? styles.sidebarHome : ''}`}>
           {/* Logo */}
           <NavLink to="/home" className={styles.sidebarLogo} onClick={playNav} title="Mediant">
             <LogoMark size={36} />
-            <span className={styles.sidebarWordmark}>MEDIANT</span>
+            <span className={styles.sidebarWordmark}>{isHome ? 'Mediant' : 'MEDIANT'}</span>
           </NavLink>
 
           {/* Record & Analyze CTA */}
@@ -182,6 +202,32 @@ export default function AppShell() {
             ))}
           </nav>
 
+          {isHome && (
+            <div className={styles.railFoot}>
+              <div className={styles.tipCard}>
+                <TipMascot />
+                <span className={styles.tipTitle}>Tip of the day</span>
+                <p className={styles.tipBody}>
+                  Short, focused sessions lead to lasting progress.
+                </p>
+                <div className={styles.tipDots} aria-hidden="true">
+                  <i className={styles.tipDotOn} /><i /><i />
+                </div>
+              </div>
+
+              <button className={styles.profileRow} onClick={() => { playNav(); nav('/settings') }}>
+                <span className={styles.profileAvatar}>{initials}</span>
+                <span className={styles.profileText}>
+                  <span className={styles.profileName}>{user?.name || 'Your profile'}</span>
+                  <span className={styles.profileLink}>View profile</span>
+                </span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 5 16 12 9 19" />
+                </svg>
+              </button>
+            </div>
+          )}
         </aside>
 
         {/* Main content */}

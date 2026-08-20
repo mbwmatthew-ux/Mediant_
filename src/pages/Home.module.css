@@ -1,335 +1,96 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Home — 2026-08 redesign.
+   Home — 2026-08-20 design.
 
-   The new palette (sage green, lavender, deeper cream) lives HERE, scoped to
-   .page, rather than in index.css. Every other screen still reads the global
-   tokens, so this redesign cannot leak into them while it is being explored.
-   If it graduates to the whole app, these move up into :root.
+   Every colour and dimension here was sampled or measured from
+   agent_workspace/reference/home-v2-2026-08-20.jpeg. Scoped to .page so the
+   rest of the app keeps the global tokens.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .page {
-  /* Sampled directly off the reference mockup rather than eyeballed. The first
-     pass guessed, and three were meaningfully wrong: the greens were far too
-     saturated, and the "Up next" card was a real purple where the reference is
-     a pale mauve. agent_workspace/reference/ holds the source image. */
-  --h-page:        #FCF9F4;
-  --h-surface:     #FDFCFA;
-  --h-coral:       #E9593E;
-  --h-coral-soft:  #FBDDD3;
-  --h-coral-ink:   #E4674A;
-  --h-green:       #6BA890;   /* ring arc + every progress bar */
-  --h-green-deep:  #1D5C51;   /* "Most improved" card */
-  --h-green-soft:  #E4EFE6;
-  --h-green-tint:  #F1F5EC;
-  --h-green-ink:   #3F7F63;
-  --h-blob:        #85B5A5;
-  --h-lav:         #F1EAF6;
-  --h-lav-soft:    #E7DEF2;
-  --h-lav-ink:     #6E5E96;
-  --h-gold-soft:   #FCEBCF;
-  --h-gold-ink:    #D9942E;
-  --h-track:       #F1EAE1;   /* warm cream, NOT a green tint */
-  --h-ink:         #12302A;
-  --h-ink-soft:    #6E7A72;
-  --h-ink-faint:   #9AA49D;
-  --h-line:        rgba(31, 42, 36, 0.07);
-  --h-shadow:      0 1px 2px rgba(31,42,36,0.03), 0 10px 26px -16px rgba(31,42,36,0.18);
-  --h-shadow-lift: 0 2px 5px rgba(31,42,36,0.05), 0 18px 38px -18px rgba(31,42,36,0.24);
+  --h-page:        #FDFAF5;
+  --h-surface:     #FEFDFB;
+  --h-dark:        #034A3C;
+  --h-lav:         #F3E8F9;
+  --h-green:       #00A172;   /* progress bars */
+  --h-ring:        #49B79A;   /* ring arc */
+  --h-track:       #EFEAE2;
+  --h-note:        #E7F6E1;
+  --h-ink:         #16241E;
+  --h-ink-soft:    #5F6E66;
+  --h-ink-faint:   #93A099;
+  --h-line:        rgba(22, 36, 30, 0.07);
+  --h-shadow:      0 1px 2px rgba(22,36,30,0.03), 0 8px 24px -16px rgba(22,36,30,0.16);
+  --h-shadow-lift: 0 2px 5px rgba(22,36,30,0.05), 0 16px 34px -18px rgba(22,36,30,0.22);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 16px 34px 48px;
+  padding: 26px 27px 30px 45px;
   color: var(--h-ink);
   position: relative;
 }
-/* The reference page sits lighter than the app's global cream. Painted full
-   bleed so the content column and the gutters match. */
+/* Full-bleed page tint; the reference content area is lighter than the app's
+   global cream. */
 .page::before {
-  content: '';
-  position: fixed; inset: 0;
-  background: var(--h-page);
-  z-index: -1;
+  content: ''; position: fixed; inset: 0; background: var(--h-page); z-index: -1;
 }
 
-/* Every animated block shares one entrance. `--d` staggers it; the transform
-   is cleared at the end so nothing is left as a containing block for a
-   position:fixed descendant. */
-.hero, .card, .helpStep, .metric, .chip, .recentRow {
-  animation: riseIn 620ms var(--ease) both;
+.card, .chip, .recentRow, .metric {
+  animation: riseIn 560ms var(--ease) both;
   animation-delay: var(--d, 0ms);
 }
 @keyframes riseIn {
-  from { opacity: 0; transform: translateY(14px); }
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: none; }
 }
 
-/* ══ Decorative layer ═══════════════════════════════════════════════════
-   Atmosphere only: a warm blob top-right, a dotted field bottom-left, and a
-   few hand-drawn ticks by the CTA. Fixed behind the content and click-through
-   — decoration must never eat a click. */
-.decor {
-  position: absolute; top: 0; bottom: 0;
-  left: 50%; width: 100vw; transform: translateX(-50%);
-  overflow: hidden; pointer-events: none; z-index: 0;
-}
-.page > *:not(.decor) { position: relative; z-index: 1; }
-
-.decorPeach {
-  position: absolute; top: -200px; right: -130px;
-  width: 560px; height: 520px;
-  /* `closest-side`, centred, is load-bearing. A default radial-gradient sizes to
-     farthest-corner, so with an off-centre origin it was still part-opaque when
-     it hit the near box edge — the browser cut it there and left a hard vertical
-     seam down the page. Ending the ramp at the closest side guarantees the paint
-     is already transparent by every edge, so no seam can exist. */
-  background: radial-gradient(circle closest-side at 50% 50%,
-              rgba(247,216,195,0.95) 0%,
-              rgba(249,228,212,0.55) 58%,
-              rgba(250,235,224,0) 100%);
-}
-.decorDots {
-  position: absolute; left: -6px; top: 430px;
-  width: 210px; height: 210px;
-  background-image: radial-gradient(#EFC59F 2px, transparent 2px);
-  background-size: 12px 12px;
-  opacity: 0.75;
-  mask-image: radial-gradient(circle at 20% 78%, #000 8%, transparent 68%);
-  -webkit-mask-image: radial-gradient(circle at 20% 78%, #000 8%, transparent 68%);
-}
-.decorTicks { position: absolute; left: 8px; top: 300px; width: 34px; opacity: 0.85; }
-.decorTicks svg { width: 100%; height: auto; display: block; }
-
-/* ══ HERO ═══════════════════════════════════════════════════════════════ */
-.hero {
+/* ══ Rows ═══════════════════════════════════════════════════════════════
+   Measured off the reference: row 1 splits 595 / 302 / 436 and row 2 splits
+   836 / 510 within the same 1368px band. They are NOT the same grid, so they
+   are two containers rather than one grid with spans. */
+.rowTop {
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  gap: 40px;
-  align-items: center;
-  margin-bottom: 34px;
+  grid-template-columns: minmax(0, 595fr) minmax(0, 302fr) minmax(0, 436fr);
+  gap: 20px;
+  align-items: stretch;
+  margin-bottom: 21px;
 }
-.heroLeft { animation: riseIn 620ms var(--ease) both; animation-delay: var(--d); padding-top: 6px; }
-
-.greeting {
-  color: var(--h-coral);
-  font-size: 1.06rem;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  margin: 0 0 8px;
-  display: flex; align-items: center; gap: 8px;
-}
-.wave {
-  display: inline-block;
-  transform-origin: 70% 80%;
-  animation: waveHand 2.6s var(--ease) 700ms 2;
-}
-@keyframes waveHand {
-  0%, 60%, 100% { transform: rotate(0deg); }
-  10%, 30%      { transform: rotate(15deg); }
-  20%, 40%      { transform: rotate(-9deg); }
-}
-
-.heroTitle {
-  font-family: 'Instrument Serif', 'Newsreader', 'Playfair Display', Georgia, serif;
-  font-size: clamp(2.5rem, 4.1vw, 3.4rem);
-  font-weight: 400;
-  letter-spacing: -0.022em;
-  line-height: 1.06;
-  margin: 0 0 14px;
-  color: var(--h-ink);
-}
-.underlined { position: relative; display: inline-block; white-space: nowrap; }
-.squiggle {
-  position: absolute; left: 0; bottom: -0.16em;
-  width: 100%; height: 0.3em; overflow: visible;
-  fill: none; stroke: #F3B08C; stroke-width: 5;
-  stroke-linecap: round; stroke-linejoin: round;
-}
-.squiggle path {
-  stroke-dasharray: 260;
-  stroke-dashoffset: 260;
-  animation: drawLine 900ms var(--ease) 420ms forwards;
-}
-@keyframes drawLine { to { stroke-dashoffset: 0; } }
-
-.heroSub {
-  color: var(--h-ink-soft);
-  font-size: 1.02rem;
-  line-height: 1.62;
-  margin: 0 0 22px;
-}
-
-.heroActions { display: flex; flex-wrap: wrap; gap: 13px; }
-
-.btnPrimary, .btnGhost, .btnPrimarySm {
-  align-items: center; border-radius: 999px; cursor: pointer;
-  display: inline-flex; font: inherit; font-weight: 650; gap: 9px;
-  transition: transform 220ms var(--ease), box-shadow 220ms var(--ease),
-              background 180ms ease, border-color 180ms ease;
-}
-.btnPrimary {
-  background: var(--h-coral); border: none; color: #fff;
-  font-size: 1rem; padding: 18px 30px;
-  box-shadow: 0 10px 22px -10px rgba(232,97,60,0.75);
-  position: relative; overflow: hidden;
-}
-.btnPrimary:hover { transform: translateY(-2px); box-shadow: 0 16px 30px -12px rgba(232,97,60,0.85); }
-.btnPrimary:active { transform: translateY(0); }
-/* A soft sheen that sweeps once on hover — the only decorative motion on a
-   control, kept short so it never delays the click. */
-.btnGlow {
-  position: absolute; inset: 0;
-  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.32) 50%, transparent 70%);
-  transform: translateX(-120%);
-}
-.btnPrimary:hover .btnGlow { animation: sheen 780ms var(--ease); }
-@keyframes sheen { to { transform: translateX(120%); } }
-
-.btnGhost {
-  background: var(--h-surface); border: 1px solid var(--h-line); color: var(--h-ink);
-  font-size: 1rem; padding: 18px 26px; box-shadow: var(--h-shadow);
-}
-.btnGhost:hover { transform: translateY(-2px); box-shadow: var(--h-shadow-lift); border-color: rgba(31,42,36,0.16); }
-
-.btnPrimarySm {
-  background: var(--h-coral); border: none; color: #fff;
-  font-size: 0.86rem; padding: 10px 18px;
-}
-.btnPrimarySm:hover { transform: translateY(-1px); }
-
-/* ── Hero right: blob + mascot + steps ── */
-.heroRight {
-  position: relative;
-  min-height: 380px;
-  display: flex; align-items: center; justify-content: flex-end;
-  animation: riseIn 620ms var(--ease) both; animation-delay: var(--d);
-}
-.blob {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  z-index: 0;
-  filter: drop-shadow(0 24px 48px rgba(110,160,140,0.30));
-}
-/* Soft shapes tucked behind the mascot, as in the mockup. */
-.blobSun {
-  position: absolute; left: 0; bottom: 19%; z-index: 0;
-  width: 76px; height: 76px; border-radius: 50%;
-  background: #FBE6BE; opacity: 0.9;
-}
-.blobMint {
-  position: absolute; left: -2%; bottom: 5%; z-index: 0;
-  width: 124px; height: 84px; border-radius: 54% 46% 38% 62% / 58% 52% 48% 42%;
-  background: #DCEFE4; opacity: 0.95;
-}
-
-/* Floating notes and sparkles. Each drifts on its own cycle so they never
-   pulse in lockstep, which reads as mechanical. */
-.note { position: absolute; z-index: 3; display: block; }
-.note svg { width: 100%; height: auto; display: block; }
-.noteGreen {
-  width: 24px; left: 9%; top: 22%; color: #2F6152;
-  animation: drift 7s ease-in-out infinite;
-}
-.noteGreen2 {
-  width: 17px; left: 15%; top: 32%; color: #2F6152;
-  animation: drift 8s ease-in-out infinite 0.7s;
-}
-.noteCoral {
-  width: 30px; right: 3%; top: 2%; color: #E8613C;
-  animation: drift 8.5s ease-in-out infinite 1.2s;
-}
-@keyframes drift {
-  0%, 100% { transform: translateY(0) rotate(-6deg); }
-  50%      { transform: translateY(-14px) rotate(6deg); }
-}
-.sparkle { position: absolute; z-index: 5; display: block; color: #FFFDF6; }
-.sparkle svg { width: 100%; height: auto; display: block; }
-.sparkleA { width: 20px; left: 29%; top: 22%; color: #FCE9A8; animation: twinkle 3.4s ease-in-out infinite; }
-.sparkleB { width: 15px; left: 21%; top: 38%; animation: twinkle 4.2s ease-in-out infinite 0.9s; }
-@keyframes twinkle {
-  0%, 100% { opacity: 0.35; transform: scale(0.82); }
-  50%      { opacity: 1;    transform: scale(1.1); }
-}
-
-.mascotWrap {
-  position: absolute; left: 17%; top: 43%; z-index: 4;
-  width: 204px; margin-top: -102px;
-  animation: float 6s ease-in-out infinite;
-}
-.mascot { width: 100%; height: auto; display: block; }
-@keyframes float {
-  0%, 100% { transform: translateY(0)    rotate(0deg); }
-  50%      { transform: translateY(-11px) rotate(-1.4deg); }
-}
-.mascotBand { fill: none; stroke: #3D7565; stroke-width: 7; stroke-linecap: round; }
-.mascotCup  { fill: #3D7565; }
-.mascotFace { fill: none; stroke: #2E5A4C; stroke-width: 4; stroke-linecap: round; }
-
-.helpPanel {
-  position: relative; z-index: 2;
-  width: min(310px, 52%);
-  margin-right: 6%;
-  display: flex; flex-direction: column; gap: 14px;
-}
-.helpTitle {
-  color: #fff; font-size: 1.06rem; font-weight: 700;
-  letter-spacing: -0.01em; margin: 0 0 2px;
-}
-.helpStep { display: flex; gap: 12px; align-items: flex-start; }
-.helpIcon {
-  flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.22); color: #fff;
-  backdrop-filter: blur(2px);
-  transition: transform 260ms var(--ease), background 260ms ease;
-}
-.helpStep:hover .helpIcon { transform: scale(1.08); background: rgba(255,255,255,0.34); }
-.helpStepTitle { color: #fff; font-size: 0.9rem; font-weight: 650; display: block; }
-.helpStepDesc  { color: rgba(255,255,255,0.86); font-size: 0.8rem; line-height: 1.45; margin: 2px 0 0; }
-
-/* ══ GRID ═══════════════════════════════════════════════════════════════ */
-.grid {
+.rowBottom {
   display: grid;
-  grid-template-columns: minmax(0, 1.20fr) minmax(0, 0.72fr) minmax(0, 1.10fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 836fr) minmax(0, 510fr);
+  gap: 22px;
   align-items: start;
 }
-.progressCard { grid-column: 1; grid-row: 1; }
-.improvedCard { grid-column: 2; grid-row: 1; }
-.nextCard     { grid-column: 3; grid-row: 1; }
-.hearingCard  { grid-column: 1 / span 2; grid-row: 2; background: #FCFAF6; }
-.recentCard   { grid-column: 3; grid-row: 2; }
 
 .card {
   background: var(--h-surface);
-  --card-radius: 22px;
   border: 1px solid var(--h-line);
   border-radius: 22px;
-  padding: 18px 19px;
+  padding: 22px 24px;
   box-shadow: var(--h-shadow);
   position: relative;
   overflow: hidden;
-  transition: transform 320ms var(--ease), box-shadow 320ms var(--ease);
+  transition: transform 300ms var(--ease), box-shadow 300ms var(--ease);
 }
-.card:hover { transform: translateY(-3px); box-shadow: var(--h-shadow-lift); }
+.card:hover { transform: translateY(-2px); box-shadow: var(--h-shadow-lift); }
 
-.cardHead { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.cardHead { display: flex; align-items: center; gap: 11px; margin-bottom: 18px; }
 .cardIcon {
-  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: var(--h-green-soft); color: var(--h-green-ink);
+  background: #E4F3E7; color: #2E9E6B;
 }
-.cardIconCoral { background: #F9E5DC; color: var(--h-coral); }
-.cardTitle { font-size: 0.98rem; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
-.cardSub   { font-size: 0.78rem; color: var(--h-ink-faint); margin: 2px 0 0; }
+.cardIconCoral { background: #FDE9DF; color: #F0763C; }
+.cardTitle { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.015em; margin: 0; }
+.cardSub   { font-size: 0.84rem; color: var(--h-ink-faint); margin: 3px 0 0; }
 
 /* ── Your progress ── */
-.progressBody { display: flex; align-items: center; gap: 18px; }
+.progressCard { display: flex; flex-direction: column; }
+.progressBody { display: flex; align-items: center; gap: 30px; flex: 1; }
 
-.ringWrap { position: relative; width: 132px; height: 132px; flex-shrink: 0; }
+.ringWrap { position: relative; width: 186px; height: 186px; flex-shrink: 0; }
 .ring { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ringTrack { fill: none; stroke: var(--h-track); stroke-width: 14; }
+.ringTrack { fill: none; stroke: var(--h-track); stroke-width: 13; }
 .ringFill {
-  fill: none; stroke: var(--h-green); stroke-width: 14; stroke-linecap: round;
+  fill: none; stroke: var(--h-ring); stroke-width: 13; stroke-linecap: round;
   transition: stroke-dashoffset 1400ms var(--ease);
 }
 .ringCenter {
@@ -337,316 +98,253 @@
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
 .ringValue {
-  font-size: 1.9rem; font-weight: 780; letter-spacing: -0.035em;
-  font-variant-numeric: tabular-nums; line-height: 1;
+  font-size: 2.6rem; font-weight: 750; letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums; line-height: 1; color: var(--h-ink);
 }
-.ringPct { font-size: 0.95rem; font-weight: 650; }
-.ringLabel { font-size: 0.72rem; color: var(--h-ink-faint); margin-top: 3px; }
+.ringPct { font-size: 1.1rem; font-weight: 650; }
+.ringLabel { font-size: 0.85rem; color: var(--h-ink-soft); margin-top: 7px; }
 
-.metrics { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.metric  { display: flex; align-items: center; gap: 10px; }
+.metrics { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.metric  { display: flex; align-items: center; gap: 13px; }
 .metricIcon {
-  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
 }
-.tone_green { background: var(--h-green-soft); color: var(--h-green-ink); }
-.tone_gold  { background: #FBF1E0; color: #E0A030; }
-.tone_lav   { background: var(--h-lav); color: #7C68A8; }
-.tone_high  { background: var(--h-coral-soft); color: var(--h-coral); }
-.tone_mid   { background: #FBEFD9; color: #C98A24; }
-.tone_low   { background: var(--h-green-soft); color: var(--h-green); }
-
-/* Per-type chip colours. */
-.type_intonation   { background: #FDE8E1; color: #E06844; }
-.type_rhythm       { background: #E3EDFA; color: #4C79B8; }
-.type_timing       { background: #E3EDFA; color: #4C79B8; }
-.type_dynamics     { background: #DFF0E6; color: #4E9375; }
-.type_articulation { background: #EDE6F9; color: #7B62B8; }
-.type_tone         { background: #FBEFD9; color: #C98A24; }
-.type_other        { background: #ECEFEE; color: #6B7A72; }
+.tone_green { background: #E9F5DF; color: #46A047; }
+.tone_gold  { background: #FEF8E8; color: #E7A427; }
+.tone_lav   { background: #EEE5FA; color: #7B5BD6; }
 
 .metricBody { flex: 1; min-width: 0; }
-.metricTop  { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
-.metricLabel { font-size: 0.9rem; color: var(--h-ink-soft); }
+.metricTop  { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.metricLabel { font-size: 0.95rem; color: var(--h-ink-soft); }
 .metricValue {
-  font-size: 0.9rem; font-weight: 750; white-space: nowrap; color: var(--h-ink);
+  font-size: 0.95rem; font-weight: 750; white-space: nowrap; color: var(--h-ink);
   font-variant-numeric: tabular-nums;
 }
-/* "18 / 25" — the achieved number is the fact, the target is context. */
 .metricValueSuffix { color: var(--h-ink-faint); font-weight: 600; }
-.metricSuffix { margin-left: 4px; }
-.metricTrack {
-  height: 7px; border-radius: 99px; background: var(--h-track); overflow: hidden;
-}
+.metricTrack { height: 7px; border-radius: 99px; background: var(--h-track); overflow: hidden; }
 .metricFill {
   height: 100%; border-radius: 99px; width: 0; background: var(--h-green);
   transition: width 1200ms var(--ease);
 }
-.metricBarRow { display: flex; align-items: center; gap: 8px; }
+.metricBarRow { display: flex; align-items: center; gap: 9px; }
 .metricBarRow .metricTrack { flex: 1; min-width: 0; }
-.metricTrail { font-size: 0.92rem; line-height: 1; flex-shrink: 0; }
+.metricTrail { font-size: 1rem; line-height: 1; flex-shrink: 0; }
 
 .progressNote {
-  margin: 12px 0 0; padding: 9px 12px; border-radius: 12px;
-  background: var(--h-green-tint); color: var(--h-green-ink);
-  font-size: 0.86rem; text-align: center; font-weight: 600;
+  margin: 22px 0 0; padding: 13px 12px; border-radius: 13px;
+  background: var(--h-note); color: #2E7D4F;
+  font-size: 0.92rem; text-align: center; font-weight: 600;
 }
 
 /* ── Most improved ── */
 .improvedCard {
-  background: linear-gradient(160deg, #24685B 0%, #16493F 100%);
-  border-color: transparent; color: #fff;
+  background: var(--h-dark); border-color: transparent; color: #fff;
   display: flex; flex-direction: column;
 }
 .improvedEyebrow {
-  font-size: 0.63rem; font-weight: 750; letter-spacing: 0.12em;
-  color: rgba(255,255,255,0.62);
+  font-size: 0.72rem; font-weight: 650; letter-spacing: 0.09em;
+  color: rgba(255,255,255,0.72);
 }
 .improvedTitle {
-  font-size: 1.18rem; font-weight: 700; letter-spacing: -0.02em;
-  margin: 7px 0 0; color: #fff;
+  font-size: 1.45rem; font-weight: 700; letter-spacing: -0.025em;
+  margin: 10px 0 0; color: #fff; line-height: 1.15;
 }
-.improvedDelta {
-  display: block; margin-top: 5px; font-size: 0.85rem;
-  color: #9FD6BE; font-weight: 600;
-}
+.improvedDelta { display: block; margin-top: 9px; font-size: 0.95rem; color: #fff; font-weight: 600; }
 .improvedBody {
-  font-size: 0.82rem; line-height: 1.45; margin: 8px 0 0;
-  color: rgba(255,255,255,0.78);
+  font-size: 0.92rem; line-height: 1.5; margin: 12px 0 0; color: rgba(255,255,255,0.8);
 }
-.spark { width: 100%; height: 50px; margin: 10px 0 2px; overflow: visible; }
-.sparkEmpty { height: 50px; margin: 10px 0 2px; }
+.spark { width: 72%; height: 88px; margin: 8px 0 0; overflow: visible; }
+.sparkEmpty { height: 88px; margin: 8px 0 0; }
 .sparkLine {
-  fill: none; stroke: #B7E2CB; stroke-width: 2.5;
+  fill: none; stroke: #8FD9BC; stroke-width: 2.5;
   stroke-linecap: round; stroke-linejoin: round;
-  transition: stroke-dashoffset 1500ms var(--ease) 260ms;
+  transition: stroke-dashoffset 1500ms var(--ease) 240ms;
 }
-.sparkDot { fill: #DFF3E7; transition: opacity 420ms var(--ease); }
+.sparkDot { fill: #8FD9BC; transition: opacity 420ms var(--ease); }
 .sparkDotLast { fill: #fff; }
 
 .improvedBtn {
-  align-items: center; align-self: flex-start; background: rgba(255,255,255,0.14);
-  border: 1px solid rgba(255,255,255,0.20); border-radius: 999px; color: #fff;
-  cursor: pointer; display: inline-flex; font: inherit; font-size: 0.8rem;
-  font-weight: 600; gap: 7px; margin-top: auto; padding: 8px 15px;
+  align-items: center; align-self: flex-start; background: rgba(255,255,255,0.13);
+  border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; color: #fff;
+  cursor: pointer; display: inline-flex; font: inherit; font-size: 0.9rem;
+  font-weight: 600; gap: 8px; margin-top: auto; padding: 11px 20px;
   transition: background 200ms ease, transform 220ms var(--ease);
 }
-.improvedBtn:hover { background: rgba(255,255,255,0.24); transform: translateX(2px); }
+.improvedBtn:hover { background: rgba(255,255,255,0.22); transform: translateX(2px); }
 .trophy {
-  position: absolute; right: 16px; bottom: 12px; font-size: 2rem;
-  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.28));
-  transition: transform 400ms var(--ease);
+  position: absolute; right: 20px; bottom: 70px; font-size: 2.5rem;
+  filter: drop-shadow(0 8px 14px rgba(0,0,0,0.3));
+  transition: transform 400ms var(--ease); pointer-events: none;
 }
-.improvedCard:hover .trophy { transform: rotate(-8deg) scale(1.08); }
+.improvedCard:hover .trophy { transform: rotate(-8deg) scale(1.07); }
 
 /* ── Up next ── */
 .nextCard {
-  background: var(--h-lav); border-color: rgba(110,94,150,0.13);
-  min-height: 210px; display: flex; flex-direction: column;
+  background: var(--h-lav); border-color: rgba(120,90,170,0.10);
+  display: flex; flex-direction: column;
 }
-.nextEyebrow {
-  font-size: 0.66rem; font-weight: 750; letter-spacing: 0.13em; color: #9A8FB4;
-}
-/* Near-black, not purple — the reference keeps the heading neutral and lets
-   the card's tint carry the colour. */
+.nextEyebrow { font-size: 0.72rem; font-weight: 650; letter-spacing: 0.09em; color: #7B6E93; }
 .nextTitle {
-  font-size: 1.24rem; font-weight: 750; letter-spacing: -0.025em;
-  margin: 8px 0 0; color: var(--h-ink);
+  font-size: 1.45rem; font-weight: 700; letter-spacing: -0.025em;
+  margin: 10px 0 0; color: var(--h-ink);
 }
-.nextSub { font-size: 0.87rem; color: #7C7590; margin: 6px 0 18px; }
+.nextSub { font-size: 0.95rem; color: #6E6685; margin: 9px 0 0; }
 .focusRow {
-  align-items: center; background: #fff; border: none;
-  border-radius: 16px; margin-top: auto; cursor: pointer; display: flex; font: inherit; gap: 12px;
-  padding: 14px 15px; text-align: left; width: min(100%, 292px);
+  align-items: center; background: #fff; border: none; border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(60,40,100,0.05), 0 10px 24px -18px rgba(60,40,100,0.4);
+  cursor: pointer; display: flex; font: inherit; gap: 14px;
+  margin-top: auto; padding: 16px 18px; text-align: left; width: min(100%, 312px);
   transition: transform 240ms var(--ease), box-shadow 240ms var(--ease);
 }
-.focusRow:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 24px -12px rgba(75,62,113,0.4);
-}
+.focusRow:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -16px rgba(60,40,100,0.45); }
 .focusIcon {
-  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  width: 36px; height: 36px; border-radius: 11px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: var(--h-lav-soft); color: #7C68A8;
+  background: #EFE6FA; color: #7B5BD6;
 }
 .focusText { flex: 1; min-width: 0; }
-.focusName { display: block; font-size: 0.92rem; font-weight: 700; color: var(--h-ink); }
-.focusHint { display: block; font-size: 0.78rem; color: #837C99; margin-top: 2px; }
+.focusName { display: block; font-size: 0.98rem; font-weight: 650; color: var(--h-ink); }
+.focusHint { display: block; font-size: 0.85rem; color: #7C7592; margin-top: 3px; }
 .clipboard {
-  position: absolute; right: 12px; top: 52%; width: 112px; display: block;
-  transform: translateY(-50%) rotate(4deg);
-  transition: transform 420ms var(--ease);
-  pointer-events: none;
+  position: absolute; right: 14px; top: 88px; width: 132px; display: block;
+  transform: rotate(4deg); transition: transform 420ms var(--ease); pointer-events: none;
 }
 .clipboard svg { width: 100%; height: auto; display: block; }
-.nextCard:hover .clipboard { transform: translateY(calc(-50% - 5px)) rotate(1deg); }
+.nextCard:hover .clipboard { transform: rotate(1deg) translateY(-5px); }
 
 /* ── What Mediant is hearing ── */
-.chipRow {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px;
-}
+.chipRow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
 .chip {
-  border: 1px solid var(--h-line); border-radius: 16px; padding: 14px 13px;
-  background: #FFFDFA;
-  display: flex; flex-direction: column; gap: 11px;
-  transition: transform 260ms var(--ease), border-color 260ms ease, background 260ms ease;
+  border: 1px solid var(--h-line); border-radius: 16px; padding: 15px 13px;
+  background: #FEFDFB;
+  display: flex; flex-direction: column; gap: 14px;
+  transition: transform 260ms var(--ease), border-color 260ms ease;
 }
-.chip:hover { transform: translateY(-3px); border-color: rgba(31,42,36,0.14); background: #fff; }
-/* Icon sits BESIDE the text in the reference, not above it. */
-.chipTop { display: flex; align-items: flex-start; gap: 10px; }
+.chip:hover { transform: translateY(-3px); border-color: rgba(22,36,30,0.14); }
+.chipTop { display: flex; align-items: flex-start; gap: 12px; }
 .chipIcon {
-  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
 }
 .chipText { min-width: 0; }
-.chipName { display: block; font-size: 0.88rem; font-weight: 700; letter-spacing: -0.01em; }
+.chipName { display: block; font-size: 0.95rem; font-weight: 650; letter-spacing: -0.01em; }
 .chipDesc {
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 0.78rem; color: var(--h-ink-soft); line-height: 1.4; margin-top: 3px;
-  overflow-wrap: anywhere;
+  overflow: hidden; overflow-wrap: anywhere;
+  font-size: 0.85rem; color: var(--h-ink-soft); line-height: 1.4; margin-top: 4px;
 }
 .chipFreq {
-  align-self: flex-start; padding: 5px 11px; border-radius: 999px;
-  font-size: 0.75rem; font-weight: 650;
+  align-self: flex-start; padding: 6px 12px; border-radius: 999px;
+  font-size: 0.82rem; font-weight: 600;
 }
-.freq_high { background: var(--h-coral-soft); color: var(--h-coral-ink); }
-.freq_mid  { background: var(--h-gold-soft);  color: var(--h-gold-ink); }
-.freq_low  { background: #DFEEDC;             color: #4E8A5C; }
+.freq_high { background: #FFEDD6; color: #E4712B; }
+.freq_mid  { background: #FCF6D2; color: #C79A12; }
+.freq_low  { background: #D7F7CE; color: #3E9A3E; }
 
-/* Per-type icon tints, sampled from the reference. The leading chip gets the
-   solid treatment the mockup gives it; the rest stay tinted. */
-.type_intonation   { background: #F7E2DA; color: #E0674A; }
-.type_rhythm       { background: #D8E9F1; color: #4A8AAE; }
-.type_timing       { background: #D8E9F1; color: #4A8AAE; }
-.type_dynamics     { background: #DCEBDA; color: #5A9464; }
-.type_articulation { background: #E0D5F0; color: #7A63AE; }
-.type_tone         { background: var(--h-gold-soft); color: var(--h-gold-ink); }
-.type_other        { background: #E9EDEA; color: var(--h-ink-soft); }
-.chipLead { background: #F0846A !important; color: #fff !important; }
+.type_intonation   { background: #FD7E49; color: #fff; }
+.type_rhythm       { background: #CEEFF8; color: #3B93C4; }
+.type_timing       { background: #CEEFF8; color: #3B93C4; }
+.type_dynamics     { background: #DCF3DC; color: #3E9A3E; }
+.type_articulation { background: #E7DDFB; color: #7B5BD6; }
+.type_tone         { background: #FCF6D2; color: #C79A12; }
+.type_other        { background: #ECEFEE; color: var(--h-ink-soft); }
+/* The reference gives the leading chip a solid fill and a white glyph. */
+.chipLead { background: #FD7E49 !important; color: #fff !important; }
 
 .chipSkeleton {
-  height: 132px; border-radius: 14px;
-  background: linear-gradient(100deg, #F4F2ED 30%, #FAF9F6 50%, #F4F2ED 70%);
-  background-size: 220% 100%;
-  animation: shimmer 1.5s linear infinite;
+  height: 150px; border-radius: 16px;
+  background: linear-gradient(100deg, #F4F1EC 30%, #FAF8F4 50%, #F4F1EC 70%);
+  background-size: 220% 100%; animation: shimmer 1.5s linear infinite;
 }
 @keyframes shimmer { to { background-position: -220% 0; } }
 
 .textLink {
   align-items: center; background: none; border: none; color: var(--h-ink-soft);
-  cursor: pointer; display: inline-flex; font: inherit; font-size: 0.82rem;
-  font-weight: 600; gap: 6px; margin-top: 14px; padding: 0;
+  cursor: pointer; display: inline-flex; font: inherit; font-size: 0.95rem;
+  font-weight: 600; gap: 8px; margin-top: 22px; padding: 0;
   transition: color 180ms ease, gap 220ms var(--ease);
 }
-.textLink:hover { color: var(--h-coral); gap: 10px; }
+.textLink:hover { color: var(--h-ink); gap: 12px; }
 
 /* ── Recent sessions ── */
 .viewAll {
-  margin-left: auto; background: var(--h-green-tint); border: 1px solid var(--h-line);
+  margin-left: auto; background: #fff; border: 1px solid var(--h-line);
   border-radius: 999px; color: var(--h-ink-soft); cursor: pointer; font: inherit;
-  font-size: 0.74rem; font-weight: 600; padding: 5px 12px;
+  font-size: 0.85rem; font-weight: 600; padding: 7px 15px;
   transition: background 180ms ease, color 180ms ease;
 }
-.viewAll:hover { background: var(--h-green-soft); color: var(--h-green); }
+.viewAll:hover { background: #F4F7F2; color: var(--h-ink); }
 
-.recentList { display: flex; flex-direction: column; gap: 4px; }
+.recentList { display: flex; flex-direction: column; }
 .recentRow {
-  align-items: center; background: none; border: none; border-radius: 13px;
-  cursor: pointer; display: flex; font: inherit; gap: 12px; padding: 10px;
+  align-items: center; background: none; border: none; border-radius: 12px;
+  cursor: pointer; display: flex; font: inherit; gap: 14px; padding: 13px 8px;
   text-align: left; width: 100%;
-  transition: background 200ms ease, transform 240ms var(--ease);
+  transition: background 200ms ease;
 }
-.recentRow:hover { background: var(--h-green-tint); transform: translateX(3px); }
+.recentRow + .recentRow { border-top: 1px solid var(--h-line); border-radius: 0; }
+.recentRow:hover { background: #F6F9F3; }
 .playBtn {
-  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: var(--h-green-soft); color: var(--h-green);
-  transition: background 200ms ease, color 200ms ease, transform 260ms var(--ease);
+  background: #FDF3E7; color: #16241E;
+  transition: background 200ms ease, transform 260ms var(--ease);
 }
-.recentRow:hover .playBtn { background: var(--h-green); color: #fff; transform: scale(1.08); }
+.recentRow:hover .playBtn { background: #FBE7D2; transform: scale(1.06); }
 .recentInfo { flex: 1; min-width: 0; }
 .recentTitle {
-  display: block; font-size: 0.88rem; font-weight: 600;
+  display: block; font-size: 0.98rem; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.recentTime { display: block; font-size: 0.74rem; color: var(--h-ink-faint); margin-top: 2px; }
+.recentTime { display: block; font-size: 0.85rem; color: var(--h-ink-faint); margin-top: 3px; }
 .recentScore {
-  flex-shrink: 0; font-size: 0.8rem; font-weight: 700; padding: 4px 10px;
+  flex-shrink: 0; font-size: 0.9rem; font-weight: 700; padding: 5px 12px;
   border-radius: 999px; font-variant-numeric: tabular-nums;
 }
-.scoreGood { background: var(--h-green-soft); color: var(--h-green); }
-.scoreOk   { background: #FBEFD9; color: #B37D18; }
-.scoreBad  { background: var(--h-coral-soft); color: #C9502E; }
+.scoreGood { background: #D2FBDB; color: #2E8B4F; }
+.scoreOk   { background: #FDD3BD; color: #D2662B; }
+.scoreBad  { background: #FDD3BD; color: #D2662B; }
 .chevron { color: var(--h-ink-faint); flex-shrink: 0; transition: transform 240ms var(--ease); }
 .recentRow:hover .chevron, .focusRow:hover .chevron { transform: translateX(3px); }
 .recentSkeleton {
-  height: 54px; border-radius: 13px;
-  background: linear-gradient(100deg, #F4F2ED 30%, #FAF9F6 50%, #F4F2ED 70%);
-  background-size: 220% 100%;
-  animation: shimmer 1.5s linear infinite;
+  height: 66px; border-radius: 12px; margin-bottom: 2px;
+  background: linear-gradient(100deg, #F4F1EC 30%, #FAF8F4 50%, #F4F1EC 70%);
+  background-size: 220% 100%; animation: shimmer 1.5s linear infinite;
 }
-.emptyRecent { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 8px 0 4px; }
-.emptyLine { font-size: 0.84rem; color: var(--h-ink-soft); margin: 0; line-height: 1.5; }
+.emptyRecent { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 10px 0; }
+.emptyLine { font-size: 0.92rem; color: var(--h-ink-soft); margin: 0; line-height: 1.5; }
+.btnPrimarySm {
+  background: #F0763C; border: none; border-radius: 999px; color: #fff;
+  cursor: pointer; font: inherit; font-size: 0.9rem; font-weight: 650; padding: 11px 20px;
+  transition: transform 200ms var(--ease);
+}
+.btnPrimarySm:hover { transform: translateY(-1px); }
 
 /* ══ Responsive ═════════════════════════════════════════════════════════ */
-@media (max-width: 1180px) {
-  .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .progressCard { grid-column: 1; grid-row: 1; }
-  .improvedCard { grid-column: 2; grid-row: 1; }
-  .nextCard     { grid-column: 1; grid-row: 2; }
-  .recentCard   { grid-column: 2; grid-row: 2; }
-  .hearingCard  { grid-column: 1 / span 2; grid-row: 3; }
+@media (max-width: 1240px) {
+  .rowTop    { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .nextCard  { grid-column: 1 / span 2; }
+  .rowBottom { grid-template-columns: minmax(0, 1fr); gap: 20px; }
 }
-@media (max-width: 940px) {
-  .hero { grid-template-columns: minmax(0, 1fr); gap: 26px; }
-  .heroRight { min-height: 330px; }
-  .helpPanel { width: 54%; margin-right: 5%; }
-}
-@media (max-width: 760px) {
-  .page { padding: 18px 18px 44px; }
-  /* The decorations are positioned against the desktop layout; once things
-     stack they land on top of text instead of beside it. */
-  .decorDots, .decorTicks, .blobSun, .blobMint, .note, .sparkle { display: none; }
-  .grid { grid-template-columns: minmax(0, 1fr); }
-  .progressCard, .improvedCard, .nextCard, .recentCard, .hearingCard {
-    grid-column: 1; grid-row: auto;
-  }
-  .progressBody { flex-direction: column; align-items: stretch; gap: 18px; }
+@media (max-width: 900px) {
+  .page { padding: 20px 20px 28px; }
+  .rowTop { grid-template-columns: minmax(0, 1fr); }
+  .nextCard { grid-column: 1; }
+  .progressBody { flex-direction: column; align-items: stretch; gap: 22px; }
   .ringWrap { align-self: center; }
   .chipRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  /* The organic blob is a decorative BACKGROUND, and once the hero stacks, the
-     panel grows taller than the shape's safe area — white text spilled onto the
-     cream page and became unreadable. On narrow screens the panel carries its
-     own solid background instead, so the text can never outgrow its backdrop. */
-  .heroRight {
-    min-height: 0;
-    flex-direction: column;
-    justify-content: center;
-    background: linear-gradient(150deg, #93BFAC 0%, #85B5A5 55%, #6FAA98 100%);
-    border-radius: 30px;
-    padding: 26px 22px 28px;
-    box-shadow: 0 18px 38px -18px rgba(78,147,117,0.55);
-  }
-  .blob { display: none; }
-  .mascotWrap { position: relative; left: 0; top: 0; margin: 0 0 14px; width: 132px; }
-  .helpPanel { width: 100%; margin: 0; }
+  .clipboard { display: none; }
 }
-@media (max-width: 460px) {
+@media (max-width: 520px) {
   .chipRow { grid-template-columns: minmax(0, 1fr); }
-  .heroActions { flex-direction: column; align-items: stretch; }
-  .btnPrimary, .btnGhost { justify-content: center; }
 }
 
 /* ══ Reduced motion ═════════════════════════════════════════════════════
-   Show the finished state. Skipping the animation without this would leave
-   rings at zero and cards invisible — worse than no animation at all. */
+   Show the finished state, not a frozen one. */
 @media (prefers-reduced-motion: reduce) {
   .page *, .page *::before, .page *::after {
     animation: none !important;
     transition-duration: 1ms !important;
   }
-  .squiggle path { stroke-dashoffset: 0; }
 }
-.noMotion .squiggle path { stroke-dashoffset: 0; animation: none; }
-.noMotion .mascotWrap, .noMotion .wave { animation: none; }

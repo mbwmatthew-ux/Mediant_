@@ -413,3 +413,98 @@
     width: 36px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Home rail — 2026-08-20 design. Applied only on /home (see `isHome` in
+   AppShell.jsx); every other route keeps the 72px hover rail and the top bar.
+   Widths and colours measured from
+   agent_workspace/reference/home-v2-2026-08-20.jpeg.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.bodyHome { grid-template-columns: 232px minmax(0, 1fr); }
+
+.sidebarHome {
+  width: 232px;
+  padding: 30px 20px 22px;
+  background: #FEFDFB;
+  border-right: 1px solid rgba(22,36,30,0.06);
+}
+/* Already open, so the hover-grow rule must not fight it. */
+.sidebarHome:hover { width: 232px; box-shadow: none; }
+
+.sidebarHome .sidebarLogo { padding-left: 6px; }
+.sidebarHome .sidebarWordmark {
+  font-family: 'SF Pro Display', 'Geist Sans', system-ui, sans-serif;
+  font-size: 1.35rem; font-weight: 750; letter-spacing: -0.025em;
+  margin-left: 11px; max-width: none; opacity: 1; text-transform: none;
+  color: #16241E;
+}
+.sidebarHome .nav { margin-top: 30px; gap: 4px; }
+.sidebarHome .navLabel { opacity: 1; font-size: 1rem; font-weight: 550; }
+
+.sidebarHome .navItem {
+  border-radius: 15px;
+  gap: 14px;
+  height: 52px;
+  padding: 0 12px;
+  color: #5F6E66;
+}
+.sidebarHome .navIcon {
+  align-items: center; display: flex; justify-content: center;
+  height: 36px; width: 36px; border-radius: 12px;
+  background: #F4F6F1; color: #5F6E66;
+  transition: background 160ms ease, color 160ms ease;
+}
+.sidebarHome .navItem:hover { background: #F6F9F0; color: #16241E; }
+.sidebarHome .navItemActive {
+  background: #F6F9F0 !important;
+  color: #16241E !important;
+  font-weight: 650;
+}
+.sidebarHome .navItemActive .navIcon { background: #fff; color: #2E9E6B; }
+.sidebarHome .navItemActive .navLabel { font-weight: 650; }
+
+/* ── Foot: tip card + profile ── */
+.railFoot { margin-top: auto; display: flex; flex-direction: column; gap: 18px; padding-top: 22px; }
+
+.tipCard {
+  background: #F7FAF1;
+  border: 1px solid rgba(22,36,30,0.05);
+  border-radius: 20px;
+  padding: 18px 16px 16px;
+  text-align: left;
+}
+.tipMascot { width: 84px; height: auto; display: block; margin: 0 auto 10px; }
+.tipTitle { display: block; font-size: 0.95rem; font-weight: 700; color: #16241E; }
+.tipBody  { font-size: 0.87rem; line-height: 1.45; color: #5F6E66; margin: 6px 0 0; }
+.tipDots  { display: flex; gap: 5px; margin-top: 14px; }
+.tipDots i { width: 6px; height: 6px; border-radius: 99px; background: rgba(22,36,30,0.13); }
+.tipDots .tipDotOn { width: 26px; background: #57C08D; }
+
+.profileRow {
+  align-items: center; background: none; border: none; border-radius: 14px;
+  color: #5F6E66; cursor: pointer; display: flex; font: inherit; gap: 12px;
+  padding: 6px; text-align: left; width: 100%;
+  transition: background 160ms ease;
+}
+.profileRow:hover { background: #F6F9F0; }
+.profileAvatar {
+  align-items: center; background: #16241E; border-radius: 50%; color: #fff;
+  display: flex; flex-shrink: 0; font-size: 0.85rem; font-weight: 700;
+  height: 44px; justify-content: center; width: 44px;
+}
+.profileText { flex: 1; min-width: 0; }
+.profileName {
+  color: #16241E; display: block; font-size: 0.98rem; font-weight: 650;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.profileLink { display: block; font-size: 0.85rem; color: #93A099; margin-top: 1px; }
+
+@media (max-width: 900px) {
+  .bodyHome { grid-template-columns: 72px minmax(0, 1fr); }
+  .sidebarHome { width: 72px; padding: 18px 14px; }
+  .sidebarHome:hover { width: 220px; }
+  .sidebarHome .railFoot { display: none; }
+  .sidebarHome .sidebarWordmark { max-width: 0; opacity: 0; margin-left: 0; }
+  .sidebarHome .navLabel { opacity: 0; }
+  .sidebarHome:hover .navLabel, .sidebarHome:hover .sidebarWordmark { opacity: 1; max-width: 200px; }
+}

@@ -18,6 +18,35 @@ const NAV_ITEMS = [
   { to: '/reports',  label: 'Reports',   icon: ReportsIcon  },
 ]
 
+/* The 2026-08-20 Home design names five destinations. Library and Insights have
+   no page of their own yet, so they point at the nearest existing one rather
+   than being dead links. */
+const HOME_NAV_ITEMS = [
+  { to: '/home',     label: 'Home',     icon: HouseIcon    },
+  { to: '/sessions', label: 'Sessions', icon: PulseIcon    },
+  { to: '/reports',  label: 'Progress', icon: BarsNavIcon  },
+  { to: '/sessions', label: 'Library',  icon: LibraryIcon  },
+  { to: '/reports',  label: 'Insights', icon: InsightsIcon },
+]
+
+/* Icons drawn to match the design's rail: house, pulse, bars, note, bulb. */
+const navStroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round' }
+function HouseIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" {...navStroke}><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.8V20h13V9.8"/><path d="M9.8 20v-5.4h4.4V20"/></svg>
+}
+function PulseIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" {...navStroke}><path d="M2 12h4l2.5-7 5 14 2.5-7h6"/></svg>
+}
+function BarsNavIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" {...navStroke}><line x1="5" y1="20" x2="5" y2="13"/><line x1="10" y1="20" x2="10" y2="8"/><line x1="15" y1="20" x2="15" y2="4"/><line x1="20" y1="20" x2="20" y2="11"/></svg>
+}
+function LibraryIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" {...navStroke}><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+}
+function InsightsIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" {...navStroke}><path d="M9.5 18h5"/><path d="M10.5 21.5h3"/><path d="M12 2.5a6.5 6.5 0 0 0-3.8 11.8V16h7.6v-1.7A6.5 6.5 0 0 0 12 2.5z"/></svg>
+}
+
 function InstrumentModal({ onSave }) {
   const [instrument, setInstrument] = useState('')
   const [saving, setSaving] = useState(false)
@@ -76,6 +105,29 @@ function InstrumentModal({ onSave }) {
   )
 }
 
+/** Tip-card mascot: the character from the design's sidebar. */
+function TipMascot() {
+  return (
+    <svg viewBox="0 0 104 92" className={styles.tipMascot} aria-hidden="true">
+      <defs>
+        <radialGradient id="tipBody" cx="44%" cy="26%" r="84%">
+          <stop offset="0%" stopColor="#C6F1D9" />
+          <stop offset="100%" stopColor="#9FDCBC" />
+        </radialGradient>
+      </defs>
+      <path fill="url(#tipBody)"
+            d="M50 8c17 0 27 11 29 27 2 16-2 34-11 42-9 8-27 9-38 3S15 52 17 36C19 20 33 8 50 8Z" />
+      <path d="M35 44c3 5 9 5 12 0" fill="none" stroke="#1F4C3E" strokeWidth="4" strokeLinecap="round" />
+      <path d="M55 44c3 5 9 5 12 0" fill="none" stroke="#1F4C3E" strokeWidth="4" strokeLinecap="round" />
+      <path d="M44 56 H60 A8 8 0 0 1 44 56 Z" fill="#1F4C3E" />
+      <ellipse cx="30" cy="54" rx="7" ry="4.5" fill="#F3A9A1" opacity="0.6" />
+      <ellipse cx="72" cy="54" rx="7" ry="4.5" fill="#F3A9A1" opacity="0.6" />
+      <path fill="#F5C84E" d="M86 16l2.6 6.8L96 26l-7.4 2.7L86 36l-2.6-7.3L76 26l7.4-3.2Z" />
+      <path fill="#F5C84E" d="M20 20l1.4 3.7L25 25l-3.6 1.4L20 30l-1.4-3.6L15 25l3.6-1.3Z" opacity="0.75" />
+    </svg>
+  )
+}
+
 export default function AppShell() {
   const { user } = useAuth()
   const nav = useNavigate()
@@ -126,6 +178,10 @@ export default function AppShell() {
   }
   const pageTitle = PAGE_TITLES[location.pathname] ?? ''
 
+  /* The Home screen runs the 2026-08-20 design: a permanently open 232px rail
+     and no top bar. Every other route keeps the 72px hover rail and the bar. */
+  const isHome = location.pathname === '/home'
+
   return (
     <div className={styles.shell}>
       <NewRecordingModal open={showRecord} onClose={() => setShowRecord(false)} />
@@ -148,27 +204,30 @@ export default function AppShell() {
         </button>
       </header>
 
-      <div className={styles.body}>
+      <div className={`${styles.body} ${isHome ? styles.bodyHome : ''}`}>
         {/* Sidebar */}
-        <aside className={styles.sidebar}>
+        <aside className={`${styles.sidebar} ${isHome ? styles.sidebarHome : ''}`}>
           {/* Logo */}
           <NavLink to="/home" className={styles.sidebarLogo} onClick={playNav} title="Mediant">
             <LogoMark size={36} />
-            <span className={styles.sidebarWordmark}>MEDIANT</span>
+            <span className={styles.sidebarWordmark}>{isHome ? 'Mediant' : 'MEDIANT'}</span>
           </NavLink>
 
-          {/* Record & Analyze CTA */}
-          <button
-            className={styles.recordCta}
-            onClick={() => { playNav(); setShowRecord(true) }}
-          >
-            <MicIcon /><span className={styles.ctaLabel}>Record &amp; Analyze</span>
-          </button>
+          {/* Record & Analyze CTA — not part of the Home design's rail */}
+          {!isHome && (
+            <button
+              className={styles.recordCta}
+              onClick={() => { playNav(); setShowRecord(true) }}
+            >
+              <MicIcon /><span className={styles.ctaLabel}>Record &amp; Analyze</span>
+            </button>
+          )}
 
           <nav className={styles.nav} aria-label="Primary navigation">
-            {NAV_ITEMS.map(item => (
+            {(isHome ? HOME_NAV_ITEMS : NAV_ITEMS).map(item => (
               <NavLink
                 key={item.label}
+                end
                 to={item.to}
                 onClick={playNav}
                 className={({ isActive }) =>
@@ -182,11 +241,36 @@ export default function AppShell() {
             ))}
           </nav>
 
+          {isHome && (
+            <div className={styles.railFoot}>
+              <div className={styles.tipCard}>
+                <TipMascot />
+                <span className={styles.tipTitle}>Tip of the day</span>
+                <p className={styles.tipBody}>Short, focused sessions lead to lasting progress.</p>
+                <div className={styles.tipDots} aria-hidden="true">
+                  <i className={styles.tipDotOn} /><i /><i />
+                </div>
+              </div>
+
+              <button className={styles.profileRow} onClick={() => { playNav(); nav('/settings') }}>
+                <span className={styles.profileAvatar}>{initials}</span>
+                <span className={styles.profileText}>
+                  <span className={styles.profileName}>{user?.name || 'Your profile'}</span>
+                  <span className={styles.profileLink}>View profile</span>
+                </span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 5 16 12 9 19" />
+                </svg>
+              </button>
+            </div>
+          )}
         </aside>
 
         {/* Main content */}
         <main ref={mainRef} className={styles.main} id="main-content">
-          {/* Top bar */}
+          {/* Top bar — the Home design has none */}
+          {!isHome && (
           <header className={`${styles.topBar} ${barVisible ? '' : styles.barHidden}`}>
             <span className={styles.topBarTitle}>{pageTitle}</span>
             <div className={styles.topBarRight} style={{ position: 'relative' }}>
@@ -207,6 +291,7 @@ export default function AppShell() {
               </button>
             </div>
           </header>
+          )}
           <ErrorBoundary key={location.pathname}>
             <div key={location.pathname} className={styles.pageIn}>
               <Outlet />

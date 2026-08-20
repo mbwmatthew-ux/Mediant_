@@ -1,5 +1,33 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-20 — Home rebuilt to the new design (no hero, sidebar, no top bar)
+
+The user supplied a **different** design, saved as
+`agent_workspace/reference/home-v2-2026-08-20.jpeg`. It is not a revision of the
+previous one — the whole hero is gone.
+
+**Removed:** the greeting, the "Let's level up your music" headline and squiggle,
+both CTAs, the green blob, the mascot, the floating notes and sparkles, and the
+decorative wash. The page now opens straight onto the cards.
+
+**Added, on `/home` only:** a permanently open 232px rail — logo, five nav items
+(Home / Sessions / Progress / Library / Insights) with icon tiles and a pale
+green active pill, a "Tip of the day" card carrying the mascot, and a profile
+row — and **no top bar**. Every other route keeps the 72px hover rail and the
+bar, so nothing else in the app is restyled.
+
+**Measured, not guessed.** Row 1 and row 2 use *different* column splits in the
+design — 595 / 302 / 436 and 836 / 510 within the same 1368px band — so they are
+two grid containers rather than one grid with spans. Every colour was sampled:
+page `#FDFAF5`, card `#FEFDFB`, dark card `#034A3C`, lavender `#F3E8F9`, ring arc
+`#49B79A`, bars `#00A172`, and the chip and score pill tints.
+
+Recent sessions now lists **four** takes, as the design shows.
+
+**Two deviations, both flagged rather than silently invented:** the design's
+*Library* and *Insights* have no page of their own, so they point at the nearest
+existing route (`/sessions`, `/reports`) instead of being dead links.
+
 ## 2026-08-18 (sixth pass) — Home content measured against the reference
 
 Stopped eyeballing the layout and measured it. Anchored on features the mockup

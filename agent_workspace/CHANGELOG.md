@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-20 — The first note played is the downbeat
+
+The pause before playing was being reported as a late downbeat. In
+unaccompanied playing there is no external clock: the grid starts when the
+player starts, so a soloist cannot be late to their own opening.
+
+**Why it happened.** `analyze_timing_vs_score()` fits a line through every
+matched onset and calls a measure late above a 110ms median residual. Run-up
+onsets — settling, a breath, a key click — were entering that fit (DTW matches
+whatever it can), dragging the intercept earlier so the real first note measured
+as late. The intercept was also free, so least squares had no reason to put the
+line through the opening note.
+
+**Now:**
+- **Run-up discarded.** Music starts at the first matched onset with two more
+  inside the next two seconds — a phrase arrives in a cluster, a knock does not.
+- **Grid anchored on the first note played.** The fitted slope (the tempo the
+  playing establishes) is kept, but the line is slid to pass exactly through the
+  first matched onset, so its residual is zero by construction.
+- **The first played measure is never flagged late.** It is the reference.
+- **Cross-referenced with the note comparison**, as asked: the anchor is the
+  earliest note *of the piece* the player actually played, taken from the
+  DTW-matched pair ordered on the score's own beat axis — so pickups and entries
+  after a rest work, since `abs_beat` encodes where in the bar the note sits. The
+  measure timeline's `music_t0` now uses the first *matched* note as well.
+
+**Two traps caught by tests:**
+- Anchoring makes residuals trend, so a gradual slowdown would have flagged
+  every later measure as late. Placement is now judged against the median
+  residual — "this bar sits off relative to the rest" — while drift keeps
+  reporting the tempo change. Without it the fix trades one false flag for many.
+- Being DTW-matched is not proof of being music: a click 2.4s before the entry
+  got matched to a score note and opened the piece there. The density
+  requirement has to apply to matched notes too.
+
+`test_analysis.py` [20] and [21] cover the clean-take-after-a-pause case, the
+stray-click case, **a genuinely late measure mid-piece still being flagged**, and
+no Loop window opening before the first matched note. 87/87.
+
 ## 2026-08-20 — Home rebuilt to the new design (no hero, sidebar, no top bar)
 
 The user supplied a **different** design, saved as

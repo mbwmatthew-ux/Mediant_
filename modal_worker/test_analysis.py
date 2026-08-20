@@ -750,6 +750,72 @@ def test_tuning_center_normalisation():
           abs(c4 - 2) < 2.0, f"{c4:+.1f}¢")
 
 
+def test_pause_before_playing_is_not_a_late_downbeat():
+    print("\n[20] the pause before the first note is not a late downbeat")
+    score = make_score()
+    played, evs = make_performance(score)
+
+    # The player settles, breathes, then plays perfectly in tempo. The silence
+    # before the first note must not be scored at all.
+    LEAD = 2.4
+    for e in evs:
+        e["time_sec"] += LEAD
+        e["end_sec"] = e["time_sec"] + SEC_PER_BEAT
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    rep = w.analyze_timing_vs_score(aligned, score, BEATS_PER_MEASURE)
+    check("timing analysis runs", rep.get("ok") is not False, rep.get("reason", ""))
+    late = {m: p for m, p in (rep.get("placement") or {}).items() if p["direction"] == "late"}
+    check("a clean take after a long pause has no late measures",
+          not late, f"{late}")
+
+    # Same take, but a stray click 1.2s before the real entry. It must not
+    # become the downbeat and make every real note look late.
+    played2, evs2 = make_performance(score)
+    for e in evs2:
+        e["time_sec"] += LEAD
+        e["end_sec"] = e["time_sec"] + SEC_PER_BEAT
+    evs2.insert(0, {"time_sec": LEAD - 1.2, "end_sec": LEAD - 1.1,
+                    "pitches": ["C4"], "confidence": 80, "cents_offset": 0,
+                    "cents_spread": 8, "loudness": "soft"})
+    aligned2 = w.dtw_align_to_score(evs2, score, START, BEATS_PER_MEASURE, end_measure=END)
+    rep2 = w.analyze_timing_vs_score(aligned2, score, BEATS_PER_MEASURE)
+    late2 = {m: p for m, p in (rep2.get("placement") or {}).items() if p["direction"] == "late"}
+    check("a stray click before the entry does not create late measures",
+          not late2, f"{late2}")
+
+    # A REAL late entry mid-piece must still be caught, or the guard has just
+    # disabled the finding.
+    played3, evs3 = make_performance(
+        score, warp=lambda m, bi, t: t + (0.42 if m == 29 else 0.0))
+    for e in evs3:
+        e["end_sec"] = e["time_sec"] + SEC_PER_BEAT
+    aligned3 = w.dtw_align_to_score(evs3, score, START, BEATS_PER_MEASURE, end_measure=END)
+    rep3 = w.analyze_timing_vs_score(aligned3, score, BEATS_PER_MEASURE)
+    late3 = {m: p for m, p in (rep3.get("placement") or {}).items() if p["direction"] == "late"}
+    check("a genuinely late measure mid-piece is still flagged",
+          29 in late3, f"late measures: {sorted(late3)}")
+
+
+def test_timeline_starts_on_the_first_matched_note():
+    print("\n[21] the measure timeline opens on the first note, not the run-up")
+    score = make_score()
+    played, evs = make_performance(score)
+    LEAD = 3.0
+    for e in evs:
+        e["time_sec"] += LEAD
+        e["end_sec"] = e["time_sec"] + SEC_PER_BEAT
+    # noise before the entry: confident, but matches nothing in the score
+    evs.insert(0, {"time_sec": 0.6, "end_sec": 0.7, "pitches": ["C4"],
+                   "confidence": 90, "cents_offset": 0, "cents_spread": 8})
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    flags = run_pipeline(score, aligned)
+    starts = [f["timestamp_start"] for f in flags if f.get("timestamp_start") is not None]
+    first_note = min(e["time_sec"] for e in aligned if e.get("score_idx") is not None)
+    check("no loop window opens before the first matched note",
+          all(s >= first_note - 0.3 for s in starts),
+          f"earliest {min(starts):.2f}s vs first note {first_note:.2f}s" if starts else "no flags")
+
+
 def test_no_undefined_names():
     print("\n[0] static check: no undefined names in worker.py")
     # A NameError in a branch the tests do not execute still reaches production.
@@ -789,7 +855,9 @@ def main():
               test_pitch_measurement_is_unbiased,
               test_tuning_center_normalisation,
               test_wrong_notes_reject_false_positives,
-              test_bflat_clarinet_transposition):
+              test_bflat_clarinet_transposition,
+              test_pause_before_playing_is_not_a_late_downbeat,
+              test_timeline_starts_on_the_first_matched_note):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

@@ -1167,6 +1167,27 @@ def analyze_timing_vs_score(
         if cur is None or t < cur["time_sec"]:
             onset_by_idx[si] = ev
 
+    # ── Discard the run-up ──────────────────────────────────────────────────
+    # Settling the instrument, a breath, a key click — these produce onsets
+    # before any music. If one of them survives into the tempo fit it drags the
+    # intercept earlier, and the real first note then measures as "late", which
+    # is exactly the pause-before-playing being reported as a late downbeat.
+    #
+    # Music starts at the first onset with at least two more inside the next two
+    # seconds: a phrase arrives in a cluster, a stray noise does not.
+    _times = sorted(ev["time_sec"] for ev in onset_by_idx.values())
+    _music_t0 = _times[0] if _times else 0.0
+    for _i, _t in enumerate(_times):
+        if sum(1 for _u in _times[_i:] if _u - _t <= 2.0) >= 3:
+            _music_t0 = _t
+            break
+    _dropped = [si for si, ev in onset_by_idx.items() if ev["time_sec"] < _music_t0 - 0.05]
+    for si in _dropped:
+        del onset_by_idx[si]
+    if _dropped:
+        print(f"[timing] dropped {len(_dropped)} run-up onset(s) before "
+              f"first note at {_music_t0:.2f}s")
+
     if len(onset_by_idx) < _TIMING_MIN_NOTES:
         return {"ok": False, "reason": f"only {len(onset_by_idx)} matched onsets"}
 
@@ -1190,6 +1211,27 @@ def analyze_timing_vs_score(
     intercept, spb, residuals = fit
     if not (_TIMING_MIN_SPB <= spb <= _TIMING_MAX_SPB):
         return {"ok": False, "reason": f"implausible tempo ({spb:.3f} s/beat)"}
+
+    # ── The first note played IS the downbeat ───────────────────────────────
+    # In unaccompanied playing there is no external clock: the beat grid starts
+    # when the player starts. Keep the fitted SLOPE (the tempo the playing
+    # establishes) but slide the line so it passes exactly through the first
+    # matched onset, so that note's residual is zero by construction and the
+    # silence before it cannot be scored at all.
+    #
+    # Cross-referenced against the note comparison rather than assumed: `pairs`
+    # is ordered by the score's own beat axis and each entry carries the score
+    # note DTW matched, so pairs[0] is the earliest note of the piece the player
+    # actually played — including the case where they began on a pickup or after
+    # a rest, since abs_beat already encodes where in the bar it sits.
+    first_beat, first_t, first_si = pairs[0]
+    anchor_intercept = first_t - spb * first_beat
+    residuals = [t - (anchor_intercept + spb * b) for (b, t, _si) in pairs]
+    first_measure = score_notes[first_si]["measure"]
+    print(f"[timing] grid anchored on the first note played: "
+          f"{score_notes[first_si]['pitch'] or '?'} in m.{first_measure} "
+          f"at {first_t:.2f}s (beat {score_notes[first_si]['beat']})")
+    intercept = anchor_intercept
 
     # Per-measure local tempo, used by both findings below.
     per_measure_pairs: dict[int, list[tuple[float, float]]] = {}
@@ -1250,17 +1292,30 @@ def analyze_timing_vs_score(
             "time_sec": t_actual, "residual_ms": ms,
         })
 
+    # De-trend before judging placement. The grid is pinned to the first note,
+    # so a player who gradually falls behind accumulates positive residuals
+    # everywhere — which is DRIFT, and the drift finding already says it. Judging
+    # each measure against the median residual keeps placement meaning "this bar
+    # sits off relative to the rest", not "the piece slowed down".
+    _all_resid = sorted(ms for vals in by_measure.values() for ms in vals)
+    _resid_centre = _all_resid[len(_all_resid) // 2] if _all_resid else 0.0
+
     placement: dict[int, dict] = {}
     for m, vals in by_measure.items():
         if m in drift:
             continue
+        # You cannot be late to your own opening: the first note played defines
+        # the beat, so the measure it lands in is the reference, not a candidate
+        # for a late-entry flag. This is the pause-before-playing case.
+        if m == first_measure:
+            continue
         local_spb = local_spb_by_measure.get(m)
         if local_spb is not None and abs(local_spb - spb) / spb >= 0.05:
             continue  # measure runs at its own tempo — not a placement error
-        sv = sorted(vals)
+        sv = sorted(v - _resid_centre for v in vals)
         med = sv[len(sv) // 2]
         if abs(med) >= _TIMING_PLACEMENT_MS:
-            worst = max(vals, key=abs)
+            worst = max((v - _resid_centre for v in vals), key=abs)
             placement[m] = {
                 "median_ms": round(med, 1),
                 "worst_ms":  round(worst, 1),
@@ -3358,16 +3413,39 @@ def compare_and_coach_claude(
         # stand knock does not. (Merely "followed by another within 2s" was not
         # enough — an isolated click 1.6s before the real entry still qualified
         # and opened the piece early.)
+        # Cross-reference against the NOTE COMPARISON first. An event that DTW
+        # matched to a score note is, by definition, the player playing the
+        # piece — far stronger evidence of "the music started here" than
+        # loudness or periodicity, which a breath or a key click also satisfy.
+        # The density rule below is the fallback for when DTW has nothing.
         music_t0 = None
-        _conf = sorted(float(e["time_sec"]) for e in (aligned or [])
-                       if e.get("time_sec") is not None and e.get("confidence", 0) >= 50)
-        for _i, _t in enumerate(_conf):
-            _near = sum(1 for _u in _conf[_i:] if _u - _t <= 2.0)
-            if _near >= 3:
+        _matched = sorted(float(e["time_sec"]) for e in (aligned or [])
+                          if e.get("time_sec") is not None
+                          and e.get("score_idx") is not None
+                          and e.get("confidence", 0) >= 50)
+        # DTW will happily match a stray click to a score note, so being matched
+        # is necessary but not sufficient — the note also has to sit in a cluster
+        # of other matched notes. A phrase arrives together; a knock does not.
+        # (A test caught this: noise 2.4s before the entry was matched, and on
+        # its own it opened the piece there.)
+        for _i, _t in enumerate(_matched):
+            if sum(1 for _u in _matched[_i:] if _u - _t <= 2.0) >= 3:
                 music_t0 = _t
                 break
-        if music_t0 is None and _conf:
-            music_t0 = _conf[0]
+        if music_t0 is not None:
+            print(f"[measure_timeline] music starts at the first note matched to "
+                  f"the score: {music_t0:.2f}s")
+
+        if music_t0 is None:
+            _conf = sorted(float(e["time_sec"]) for e in (aligned or [])
+                           if e.get("time_sec") is not None and e.get("confidence", 0) >= 50)
+            for _i, _t in enumerate(_conf):
+                _near = sum(1 for _u in _conf[_i:] if _u - _t <= 2.0)
+                if _near >= 3:
+                    music_t0 = _t
+                    break
+            if music_t0 is None and _conf:
+                music_t0 = _conf[0]
 
         # Tier choice happens HERE and only here.
         anchors: dict[int, float] = {}

@@ -1323,9 +1323,20 @@ def analyze_timing_vs_score(
                 "n":         len(vals),
             }
 
-    # ── Duration: written length vs how long the note actually got ──
-    # Only compare consecutive score notes, so the gap really is this note's
-    # sounding length and not a jump across something DTW skipped.
+    # ── Duration: does each note get the time its written value asks for? ──
+    # Compared against the SCORE'S OWN BEAT GAP, not the note's written length.
+    # Two things that made correct playing look wrong:
+    #
+    # 1. Rests. parse_musicxml drops rests, so a quarter followed by a quarter
+    #    rest leaves a 2-beat gap against a 1-beat written value — read as "held
+    #    twice as long" on a perfectly played bar. The beat axis already places
+    #    notes after the rest, so the gap is what the music actually asks for.
+    # 2. Units. `beat` and `abs_beat` are in NOTATED BEATS; `dur_beats` is a
+    #    quarterLength. They agree only when the beat is a quarter. In 6/8 the
+    #    dotted-quarter beat is 1.5 quarterLengths, so every note measured ~33%
+    #    short; in 2/2 every note measured twice too long.
+    ql_per_beat = quarter_lengths_per_beat(score.get("time_signature")) or 1.0
+
     durations: dict[int, dict] = {}
     have = sorted(onset_by_idx.keys())
     for si in have:
@@ -1333,10 +1344,19 @@ def analyze_timing_vs_score(
         if nxt not in onset_by_idx:
             continue
         sn = score_notes[si]
-        exp_beats = sn.get("dur_beats") or 0.0
-        if exp_beats <= 0:
+        gap_beats = score_notes[nxt]["abs_beat"] - sn["abs_beat"]
+        if gap_beats <= 0:
+            continue                      # chord tone or out-of-order match
+        written_ql    = sn.get("dur_beats") or 0.0
+        written_beats = written_ql / ql_per_beat
+        if written_beats <= 0:
             continue
-        expected = exp_beats * spb
+        # Written longer than the space before the next note means a tie, a
+        # second voice, or a parse slip. Not something to judge the player on.
+        if written_beats > gap_beats + 0.05:
+            continue
+
+        expected = gap_beats * spb
         actual   = onset_by_idx[nxt]["time_sec"] - onset_by_idx[si]["time_sec"]
         if expected <= 0 or actual <= 0:
             continue
@@ -1348,6 +1368,7 @@ def analyze_timing_vs_score(
             m = sn["measure"]
             prev = durations.get(m)
             if prev is None or abs(delta_ms) > abs(prev["delta_ms"]):
+                rest_beats = round(gap_beats - written_beats, 3)
                 durations[m] = {
                     "beat":      sn["beat"],
                     "pitch":     sn["pitch"],
@@ -1355,6 +1376,12 @@ def analyze_timing_vs_score(
                     "delta_ms":  round(delta_ms, 1),
                     "direction": "short" if ratio <= _TIMING_DUR_SHORT else "long",
                     "time_sec":  onset_by_idx[si]["time_sec"],
+                    # What the note IS, so the coaching can name it rather than
+                    # only quoting milliseconds.
+                    "value":        note_value_name(written_ql),
+                    "beats_written": round(written_beats, 3),
+                    "beats_played":  round(gap_beats * ratio, 3),
+                    "rest_after_beats": rest_beats if rest_beats > 0.05 else 0.0,
                 }
 
     # One explanation per measure, most-fundamental first. These findings are not
@@ -2467,6 +2494,50 @@ def beats_per_measure_from_time_sig(time_sig: str | None) -> int:
     num, denom = int(m.group(1)), int(m.group(2))
     is_compound = num % 3 == 0 and num // 3 >= 2 and denom >= 8
     return num // 3 if is_compound else num
+
+
+def quarter_lengths_per_beat(time_sig: str | None) -> float:
+    """
+    How many quarterLengths one NOTATED BEAT is worth.
+
+    music21 reports note durations as quarterLengths but reports `beat` in the
+    time signature's own beat unit, and the timing analysis works on the beat
+    axis. The two only agree when the beat IS a quarter. Getting this wrong made
+    every note in 6/8 look ~33% too short (a dotted-quarter beat is 1.5
+    quarterLengths) and every note in 2/2 look twice too long.
+
+      4/4, 3/4, 2/4 -> 1.0     6/8, 9/8, 12/8 -> 1.5 (dotted-quarter beat)
+      2/2           -> 2.0     3/8            -> 0.5 (three eighth beats)
+    """
+    import re
+    m = re.match(r'^(\d+)\s*/\s*(\d+)$', (time_sig or "").strip())
+    if not m:
+        return 1.0
+    num, denom = int(m.group(1)), int(m.group(2))
+    if denom <= 0:
+        return 1.0
+    unit = 4.0 / denom                      # quarterLengths in one denominator unit
+    is_compound = num % 3 == 0 and num // 3 >= 2 and denom >= 8
+    return unit * 3.0 if is_compound else unit
+
+
+# Written note values in quarterLengths, so feedback can name what the note is
+# rather than only quoting milliseconds.
+_NOTE_VALUES = [
+    (6.0, "dotted whole note"), (4.0, "whole note"), (3.0, "dotted half note"),
+    (2.0, "half note"), (1.5, "dotted quarter note"), (1.0, "quarter note"),
+    (0.75, "dotted eighth note"), (0.5, "eighth note"),
+    (0.375, "dotted sixteenth note"), (0.25, "sixteenth note"),
+    (0.125, "thirty-second note"),
+]
+
+
+def note_value_name(quarter_length: float) -> str:
+    """Name a written duration, e.g. 3.0 -> 'dotted half note'. '' if unrecognised."""
+    for ql, name in _NOTE_VALUES:
+        if abs(quarter_length - ql) < 0.02:
+            return name
+    return ""
 
 
 def anchor_and_align_py(
@@ -4138,11 +4209,26 @@ def compare_and_coach_claude(
                  _t_of(m), confirmed=True, priority=2, direction=d["direction"])
 
         for m, du in timing_report["durations"].items():
-            held = du["direction"] == "long"
+            held  = du["direction"] == "long"
+            # Name the value and its beat count. "the half note got 2.6 beats
+            # instead of 2" is checkable against the page; "held 1.3x its
+            # written length" is not.
+            _val  = du.get("value") or "note"
+            _bw   = du.get("beats_written")
+            _bp   = du.get("beats_played")
+            _rest = du.get("rest_after_beats") or 0.0
+            _span = (f" plus the {_rest:g}-beat rest after it" if _rest else "")
+            if _bw and _bp:
+                _detail = (f"the {_val} ({du['pitch']}) on beat {du['beat']:g} is written "
+                           f"for {_bw:g} beat{'s' if _bw != 1 else ''}{_span} but got "
+                           f"{_bp:g} — {abs(int(round(du['delta_ms'])))} ms "
+                           f"{'too long' if held else 'too short'}")
+            else:
+                _detail = (f"the {du['pitch']} on beat {du['beat']:g} is "
+                           f"{abs(int(round(du['delta_ms'])))} ms "
+                           f"{'too long' if held else 'too short'}")
             _add(m, "timing",
-                 f"the {du['pitch']} on beat {du['beat']:g} is held "
-                 f"{'about ' + str(round(du['ratio'], 1)) + 'x its written length' if held else 'only ' + str(int(round(du['ratio'] * 100))) + '% of its written length'} "
-                 f"({abs(int(round(du['delta_ms'])))} ms {'too long' if held else 'too short'}) — "
+                 f"{_detail} — "
                  f"{'release it on the following beat' if held else 'sustain it to its full value'}",
                  du.get("time_sec") or _t_of(m), confirmed=True,
                  timing=round(abs(du["delta_ms"]), 1), priority=2,

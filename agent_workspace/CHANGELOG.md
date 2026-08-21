@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-21 — The duration check now understands note values
+
+Two bugs, both of which flagged correct playing as wrong. The duration finding
+compared the inter-onset gap against the note's written length.
+
+**1. Rests were invisible.** `parse_musicxml` drops rests, so a quarter followed
+by a quarter rest left a 2-beat gap against a 1-beat value — reported as "held
+about 2x its written length" on a perfectly played bar. Any piece with rests
+produced these. It now compares against the score's own **beat gap**
+(`next.abs_beat - this.abs_beat`), which already accounts for the rest because
+`abs_beat` comes from the measure number and the beat within it.
+
+**2. Beats and quarterLengths were mixed.** `beat`/`abs_beat` are in the time
+signature's notated beat; `duration_beats` is a music21 quarterLength. They agree
+only when the beat is a quarter, and `spb` is seconds per notated beat:
+
+| Metre | Beat | ql/beat | Old behaviour |
+|---|---|---|---|
+| 4/4, 3/4 | quarter | 1.0 | correct by luck |
+| 6/8, 9/8, 12/8 | dotted quarter | 1.5 | every note ~33% "too short" |
+| 2/2 | half | 2.0 | every note 2× "too long" |
+
+`quarter_lengths_per_beat()` now converts written values into notated beats.
+Tests assert `beats_per_measure × ql_per_beat` equals the measure's total length
+in every metre, so the two helpers cannot drift apart.
+
+**The feedback names the value.** `note_value_name()` maps quarterLengths to
+"dotted half note", "eighth note" and so on, so a flag reads *"the half note
+(F♯4) on beat 3 is written for 2 beats but got 2.6 — 300 ms too long"*. That is
+checkable against the page; "held 1.3× its written length" was not. Unrecognised
+values name nothing rather than guessing.
+
+**Guard:** a note written *longer* than the gap before the next note is a tie, a
+second voice, or a parse slip — skipped rather than judged.
+
+`test_analysis.py` [22] and [23] cover rests, 6/8, 2/2, value naming and metre
+conversion, plus **a note genuinely given too much time still being flagged**.
+112/112.
+
 ## 2026-08-20 — The first note played is the downbeat
 
 The pause before playing was being reported as a late downbeat. In

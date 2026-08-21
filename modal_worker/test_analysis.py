@@ -816,6 +816,102 @@ def test_timeline_starts_on_the_first_matched_note():
           f"earliest {min(starts):.2f}s vs first note {first_note:.2f}s" if starts else "no flags")
 
 
+def _timed_score(time_sig, notes_per_measure, ql_per_note, bpm_measure, n_measures=10):
+    """A score whose notes all share one written value, in a given metre."""
+    return {"time_signature": time_sig, "measures": [
+        {"number": 1 + i, "notes": [
+            {"pitch": SCALE[(i * notes_per_measure + b) % 8],
+             "beat": 1.0 + b * (bpm_measure / notes_per_measure),
+             "duration_beats": ql_per_note}
+            for b in range(notes_per_measure)]}
+        for i in range(n_measures)]}
+
+
+def _play(score, bpm_measure, sec_per_beat, hold=None):
+    """Perform the score exactly in tempo, on the notated beat axis."""
+    evs = []
+    for m in score["measures"]:
+        for n in m["notes"]:
+            abs_beat = (m["number"] - 1) * bpm_measure + (n["beat"] - 1.0)
+            t = abs_beat * sec_per_beat
+            evs.append({"time_sec": t, "end_sec": t + sec_per_beat,
+                        "pitches": [n["pitch"]], "confidence": 90,
+                        "cents_offset": 0, "cents_spread": 8})
+    if hold:
+        evs = hold(evs)
+    return evs
+
+
+def test_note_values_and_rests():
+    print("\n[22] note values: rests, compound metre and cut time")
+
+    def durations_for(score, bpm_measure, spb, warp=None):
+        evs = _play(score, bpm_measure, spb, warp)
+        al = w.dtw_align_to_score(evs, score, 1, bpm_measure,
+                                  end_measure=score["measures"][-1]["number"])
+        rep = w.analyze_timing_vs_score(al, score, bpm_measure)
+        return rep, (rep.get("durations") or {})
+
+    # 1. A quarter followed by a quarter REST. parse_musicxml drops rests, so the
+    #    gap is 2 beats against a 1-beat value — this used to read as "held twice
+    #    as long" on a perfectly played bar.
+    rest_score = {"time_signature": "4/4", "measures": [
+        {"number": 1 + i, "notes": [
+            {"pitch": SCALE[(i * 2) % 8],     "beat": 1.0, "duration_beats": 1.0},
+            {"pitch": SCALE[(i * 2 + 1) % 8], "beat": 3.0, "duration_beats": 1.0},
+        ]} for i in range(10)]}
+    rep, dur = durations_for(rest_score, 4, 0.5)
+    check("a note followed by a rest is not called 'held too long'",
+          not dur, f"{ {m: d['direction'] for m, d in dur.items()} }")
+
+    # 2. Compound metre. A dotted-quarter beat is 1.5 quarterLengths, so treating
+    #    duration_beats as beats made every 6/8 note look ~33% short.
+    rep, dur = durations_for(_timed_score("6/8", 2, 1.5, 2), 2, 0.6)
+    check("6/8 dotted-quarter beats are not called 'too short'",
+          not dur, f"{ {m: d['direction'] for m, d in dur.items()} }")
+
+    # 3. Cut time. A half-note beat is 2 quarterLengths -> everything looked 2x long.
+    rep, dur = durations_for(_timed_score("2/2", 2, 2.0, 2), 2, 0.9)
+    check("2/2 half-note beats are not called 'too long'",
+          not dur, f"{ {m: d['direction'] for m, d in dur.items()} }")
+
+    # 4. A REAL over-hold must still be caught, or the fix has just muted the finding.
+    def stretch(evs):
+        # delay everything from the 7th note on, so note 6 gets far too much time
+        return [dict(e, time_sec=e["time_sec"] + (0.55 if i >= 6 else 0.0))
+                for i, e in enumerate(evs)]
+    rep, dur = durations_for(_timed_score("4/4", 4, 1.0, 4), 4, 0.5, warp=stretch)
+    longs = [m for m, d in dur.items() if d["direction"] == "long"]
+    check("a note genuinely given too much time is still flagged",
+          longs, f"durations={ {m: d['direction'] for m, d in dur.items()} }")
+    if longs:
+        d = dur[longs[0]]
+        check("the flag names the written value and its beat count",
+              d.get("value") and d.get("beats_written"),
+              f"{d.get('value')!r}, written {d.get('beats_written')} beats")
+
+
+def test_note_value_naming():
+    print("\n[23] written values are named correctly")
+    for ql, name in [(4.0, 'whole note'), (3.0, 'dotted half note'), (2.0, 'half note'),
+                     (1.5, 'dotted quarter note'), (1.0, 'quarter note'),
+                     (0.75, 'dotted eighth note'), (0.5, 'eighth note'),
+                     (0.25, 'sixteenth note')]:
+        check(f"{ql:g} quarterLengths -> {name}", w.note_value_name(ql) == name,
+              w.note_value_name(ql))
+    check("an unrecognised value names nothing rather than guessing",
+          w.note_value_name(1.234) == "")
+    for ts, expect in [('4/4', 1.0), ('3/4', 1.0), ('2/2', 2.0),
+                       ('6/8', 1.5), ('12/8', 1.5), ('3/8', 0.5)]:
+        check(f"{ts} -> {expect:g} quarterLengths per beat",
+              abs(w.quarter_lengths_per_beat(ts) - expect) < 1e-9,
+              str(w.quarter_lengths_per_beat(ts)))
+    # a measure's beats x quarterLengths-per-beat must equal its total length
+    for ts, total in [('4/4', 4.0), ('3/4', 3.0), ('2/2', 4.0), ('6/8', 3.0), ('12/8', 6.0)]:
+        got = w.beats_per_measure_from_time_sig(ts) * w.quarter_lengths_per_beat(ts)
+        check(f"{ts} measure totals {total:g} quarterLengths", abs(got - total) < 1e-9, str(got))
+
+
 def test_no_undefined_names():
     print("\n[0] static check: no undefined names in worker.py")
     # A NameError in a branch the tests do not execute still reaches production.
@@ -857,7 +953,9 @@ def main():
               test_wrong_notes_reject_false_positives,
               test_bflat_clarinet_transposition,
               test_pause_before_playing_is_not_a_late_downbeat,
-              test_timeline_starts_on_the_first_matched_note):
+              test_timeline_starts_on_the_first_matched_note,
+              test_note_values_and_rests,
+              test_note_value_naming):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-21 (audit) — Coverage diagnostic, and four bugs it found
+
+Added `modal_worker/diagnose_coverage.py`: it drives the real pipeline with
+synthetic performances containing one deliberate defect each and prints a
+matrix of what actually comes out. Now 18/18.
+
+**Why these bugs existed at all:** unconfirmed Tier B issues are *deleted, not
+hedged*. So whatever gates a category decides whether that category exists.
+Every gap below was a gate problem, not a detector problem.
+
+**1. Squeaks were undetectable.** `wrong_notes_cracks` holds two different
+phenomena, and both were gated on `find_wrong_note_candidates` — which was
+hardened to require ≥65 confidence, ≥80ms and a stable pitch, i.e. precisely
+what a squeak is not. Every crack Gemini reported was silently dropped. New
+`find_crack_candidates` detects the real signature: pitch leaping ≥7 semitones
+above the surrounding line, briefly (≤280ms), then returning. It reads
+neighbouring notes rather than the score, so it survives a failed score read.
+The Tier B gate now picks its corroborator from the wording.
+
+**2. Gemini's rhythm observations were dropped.** They were corroborated only by
+measures that already produced a full timing flag, but CREPE's timing findings
+are deliberately conservative — audible unevenness under those thresholds had
+nothing to confirm it. Now corroborated against raw note residuals ≥55ms.
+
+**3. Intonation died when the score read failed.** Requiring a DTW match is right
+when there is one, but when the read fails *no* event has a match, so the
+requirement deleted intonation entirely — a take 34¢ flat throughout reported
+nothing. Now falls back to judging tuning without naming the note.
+
+**4. A crash on the no-score path.** `timing_report` is `None` when score-DTW
+never ran, and the new corroboration code called `.get` on it. Found only by
+exercising that path on purpose.
+
+**Known gap, by design:** dynamics has no objective corroboration. Events carry
+RMS-derived loudness but nothing compares it to the score's markings, so
+dynamics stays Tier A. That is the obvious next detector.
+
+121/121 unit checks, 18/18 coverage behaviours.
+
 ## 2026-08-21 (second pass) — Hold length, pitch, lateness and wording
 
 **Note duration now measures the hold.** Nothing in the pipeline knew when a note

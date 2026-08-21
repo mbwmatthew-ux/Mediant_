@@ -3103,6 +3103,82 @@ def find_wrong_note_candidates(
     ]
 
 
+def find_crack_candidates(
+    aligned: list[dict],
+    instrument: str = "",
+) -> list[str]:
+    """
+    Detect squeaks, cracks and register breaks.
+
+    These are NOT wrong notes and must not share that detector. A wrong note is
+    a sustained, confidently-tracked pitch that does not belong;
+    `find_wrong_note_candidates` is deliberately strict about exactly that
+    (conf >= 65, >= 80ms, stable pitch) — which rejects every squeak, since a
+    squeak is short, unstable and violently high. Gating Gemini's "a squeak
+    breaks the line" on the wrong-note detector therefore threw the observation
+    away, and unconfirmed issues are dropped, so cracks became invisible.
+
+    A crack has its own signature: the pitch leaps FAR ABOVE the note being
+    played, briefly, and then comes back. On a clarinet that is typically the
+    12th; on brass and flute an octave or more.
+
+    Returns evidence strings for the coaching prompt, one per measure.
+    """
+    if not aligned:
+        return []
+
+    by_measure: dict[int, dict] = {}
+    ordered = sorted((e for e in aligned if e.get("time_sec") is not None),
+                     key=lambda e: e["time_sec"])
+    for i, ev in enumerate(ordered):
+        m = ev.get("measure")
+        midi = ev.get("midi_raw", ev.get("midi"))
+        if m is None or midi is None:
+            continue
+        t   = float(ev["time_sec"])
+        dur = float(ev.get("held_sec") or 0.0)
+
+        # Reference pitch = the notes around it, so this works whether or not
+        # the score matched: a crack stands out against its own neighbours.
+        neigh = [ordered[j].get("midi_raw", ordered[j].get("midi"))
+                 for j in range(max(0, i - 3), min(len(ordered), i + 4)) if j != i]
+        neigh = [n for n in neigh if n is not None]
+        if len(neigh) < 2:
+            continue
+        neigh.sort()
+        ref = neigh[len(neigh) // 2]
+
+        jump = midi - ref
+        # Up, far, and brief — a sustained high note is just a high note.
+        if jump < 7 or dur > 0.28:
+            continue
+        # It has to come back down: a crack is an interruption, not a leap into
+        # a new register. Compare against what follows.
+        after = [ordered[j].get("midi_raw", ordered[j].get("midi"))
+                 for j in range(i + 1, min(len(ordered), i + 4))]
+        after = [n for n in after if n is not None]
+        if after and min(abs(n - ref) for n in after) > 4:
+            continue
+
+        prev = by_measure.get(m)
+        if prev is None or jump > prev["jump"]:
+            by_measure[m] = {"jump": jump, "time": t, "dur": dur,
+                             "midi": midi, "ref": ref}
+
+    out = []
+    for m in sorted(by_measure):
+        d = by_measure[m]
+        out.append(
+            f"crack | measure {m} | pitch jumped {d['jump']} semitones above the "
+            f"surrounding line ({midi_to_scientific(d['ref'])} -> "
+            f"{midi_to_scientific(d['midi'])}) for {d['dur']:.2f}s at "
+            f"t={d['time']:.2f}s"
+        )
+    if out:
+        print(f"[find_crack_candidates] {len(out)} crack/squeak candidate(s)")
+    return out[:8]
+
+
 # ── Change 2: severity-weighted score formula ─────────────────────────────────
 # Base weights by flag type. `magnitude` names the field on the flag dict that
 # holds a numeric deviation value; None means no magnitude scaling.
@@ -3836,6 +3912,7 @@ def compare_and_coach_claude(
 
     # Add direct CREPE-vs-score wrong note candidates
     wrong_note_candidates = find_wrong_note_candidates(aligned, score, instrument)
+    crack_candidates      = find_crack_candidates(aligned, instrument)
 
     # Objective timing must be computed BEFORE the no-evidence guard below and
     # counted as evidence in its own right. A performance that is in tune, on the
@@ -3874,7 +3951,8 @@ def compare_and_coach_claude(
         )
     )
 
-    crepe_has_data = bool(strongest or wrong_note_candidates or has_timing_data)
+    crepe_has_data = bool(strongest or wrong_note_candidates or crack_candidates
+                          or has_timing_data)
     # Gemini is always present — check if it found anything across all categories
     has_gemini_data = bool(any(
         gemini_assessment.get(k) for k in (
@@ -3941,11 +4019,33 @@ def compare_and_coach_claude(
                 timing_conf_measures.add(_m)
                 if gm:
                     timing_gap_ms[_m] = round(float(gm.group(1)) * 1000, 1)
+    # Gemini's rhythm observations were corroborated only by measures that
+    # already produced a full timing FLAG. But CREPE's timing findings are
+    # deliberately conservative (a measure must clear the placement threshold,
+    # or drift, or a duration ratio), so an audible unevenness that sits under
+    # those bars had nothing to confirm it — and unconfirmed issues are dropped
+    # outright, so the observation vanished rather than being reported.
+    #
+    # Corroborate against the raw note residuals instead: if the notes in that
+    # measure are measurably uneven at all, Gemini saying so is confirmed.
+    # timing_report is None whenever the score-DTW path did not run at all (a
+    # failed score read, or too few matched onsets). Guarding on `.get` alone
+    # crashed the whole analysis there — found by running the no-score path.
+    if isinstance(timing_report, dict) and timing_report.get("ok") is not False:
+        for _row in (timing_report.get("notes") or []):
+            if abs(_row.get("residual_ms") or 0.0) >= 55.0:
+                timing_conf_measures.add(int(_row["measure"]))
+
     wrongnote_conf_measures: set[int] = set()
     for cand in wrong_note_candidates:
         mm = re.search(r'measure (\d+)', cand)
         if mm:
             wrongnote_conf_measures.add(int(mm.group(1)))
+    crack_conf_measures: set[int] = set()
+    for cand in crack_candidates:
+        mm = re.search(r'measure (\d+)', cand)
+        if mm:
+            crack_conf_measures.add(int(mm.group(1)))
 
     canonical: list[dict] = []
 
@@ -4256,7 +4356,18 @@ def compare_and_coach_claude(
             if span > 0:
                 m_end = m + span
         if ftype == "error":
-            conf = m in wrongnote_conf_measures  # Tier B — CREPE must corroborate
+            # "wrong_notes_cracks" is two different phenomena sharing one bucket,
+            # and they need different corroboration. A squeak is short, unstable
+            # and violently high — precisely what the wrong-note detector is
+            # built to reject — so gating cracks on it silently deleted them.
+            _d = desc.lower()
+            _is_crack = any(k in _d for k in
+                            ("crack", "squeak", "squeal", "chirp", "break",
+                             "split", "cipher", "airball", "air ball"))
+            if _is_crack:
+                conf = m in crack_conf_measures
+            else:
+                conf = m in wrongnote_conf_measures
         elif ftype == "timing":
             conf = m in timing_conf_measures
         else:
@@ -4287,6 +4398,14 @@ def compare_and_coach_claude(
              confirmed=True, is_global=True,
              measure_end=measure_hi, direction=_dir, priority=2)
 
+    # Requiring a DTW match is right when there IS one — it means the note can be
+    # named and we know which note was out of tune. But the score read fails
+    # often enough to matter, and when it does no event has a match, so that
+    # requirement silently deleted intonation entirely: a take that was 34c flat
+    # throughout reported nothing. Fall back to judging tuning without naming the
+    # note, which is still true and still useful.
+    _have_matches = any(ev.get("score_idx") is not None for ev in aligned)
+
     inton: dict[int, dict] = {}   # measure -> {cents, time, sharp}
     for ev in aligned:
         c = ev.get("cents_offset")
@@ -4296,7 +4415,7 @@ def compare_and_coach_claude(
         # one we cannot tie to a written note at all — neither is evidence that
         # a specific note was out of tune.
         _held = ev.get("held_sec")
-        if ev.get("score_idx") is None:
+        if _have_matches and ev.get("score_idx") is None:
             continue
         if _held is not None and _held < 0.12:
             continue
@@ -4398,6 +4517,14 @@ def compare_and_coach_claude(
         mm = re.search(r'measure (\d+)', cand)
         if mm:
             _add(int(mm.group(1)), "error", cand, None, confirmed=True)
+
+    # 3b. CREPE-detected cracks/squeaks, same treatment.
+    for cand in crack_candidates:
+        mm = re.search(r'measure (\d+)', cand)
+        if mm:
+            _t = re.search(r't=([\d.]+)s', cand)
+            _add(int(mm.group(1)), "error", cand,
+                 float(_t.group(1)) if _t else None, confirmed=True)
 
     # 4. Posture & technique — global visual observations from Gemini.
     # Derive a measure from any timestamp in the text so the flag lands somewhere

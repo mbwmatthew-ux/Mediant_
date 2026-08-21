@@ -912,6 +912,128 @@ def test_note_value_naming():
         check(f"{ts} measure totals {total:g} quarterLengths", abs(got - total) < 1e-9, str(got))
 
 
+def test_hold_length_is_measured_not_inferred():
+    print("\n[24] duration measures the HOLD, not the gap to the next note")
+    score = _timed_score("4/4", 4, 1.0, 4)          # all quarter notes
+    SPB = 0.5
+
+    def run(mut):
+        evs = _play(score, 4, SPB)
+        for e in evs:
+            e["sound_end"] = e["time_sec"] + SPB     # held its full value
+        mut(evs)
+        al = w.dtw_align_to_score(evs, score, 1, 4,
+                                  end_measure=score["measures"][-1]["number"])
+        rep = w.analyze_timing_vs_score(al, score, 4)
+        return rep.get("durations") or {}
+
+    check("evenly held quarters produce no duration flags", not run(lambda e: None))
+
+    # Clipped: released a third of the way through, but the NEXT note still
+    # arrives on time. Invisible to a gap-based check by construction.
+    def clip(evs):
+        evs[5]["sound_end"] = evs[5]["time_sec"] + SPB * 0.3
+    d = run(clip)
+    check("a note clipped short is caught even when the next note is on time",
+          any(v["direction"] == "short" for v in d.values()),
+          f"{ {m: v['direction'] for m, v in d.items()} }")
+    if d:
+        v = next(iter(d.values()))
+        check("the finding says it measured the hold", v.get("measured") == "held",
+              str(v.get("measured")))
+
+    # Over-held. On a monophonic instrument you cannot sound past the next
+    # attack, so over-holding physically shows up as the NEXT note arriving
+    # late — the note keeps sounding right up to it. Modelling it any other way
+    # describes something a clarinet cannot do.
+    def overhold(evs):
+        for e in evs[10:]:
+            e["time_sec"] += SPB * 0.9
+            e["sound_end"] += SPB * 0.9
+        evs[9]["sound_end"] = evs[10]["time_sec"]      # sounds until the next attack
+    d = run(overhold)
+    check("a note held past its value is caught (the next note is displaced late)",
+          any(v["direction"] == "long" for v in d.values()),
+          f"{ {m: v['direction'] for m, v in d.items()} }")
+
+    # A note cannot sound past the next attack on a monophonic instrument.
+    def impossible(evs):
+        for e in evs:
+            e["sound_end"] = e["time_sec"] + SPB * 8
+    d = run(impossible)
+    check("a release running past the next attack is clamped, not reported as 8x",
+          all(v["ratio"] <= 2.2 for v in d.values()),
+          f"ratios={sorted(v['ratio'] for v in d.values())[-3:]}")
+
+
+def test_staccato_is_not_clipped():
+    print("\n[25] staccato is written short on purpose")
+    score = _timed_score("4/4", 4, 1.0, 4)
+    for m in score["measures"]:
+        for n in m["notes"]:
+            n["articulation"] = "staccato"
+    SPB = 0.5
+    evs = _play(score, 4, SPB)
+    for e in evs:
+        e["sound_end"] = e["time_sec"] + SPB * 0.35   # correct staccato
+    al = w.dtw_align_to_score(evs, score, 1, 4, end_measure=score["measures"][-1]["number"])
+    d = (w.analyze_timing_vs_score(al, score, 4).get("durations") or {})
+    check("correctly played staccato is not called 'too short'",
+          not any(v["direction"] == "short" for v in d.values()),
+          f"{ {m: v['direction'] for m, v in d.items()} }")
+
+
+def test_placement_threshold_scales_with_tempo():
+    print("\n[26] lateness is judged against the beat, not a fixed 110ms")
+    score = _timed_score("4/4", 4, 1.0, 4)
+
+    def late_measures(spb, shift):
+        evs = _play(score, 4, spb)
+        for e in evs:
+            e["sound_end"] = e["time_sec"] + spb
+        # push one whole measure late
+        for e in evs:
+            if 12 <= (e["time_sec"] / spb) < 16:
+                e["time_sec"] += shift
+                e["sound_end"] += shift
+        al = w.dtw_align_to_score(evs, score, 1, 4, end_measure=score["measures"][-1]["number"])
+        rep = w.analyze_timing_vs_score(al, score, 4)
+        return {m for m, p in (rep.get("placement") or {}).items() if p["direction"] == "late"}
+
+    # 60bpm: 130ms is under a fifth of a beat — inaudible, and used to flag.
+    check("at a slow tempo a 130ms shift is not called late",
+          not late_measures(1.0, 0.13), "flagged")
+    # Same 130ms at 200bpm is nearly half a beat — that must still be caught.
+    check("at a fast tempo the same shift IS caught",
+          late_measures(0.3, 0.13), "not flagged")
+
+
+def test_note_ordinals_are_corrected():
+    print("\n[27] 'first note' is corrected to the note that actually sounded")
+    score = make_score()
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Gemini claims the crack is on the first note of m.26; the timestamp lands
+    # on the third note of that bar.
+    third = sorted({(e["time_sec"], e["score_idx"]) for e in aligned
+                    if e["measure"] == 26 and e.get("score_idx") is not None})
+    seen, order = set(), []
+    for t, si in third:
+        if si in seen: continue
+        seen.add(si); order.append(t)
+    gemini = dict(EMPTY_GEMINI)
+    gemini["wrong_notes_cracks"] = [{
+        "measure": 26, "timestamp": f"0:{int(order[2]):02d}",
+        "detail": "A reed crack on the first note of the phrase.",
+    }]
+    flags = run_pipeline(score, aligned, gemini)
+    texts = " ".join((f.get("detail") or "") + " " + (f.get("raw_detail") or "")
+                     for f in flags)
+    check("the wrong ordinal does not survive into the flag text",
+          "first note" not in texts.lower(),
+          [t for t in texts.split('.') if 'note' in t.lower()][:2])
+
+
 def test_no_undefined_names():
     print("\n[0] static check: no undefined names in worker.py")
     # A NameError in a branch the tests do not execute still reaches production.
@@ -955,7 +1077,11 @@ def main():
               test_pause_before_playing_is_not_a_late_downbeat,
               test_timeline_starts_on_the_first_matched_note,
               test_note_values_and_rests,
-              test_note_value_naming):
+              test_note_value_naming,
+              test_hold_length_is_measured_not_inferred,
+              test_staccato_is_not_clipped,
+              test_placement_threshold_scales_with_tempo,
+              test_note_ordinals_are_corrected):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

@@ -1,5 +1,41 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-21 (second pass) — Hold length, pitch, lateness and wording
+
+**Note duration now measures the hold.** Nothing in the pipeline knew when a note
+*stopped*: `end_sec` is the next onset, so "held too long/short" was inferred
+from note spacing. `run_pitch_tracking` now walks CREPE forward from each onset
+while the frame stays voiced and stays within a semitone of the note's centre;
+the first frame that fails is the release (`sound_end` / `held_sec`).
+
+What each direction can be measured from, which constrains the design:
+- **Too short** is measurable *only* from the hold — a note released early while
+  the next arrives on time is invisible in note spacing.
+- **Too long** cannot be sounded past the next attack on a monophonic
+  instrument; over-holding displaces the *next note later*, so it shows in the
+  gap. A test modelling it as "sounds past the next on-time note" described
+  something a clarinet cannot do — the test was wrong, not the code.
+
+The hold is therefore trusted both ways, the gap only for "too long", and the
+hold is clamped to the next attack. **Staccato** is carried through from the
+score and never reported as clipped.
+
+**Pitch.** Intonation now only judges notes that are DTW-matched (so the note can
+be named) and lasted ≥120ms — a passing sixteenth is mostly attack transient, and
+an unmatched event cannot be tied to a written note. The flag names the note.
+
+**Downbeat lateness.** A fixed 110ms is a ninth of a beat at 60bpm and over a
+third at 200bpm. The threshold is now `max(110ms, 16% of a beat)`, and a measure
+needs **two** agreeing notes with a tight spread, so one mis-matched onset cannot
+produce a downbeat flag.
+
+**Wording.** Gemini counts notes by eye — "a reed crack on the first note" when
+it was the third. The ordinal is now derived from the verified timestamp and the
+DTW match and rewritten, when a note is identifiable within 1s.
+
+Every fix is paired with a test that it did not simply mute the finding.
+121/121.
+
 ## 2026-08-21 — The duration check now understands note values
 
 Two bugs, both of which flagged correct playing as wrong. The duration finding

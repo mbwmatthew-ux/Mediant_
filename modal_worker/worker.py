@@ -494,9 +494,34 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
 
             confidence = int(min(100, float(np.mean(window_conf)) * 100))
 
+            # ── When the note is RELEASED ──────────────────────────────────
+            # `end_sec` is the next onset, i.e. when the following note starts —
+            # not when this one stops. Holding a note past its value, or clipping
+            # it short while still entering the next note on time, are both
+            # invisible in that number, so "how long did they hold it" could not
+            # be answered from it at all.
+            #
+            # Walk CREPE forward from the onset while the frame stays voiced AND
+            # stays on this note (within a semitone). The first frame that fails
+            # is the release.
+            _i0 = int(np.searchsorted(frame_times, event_t))
+            _rel = _i0
+            for _k in range(_i0, n_frames):
+                if conf_np[_k] < 0.35 or pitch_np[_k] <= 0:
+                    break
+                _mf = 12.0 * np.log2(pitch_np[_k] / 440.0) + 69.0
+                if abs(_mf - midi_float) > 1.0:
+                    break
+                _rel = _k
+            _frame_dur = CREPE_HOP / CREPE_SR
+            sound_end = float(frame_times[_rel]) + _frame_dur
+            held_sec  = max(0.0, sound_end - float(event_t))
+
             events.append({
                 "time_sec":    float(event_t),
                 "end_sec":     float(next_t),
+                "sound_end":   round(sound_end, 3),
+                "held_sec":    round(held_sec, 3),
                 "pitches":     [midi_to_scientific(midi)],
                 "midi":        midi,       # C2–C7 clamped (display only)
                 "midi_raw":    midi_raw,   # unclamped — used for wrong-note comparison
@@ -907,6 +932,8 @@ def flatten_score_notes(
                 "beat":      beat,
                 "dur_beats": dur,
                 "pitch":     pitch,
+                # Needed downstream so a staccato note is not judged "clipped".
+                "artic":     (note.get("articulation") or ""),
             })
     # Absolute beat position across the window, derived from the measure NUMBER
     # rather than order of appearance. Rest-only measures are absent from this
@@ -1055,6 +1082,7 @@ def dtw_align_to_score(
             "score_dur_beats":  sn["dur_beats"],
             "score_abs_beat":   sn["abs_beat"],
             "score_pitch":      sn["pitch"],
+            "score_artic":      sn.get("artic") or "",
         })
 
     # Sanity check: count how many distinct measures were assigned
@@ -1194,9 +1222,25 @@ def analyze_timing_vs_score(
     score_notes = {
         si: {"measure": ev["measure"], "beat": ev.get("score_beat") or 1.0,
              "dur_beats": ev.get("score_dur_beats") or 0.0,
-             "pitch": ev.get("score_pitch") or "", "abs_beat": ev["score_abs_beat"]}
+             "pitch": ev.get("score_pitch") or "", "abs_beat": ev["score_abs_beat"],
+             "artic": (ev.get("score_artic") or "")}
         for si, ev in onset_by_idx.items()
     }
+
+    # How long each matched note actually SOUNDED. DTW is many-to-one, so a
+    # sustained note yields several events; the note stops when the last of them
+    # stops. `held_sec` comes from CREPE's own frames (see run_pitch_tracking),
+    # not from the next onset.
+    held_by_idx: dict[int, float] = {}
+    for ev in aligned:
+        si = ev.get("score_idx")
+        if si is None or si not in onset_by_idx:
+            continue
+        se = ev.get("sound_end")
+        if se is None:
+            continue
+        t0 = onset_by_idx[si]["time_sec"]
+        held_by_idx[si] = max(held_by_idx.get(si, 0.0), float(se) - t0)
 
     pairs = sorted(
         ((score_notes[si]["abs_beat"], ev["time_sec"], si) for si, ev in onset_by_idx.items()),
@@ -1312,9 +1356,25 @@ def analyze_timing_vs_score(
         local_spb = local_spb_by_measure.get(m)
         if local_spb is not None and abs(local_spb - spb) / spb >= 0.05:
             continue  # measure runs at its own tempo — not a placement error
+        # A fixed 110ms means very different things at different tempos: at 60bpm
+        # it is a ninth of a beat and inaudible; at 200bpm it is more than a third
+        # of a beat and glaring. Judge against the beat, with the fixed floor kept
+        # as a lower bound so slow music does not become hair-trigger.
+        _thresh_ms = max(_TIMING_PLACEMENT_MS, 0.16 * spb * 1000.0)
+
+        # One stray note does not make a late measure — an entry is late when the
+        # notes in that bar AGREE that it is. Requiring two and a tight spread
+        # stops a single mis-matched onset from producing a downbeat flag.
+        if len(vals) < 2:
+            continue
+        _dev = sorted(vals)
+        _spread = _dev[-1] - _dev[0]
+        if _spread > max(240.0, 0.5 * spb * 1000.0):
+            continue
+
         sv = sorted(v - _resid_centre for v in vals)
         med = sv[len(sv) // 2]
-        if abs(med) >= _TIMING_PLACEMENT_MS:
+        if abs(med) >= _thresh_ms:
             worst = max((v - _resid_centre for v in vals), key=abs)
             placement[m] = {
                 "median_ms": round(med, 1),
@@ -1356,13 +1416,42 @@ def analyze_timing_vs_score(
         if written_beats > gap_beats + 0.05:
             continue
 
-        expected = gap_beats * spb
-        actual   = onset_by_idx[nxt]["time_sec"] - onset_by_idx[si]["time_sec"]
+        # Measure the HOLD, not the gap to the next note. Those differ exactly
+        # where it matters: a note held past its value while the next still
+        # arrives on time, or a note clipped short with the next on time, are
+        # both invisible in the gap. Fall back to the gap only when CREPE gave
+        # us no release for this note.
+        expected = written_beats * spb
+        held = held_by_idx.get(si)
+        if held is not None and held > 0.02:
+            actual = held
+            measured = "held"
+            # A note cannot sound past the next attack on a monophonic
+            # instrument; if CREPE ran on, trust the next onset.
+            _gap = onset_by_idx[nxt]["time_sec"] - onset_by_idx[si]["time_sec"]
+            if _gap > 0:
+                actual = min(actual, _gap)
+        else:
+            actual = onset_by_idx[nxt]["time_sec"] - onset_by_idx[si]["time_sec"]
+            expected = gap_beats * spb
+            measured = "gap"
         if expected <= 0 or actual <= 0:
             continue
+
+        # Staccato and rests are written short on purpose. A staccato quarter
+        # sounds a fraction of its value and that is correct playing, so a
+        # "too short" reading there would be a fabricated error.
+        _artic = (sn.get("artic") or "").lower()
+        _short_by_design = ("stacc" in _artic or "marcato" in _artic
+                            or "wedge" in _artic or "portato" in _artic)
+
         ratio = actual / expected
         delta_ms = (actual - expected) * 1000.0
         if abs(delta_ms) < _TIMING_DUR_MIN_MS:
+            continue
+        if ratio < 1.0 and (_short_by_design or measured == "gap"):
+            # `gap` cannot distinguish a clipped note from a rest that follows,
+            # so it is only trusted for the "too long" direction.
             continue
         if ratio <= _TIMING_DUR_SHORT or ratio >= _TIMING_DUR_LONG:
             m = sn["measure"]
@@ -1380,7 +1469,8 @@ def analyze_timing_vs_score(
                     # only quoting milliseconds.
                     "value":        note_value_name(written_ql),
                     "beats_written": round(written_beats, 3),
-                    "beats_played":  round(gap_beats * ratio, 3),
+                    "beats_played":  round(actual / spb, 3) if spb > 0 else None,
+                    "measured":     measured,
                     "rest_after_beats": rest_beats if rest_beats > 0.05 else 0.0,
                 }
 
@@ -3859,6 +3949,51 @@ def compare_and_coach_claude(
 
     canonical: list[dict] = []
 
+    _ORD_NAMES = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
+                  6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "tenth"}
+
+    def _note_index_in_measure(measure: int | None, tsec: float | None) -> int | None:
+        """Which note of the measure sounds at `tsec`, 1-based, from the DTW match."""
+        if measure is None or tsec is None:
+            return None
+        seen: set = set()
+        ordered: list[tuple[float, int]] = []
+        for ev in sorted((e for e in aligned
+                          if e.get("measure") == measure
+                          and e.get("time_sec") is not None
+                          and e.get("score_idx") is not None),
+                         key=lambda e: e["time_sec"]):
+            si = ev["score_idx"]
+            if si in seen:
+                continue          # DTW is many-to-one; one entry per score note
+            seen.add(si)
+            ordered.append((float(ev["time_sec"]), si))
+        if not ordered:
+            return None
+        best = min(range(len(ordered)), key=lambda i: abs(ordered[i][0] - tsec))
+        if abs(ordered[best][0] - tsec) > 1.0:
+            return None           # nothing close enough to be sure
+        return best + 1
+
+    def _canonicalize_note_ordinals(text: str, measure: int | None,
+                                    tsec: float | None) -> str:
+        """
+        Correct "on the first note" when the timestamp says it was the third.
+
+        Gemini counts notes by eye and gets it wrong; the DTW match plus the
+        verified timestamp know which note actually sounded there. Reported as
+        "a reed crack on the first note" when it happened on the third or
+        fourth. Only rewrites when a note can be identified confidently.
+        """
+        idx = _note_index_in_measure(measure, tsec)
+        name = _ORD_NAMES.get(idx or 0)
+        if not name:
+            return text
+        return re.sub(
+            r'\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)'
+            r'(\s+(?:\w+\s+){0,2}?(?:note|entry|attack|pitch))\b',
+            lambda m: name + m.group(2), text, flags=re.I)
+
     def _canonicalize_measure_refs(text: str, m0: int, m1: int | None) -> str:
         """
         Gemini's free-text description sometimes cites ITS OWN (unreliable) measure
@@ -3891,6 +4026,7 @@ def compare_and_coach_claude(
         m0 = int(measure)
         m1 = int(measure_end) if isinstance(measure_end, (int, float)) and measure_end > m0 else None
         observed = _canonicalize_measure_refs(observed, m0, m1)
+        observed = _canonicalize_note_ordinals(observed, m0, time_sec)
         canonical.append({
             "measure":      m0,
             "measure_end":  m1,
@@ -4154,6 +4290,16 @@ def compare_and_coach_claude(
     inton: dict[int, dict] = {}   # measure -> {cents, time, sharp}
     for ev in aligned:
         c = ev.get("cents_offset")
+        # Judge intonation only on notes we can actually name and that lasted
+        # long enough to HAVE a pitch. A passing sixteenth gives CREPE a handful
+        # of frames dominated by the attack transient, and an unmatched event is
+        # one we cannot tie to a written note at all — neither is evidence that
+        # a specific note was out of tune.
+        _held = ev.get("held_sec")
+        if ev.get("score_idx") is None:
+            continue
+        if _held is not None and _held < 0.12:
+            continue
         if c is not None and abs(c) >= cents_flag_threshold and ev.get("confidence", 100) >= 50 and ev.get("cents_spread", 0) <= 35:
             t  = ev.get("time_sec")
             # This event IS a note DTW matched to the score, so its own measure
@@ -4164,21 +4310,25 @@ def compare_and_coach_claude(
                 mm = ev.get("measure")
             if mm is None:
                 continue
-            d = inton.setdefault(mm, {"cents": 0.0, "time": None, "sharp": False})
+            d = inton.setdefault(mm, {"cents": 0.0, "time": None, "sharp": False,
+                                      "pitch": ""})
             if abs(c) > d["cents"]:
                 d["cents"] = abs(c)
                 d["sharp"] = c > 0
+                d["pitch"] = ev.get("score_pitch") or ""
             if t is not None and (d["time"] is None or t < d["time"]):
                 d["time"] = t
     for m, d in inton.items():
         direction = "sharp" if d["sharp"] else "flat"
+        _note = d.get("pitch") or ""
         fix_hint = (
             "loosen the embouchure slightly and drop jaw pressure, or open the throat"
             if direction == "sharp" else
             "tighten the embouchure slightly and increase air support"
         )
         _add(m, "intonation",
-             f"pitch sits {round(d['cents'])}¢ {direction} of the rest of your playing "
+             (f"the {_note} " if _note else "pitch ")
+             + f"sits {round(d['cents'])}¢ {direction} of the rest of your playing "
              f"here — {fix_hint}",
              d["time"], confirmed=True, cents=round(d["cents"], 1), direction=direction)
 

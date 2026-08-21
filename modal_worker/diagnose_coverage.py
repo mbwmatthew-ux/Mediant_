@@ -218,6 +218,19 @@ def main():
     case("dynamics: markings played the wrong way round", "dynamics",
          dyn_perform(ds, -14.0, -26.0), ds, None, expect_text="wrong way round")
 
+    # A photo-parsed score marks `dyn` only where the marking is PRINTED; every
+    # later note is null. Dynamics must still work, or it silently does nothing
+    # for exactly the scores most users upload.
+    ps = make_score()
+    for m in ps["measures"]:
+        for n in m["notes"]:
+            n["dynamic"] = None
+    ps["measures"][0]["notes"][0]["dynamic"] = "p"
+    ps["measures"][6]["notes"][0]["dynamic"] = "f"
+    case("dynamics: works on a photo-parsed score (marking printed once)",
+         "dynamics", dyn_perform(ps, -20.0, -19.4), ps, None,
+         expect_text="same volume")
+
     # no markings in the score -> Gemini is believed, since we cannot check it
     case("dynamics: believed when the score has no markings", "dynamics",
          perform(sc), sc, g)

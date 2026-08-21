@@ -1306,7 +1306,6 @@ def analyze_timing_vs_score(
     print(f"[timing] grid anchored on the first note played: "
           f"{score_notes[first_si]['pitch'] or '?'} in m.{first_measure} "
           f"at {first_t:.2f}s (beat {score_notes[first_si]['beat']})")
-    intercept = anchor_intercept
 
     # Per-measure local tempo, used by both findings below.
     per_measure_pairs: dict[int, list[tuple[float, float]]] = {}
@@ -3167,17 +3166,30 @@ def analyze_dynamics_vs_score(aligned: list[dict], score: dict) -> dict:
     if not aligned:
         return {"ok": False, "reason": "no aligned events"}
 
-    # measure -> prevailing marking, from the score
+    # measure -> prevailing marking, carried FORWARD across measures.
+    #
+    # The two score sources disagree about what "dynamic" means per note.
+    # parse_musicxml now stamps the prevailing marking on every note, but the
+    # vision reader returns `dyn` only on the note where the marking is printed
+    # — every later note is null. Reading it per measure without carrying it
+    # forward therefore gave photo-based scores a handful of isolated measures,
+    # never enough to clear the two-levels/four-notes bar, so dynamics silently
+    # did nothing for exactly the scores most users upload.
+    #
+    # A marking applies until the next one. Do that here, once, so both sources
+    # behave identically regardless of how the parser filled the field.
     dyn_by_measure: dict[int, str] = {}
-    for m in score.get("measures", []):
-        num = m.get("number")
-        if not isinstance(num, int):
-            continue
+    prevailing: str | None = None
+    for m in sorted((mm for mm in score.get("measures", [])
+                     if isinstance(mm.get("number"), int)),
+                    key=lambda mm: mm["number"]):
         for n in m.get("notes", []):
             d = str(n.get("dynamic") or "").strip().lower()
             if d in _DYNAMIC_RANK:
-                dyn_by_measure.setdefault(num, d)
+                prevailing = d
                 break
+        if prevailing:
+            dyn_by_measure[m["number"]] = prevailing
 
     if len(set(dyn_by_measure.values())) < 2:
         return {"ok": False, "reason": "score has fewer than two distinct dynamic markings"}
@@ -3236,10 +3248,7 @@ def analyze_dynamics_vs_score(aligned: list[dict], score: dict) -> dict:
     return findings
 
 
-def find_crack_candidates(
-    aligned: list[dict],
-    instrument: str = "",
-) -> list[str]:
+def find_crack_candidates(aligned: list[dict]) -> list[str]:
     """
     Detect squeaks, cracks and register breaks.
 
@@ -3253,7 +3262,11 @@ def find_crack_candidates(
 
     A crack has its own signature: the pitch leaps FAR ABOVE the note being
     played, briefly, and then comes back. On a clarinet that is typically the
-    12th; on brass and flute an octave or more.
+    12th; on brass and flute an octave or more — but the detector deliberately
+    takes no `instrument` argument. The interval varies by instrument AND by how
+    the crack happens, and a per-instrument threshold tuned on no data would
+    reject real cracks while looking authoritative. The generic test (up, far,
+    brief, returns) already separates a crack from a written leap.
 
     Returns evidence strings for the coaching prompt, one per measure.
     """
@@ -4028,24 +4041,15 @@ def compare_and_coach_claude(
                     evidence_candidates.append(
                         f"timing | measure {m['number']} near beat {beat} | {gap:.2f}s gap after {'/'.join(events[i]['pitches'])} at {events[i]['time_sec']:.2f}s"
                     )
-    # Candidates are appended in measure order, and within a measure intonation is
-    # appended before timing — so a flat [:8] truncation quietly meant "the first
-    # couple of measures only, intonation first". Take the strongest by magnitude
-    # instead, and keep more of them, so late-measure and timing evidence can
-    # actually reach the model.
-    def _evidence_magnitude(cand: str) -> float:
-        m = re.search(r'([+-]?\d+(?:\.\d+)?)¢', cand)
-        if m:
-            return abs(float(m.group(1)))
-        m = re.search(r'(\d+(?:\.\d+)?)s gap', cand)
-        if m:
-            return float(m.group(1)) * 100.0   # 1s gap ranks like 100¢
-        return 0.0
-    strongest = sorted(evidence_candidates, key=_evidence_magnitude, reverse=True)[:16]
+    # `evidence_candidates` is consumed in full further down (Tier B corroboration
+    # and the timing/intonation confirmation sets). It used to also be ranked by
+    # magnitude into a `strongest` shortlist, but that list only ever fed the
+    # evidence bail-out that has since been removed — nothing read it — so the
+    # ranking has gone with it rather than being left as work done for nothing.
 
     # Add direct CREPE-vs-score wrong note candidates
     wrong_note_candidates = find_wrong_note_candidates(aligned, score, instrument)
-    crack_candidates      = find_crack_candidates(aligned, instrument)
+    crack_candidates      = find_crack_candidates(aligned)
     dynamics_report       = analyze_dynamics_vs_score(aligned, score)
 
     # Objective timing must be computed BEFORE the no-evidence guard below and
@@ -4078,12 +4082,6 @@ def compare_and_coach_claude(
         except Exception as e:                      # never fail the whole analysis
             print(f"[compare_and_coach_claude] timing analysis error: {e}")
             timing_report = None
-    has_timing_data = bool(
-        timing_report and timing_report.get("ok") and (
-            timing_report["placement"] or timing_report["drift"]
-            or timing_report["durations"] or timing_report.get("overall")
-        )
-    )
 
     # `crepe_has_data` and `has_gemini_data` used to live here to feed the early
     # bail-out. They are gone with it — leaving them would be a standing

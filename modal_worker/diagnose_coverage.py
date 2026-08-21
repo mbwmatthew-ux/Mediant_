@@ -186,9 +186,41 @@ def main():
     g["tone_issues"] = [{"measure": 5, "time": "0:08", "description": "Airy, unfocused tone."}]
     case("tone glitch", "tone", perform(sc), sc, g)
 
+    # ── dynamics, now measured rather than believed ──
+    def dyn_score():
+        """First half marked p, second half marked f."""
+        d = make_score()
+        for m in d["measures"]:
+            for n in m["notes"]:
+                n["dynamic"] = "p" if m["number"] <= 6 else "f"
+        return d
+
+    def dyn_perform(d, soft_db, loud_db):
+        e = perform(d)
+        for x in e:
+            m = int(x["time_sec"] / (BPM_M * SPB)) + 1
+            x["db"] = soft_db if m <= 6 else loud_db
+        return e
+
+    ds = dyn_score()
     g = dict(EMPTY_GEMINI)
     g["dynamics_issues"] = [{"measure": 6, "time": "0:10", "description": "No contrast at the piano marking."}]
-    case("dynamics", "dynamics", perform(sc), sc, g)
+    # played at one volume throughout -> no contrast
+    case("dynamics: no contrast between p and f", "dynamics",
+         dyn_perform(ds, -20.0, -19.4), ds, g, expect_text="same volume")
+
+    # played with real contrast -> nothing to report, and Gemini's claim is
+    # rejected because the audio contradicts it
+    negative("dynamics: real contrast is silent (and rejects a false claim)",
+             dyn_perform(ds, -30.0, -14.0), ds, g)
+
+    # the f section played softer than the p section -> inverted
+    case("dynamics: markings played the wrong way round", "dynamics",
+         dyn_perform(ds, -14.0, -26.0), ds, None, expect_text="wrong way round")
+
+    # no markings in the score -> Gemini is believed, since we cannot check it
+    case("dynamics: believed when the score has no markings", "dynamics",
+         perform(sc), sc, g)
 
     g = dict(EMPTY_GEMINI)
     g["posture_issues"] = ["Right shoulder raised throughout."]

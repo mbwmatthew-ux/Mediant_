@@ -1,5 +1,37 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-21 (dynamics) — the last uncorroborated category is closed
+
+Dynamics was believed on Gemini's word because nothing could check it. Three
+things were missing, not one:
+
+1. **Raw loudness was thrown away.** Events kept only a three-way bucket
+   (loud/medium/soft) — a player with no range and a player with full range
+   produce the same string. Events now carry `db` (dBFS).
+2. **The score had no markings.** `parse_musicxml` hard-coded every note's
+   `dynamic` to `None`. It now reads `m21.dynamics.Dynamic` and carries the
+   prevailing marking forward, since a `p` applies until the next marking rather
+   than only to the note beneath it.
+3. **Nothing compared them.** `analyze_dynamics_vs_score` checks the two
+   checkable things: **contrast** (marked levels coming out at the same volume,
+   <3dB apart) and **inverted** (a louder marking played softer than a quieter
+   one).
+
+Deliberately relative — absolute dBFS depends on mic distance and gain, so only
+differences within one take mean anything. It needs ≥4 notes at each of ≥2
+distinct markings before saying anything. Gemini's dynamics claims are now gated
+on it, **but only when the score carries markings**: with none, we cannot
+contradict Gemini, so demanding corroboration would delete real observations.
+
+**The bug that hid it, and will hide the next detector too.** The early bail-out
+in `compare_and_coach_claude` lists its evidence sources by hand. Cracks and
+dynamics were both missing from it, so a take whose *only* problem was one of
+them returned nothing — the function exited before the section that would have
+reported it. Neither showed up in unit tests; only the end-to-end coverage
+matrix caught it. Every new detector must be added there.
+
+121/121 unit checks, 21/21 coverage behaviours.
+
 ## 2026-08-21 (audit) — Coverage diagnostic, and four bugs it found
 
 Added `modal_worker/diagnose_coverage.py`: it drives the real pipeline with

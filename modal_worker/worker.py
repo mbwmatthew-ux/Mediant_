@@ -491,6 +491,12 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             if rms < 0.012:
                 continue
             loudness = "loud" if rms > 0.15 else "medium" if rms > 0.04 else "soft"
+            # Keep the NUMBER. Three buckets cannot measure contrast: a player
+            # who plays everything at one volume and a player with a full
+            # dynamic range can produce the same string. dBFS is the scale
+            # dynamics actually live on — differences in dB are what "louder"
+            # and "softer" mean.
+            db = 20.0 * math.log10(max(rms, 1e-6))
 
             confidence = int(min(100, float(np.mean(window_conf)) * 100))
 
@@ -530,6 +536,7 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 "cents_spread": round(cents_spread),
                 "confidence":  confidence,
                 "loudness":    loudness,
+                "db":          round(db, 2),
                 "source":      "crepe+librosa+dense",
             })
 
@@ -660,11 +667,31 @@ def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
         measures_out = []
         measure_elements = source_part.getElementsByClass(m21.stream.Measure)
 
+        # A dynamic marking applies from where it appears until the next one, so
+        # it has to persist across measures rather than being read per note.
+        cur_dynamic = None
+
         for i, m in enumerate(measure_elements):
             measure_num = m.number if m.number is not None else (start_measure + i)
             notes_out = []
 
+            # Markings sit beside the notes in the measure stream, so collect
+            # them in offset order and apply whichever is in force.
+            _dyn_at: list[tuple[float, str]] = []
+            try:
+                for dyn in m.flatten().getElementsByClass(m21.dynamics.Dynamic):
+                    v = (getattr(dyn, "value", "") or "").strip().lower()
+                    if v:
+                        _dyn_at.append((float(dyn.offset), v))
+                _dyn_at.sort()
+            except Exception:
+                _dyn_at = []
+
             for el in m.flatten().notesAndRests:
+                # Advance the prevailing marking to this note's position.
+                for _off, _v in _dyn_at:
+                    if _off <= float(el.offset) + 1e-6:
+                        cur_dynamic = _v
                 if isinstance(el, m21.note.Rest):
                     # Rests are intentionally ignored in this version. False
                     # rest detection creates bad coaching, and sounded-note
@@ -683,7 +710,11 @@ def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
                         "beat": float(el.beat),
                         "duration_beats": float(el.duration.quarterLength),
                         "articulation": artic,
-                        "dynamic": None,
+                        # The prevailing marking, carried forward until the next
+                        # one — a `p` applies to everything after it, not just
+                        # the note it sits under. Was hard-coded None, so nothing
+                        # downstream could check dynamics at all.
+                        "dynamic": cur_dynamic,
                     })
                 elif isinstance(el, m21.chord.Chord):
                     for n in el.notes:
@@ -692,7 +723,7 @@ def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
                             "beat": float(el.beat),
                             "duration_beats": float(el.duration.quarterLength),
                             "articulation": None,
-                            "dynamic": None,
+                            "dynamic": cur_dynamic,
                         })
 
             measures_out.append({
@@ -3103,6 +3134,108 @@ def find_wrong_note_candidates(
     ]
 
 
+# Marked levels on a single ordered scale. Only the ordering matters: dynamics
+# are relative, and "f is louder than p" is the claim we can actually check.
+_DYNAMIC_RANK = {
+    "ppp": 0, "pp": 1, "p": 2, "mp": 3, "mf": 4, "f": 5, "ff": 6, "fff": 7,
+    "sf": 6, "sfz": 6, "fp": 5, "rf": 6, "rfz": 6,
+}
+_DYN_MIN_NOTES   = 4    # notes needed at a level before it can be compared
+_DYN_MIN_DB      = 3.0  # dB between levels below which there is no real contrast
+_DYN_INVERT_DB   = 2.0  # dB the wrong way before calling it inverted
+
+
+def analyze_dynamics_vs_score(aligned: list[dict], score: dict) -> dict:
+    """
+    Check dynamics against the score's own markings.
+
+    Dynamics was the one category with no objective corroboration: events only
+    carried a three-way loudness bucket (which cannot measure contrast — a
+    player with no range and a player with full range produce the same string)
+    and `parse_musicxml` hard-coded every note's dynamic to None. So if Gemini
+    said "no contrast at the piano marking", nothing could check it.
+
+    Two things are checkable and worth stating:
+      contrast — the marked levels are all played at the same volume
+      inverted — a section marked louder is actually played softer
+
+    Deliberately RELATIVE. Absolute dBFS depends on mic distance and gain, so
+    only differences *within one take* mean anything. Returns
+    {"ok": False, "reason": …} when the score carries no usable markings, so
+    the caller reports nothing rather than guessing.
+    """
+    if not aligned:
+        return {"ok": False, "reason": "no aligned events"}
+
+    # measure -> prevailing marking, from the score
+    dyn_by_measure: dict[int, str] = {}
+    for m in score.get("measures", []):
+        num = m.get("number")
+        if not isinstance(num, int):
+            continue
+        for n in m.get("notes", []):
+            d = str(n.get("dynamic") or "").strip().lower()
+            if d in _DYNAMIC_RANK:
+                dyn_by_measure.setdefault(num, d)
+                break
+
+    if len(set(dyn_by_measure.values())) < 2:
+        return {"ok": False, "reason": "score has fewer than two distinct dynamic markings"}
+
+    # Loudness per marked level. One reading per note (DTW is many-to-one), and
+    # only notes loud enough to have been tracked confidently.
+    by_level: dict[str, list[float]] = {}
+    seen_idx: set = set()
+    for ev in aligned:
+        db = ev.get("db")
+        m  = ev.get("measure")
+        if db is None or m is None or ev.get("confidence", 0) < 50:
+            continue
+        si = ev.get("score_idx")
+        if si is not None:
+            if si in seen_idx:
+                continue
+            seen_idx.add(si)
+        lvl = dyn_by_measure.get(m)
+        if lvl:
+            by_level.setdefault(lvl, []).append(float(db))
+
+    usable = {k: v for k, v in by_level.items() if len(v) >= _DYN_MIN_NOTES}
+    if len(usable) < 2:
+        return {"ok": False, "reason": "not enough notes under two different markings"}
+
+    med = {k: sorted(v)[len(v) // 2] for k, v in usable.items()}
+    ranked = sorted(med, key=lambda k: _DYNAMIC_RANK[k])
+    softest, loudest = ranked[0], ranked[-1]
+    spread = med[loudest] - med[softest]
+
+    findings: dict = {"ok": True, "levels": {k: round(v, 1) for k, v in med.items()},
+                      "spread_db": round(spread, 1), "contrast": None, "inverted": []}
+
+    if spread < _DYN_MIN_DB:
+        findings["contrast"] = {
+            "softest": softest, "loudest": loudest,
+            "spread_db": round(spread, 1),
+            "measures": sorted({m for m, d in dyn_by_measure.items() if d in (softest, loudest)}),
+        }
+
+    # Any pair played the wrong way round, not just the extremes.
+    for i in range(len(ranked)):
+        for j in range(i + 1, len(ranked)):
+            lo, hi = ranked[i], ranked[j]
+            if med[lo] - med[hi] >= _DYN_INVERT_DB:
+                findings["inverted"].append({
+                    "quieter_marking": hi, "louder_marking": lo,
+                    "delta_db": round(med[lo] - med[hi], 1),
+                    "measures": sorted({m for m, d in dyn_by_measure.items() if d == hi}),
+                })
+
+    print(f"[dynamics] levels={findings['levels']} spread={spread:.1f}dB "
+          f"contrast={'yes' if findings['contrast'] else 'no'} "
+          f"inverted={len(findings['inverted'])}")
+    return findings
+
+
 def find_crack_candidates(
     aligned: list[dict],
     instrument: str = "",
@@ -3913,6 +4046,7 @@ def compare_and_coach_claude(
     # Add direct CREPE-vs-score wrong note candidates
     wrong_note_candidates = find_wrong_note_candidates(aligned, score, instrument)
     crack_candidates      = find_crack_candidates(aligned, instrument)
+    dynamics_report       = analyze_dynamics_vs_score(aligned, score)
 
     # Objective timing must be computed BEFORE the no-evidence guard below and
     # counted as evidence in its own right. A performance that is in tune, on the
@@ -3960,7 +4094,17 @@ def compare_and_coach_claude(
             "dynamics_issues", "tone_issues", "posture_issues", "technique_issues",
         )
     ))
-    if not strongest and not wrong_note_candidates and not has_gemini_data and not has_timing_data:
+    # This bail-out lists its evidence sources by hand, so every new detector has
+    # to be added here too — otherwise a take whose ONLY problem is that detector
+    # returns nothing at all, because the function exits before the section that
+    # would have reported it. Cracks and dynamics were both silently lost this
+    # way until the coverage diagnostic caught them.
+    _has_dynamics_data = bool(
+        isinstance(dynamics_report, dict) and dynamics_report.get("ok")
+        and (dynamics_report.get("contrast") or dynamics_report.get("inverted"))
+    )
+    if (not strongest and not wrong_note_candidates and not crack_candidates
+            and not _has_dynamics_data and not has_gemini_data and not has_timing_data):
         print("[compare_and_coach_claude] no evidence from CREPE or Gemini; returning no flags")
         return []
 
@@ -4041,6 +4185,15 @@ def compare_and_coach_claude(
         mm = re.search(r'measure (\d+)', cand)
         if mm:
             wrongnote_conf_measures.add(int(mm.group(1)))
+    # Dynamics was Tier A (Gemini believed unconditionally) purely because there
+    # was nothing to check it against. Now there is.
+    dynamics_conf_measures: set[int] = set()
+    if isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
+        if dynamics_report.get("contrast"):
+            dynamics_conf_measures.update(dynamics_report["contrast"]["measures"])
+        for inv in dynamics_report.get("inverted") or []:
+            dynamics_conf_measures.update(inv["measures"])
+
     crack_conf_measures: set[int] = set()
     for cand in crack_candidates:
         mm = re.search(r'measure (\d+)', cand)
@@ -4370,6 +4523,14 @@ def compare_and_coach_claude(
                 conf = m in wrongnote_conf_measures
         elif ftype == "timing":
             conf = m in timing_conf_measures
+        elif ftype == "dynamics":
+            # Only gate when the score actually carries markings to check
+            # against. With no markings we cannot contradict Gemini, so
+            # demanding corroboration would delete real observations.
+            if isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
+                conf = m in dynamics_conf_measures
+            else:
+                conf = True
         else:
             conf = True                          # Tier A — Gemini authoritative
         _add(m, ftype, desc, tsec, conf, timing=timing_gap_ms.get(m),
@@ -4525,6 +4686,29 @@ def compare_and_coach_claude(
             _t = re.search(r't=([\d.]+)s', cand)
             _add(int(mm.group(1)), "error", cand,
                  float(_t.group(1)) if _t else None, confirmed=True)
+
+    # 3c. Measured dynamics: the score's markings vs what was actually played.
+    if isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
+        _con = dynamics_report.get("contrast")
+        if _con:
+            _ms = _con["measures"]
+            _add(min(_ms), "dynamics",
+                 f"the {_con['softest']} and {_con['loudest']} passages come out at "
+                 f"almost the same volume ({_con['spread_db']} dB apart) — the markings "
+                 f"are there but the contrast is not. Play the {_con['softest']} "
+                 f"markedly softer and let the {_con['loudest']} open up",
+                 _t_of(min(_ms)), confirmed=True, is_global=True,
+                 measure_end=max(_ms) if max(_ms) > min(_ms) else None, priority=2)
+        for _inv in (dynamics_report.get("inverted") or [])[:2]:
+            _ms = _inv["measures"]
+            if not _ms:
+                continue
+            _add(min(_ms), "dynamics",
+                 f"the {_inv['quieter_marking']} passage is played "
+                 f"{_inv['delta_db']} dB SOFTER than the {_inv['louder_marking']} "
+                 f"passage — the two are the wrong way round",
+                 _t_of(min(_ms)), confirmed=True,
+                 measure_end=max(_ms) if max(_ms) > min(_ms) else None, priority=2)
 
     # 4. Posture & technique — global visual observations from Gemini.
     # Derive a measure from any timestamp in the text so the flag lands somewhere

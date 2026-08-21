@@ -4085,28 +4085,21 @@ def compare_and_coach_claude(
         )
     )
 
-    crepe_has_data = bool(strongest or wrong_note_candidates or crack_candidates
-                          or has_timing_data)
-    # Gemini is always present — check if it found anything across all categories
-    has_gemini_data = bool(any(
-        gemini_assessment.get(k) for k in (
-            "intonation_issues", "rhythm_issues", "wrong_notes_cracks",
-            "dynamics_issues", "tone_issues", "posture_issues", "technique_issues",
-        )
-    ))
-    # This bail-out lists its evidence sources by hand, so every new detector has
-    # to be added here too — otherwise a take whose ONLY problem is that detector
-    # returns nothing at all, because the function exits before the section that
-    # would have reported it. Cracks and dynamics were both silently lost this
-    # way until the coverage diagnostic caught them.
-    _has_dynamics_data = bool(
-        isinstance(dynamics_report, dict) and dynamics_report.get("ok")
-        and (dynamics_report.get("contrast") or dynamics_report.get("inverted"))
-    )
-    if (not strongest and not wrong_note_candidates and not crack_candidates
-            and not _has_dynamics_data and not has_gemini_data and not has_timing_data):
-        print("[compare_and_coach_claude] no evidence from CREPE or Gemini; returning no flags")
-        return []
+    # `crepe_has_data` and `has_gemini_data` used to live here to feed the early
+    # bail-out. They are gone with it — leaving them would be a standing
+    # invitation to wire a new short-circuit back up to a hand-written list.
+    # NOTE: there is deliberately no early "do we have any evidence?" bail-out
+    # here. There used to be, and it listed its sources by hand — so every new
+    # detector had to be remembered in two places, and a take whose ONLY problem
+    # was a newly added detector returned nothing, because the function exited
+    # before the section that would have reported it. Cracks and dynamics were
+    # both silently swallowed that way.
+    #
+    # The authoritative check is `if not canonical` further down: it runs AFTER
+    # every section has had its say, so it asks what was actually found rather
+    # than what someone remembered to list. Nothing between here and there costs
+    # an API call, so the short-circuit bought nothing anyway. Do not reintroduce
+    # it — add detectors, and the check below picks them up for free.
 
     # If alignment produced no ranges, synthesize from actual event timestamps.
     # Previously used hardcoded start=0 end=30 for every measure, making all Loop

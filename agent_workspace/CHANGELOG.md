@@ -1,5 +1,25 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-21 (fragility) — the evidence bail-out is gone, not just patched
+
+Last commit added cracks and dynamics to `compare_and_coach_claude`'s early
+"do we have any evidence?" return. That fixed the instance and left the cause:
+a hand-written list of evidence sources that every future detector would have to
+be remembered in, with silent deletion of a whole category as the penalty for
+forgetting.
+
+**The bail-out is removed entirely.** The authoritative check is `if not
+canonical:` further down, which runs *after* every section has had its say — it
+asks what was actually found rather than what someone remembered to list.
+Nothing between the two points costs an API call, so the short-circuit bought
+nothing. `crepe_has_data` and `has_gemini_data` are deleted with it so there is
+no scaffolding left to wire a new short-circuit onto.
+
+`diagnose_coverage.py` gains an **ALONE** block: each evidence source is
+exercised in isolation with every other source clean, so a re-introduced
+short-circuit fails loudly there instead of silently deleting a category.
+27/27 behaviours, 121/121 unit checks.
+
 ## 2026-08-21 (dynamics) — the last uncorroborated category is closed
 
 Dynamics was believed on Gemini's word because nothing could check it. Three

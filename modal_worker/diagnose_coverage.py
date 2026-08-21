@@ -282,6 +282,49 @@ def main():
         x["sound_end"] = x["time_sec"] + SPB * 0.3; x["held_sec"] = SPB * 0.3
     negative("correct staccato is silent", e, st)
 
+    # ── every evidence source must survive ALONE ─────────────────────────
+    # The bug this guards against: an early bail-out that listed its evidence
+    # sources by hand, so a take whose ONLY problem was a newly added detector
+    # returned nothing. Each source below is exercised in isolation, with every
+    # other source clean, so a re-introduced short-circuit fails loudly here
+    # instead of silently deleting a whole category.
+    ds = dyn_score()
+
+    def only(name, evs, score, gemini=None, instrument="clarinet"):
+        flags = run(evs, score, gemini, instrument)
+        ROWS.append((f"ALONE: {name}", "some flag", bool(flags),
+                     "returned nothing" if not flags else ""))
+
+    e = perform(sc)
+    for x in e[18:20]:
+        x["midi"] = x["midi_raw"] = x["midi_raw"] + 5
+    only("wrong notes only", e, sc, None, "piano")
+
+    e = perform(sc)
+    sq = next(i for i, x in enumerate(e) if x["time_sec"] >= 12.0)
+    e.insert(sq, {**e[sq], "time_sec": e[sq]["time_sec"] + 0.02,
+                  "end_sec": e[sq]["time_sec"] + 0.14,
+                  "sound_end": e[sq]["time_sec"] + 0.14, "held_sec": 0.12,
+                  "midi": e[sq]["midi"] + 19, "midi_raw": e[sq]["midi_raw"] + 19,
+                  "cents_spread": 70, "confidence": 62})
+    only("cracks only", e, sc)
+
+    only("dynamics only", dyn_perform(ds, -20.0, -19.4), ds)
+
+    e = perform(sc)
+    for x in e[16:20]:
+        x["cents_offset"] = -34
+    only("intonation only", e, sc)
+
+    e = perform(sc)
+    e[13]["sound_end"] = e[13]["time_sec"] + SPB * 0.25
+    e[13]["held_sec"] = SPB * 0.25
+    only("timing only", e, sc)
+
+    g = dict(EMPTY_GEMINI)
+    g["posture_issues"] = ["Shoulders raised."]
+    only("Gemini only", perform(sc), sc, g)
+
     # ── report ──
     width = max(len(r[0]) for r in ROWS) + 2
     print("\n" + "=" * (width + 34))

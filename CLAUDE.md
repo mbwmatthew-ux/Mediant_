@@ -69,3 +69,8 @@ The user's only job on this board is: move items from `Backlog` → `Approved Ta
 - The AI coach chat is specific to a take. It must never ask the user what notes they played — it has the analysis data.
 - Read `agent_workspace/DESIGN_RULES.md` before touching any UI file.
 - Read `agent_workspace/PRODUCT_DECISIONS.md` before adding or changing any feature logic.
+- Before building tooling by hand — parsers, tracers, converters, analysers, image
+  processing — run `npx skills find <task>` and check for an existing skill first.
+  A whole contour-tracing tool got hand-written here before anyone checked, and
+  `image-to-svg` already did it better. Installed skills are listed automatically;
+  this rule is about the ones that are *not* installed yet.

@@ -381,7 +381,12 @@ def looks_like_squeak(ev: dict, flatness_ref: float | None) -> bool | None:
     tracking confidence, or a spectrum noticeably noisier than this take's norm.
     A written leap into the high register fails every one of those.
     """
-    held = ev.get("held_sec")
+    # Brevity is judged on the UNINTERRUPTED span. `held_sec` is deliberately
+    # tolerant of dropouts so the duration analysis measures how long a note
+    # sounded — but a squeak IS dropouts, so held_sec makes one look sustained.
+    held = ev.get("stable_sec")
+    if held is None:
+        held = ev.get("held_sec")
     if held is not None and float(held) > _SQUEAK_MAX_HELD:
         return False           # sustained — a high note, not a squeak
 
@@ -646,8 +651,25 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             # (2 frames = 80 ms at the 40 ms hop) so a real staccato gap still
             # ends the note, and `actual = min(held, gap)` upstream still caps
             # the result at the next onset.
+            #
+            # Two spans are recorded, because two different questions are being
+            # asked of this note and they want opposite answers:
+            #
+            #   held_sec   — "how long did this note SOUND?"  Tolerant, for the
+            #                duration/hold analysis.
+            #   stable_sec — "how long did it hold this pitch UNINTERRUPTED?"
+            #                Strict, for deciding whether the event was brief and
+            #                unstable, i.e. a squeak.
+            #
+            # Using the tolerant span for both silently removed squeak detection:
+            # a squeak is full of dropouts, so riding through them made a 0.12 s
+            # stable burst measure 0.32 s, which fails every "is this brief"
+            # threshold (crack dur <= 0.28, squeak held <= 0.30) and got the
+            # event deleted by the clarinet suppressor as well.
             _rel = _i0
             _bad = 0
+            _stable_end = _i0
+            _stable_open = True
             for _k in range(_i0, n_frames):
                 _ok = conf_np[_k] >= 0.35 and pitch_np[_k] > 0
                 if _ok:
@@ -656,13 +678,19 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 if _ok:
                     _bad = 0
                     _rel = _k
+                    if _stable_open:
+                        _stable_end = _k
                 else:
+                    _stable_open = False        # first interruption ends the
+                                                # UNINTERRUPTED span
                     _bad += 1
                     if _bad > _RELEASE_GAP_FRAMES:
                         break
             _frame_dur = CREPE_HOP / CREPE_SR
-            sound_end = float(frame_times[_rel]) + _frame_dur
-            held_sec  = max(0.0, sound_end - float(event_t))
+            sound_end  = float(frame_times[_rel]) + _frame_dur
+            held_sec   = max(0.0, sound_end - float(event_t))
+            stable_sec = max(0.0, (float(frame_times[_stable_end]) + _frame_dur)
+                             - float(event_t))
 
             # ── Loudness and timbre, over the note's BODY ──────────────────
             # See `note_body_window`: measuring the attack transient put
@@ -708,6 +736,9 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 "end_sec":     float(next_t),
                 "sound_end":   round(sound_end, 3),
                 "held_sec":    round(held_sec, 3),
+                # Longest UNINTERRUPTED span on this pitch — see the release
+                # walk. Squeak brevity is judged on this, not on held_sec.
+                "stable_sec":  round(stable_sec, 3),
                 "pitches":     [midi_to_scientific(midi)],
                 "midi":        midi,       # C2–C7 clamped (display only)
                 "midi_raw":    midi_raw,   # unclamped — used for wrong-note comparison
@@ -3616,7 +3647,9 @@ def find_crack_candidates(aligned: list[dict]) -> list[str]:
         if m is None or midi is None:
             continue
         t   = float(ev["time_sec"])
-        dur = float(ev.get("held_sec") or 0.0)
+        # Uninterrupted span, not the dropout-tolerant one — see
+        # `looks_like_squeak`. A squeak measured by held_sec looks long.
+        dur = float(ev.get("stable_sec") or ev.get("held_sec") or 0.0)
 
         # Reference pitch = the notes around it, so this works whether or not
         # the score matched: a crack stands out against its own neighbours.

@@ -1552,6 +1552,41 @@ def test_ambiguous_instrument_does_not_guess_a_transposition():
     check("common instruments keep their transposition", not bad2, "; ".join(bad2))
 
 
+def test_squeak_survives_the_release_tolerance():
+    print("\n[40] an unstable squeak is still brief for squeak purposes")
+    # `held_sec` answers "how long did this note SOUND", and after the release
+    # walk gained a 2-frame tolerance (so vibrato/slurs stop truncating a held
+    # note) an unstable event rides through its own dropouts and measures LONG.
+    #
+    # Both squeak tests are brevity limits — find_crack_candidates' dur <= 0.28
+    # and looks_like_squeak's 0.30 — so a squeak full of dropouts measured 0.32
+    # and was rejected as "not brief", then deleted by the clarinet suppressor.
+    # `stable_sec` (the strict, contiguous-stable span) is the right measure for
+    # "was this brief and unstable"; held_sec stays the right one for duration.
+    ev = {"time_sec": 3.0, "held_sec": 0.32, "stable_sec": 0.12,
+          "cents_spread": 70, "confidence": 45, "flatness": 0.060}
+    check("an unstable event is judged brief by stable_sec, not held_sec",
+          w.looks_like_squeak(ev, 0.010) is True, str(w.looks_like_squeak(ev, 0.010)))
+
+    # A genuinely SUSTAINED note is still not a squeak — the tolerance must not
+    # become a way for long notes to be called cracks.
+    sustained = {"time_sec": 3.0, "held_sec": 1.20, "stable_sec": 1.15,
+                 "cents_spread": 70, "confidence": 45, "flatness": 0.060}
+    check("a sustained note is still not a squeak",
+          w.looks_like_squeak(sustained, 0.010) is False)
+
+    # And the crack detector must see it through the full path.
+    line = [{"measure": 20, "time_sec": i * 0.5, "midi_raw": 60, "midi": 60,
+             "held_sec": 0.45, "stable_sec": 0.45, "cents_spread": 6,
+             "confidence": 95, "flatness": 0.010} for i in range(8)]
+    line[4].update({"midi_raw": 79, "midi": 79, "held_sec": 0.32,
+                    "stable_sec": 0.12, "cents_spread": 70,
+                    "confidence": 45, "flatness": 0.060})
+    got = w.find_crack_candidates(line)
+    check("the crack detector reports it", len(got) == 1 and "measure 20" in got[0],
+          str(got))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1588,7 +1623,8 @@ def main():
               test_flat_key_score_survives_the_whole_pipeline,
               test_rhythm_corroboration_needs_real_signal,
               test_compound_articulation_is_short_by_design,
-              test_ambiguous_instrument_does_not_guess_a_transposition):
+              test_ambiguous_instrument_does_not_guess_a_transposition,
+              test_squeak_survives_the_release_tolerance):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

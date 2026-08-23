@@ -1,10 +1,23 @@
 name: Deploy Modal Worker
 
+# REQUIRES two repository secrets:
+#   MODAL_TOKEN_ID       from `modal token new` (or modal.com -> Settings -> API Tokens)
+#   MODAL_TOKEN_SECRET
+# Set them at: Settings -> Secrets and variables -> Actions -> New repository secret.
+#
+# Without them `modal deploy` fails with "Token missing. Could not authenticate
+# client." — which is easy to miss, because the workflow only runs when
+# modal_worker/** changes and nothing else reports that the worker is stale.
+# Every run failed for months while main moved on, so production stayed on a
+# hand-deployed build and none of the analysis fixes reached a single user.
+# The preflight step below exists so that failure names itself.
+
 on:
   push:
     branches: [main]
     paths:
       - 'modal_worker/**'
+  workflow_dispatch:        # so a stale worker can be redeployed without a code change
 
 jobs:
   deploy:
@@ -12,12 +25,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check deploy credentials are configured
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          missing=""
+          [ -z "$MODAL_TOKEN_ID" ]     && missing="$missing MODAL_TOKEN_ID"
+          [ -z "$MODAL_TOKEN_SECRET" ] && missing="$missing MODAL_TOKEN_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error title=Modal deploy is not configured::Missing repository secret(s):$missing"
+            echo ""
+            echo "The analysis worker CANNOT deploy without these, so main will keep"
+            echo "moving while production stays on whatever was last deployed by hand."
+            echo ""
+            echo "Fix: run 'modal token new' locally, then add both values at"
+            echo "Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          echo "Modal credentials present."
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install Modal
         run: pip install modal
+
+      # Cheap guard: the worker is a single large module, and a syntax error or a
+      # name that does not exist would otherwise only surface at deploy time.
+      - name: Sanity-check the worker compiles
+        run: python -m py_compile modal_worker/worker.py
 
       - name: Deploy worker
         run: modal deploy modal_worker/worker.py

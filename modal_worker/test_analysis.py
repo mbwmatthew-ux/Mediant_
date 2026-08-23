@@ -1381,6 +1381,177 @@ def test_a_grid_that_does_not_fit_produces_no_timing_flags():
           str(rep.get("reason") if isinstance(rep, dict) else rep))
 
 
+# A flat-key scale written the way music21 spells it: "-" for a flat, NOT "b".
+# `parse_musicxml` emits `el.pitch.nameWithOctave`, so these are the exact
+# strings the real pipeline receives from a MusicXML score. Every other fixture
+# in this file is naturals-only, which is precisely why a parser that turned
+# every flat into a large negative MIDI number passed 121/121 for months.
+FLAT_SCALE = ["B-3", "C4", "D4", "E-4", "F4", "G4", "A-4", "B-4"]
+
+
+def make_flat_score():
+    return {"time_signature": "3/4", "measures": [
+        {"number": n, "notes": [
+            {"pitch": FLAT_SCALE[(n * 3 + b) % 8], "beat": float(b + 1),
+             "duration_beats": 1.0}
+            for b in range(BEATS_PER_MEASURE)]}
+        for n in MEASURE_NUMBERS]}
+
+
+def test_flat_key_score_survives_the_whole_pipeline():
+    print("\n[36] a flat-key score (music21 '-' spelling) works end to end")
+    score = make_flat_score()
+
+    # 1. Every pitch parses to a sane instrument-range MIDI number.
+    midis = [w.midi_from_name(n["pitch"])
+             for m in score["measures"] for n in m["notes"]]
+    check("no pitch parses to a negative/absurd MIDI",
+          all(m is not None and 21 <= m <= 108 for m in midis),
+          f"min={min(m for m in midis if m is not None)}")
+
+    # 2. A correct performance of it aligns to the right measures.
+    played = [m for m in score["measures"] if START <= m["number"] <= END]
+    evs = []
+    for mi, m in enumerate(played):
+        for bi, note in enumerate(m["notes"]):
+            t = (mi * BEATS_PER_MEASURE + bi) * SEC_PER_BEAT
+            evs.append({"time_sec": t, "end_sec": t + SEC_PER_BEAT,
+                        "pitches": [note["pitch"]], "confidence": 90,
+                        "cents_offset": 0, "cents_spread": 8,
+                        "held_sec": 0.45, "sound_end": t + 0.45,
+                        "loudness": "medium", "_truth": m["number"],
+                        "midi_raw": w.midi_from_name(note["pitch"])})
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    wrong_label = [(e["_truth"], e.get("measure")) for e in aligned
+                   if "_truth" in e and e.get("measure") != e["_truth"]]
+    check("DTW labels every note with its true measure", not wrong_label,
+          str(wrong_label[:4]))
+
+    # 3. A correct performance of a flat-key piece reports NO wrong notes.
+    #    This is the end-to-end symptom the user reported.
+    cands = w.find_wrong_note_candidates(aligned, score, "flute")
+    check("a correctly played flat-key passage reports no wrong notes",
+          not cands, str(cands[:3])[:200])
+
+    # 4. And a genuinely wrong note in that passage is still caught, so the
+    #    check above is not passing because the detector is inert.
+    bad = [dict(e) for e in aligned]
+    _bar = sorted((e for e in bad if e["measure"] == 27), key=lambda e: e["time_sec"])
+    _bar[1]["midi_raw"] = (_bar[1]["midi_raw"] or 60) + 6   # a tritone off
+    _bar[1]["pitches"] = [w.midi_to_scientific(_bar[1]["midi_raw"])]
+    cands2 = w.find_wrong_note_candidates(bad, score, "flute")
+    check("a real wrong note in the same passage IS caught", bool(cands2),
+          str(cands2[:2])[:160])
+
+    # The printed distance must match the note that is printed beside it. This
+    # is arithmetic the student can check against the page, and it was wrong:
+    # "detected G#4 ... score has D4 (5 semitones away)" — G#4 to D4 is 6.
+    bad_math = []
+    for c in cands2:
+        mm = re.search(r"detected ([A-G][#b\-]?\d).*score has ([A-G][#b\-]?\d) "
+                       r"\((\d+) semitones away\)", c)
+        if not mm:
+            continue
+        played, expected, stated = (w.midi_from_name(mm.group(1)),
+                                    w.midi_from_name(mm.group(2)),
+                                    int(mm.group(3)))
+        if played is None or expected is None or abs(played - expected) != stated:
+            bad_math.append(f"{mm.group(1)}->{mm.group(2)} says {stated}, "
+                            f"really {abs((played or 0) - (expected or 0))}")
+    check("the stated semitone distance matches the named notes", not bad_math,
+          "; ".join(bad_math[:3]))
+
+
+def test_rhythm_corroboration_needs_real_signal():
+    print("\n[37] a Gemini rhythm claim is corroborated only by real unevenness")
+
+    def take(shift_ms):
+        """Swing alternate notes of m.27 by `shift_ms`."""
+        score = make_score()
+        _p, evs = make_performance(score)
+        for i, e in enumerate(evs):
+            m_idx = int(e["time_sec"] / (SEC_PER_BEAT * BEATS_PER_MEASURE))
+            if m_idx == 7 and i % 2 == 1:          # m.27 (START=20 + 7)
+                e["time_sec"] += shift_ms / 1000.0
+                e["end_sec"] += shift_ms / 1000.0
+        aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE,
+                                       end_measure=END)
+        gem = dict(EMPTY_GEMINI)
+        gem["rhythm_issues"] = [{"measure": 27, "description": "Eighths uneven.",
+                                 "time": "0:11"}]   # m.27 spans 10.5-12.0s
+        return run_pipeline(score, aligned, gem)
+
+    # Real unevenness — clearly above the onset noise floor.
+    loud = [f for f in take(75) if f.get("type") == "timing"]
+    check("a 75 ms swing IS corroborated", bool(loud),
+          f"flags={[(f.get('measure'), f.get('type')) for f in take(75)][:4]}")
+
+    # Noise-level jitter: 23 ms onset grid, 50 ms dedupe. Nothing here is
+    # measurable, so Gemini saying so must NOT be treated as confirmed fact.
+    quiet = [f for f in take(20) if f.get("type") == "timing"]
+    check("a 20 ms jitter is NOT corroborated", not quiet,
+          f"flags={[(f.get('measure'), f.get('type')) for f in quiet][:4]}")
+
+
+def test_compound_articulation_is_short_by_design():
+    print("\n[38] a note marked accent+staccato is not called 'too short'")
+    # parse_musicxml used to read only `el.articulations[0]` and recognise only
+    # three classes, so accent+staccato reported "accent" and lost the staccato.
+    # It now joins ALL articulation class names, e.g. "accent/staccato".
+    # The duration check's exemption list also tested for "marcato"/"wedge"/
+    # "portato", which that parser could never emit — dead strings that read as
+    # coverage.
+    for artic in ("accent/staccato", "staccatissimo", "marcato", "accent/spiccato"):
+        score = make_score()
+        for m in score["measures"]:
+            for n in m["notes"]:
+                n["articulation"] = artic
+        _p, evs = make_performance(score)
+        for e in evs:                       # play everything crisply short
+            e["held_sec"] = 0.10
+            e["sound_end"] = e["time_sec"] + 0.10
+        aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE,
+                                       end_measure=END)
+        rep = w.analyze_timing_vs_score(aligned, score, BEATS_PER_MEASURE)
+        durs = (rep or {}).get("durations") or {}
+        short = {m: d for m, d in durs.items() if d.get("direction") == "short"}
+        check(f"{artic!r} is exempt from the 'too short' reading", not short,
+              str(list(short.items())[:2])[:120])
+
+    # A note with NO short-by-design marking played that short IS still caught,
+    # so the exemption is not simply switching the detector off.
+    score = make_score()
+    _p, evs = make_performance(score)
+    for e in evs:
+        e["held_sec"] = 0.10
+        e["sound_end"] = e["time_sec"] + 0.10
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    rep = w.analyze_timing_vs_score(aligned, score, BEATS_PER_MEASURE)
+    durs = (rep or {}).get("durations") or {}
+    check("an unmarked note played that short IS still flagged",
+          any(d.get("direction") == "short" for d in durs.values()),
+          str(list(durs.items())[:1])[:120])
+
+
+def test_ambiguous_instrument_does_not_guess_a_transposition():
+    print("\n[39] an ambiguous instrument name yields no declared transposition")
+    # The profile instrument list offers a plain "Saxophone". It used to resolve
+    # to -9 (alto), so a tenor player (-14) choosing it got a 5-semitone error on
+    # every note — a whole score of wrong-note flags on correct playing. With no
+    # entry, `declared` is None and the measured offset is used instead.
+    check("bare 'Saxophone' declares nothing", w.transpose_for_instrument("Saxophone") is None)
+    exact = {"Alto Saxophone": -9, "Tenor Saxophone": -14,
+             "Baritone Saxophone": -21, "Soprano Saxophone": -2}
+    bad = [f"{k}->{w.transpose_for_instrument(k)}" for k, v in exact.items()
+           if w.transpose_for_instrument(k) != v]
+    check("named saxophones still resolve exactly", not bad, "; ".join(bad))
+    # Unambiguous defaults must not regress.
+    common = {"Clarinet": -2, "clarinet (b♭)": -2, "Flute": 0, "Trumpet": -2}
+    bad2 = [f"{k}->{w.transpose_for_instrument(k)}" for k, v in common.items()
+            if w.transpose_for_instrument(k) != v]
+    check("common instruments keep their transposition", not bad2, "; ".join(bad2))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1413,7 +1584,11 @@ def main():
               test_median_is_not_biased_upward,
               test_squeaks_are_never_reported_as_wrong_notes,
               test_no_flag_ever_asserts_a_rest,
-              test_a_grid_that_does_not_fit_produces_no_timing_flags):
+              test_a_grid_that_does_not_fit_produces_no_timing_flags,
+              test_flat_key_score_survives_the_whole_pipeline,
+              test_rhythm_corroboration_needs_real_signal,
+              test_compound_articulation_is_short_by_design,
+              test_ambiguous_instrument_does_not_guess_a_transposition):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

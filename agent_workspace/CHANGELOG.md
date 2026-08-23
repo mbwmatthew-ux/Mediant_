@@ -1,5 +1,94 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-23 (accuracy, part 2) — the rest of the backlog
+
+**Rhythm corroboration, resolved.** The previous attempt was abandoned because an
+isolating probe contradicted a bisect. The contradiction was in the
+instrumentation: `diagnose_coverage.py` calls `compare_and_coach_claude` ~24
+times and 13 of those runs legitimately have all-zero residuals — the probe had
+sampled the wrong invocation. The real profile of the swung bar is
+`[0, 75, 0, 75]`.
+
+That number settles the design. A bar's median deviation is 37.5 ms there, below
+any defensible floor — but "the eighths are uneven" IS alternating displacement,
+so the median is the wrong statistic for it. Corroboration now takes the larger
+of the bar's median deviation (for "this bar is behind the beat") and its
+note-to-note roughness (for "this bar is uneven"), both against a tempo-scaled
+floor of 70 ms / 12% of a beat — above the pipeline's own onset noise, where 55 ms
+sat. A 75 ms swing confirms; a 20 ms jitter does not. Both directions are pinned
+by test.
+
+**`midi_from_name` distance vs the note it names.** `dist` was the minimum over
+the whole measure's pitch set while `expected` was the DTW-matched note, so flags
+printed arithmetic a student can check and find wrong — "detected G#4, score has
+D4 (5 semitones away)"; it is 6. Gate on the set, report against the named note.
+
+**Articulation.** Only `el.articulations[0]` was read and only three classes
+recognised, so accent+staccato reported "accent" and lost the staccato — the
+duration check then judged a deliberately short note against its full value. All
+articulations are now joined from music21's own class names. The exemption list
+also tested for "marcato"/"wedge"/"portato", which that parser could never emit:
+three dead strings that read as coverage.
+
+**Part selection.** `parse_musicxml` took the first part with notes. On a full
+score or piano+solo PDF the entire comparison could run against another player's
+line with nothing in the output to explain it. It now matches the student's
+declared instrument against part names and instrument labels, warns loudly when
+several parts exist and none match, and falls back to the old behaviour.
+
+**Release detection.** The walk stopped at the first bad CREPE frame, so any
+mid-note confidence dip — vibrato, a slur, a scoop, a bow change — truncated
+`held_sec` and biased the duration ratio toward "you clipped this short". It now
+tolerates a brief interruption (2 frames / 80 ms) and stops only on a sustained
+one.
+
+**Drift reference.** Fitted from the opening ~8 notes, with a sound musical
+rationale (rushing means departing from the tempo you set). But a rubato or
+fermata'd opening made that reference meaningless and then flagged the entire
+rest of the piece at a 7% threshold. The opening is now checked for coherence
+with the same roughness statistic as the main fit, falling back to the piece-wide
+fit when the opening is not a tempo at all.
+
+**Ambiguous instrument names.** The profile list offers a plain "Saxophone",
+which resolved to -9 — alto. A tenor player (-14) choosing it got a 5-semitone
+error on every note: a whole score of wrong-note flags on correct playing. The
+bare entry is removed so `declared` is None and the measured offset is used,
+which is right far more often than a guess between four instruments a fifth
+apart.
+
+**Dead code deleted** — `build_gemini_block`, `_cross_check_gemini_tier_b`,
+`_group_similar_flags`, `_UNCONFIRMED_MULT` and the unreachable
+grouped/occurrences branch of `_flag_penalty`. 108 net lines. These were the
+best-commented description of tier gating in the file while having no callers,
+and had already produced one confidently wrong account of how the pipeline works.
+
+**Dropped findings are now recorded.** The confirmed-only filter deleted every
+`confirmed=False` row before anything was written, which made the standing plan
+to tune corroboration thresholds from accumulated data impossible by
+construction — the query could only ever return 100% confirmed. They now go to
+`pipeline_debug`. Not shown to the student.
+
+**Repeats: detected, not expanded.** A repeated strain appears once in the note
+list but twice in the audio, so DTW folds ~2x the events onto the written notes
+and everything after the repeat is offset. Expanding is viable — verified that
+music21's `expandRepeats()` preserves printed measure numbers (1,2,3,4 with a
+repeat over 1-2 becomes 1,2,1,2,3,4) — but a measure number then appears twice at
+different times, which the measure timeline and Loop windows assume cannot
+happen. Detected and warned rather than silently producing confident nonsense;
+full expansion is in Backlog with the design recorded.
+
+**Test fixtures gained accidentals.** Every fixture pitch was a natural, which is
+why a parser destroying every flat passed 121/121 for months. There is now a
+flat-key score in music21's own "-" spelling exercised end to end: parse, DTW
+labelling, no false wrong notes, and a real wrong note still caught.
+
+Deliberately NOT changed: the placement 2-note tempo-sanity bypass and the
+`_spread` admission rule. Both are threshold judgements, not unambiguous defects,
+and adjusting them without real-take data is how the first two attempts at the
+rhythm gate went wrong.
+
+171/171 unit checks, 28/28 coverage behaviours. Every fix red-green verified.
+
 ## 2026-08-23 (accuracy) — flats parsed as negative octaves, and five more
 
 Three reported symptoms — phantom rests, wrong-note false positives, bad

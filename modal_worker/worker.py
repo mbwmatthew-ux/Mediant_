@@ -346,6 +346,12 @@ _SQUEAK_SPREAD   = 25      # cents of pitch instability within the note
 _SQUEAK_CONF     = 70      # CREPE periodicity below this = not a clean pitch
 _SQUEAK_FLATNESS = 2.0     # x the take's median flatness = noticeably noisier
 
+# How many consecutive bad CREPE frames may occur inside a note before the walk
+# calls it released. 2 frames = 80 ms at the 40 ms hop — long enough to ride out
+# vibrato, a slur, or a scoop, short enough that a real staccato gap still ends
+# the note.
+_RELEASE_GAP_FRAMES = 2
+
 
 def take_flatness_median(events: list[dict]) -> float | None:
     """
@@ -629,14 +635,31 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             # This runs BEFORE loudness and timbre because both now need to know
             # where the note actually ends.
             _i0 = int(np.searchsorted(frame_times, event_t))
+            # The walk tolerates a BRIEF interruption rather than stopping at the
+            # first bad frame. CREPE's confidence dips mid-note for entirely
+            # normal reasons — vibrato, a slur or tongued repeat, a scoop into
+            # pitch, a bow change — and stopping there truncated `held_sec`,
+            # which biases the duration ratio downward and manufactures "you
+            # clipped this note short" on notes that were held correctly.
+            #
+            # Only a SUSTAINED interruption is a release. The tolerance is short
+            # (2 frames = 80 ms at the 40 ms hop) so a real staccato gap still
+            # ends the note, and `actual = min(held, gap)` upstream still caps
+            # the result at the next onset.
             _rel = _i0
+            _bad = 0
             for _k in range(_i0, n_frames):
-                if conf_np[_k] < 0.35 or pitch_np[_k] <= 0:
-                    break
-                _mf = 12.0 * np.log2(pitch_np[_k] / 440.0) + 69.0
-                if abs(_mf - midi_float) > 1.0:
-                    break
-                _rel = _k
+                _ok = conf_np[_k] >= 0.35 and pitch_np[_k] > 0
+                if _ok:
+                    _mf = 12.0 * np.log2(pitch_np[_k] / 440.0) + 69.0
+                    _ok = abs(_mf - midi_float) <= 1.0
+                if _ok:
+                    _bad = 0
+                    _rel = _k
+                else:
+                    _bad += 1
+                    if _bad > _RELEASE_GAP_FRAMES:
+                        break
             _frame_dur = CREPE_HOP / CREPE_SR
             sound_end = float(frame_times[_rel]) + _frame_dur
             held_sec  = max(0.0, sound_end - float(event_t))
@@ -815,12 +838,12 @@ def run_beat_tracking(wav_bytes: bytes, estimated_bpm: float | None = None) -> d
         os.unlink(wav_path)
 
 
-def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
+def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "") -> dict:
     """
     Parse MusicXML with music21 into structured score data.
     Returns ScoreResult dict.
     """
-    import tempfile, os
+    import tempfile, os, re
     import music21 as m21
 
     with tempfile.NamedTemporaryFile(suffix=".musicxml", delete=False) as f:
@@ -834,7 +857,44 @@ def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
         if not parts:
             return {"error": "no parts found in score"}
 
-        source_part = next((p for p in parts if len(p.flatten().notes) > 0), parts[0])
+        # Pick the part the STUDENT played, not merely the first one with notes.
+        #
+        # A full score, or a piano+solo PDF, has several parts; taking the first
+        # meant the entire comparison could run against a different line, and
+        # every note would then look wrong for a reason nothing in the output
+        # could explain. The student's declared instrument is the only signal
+        # available here, so match on it and fall back to the old behaviour.
+        _playable = [p for p in parts if len(p.flatten().notes) > 0] or list(parts)
+        source_part = _playable[0]
+        _want = (instrument or "").strip().lower()
+        if _want and len(_playable) > 1:
+            # Strip qualifiers so "clarinet (b♭)" matches a part named "Clarinet
+            # in B-flat", and compare on the significant word.
+            _key = re.sub(r"[^a-z ]", " ", _want).split()
+            _key = [k for k in _key if len(k) > 2] or [_want]
+            _named = []
+            for p in _playable:
+                _labels = [str(getattr(p, "partName", "") or ""),
+                           str(getattr(p, "partAbbreviation", "") or "")]
+                try:
+                    for _ins in p.getInstruments(recurse=True):
+                        _labels.append(str(getattr(_ins, "instrumentName", "") or ""))
+                except Exception:
+                    pass
+                _blob = " ".join(_labels).lower()
+                _score = sum(1 for k in _key if k in _blob)
+                if _score:
+                    _named.append((_score, len(p.flatten().notes), p))
+            if _named:
+                _named.sort(key=lambda t: (-t[0], -t[1]))
+                source_part = _named[0][2]
+                print(f"[parse_musicxml] matched part "
+                      f"{str(getattr(source_part, 'partName', '') or '?')!r} "
+                      f"to instrument {instrument!r} ({len(_playable)} parts in score)")
+            elif len(_playable) > 1:
+                print(f"[parse_musicxml] WARNING: {len(_playable)} parts and none "
+                      f"matched instrument {instrument!r} — using the first, which "
+                      f"may be a different line than the student played")
         part = source_part.flatten()
 
         key_sig = None
@@ -850,6 +910,22 @@ def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
                 time_sig_str = el.ratioString
             elif isinstance(el, m21.tempo.MetronomeMark) and tempo_marking is None:
                 tempo_marking = str(el)
+
+        # Repeat barlines and DC/DS jumps mean the audio contains passages the
+        # note list does not — see the note on `has_repeats` in the return value.
+        has_repeats = False
+        try:
+            for _el in source_part.recurse():
+                if isinstance(_el, m21.bar.Repeat) or isinstance(
+                        _el, getattr(m21.repeat, "RepeatExpression", ())):
+                    has_repeats = True
+                    break
+        except Exception:
+            has_repeats = False
+        if has_repeats:
+            print("[parse_musicxml] WARNING: score contains repeats and they are "
+                  "NOT expanded — if the student played them, every measure after "
+                  "the first repeat may be misaligned")
 
         measures_out = []
         measure_elements = source_part.getElementsByClass(m21.stream.Measure)
@@ -885,12 +961,21 @@ def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
                     # feedback is the trustworthy core of the product.
                     continue
                 elif isinstance(el, m21.note.Note):
-                    artic = None
-                    if el.articulations:
-                        a = el.articulations[0]
-                        if isinstance(a, m21.articulations.Staccato): artic = "staccato"
-                        elif isinstance(a, m21.articulations.Tenuto): artic = "tenuto"
-                        elif isinstance(a, m21.articulations.Accent): artic = "accent"
+                    # ALL articulations, not just the first.
+                    #
+                    # Only `el.articulations[0]` used to be read, and only three
+                    # classes were recognised — so a note marked accent+staccato
+                    # reported "accent" and lost the staccato. The duration check
+                    # then judged a deliberately short note against its full
+                    # written value and called it clipped.
+                    #
+                    # It also tested for "marcato", "wedge" and "portato", which
+                    # this parser could never produce: dead strings that read as
+                    # coverage. music21's class name is used directly so the
+                    # vocabulary cannot drift out of sync again.
+                    artic = "/".join(sorted({
+                        type(a).__name__.lower() for a in (el.articulations or [])
+                    })) or None
 
                     notes_out.append({
                         "pitch": el.pitch.nameWithOctave,
@@ -925,6 +1010,19 @@ def parse_musicxml(score_bytes: bytes, start_measure: int) -> dict:
             "tempo_marking": tempo_marking,
             "measures": measures_out,
             "source": "music21",
+            # Repeats are NOT expanded. A repeated strain appears once here but
+            # twice in the audio, so DTW must fold roughly 2x the events onto the
+            # written notes and everything after the repeat is systematically
+            # offset — which surfaces as wrong notes and bad timing with nothing
+            # in the output to explain it.
+            #
+            # Expanding is the real fix and is viable (music21's expandRepeats()
+            # preserves the printed measure numbers — verified: 1,2,3,4 with a
+            # repeat over 1-2 becomes 1,2,1,2,3,4), but a measure number then
+            # appears twice at different times, which the measure timeline and
+            # Loop windows assume cannot happen. Detect and report it rather than
+            # silently producing confident nonsense.
+            "has_repeats": has_repeats,
         }
 
     except Exception as e:
@@ -948,13 +1046,13 @@ def extract_musicxml_from_mxl(mxl_bytes: bytes) -> bytes | None:
         return zf.read(xml_files[0])
 
 
-def parse_score_document(score_bytes: bytes, start_measure: int) -> dict:
+def parse_score_document(score_bytes: bytes, start_measure: int, instrument: str = "") -> dict:
     if score_bytes[:4] == b"PK\x03\x04":
         extracted = extract_musicxml_from_mxl(score_bytes)
         if not extracted:
             return {"error": "MXL archive had no MusicXML payload", "measures": [], "source": "music21"}
         score_bytes = extracted
-    return parse_musicxml(score_bytes, start_measure)
+    return parse_musicxml(score_bytes, start_measure, instrument)
 
 
 def find_exported_musicxml(output_dir: str) -> str | None:
@@ -1373,6 +1471,13 @@ _TIMING_DUR_MIN_MS       = 140.0  # ignore duration errors smaller than this
 # figure would be far too strict at slow tempi and far too loose at fast ones.
 _TIMING_FIT_MAX_MAD_MS   = 90.0
 _TIMING_FIT_MAX_MAD_FRAC = 0.18
+# Floor for corroborating a Gemini rhythm claim from CREPE residuals. Must sit
+# ABOVE this pipeline's own onset noise — a 23 ms librosa onset grid, 50 ms
+# candidate dedupe, and synthetic probes injected every 350 ms inside sustained
+# notes — or the gate confirms anything. The previous value, 55 ms, sat inside
+# that noise. Tempo-scaled so it means the same thing at any speed.
+_TIMING_RHYTHM_CONF_MS   = 70.0
+_TIMING_RHYTHM_CONF_FRAC = 0.12
 
 
 def _robust_linear_fit(xs: list[float], ys: list[float]) -> tuple[float, float, list[float]] | None:
@@ -1602,10 +1707,26 @@ def analyze_timing_vs_score(
         ref_pts.extend(per_measure_pairs[m])
         if len(ref_pts) >= max(2 * _TIMING_DRIFT_MIN_NOTES, bpm_measure * 2):
             break
+    # …but the opening is only an honest reference if the opening was STEADY.
+    # A rubato or fermata'd first phrase makes `ref_spb` meaningless, and since
+    # every later measure is then compared against it at a 7% threshold, one
+    # expressive opening turns the whole piece into "rushing" or "dragging".
+    # Check the opening's own coherence and fall back to the piece fit when it
+    # is not a tempo at all — same roughness statistic as the main fit gate.
     ref_spb = spb
     ref_fit = _robust_linear_fit([p[0] for p in ref_pts], [p[1] for p in ref_pts]) if len(ref_pts) >= 3 else None
     if ref_fit and _TIMING_MIN_SPB <= ref_fit[1] <= _TIMING_MAX_SPB:
-        ref_spb = ref_fit[1]
+        _ref_resid = ref_fit[2]
+        _ref_rough = (median([abs(_ref_resid[i] - _ref_resid[i - 1])
+                              for i in range(1, len(_ref_resid))]) or 0.0) * 1000.0
+        _ref_limit = max(_TIMING_FIT_MAX_MAD_MS,
+                         _TIMING_FIT_MAX_MAD_FRAC * ref_fit[1] * 1000.0)
+        if _ref_rough <= _ref_limit:
+            ref_spb = ref_fit[1]
+        else:
+            print(f"[timing] opening is not steady enough to be the tempo "
+                  f"reference (roughness {_ref_rough:.0f} ms) — using the "
+                  f"piece-wide fit instead")
 
     drift: dict[int, dict] = {}
     for m, local_spb in local_spb_by_measure.items():
@@ -1751,9 +1872,16 @@ def analyze_timing_vs_score(
         # Staccato and rests are written short on purpose. A staccato quarter
         # sounds a fraction of its value and that is correct playing, so a
         # "too short" reading there would be a fabricated error.
+        # Substrings, matched against music21's own class names (see
+        # parse_musicxml): "stacc" covers Staccato and Staccatissimo, "spicc"
+        # Spiccato, "marc" Marcato, "stopped"/"wedge" the wedge family. The list
+        # previously contained "wedge" and "portato" while the parser emitted
+        # only "staccato"/"tenuto"/"accent" — three dead strings that looked
+        # like coverage and matched nothing.
         _artic = (sn.get("artic") or "").lower()
-        _short_by_design = ("stacc" in _artic or "marcato" in _artic
-                            or "wedge" in _artic or "portato" in _artic)
+        _short_by_design = any(k in _artic for k in
+                               ("stacc", "spicc", "marc", "wedge", "portato",
+                                "detach", "martele", "martelé"))
 
         ratio = actual / expected
         delta_ms = (actual - expected) * 1000.0
@@ -2160,7 +2288,7 @@ def analyze(body: dict) -> dict:
             print(f"[analyze] score kind: {score_kind}")
             if score_kind in ("xml", "mxl"):
                 print("[analyze] parsing structured MusicXML/MXL score")
-                score_result = parse_score_document(score_bytes, start_measure)
+                score_result = parse_score_document(score_bytes, start_measure, instrument)
             elif score_kind == "visual":
                 # Audiveris OMR disabled — takes 60-120s and produces noisy output.
                 # Visual scores are read by Claude vision in run_full_analysis instead.
@@ -3006,152 +3134,9 @@ def anchor_and_align_py(
     return aligned, sec_per_measure, alignment_ranges
 
 
-def build_gemini_block(assessment: dict) -> str:
-    """
-    Format Gemini's assessment for the Claude coaching prompt.
-    Tier B items (intonation/rhythm/wrong-notes) that were not corroborated
-    by CREPE signal analysis are labelled [UNCONFIRMED] so Claude uses
-    appropriately hedged language for them.
-    """
-    def fmt_structured(items: list) -> str:
-        if not items: return "None reported."
-        parts = []
-        for x in items:
-            if isinstance(x, dict):
-                m   = x.get("measure", "?")
-                t   = x.get("time", "")
-                d   = x.get("description", "")
-                loc = f"m.{m}" + (f" ({t})" if t else "")
-                confirmed = x.get("_confirmed", True)  # Tier A items always True
-                if confirmed:
-                    parts.append(f"{loc}: {d}")
-                else:
-                    note = x.get("_crepe_note", "not corroborated by signal analysis")
-                    parts.append(f"[UNCONFIRMED — {note}] {loc}: {d}")
-            else:
-                parts.append(str(x))
-        return " | ".join(parts)
-    def fmt_plain(items: list) -> str:
-        if not items: return "None reported."
-        return " | ".join(str(x) for x in items)
-    lines = [
-        "GEMINI ANALYSIS (Gemini compared the sheet music + recording simultaneously):",
-        f"- Intonation: {fmt_structured(assessment.get('intonation_issues', []))}",
-        f"- Rhythm/Timing: {fmt_structured(assessment.get('rhythm_issues', []))}",
-        f"- Wrong notes / cracks: {fmt_structured(assessment.get('wrong_notes_cracks', []))}",
-        f"- Dynamics: {fmt_structured(assessment.get('dynamics_issues', []))}",
-        f"- Tone quality: {fmt_structured(assessment.get('tone_issues', []))}",
-        f"- Posture (visual): {fmt_plain(assessment.get('posture_issues', []))}",
-        f"- Technique (visual): {fmt_plain(assessment.get('technique_issues', []))}",
-        f"- Overall: {assessment.get('overall') or 'No overall note.'}",
-    ]
-    return "\n".join(lines)
-
-
 def _safe_measure_int(val) -> int | None:
     try: return int(val)
     except (TypeError, ValueError): return None
-
-
-def _cross_check_gemini_tier_b(
-    assessment: dict,
-    events_by_measure: dict,
-    wrong_note_candidates: list,
-    evidence_candidates: list,
-    cents_threshold: int,
-) -> dict:
-    """
-    Annotate Tier B Gemini items (intonation, rhythm, wrong-notes) with
-    _confirmed=True|False and _crepe_note=<reason string>.
-
-    Tier A items (tone, dynamics, posture, technique) are left unchanged —
-    Gemini is the primary (often only) source for those categories.
-
-    Returns a shallow copy of the assessment with Tier B items annotated.
-    """
-    import re as _re, copy
-
-    annotated = dict(assessment)  # shallow — we'll replace each list
-
-    # Build measure sets from CREPE evidence strings
-    inton_measures: set[int] = set()
-    timing_measures: set[int] = set()
-    for cand in evidence_candidates:
-        m_match = _re.search(r'measure (\d+)', cand)
-        if not m_match: continue
-        m = int(m_match.group(1))
-        if cand.startswith("intonation |"):
-            inton_measures.add(m)
-        elif cand.startswith("timing |"):
-            timing_measures.add(m)
-
-    wrong_note_measures: set[int] = set()
-    for cand in wrong_note_candidates:
-        m_match = _re.search(r'measure (\d+)', cand)
-        if m_match:
-            wrong_note_measures.add(int(m_match.group(1)))
-
-    def _check(item: dict, ftype: str) -> tuple[bool, str]:
-        if not isinstance(item, dict):
-            return True, ""
-        m = _safe_measure_int(item.get("measure"))
-        if m is None:
-            return True, "measure unparseable — keeping"
-        ev_list = events_by_measure.get(m, [])
-        n_events = len(ev_list)
-
-        if ftype == "intonation":
-            if m in inton_measures:
-                return True, f"CREPE detected deviation at m.{m}"
-            # Also check raw event cents directly (catches cases not in evidence_candidates)
-            has_dev = any(
-                ev.get("cents_offset") is not None
-                and abs(ev.get("cents_offset", 0)) >= cents_threshold
-                for ev in ev_list
-            )
-            if has_dev:
-                return True, f"CREPE detected deviation at m.{m}"
-            if not ev_list:
-                return False, f"no CREPE events at m.{m} (coverage gap)"
-            return False, f"CREPE covered m.{m} ({n_events} events) — no deviation ≥{cents_threshold}¢"
-
-        elif ftype in ("timing", "rhythm"):
-            if m in timing_measures:
-                return True, f"CREPE timing anomaly at m.{m}"
-            if not ev_list:
-                return False, f"no CREPE events at m.{m} (coverage gap)"
-            return False, f"CREPE covered m.{m} ({n_events} events) — no timing anomaly"
-
-        elif ftype == "error":
-            if m in wrong_note_measures:
-                return True, f"CREPE pitch mismatch at m.{m}"
-            if not ev_list:
-                return False, f"no CREPE events at m.{m} (coverage gap)"
-            return False, f"CREPE covered m.{m} — no wrong-note candidate"
-
-        return True, ""  # Tier A — always confirmed
-
-    TIER_B = {
-        "intonation_issues": "intonation",
-        "rhythm_issues":     "rhythm",
-        "wrong_notes_cracks": "error",
-    }
-    for cat, ftype in TIER_B.items():
-        items = assessment.get(cat, [])
-        annotated_items = []
-        n_conf = n_unconf = 0
-        for item in items:
-            ok, reason = _check(item, ftype)
-            if isinstance(item, dict):
-                item = {**item, "_confirmed": ok, "_crepe_note": reason}
-                if ok: n_conf += 1
-                else:  n_unconf += 1
-            annotated_items.append(item)
-        annotated[cat] = annotated_items
-        if items:
-            print(f"[tier_b_check] {cat}: {n_conf} confirmed, {n_unconf} unconfirmed")
-
-    return annotated
 
 
 # Sounding pitch relative to WRITTEN pitch, in semitones. Keep in sync with
@@ -3164,7 +3149,14 @@ INSTRUMENT_TRANSPOSE = {
     "clarinet (e\u266d)": 3, "clarinet (eb)": 3, "eb clarinet": 3,
     "bass clarinet": -14,
     "soprano saxophone": -2, "alto saxophone": -9, "tenor saxophone": -14,
-    "baritone saxophone": -21, "saxophone": -9, "alto sax": -9, "tenor sax": -14,
+    "baritone saxophone": -21, "alto sax": -9, "tenor sax": -14,
+    # NOTE: a bare "saxophone" is deliberately ABSENT. The profile
+    # instrument list offers plain "Saxophone", which used to resolve to
+    # -9 — alto. A tenor player choosing it got a 5-semitone error on
+    # every note, i.e. a whole score of wrong-note flags on correct
+    # playing. With no entry, `declared` is None and the offset measured
+    # from the audio is used instead, which is right far more often than
+    # a guess between four instruments a fifth apart.
     "recorder": 0,
     "trumpet (b\u266d)": -2, "trumpet (bb)": -2, "trumpet": -2, "trumpet (c)": 0,
     "cornet (b\u266d)": -2, "cornet": -2, "flugelhorn": -2,
@@ -3184,6 +3176,10 @@ INSTRUMENT_TRANSPOSE = {
 # exactly why a "wrong note" that was really a B-flat transposition took a
 # round of guesswork to pin down instead of being readable off the take.
 _LAST_TRANSPOSE_DEBUG: str = ""
+
+# Tier B findings deleted by the confirmed-only filter, kept for diagnostics so
+# the gate's false-positive rate is measurable. Never shown to the student.
+_LAST_DROPPED_UNCONFIRMED: list = []
 
 
 def _note_transposition_debug(msg: str) -> None:
@@ -3407,10 +3403,17 @@ def find_wrong_note_candidates(
             matched  = midi_from_name(ev.get("score_pitch") or "")
             in_bar   = min(own, key=lambda e: abs(ev_midi - e))
             ref      = (matched + transpose) if matched is not None else in_bar
+            # The distance must be the distance to the note we NAME. `min_dist`
+            # is the minimum over the whole (possibly neighbour-expanded) pitch
+            # set and is what the gates above are judged on, but printing it
+            # beside `ref` produced arithmetic the student can check and find
+            # wrong — e.g. "detected G#4, score has D4 (5 semitones away)" when
+            # G#4 to D4 is 6. Gate on the set; report against the named note.
+            named_dist = abs(ev_midi - ref)
             suspects.append({
                 "measure": m_num, "conf": ev_conf,
                 "dur": dur if dur is not None else 0.25,
-                "dist": min_dist, "time": ev.get("time_sec") or 0.0,
+                "dist": named_dist, "time": ev.get("time_sec") or 0.0,
                 "played": ev_midi, "expected": ref, "hz": ev.get("pitch_hz", 0),
             })
 
@@ -3704,12 +3707,10 @@ _CENTS_SCALE    = 25.0   # 25¢ off → multiplier 1.0; 50¢ → 2.0; 10¢ → 0
 _TIMING_MS_SCALE = 400.0  # 400ms off → multiplier 1.0; 800ms → 2.0; 200ms → 0.5
 
 
-_UNCONFIRMED_MULT = 0.45  # Change 1: penalty multiplier for Tier B flags not backed by CREPE
-                          # Revisit after ~20 analyses accumulate `confirmed` field data
 
 
 def _flag_penalty(flag: dict) -> float:
-    """Return the weighted penalty for a single flag (or grouped flag)."""
+    """Return the weighted penalty for a single flag."""
     ftype = flag.get("type", "")
     w     = FLAG_WEIGHTS.get(ftype, {"base": 2.0, "magnitude": None})
     base  = w["base"]
@@ -3724,29 +3725,15 @@ def _flag_penalty(flag: dict) -> float:
     else:
         mult = 1.0
 
-    # confirmed=False → unconfirmed Tier B flag; apply discount
-    # Tier A flags (posture, tone, technique, dynamics) always have confirmed=True
-    confirm_mult = 1.0 if flag.get("confirmed", True) else _UNCONFIRMED_MULT
-
-    if flag.get("grouped") and flag.get("occurrences"):
-        # Per-occurrence: first at full weight, subsequent at 50%; each inherits own
-        # confirmation status AND its own deviation magnitude for scaling.
-        total = 0.0
-        for i, occ in enumerate(flag["occurrences"]):
-            occ_confirm = 1.0 if occ.get("confirmed", flag.get("confirmed", True)) else _UNCONFIRMED_MULT
-            weight = 1.0 if i == 0 else 0.5
-            if mag == "cents_deviation":
-                c = occ.get("cents_deviation")
-                occ_mult = min(2.5, max(0.4, abs(c) / _CENTS_SCALE)) if c is not None else 1.0
-            elif mag == "timing_deviation_ms":
-                ms = occ.get("timing_deviation_ms")
-                occ_mult = min(2.0, max(0.4, ms / _TIMING_MS_SCALE)) if ms is not None else 1.0
-            else:
-                occ_mult = mult
-            total += base * occ_mult * occ_confirm * weight
-        return total
-
-    return base * mult * confirm_mult
+    # Unconfirmed flags never reach here: `compare_and_coach_claude` filters
+    # `deduped_issues` to confirmed=True before building flags (a deliberate
+    # product decision — hedged findings were removed on 2026-07-24). The old
+    # `_UNCONFIRMED_MULT` discount and the grouped/occurrences branch were both
+    # written for the earlier hedging model and had no reachable producer once
+    # `_group_similar_flags` stopped being called; they read as live policy while
+    # doing nothing, which is exactly how this file's tier logic came to be
+    # described wrongly. Deleted rather than left as decoration.
+    return base * mult
 
 
 def compute_weighted_score(flags: list[dict]) -> int:
@@ -3797,90 +3784,6 @@ def validate_gemini_measures(assessment: dict, score: dict) -> tuple[dict, int]:
 
     return validated, discarded
 
-
-def _group_similar_flags(flags: list) -> list:
-    """
-    Group flags of the same type that share a directional theme (e.g., all intonation
-    flags that are 'sharp') into a single grouped flag with an `occurrences` list.
-    Single flags and ungroupable flags are returned unchanged.
-    """
-    _SHARP = {'sharp', 'high'}
-    _FLAT  = {'flat', 'low'}
-    _RUSH  = {'rush', 'hurr', 'early', 'ahead'}
-    _DRAG  = {'drag', 'late', 'behind', 'slow', 'delay'}
-
-    # Only intonation and timing/rhythm carry a meaningful recurring "direction"
-    # (all-sharp, all-dragging, etc.) that is worth collapsing into one grouped flag.
-    # Everything else — wrong notes, dynamics, tone, posture, technique — stays as
-    # distinct flags so the student sees each issue across the piece individually.
-    GROUPABLE = {'intonation', 'timing', 'rhythm'}
-
-    def _direction(flag) -> str | None:
-        text = f"{flag.get('title','')} {flag.get('raw_detail','')} {flag.get('detail','')}".lower()
-        ftype = flag.get('type', '')
-        if ftype == 'intonation':
-            if any(w in text for w in _SHARP): return 'sharp'
-            if any(w in text for w in _FLAT):  return 'flat'
-        elif ftype in ('timing', 'rhythm'):
-            if any(w in text for w in _RUSH): return 'rushing'
-            if any(w in text for w in _DRAG): return 'dragging'
-        return ftype  # use type itself as direction key for others
-
-    # Cluster by (type, direction). Non-groupable types get a unique key per flag
-    # (keyed by measure) so they are never merged.
-    clusters: dict = {}
-    for idx, flag in enumerate(flags):
-        ftype = flag.get('type', '')
-        if ftype in GROUPABLE:
-            key = (ftype, _direction(flag))
-        else:
-            key = (ftype, f"__solo_{flag.get('measure')}_{idx}")
-        clusters.setdefault(key, []).append(flag)
-
-    result = []
-    for (ftype, direction), group in clusters.items():
-        if len(group) < 2 or ftype in ('posture', 'technique'):
-            result.extend(group)
-            continue
-        labels = [chr(ord('a') + i) for i in range(min(26, len(group)))]
-        occurrences = [
-            {
-                'label':               labels[i],
-                'measure':             f['measure'],
-                'title':               f['title'],
-                'detail':              f.get('detail', f.get('body', '')),
-                'timestamp_start':     f.get('timestamp_start'),
-                'timestamp_end':       f.get('timestamp_end'),
-                'confirmed':           f.get('confirmed', True),
-                'cents_deviation':     f.get('cents_deviation'),
-                'timing_deviation_ms': f.get('timing_deviation_ms'),
-            }
-            for i, f in enumerate(group)
-        ]
-        dir_word = direction if direction != ftype else ftype
-        # Group is confirmed if any occurrence is confirmed (some CREPE backing = use full weight)
-        group_confirmed = any(f.get('confirmed', True) for f in group)
-        result.append({
-            'type':            ftype,
-            'title':           f"Recurring {dir_word} — {len(group)} passages",
-            'grouped':         True,
-            'occurrences':     occurrences,
-            'confirmed':       group_confirmed,
-            'measure':         group[0]['measure'],
-            'timestamp_start': group[0].get('timestamp_start'),
-            'timestamp_end':   group[0].get('timestamp_end'),
-            'detail':          (f"This {dir_word} issue recurs across {len(group)} passages. "
-                                "Work on each spot individually at half-tempo, then connect."),
-            'body':            (f"This {dir_word} issue recurs across {len(group)} passages. "
-                                "Work on each spot individually at half-tempo, then connect."),
-            'confidence':      max(f.get('confidence', 100) for f in group),
-        })
-
-    result.sort(key=lambda x: x.get('measure', 0))
-    return result
-
-
-# ── Canonical measure timeline ─────────────────────────────────────────────
 
 def build_measure_timeline(
     measure_lo: int,
@@ -4541,11 +4444,40 @@ def compare_and_coach_claude(
     #      onset is added to every residual in the piece as a constant, lifting
     #      the whole take past the threshold at once.
     #
-    # Now: the bar's MEDIAN de-trended deviation, against a tempo-scaled floor.
+    # Gemini's rhythm category covers two different claims, and one statistic
+    # cannot corroborate both:
+    #
+    #   "this bar sits behind the beat" -> the whole bar is displaced, so the
+    #                                      bar's MEDIAN deviation is large.
+    #   "the eighths are uneven"        -> alternate notes are displaced, so the
+    #                                      median is washed out. A real swung bar
+    #                                      measures [0, 75, 0, 75]: median 37.5,
+    #                                      but every consecutive pair JUMPS 75.
+    #
+    # Take either, both against the same floor, so neither is a way in for noise.
     if isinstance(timing_report, dict) and timing_report.get("ok") is not False:
-        for _row in (timing_report.get("notes") or []):
-            if abs(_row.get("residual_ms") or 0.0) >= 55.0:
-                timing_conf_measures.add(int(_row["measure"]))
+        _rows = timing_report.get("notes") or []
+        _spb  = float(timing_report.get("spb") or 0.5)
+        # De-trend exactly as the placement check does: a constant offset across
+        # the whole take is a grid artefact, not something the player did.
+        _centre = median([float(r.get("residual_ms") or 0.0) for r in _rows]) or 0.0
+        _by_meas: dict[int, list[float]] = {}
+        for _row in _rows:
+            try:
+                _m = int(_row["measure"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            _by_meas.setdefault(_m, []).append(
+                float(_row.get("residual_ms") or 0.0) - _centre)
+        _floor = max(_TIMING_RHYTHM_CONF_MS, _TIMING_RHYTHM_CONF_FRAC * _spb * 1000.0)
+        for _m, _devs in _by_meas.items():
+            if len(_devs) < 2:
+                continue
+            _offset = abs(median([abs(d) for d in _devs]) or 0.0)
+            _rough  = median([abs(_devs[i] - _devs[i - 1])
+                              for i in range(1, len(_devs))]) or 0.0
+            if max(_offset, _rough) >= _floor:
+                timing_conf_measures.add(_m)
 
     wrongnote_conf_measures: set[int] = set()
     for cand in wrong_note_candidates:
@@ -5201,11 +5133,25 @@ def compare_and_coach_claude(
     # Drop unconfirmed (Tier B, not corroborated by CREPE) issues entirely rather than
     # showing them hedged ("possible hesitation", "may have rushed") — the user doesn't
     # want low-confidence guesses in the report at all, only things we can state as fact.
-    dropped_unconfirmed = sum(1 for iss in deduped_issues if not iss["confirmed"])
+    #
+    # They are recorded before being dropped. The standing plan is to tune the
+    # corroboration thresholds once enough takes have accumulated, by querying
+    # how often a Tier B finding goes unconfirmed — but that query could never
+    # return anything, because this filter deletes every confirmed=False row
+    # before it is written anywhere. The rate was unmeasurable by construction.
+    # These go to `pipeline_debug`, not to the student.
+    _dropped = [iss for iss in deduped_issues if not iss["confirmed"]]
     deduped_issues = [iss for iss in deduped_issues if iss["confirmed"]]
-    if dropped_unconfirmed:
-        print(f"[compare_and_coach_claude] dropped {dropped_unconfirmed} unconfirmed "
-              f"(hedged) issue(s) — only reporting confirmed findings")
+    if _dropped:
+        global _LAST_DROPPED_UNCONFIRMED
+        _LAST_DROPPED_UNCONFIRMED = [
+            {"measure": d.get("measure"), "type": d.get("type"),
+             "observed": str(d.get("observed") or "")[:160]}
+            for d in _dropped[:12]
+        ]
+        print(f"[compare_and_coach_claude] dropped {len(_dropped)} unconfirmed "
+              f"(hedged) issue(s) — only reporting confirmed findings: "
+              f"{[(d.get('measure'), d.get('type')) for d in _dropped[:8]]}")
     if not deduped_issues:
         return []
 
@@ -5526,7 +5472,7 @@ def run_full_analysis(payload: dict) -> None:
             kind = sniff_score_kind(sb, score_mime, score_url)
             print(f"[run_full_analysis] score kind: {kind}")
             if kind in ("xml", "mxl"):
-                res = parse_score_document(sb, start_measure)
+                res = parse_score_document(sb, start_measure, instrument)
                 if not res.get("error") and res.get("measures"):
                     s = res
             elif kind == "visual" and anthropic_key:
@@ -5803,6 +5749,10 @@ def run_full_analysis(payload: dict) -> None:
             # whether the B-flat offset was applied.
             if _LAST_TRANSPOSE_DEBUG:
                 debug_steps.append(f"transposition: {_LAST_TRANSPOSE_DEBUG}")
+            if _LAST_DROPPED_UNCONFIRMED:
+                debug_steps.append(
+                    "dropped_unconfirmed: " + "; ".join(
+                        f"m.{d['measure']} {d['type']}" for d in _LAST_DROPPED_UNCONFIRMED))
         else:
             raise RuntimeError("ANTHROPIC_API_KEY not provided")
 

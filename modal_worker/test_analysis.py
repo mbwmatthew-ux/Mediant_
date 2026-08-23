@@ -1057,6 +1057,330 @@ def test_no_undefined_names():
           "; ".join(u.split("worker.py:")[-1] for u in undefined[:4]))
 
 
+def test_squeaks_separated_from_leaps_by_timbre():
+    print("\n[28] squeaks are told from written leaps by TIMBRE, not pitch alone")
+
+    def line(**overrides):
+        """Eight steady C4s in m.20; index 4 is the event under test."""
+        evs = [{"measure": 20, "time_sec": i * 0.5, "midi_raw": 60, "midi": 60,
+                "held_sec": 0.45, "cents_spread": 6, "confidence": 95,
+                "flatness": 0.010} for i in range(8)]
+        evs[4].update(overrides)
+        return evs
+
+    # A real squeak: a 12th up, brief, pitch will not hold still, noisy spectrum.
+    got = w.find_crack_candidates(line(midi_raw=79, midi=79, held_sec=0.15,
+                                       cents_spread=60, confidence=40, flatness=0.055))
+    check("a real squeak is still detected", len(got) == 1 and "measure 20" in got[0],
+          str(got))
+
+    # Same pitch geometry, clean tone — a WRITTEN brief leap. This is the case
+    # the old pitch-only detector called a crack.
+    got = w.find_crack_candidates(line(midi_raw=79, midi=79, held_sec=0.20,
+                                       cents_spread=5, confidence=96, flatness=0.010))
+    check("a clean brief leap is NOT called a squeak", got == [], str(got))
+
+    # Timbre unmeasurable — the geometric evidence must still stand alone. This
+    # guards the failure mode where a missing field silently disables a detector.
+    evs = line(midi_raw=79, midi=79, held_sec=0.15)
+    for e in evs:
+        for k in ("cents_spread", "confidence", "flatness"):
+            e.pop(k, None)
+    check("with no timbre data the geometric test still fires (not muted)",
+          len(w.find_crack_candidates(evs)) == 1, str(w.find_crack_candidates(evs)))
+
+    # A split/airy note that never leaves its own pitch — invisible to every
+    # pitch-based test there is.
+    got = w.find_crack_candidates(line(held_sec=0.20, confidence=40, flatness=0.040))
+    check("an airy note with no pitch jump is caught",
+          len(got) == 1 and "airy" in got[0], str(got))
+
+    check("a clean line produces no crack flags", w.find_crack_candidates(line()) == [],
+          str(w.find_crack_candidates(line())))
+
+    # Unknown must stay distinguishable from a real negative.
+    check("looks_like_squeak returns None (not False) when unmeasurable",
+          w.looks_like_squeak({"held_sec": 0.15}, None) is None)
+    check("a sustained note is never a squeak, however unstable",
+          w.looks_like_squeak({"held_sec": 1.2, "cents_spread": 99, "confidence": 10},
+                              None) is False)
+    check("flatness baseline requires enough notes to be meaningful",
+          w.take_flatness_median([{"flatness": 0.01}] * 3) is None)
+
+
+def test_crack_routing_ignores_gemini_wording():
+    print("\n[29] crack confirmation does not depend on Gemini's word choice")
+    score = make_score()
+    _played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    for e in aligned:
+        e.setdefault("flatness", 0.010)
+        if e.get("midi_raw") is None:
+            e["midi_raw"] = w.midi_from_name(e["pitches"][0])
+
+    # Plant one unmistakable squeak in m.25.
+    for e in aligned:
+        if e["measure"] == 25:
+            e.update({"midi_raw": (e["midi_raw"] or 60) + 19, "held_sec": 0.15,
+                      "cents_spread": 60, "confidence": 40, "flatness": 0.060})
+            break
+    check("the planted squeak is visible to the detector",
+          any("measure 25" in c for c in w.find_crack_candidates(aligned)),
+          str(w.find_crack_candidates(aligned))[:120])
+
+    # Gemini describes it without using any of the old keyword list, and makes a
+    # SPECIFIC pitch claim that no pitch detector corroborates.
+    gem = dict(EMPTY_GEMINI)
+    gem["wrong_notes_cracks"] = [
+        {"measure": 25, "description": "GEMINI_PROSE the tone splinters, you played F not E",
+         "timestamp": "0:07"}]
+    flags = run_pipeline(score, aligned, gem)
+    check("the measure is still reported (the finding is not lost)",
+          any(f.get("measure") == 25 for f in flags),
+          f"measures={[f.get('measure') for f in flags][:8]}")
+
+    # …but it must be reported with CREPE's evidence, not Gemini's uncorroborated
+    # pitch claim. Crack evidence says a note broke; it says nothing about WHICH
+    # pitch was played, and the flag ships to the student at confidence 92.
+    prose = [f for f in flags if "GEMINI_PROSE" in str(f.get("raw_detail") or "")]
+    check("Gemini's uncorroborated pitch claim is NOT surfaced", not prose,
+          str([f.get("raw_detail") for f in prose])[:120])
+    crepe = [f for f in flags if str(f.get("raw_detail") or "").startswith("crack |")]
+    check("CREPE's own crack evidence is what the student sees", bool(crepe),
+          str([f.get("raw_detail") for f in flags])[:120])
+
+
+def test_loudness_measures_the_note_not_the_attack():
+    print("\n[30] loudness is measured over the note BODY, not the attack transient")
+    SR = 22050
+    N = SR * 10
+
+    # A long note: window must skip the attack and sit inside the note.
+    s, e = w.note_body_window(1.0, 3.0, 3.0, SR, N)
+    check("long note: attack is excluded", s >= int(1.030 * SR), f"s={s / SR:.3f}s")
+    check("long note: window stays inside the note", e <= int(3.0 * SR), f"e={e / SR:.3f}s")
+    check("long note: window is capped, not the whole note",
+          (e - s) <= int(0.51 * SR), f"len={(e - s) / SR:.3f}s")
+    check("long note: window sits in the middle of the body",
+          s > int(1.5 * SR), f"s={s / SR:.3f}s")
+
+    # A very short note has no body separable from its attack — measure anyway.
+    s, e = w.note_body_window(1.0, 1.08, 1.5, SR, N)
+    check("short note still yields a usable window", e > s and (e - s) >= int(0.04 * SR),
+          f"len={(e - s) / SR:.3f}s")
+
+    # Never bleed into the next attack.
+    s, e = w.note_body_window(1.0, 5.0, 1.4, SR, N)
+    check("window never runs past the next onset", e <= int(1.4 * SR), f"e={e / SR:.3f}s")
+
+    # Missing release data must not produce an empty window.
+    s, e = w.note_body_window(1.0, None, None, SR, N)
+    check("missing sound_end still yields a non-empty window", e > s, f"{s}..{e}")
+
+    # Clamped to the buffer at the very end of a take — and still long enough to
+    # mean something. A one-sample RMS is a garbage dB value that would feed
+    # straight into the dynamics comparison.
+    s, e = w.note_body_window(9.99, 12.0, None, SR, N)
+    check("window is clamped to the audio buffer", e <= N and s >= 0, f"{s}..{e} of {N}")
+    check("clamped window is still a usable length", (e - s) >= int(0.049 * SR),
+          f"len={(e - s) / SR:.3f}s")
+
+    # ── The defect itself, demonstrated ────────────────────────────────────
+    # Note A is marked p but hard-tongued: big attack, quiet body.
+    # Note B is marked f but slurred:      soft attack, loud body.
+    def note(attack_amp, body_amp, at):
+        y = np.zeros(N, dtype=float)
+        a0 = int(at * SR)
+        y[a0:a0 + int(0.10 * SR)] = attack_amp
+        y[a0 + int(0.10 * SR):a0 + int(1.50 * SR)] = body_amp
+        return y
+
+    yA, yB = note(0.60, 0.05, 1.0), note(0.10, 0.30, 4.0)
+
+    def rms(y, s, e):
+        return float(np.sqrt(np.mean(y[s:e] ** 2)))
+
+    # Old behaviour: fixed 100 ms from the onset — measures the attack.
+    oldA = rms(yA, int(1.0 * SR), int(1.0 * SR) + SR // 10)
+    oldB = rms(yB, int(4.0 * SR), int(4.0 * SR) + SR // 10)
+    check("the OLD attack window ranks them backwards (the bug)", oldA > oldB,
+          f"p-note {oldA:.3f} > f-note {oldB:.3f}")
+
+    newA = rms(yA, *w.note_body_window(1.0, 2.5, 2.5, SR, N))
+    newB = rms(yB, *w.note_body_window(4.0, 5.5, 5.5, SR, N))
+    check("the BODY window ranks them correctly", newB > newA,
+          f"f-note {newB:.3f} > p-note {newA:.3f}")
+
+
+def test_music21_accidental_spellings_parse():
+    print("\n[31] music21 pitch spellings parse to the right MIDI number")
+    # music21's `nameWithOctave` writes a FLAT as "-", not "b": B-flat 4 is
+    # "B-4". The old regex treated "-4" as the OCTAVE and returned -25 for a
+    # note whose real MIDI is 70 — a 95-semitone error on every flat note in
+    # every MusicXML score, which is most notes in clarinet repertoire.
+    #
+    # Verified against real music21 9.1.0:
+    #   Pitch('B-4').nameWithOctave == 'B-4', .midi == 70
+    cases = [
+        ("B-4",  70),   # B flat   — music21 spelling
+        ("Bb4",  70),   # B flat   — conventional spelling
+        ("E-5",  75),
+        ("A-4",  68),
+        ("D-4",  61),
+        ("C4",   60),
+        ("C#4",  61),
+        ("G#4",  68),
+        ("F##4", 67),   # double sharp — previously returned None and was DROPPED
+        ("C--4", 58),   # double flat
+        ("B--3", 57),
+    ]
+    bad = []
+    for name, want in cases:
+        got = w.midi_from_name(name)
+        if got != want:
+            bad.append(f"{name}: got {got}, want {want}")
+    check("every music21 spelling parses to the correct MIDI", not bad, "; ".join(bad[:4]))
+
+    # Round-tripping must not silently invent a plausible-looking wrong note:
+    # midi_to_scientific(-25) used to render as "A-4", which reads as A-flat.
+    rt = []
+    for name, want in cases:
+        s = w.midi_to_scientific(want)
+        if w.midi_from_name(s) != want:
+            rt.append(f"{s} -> {w.midi_from_name(s)} != {want}")
+    check("midi_to_scientific output re-parses to the same MIDI", not rt, "; ".join(rt[:4]))
+
+    # Garbage must still be rejected rather than silently producing a number.
+    junk = [w.midi_from_name(x) for x in ("", "H4", "4", "Cx4", "C")]
+    check("unparseable names still return None", all(v is None for v in junk), str(junk))
+
+
+def test_median_is_not_biased_upward():
+    print("\n[32] median() is a true median, not the upper element")
+    # `sorted(v)[len(v)//2]` takes the UPPER element on even-length lists. The
+    # placement rule admits as few as TWO notes, so it returned max(v1, v2) —
+    # exactly the single worst onset the "two notes must agree" guard exists to
+    # exclude. Asymmetric: over-reports "late", under-reports "early".
+    cases = [([40.0, 120.0], 80.0), ([-100.0, -120.0], -110.0),
+             ([30, 50, 90, 130], 70.0), ([1.0, 2.0, 3.0], 2.0), ([5.0], 5.0)]
+    bad = [f"{v} -> {w.median(v)} want {want}" for v, want in cases
+           if abs(w.median(v) - want) > 1e-9]
+    check("median() matches the true median", not bad, "; ".join(bad))
+    check("empty input returns None", w.median([]) is None)
+
+    # The two flagging asymmetries, stated as the user experiences them.
+    THRESH = 110.0
+    check("a bar of [40,120] ms is NOT called late (true median 80)",
+          abs(w.median([40.0, 120.0])) < THRESH, f"{w.median([40.0, 120.0])}")
+    check("a bar of [-100,-120] ms IS called early (true median -110)",
+          abs(w.median([-100.0, -120.0])) >= THRESH, f"{w.median([-100.0, -120.0])}")
+
+
+def test_squeaks_are_never_reported_as_wrong_notes():
+    print("\n[33] a squeak is never reported as a WRONG NOTE")
+    # Regression from 2026-08-22: once clarinet register-break events stopped
+    # being deleted, an event kept on TIMBRE alone can still be confidently
+    # tracked and stable in pitch — clearing every wrong-note gate (conf>=65,
+    # dur>=0.08, spread<=40). To that detector it looks exactly like a
+    # deliberately played note a 12th above the written one.
+    score = make_score()
+    _played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    for e in aligned:
+        e.setdefault("flatness", 0.010)
+        if e.get("midi_raw") is None:
+            e["midi_raw"] = w.midi_from_name(e["pitches"][0])
+
+    # Put the squeak on a MIDDLE onset of the bar, not its first or last. The
+    # first/last onset triggers the neighbour-measure expansion, and with a
+    # scalar passage the neighbours supply every diatonic pitch-class — so
+    # `min_pc_dist >= 2` can never hold and the detector is inert there. The
+    # assertion would then pass for the wrong reason (it did, until red-green).
+    _m27 = sorted((e for e in aligned if e["measure"] == 27), key=lambda e: e["time_sec"])
+    assert len(_m27) >= 3, "fixture needs an interior onset in m.27"
+    _sq = _m27[1]
+    _sq.update({"midi_raw": (_sq["midi_raw"] or 60) + 19,
+                "held_sec": 0.20, "end_sec": _sq["time_sec"] + 0.20,
+                "cents_spread": 10,    # stable  -> clears MAX_SPREAD
+                "confidence": 92,      # certain -> clears MIN_CONF
+                "flatness": 0.060})    # noisy   -> this alone marks it a squeak
+
+    # NOTE: a transposing instrument is deliberately NOT used here. With
+    # "clarinet" the declared -2 disagrees with the measured +0 on this fixture
+    # and the whole detector self-suppresses, so the assertion below would pass
+    # for the wrong reason — it did, until a red-green check caught it.
+    cands = w.find_wrong_note_candidates(aligned, score, "flute")
+    m27 = [c for c in cands if "measure 27" in c]
+    check("the timbre-only squeak is NOT called a wrong note", not m27, str(m27)[:140])
+    # And it is still visible to the detector that should own it.
+    cracks = [c for c in w.find_crack_candidates(aligned) if "measure 27" in c]
+    check("the crack detector still reports it", bool(cracks), str(cracks)[:120])
+
+
+def test_no_flag_ever_asserts_a_rest():
+    print("\n[34] no flag text asserts a rest (the pipeline has no rest data)")
+    # parse_musicxml discards rests deliberately, so `gap_beats - written_beats`
+    # is only "distance to the next note we could READ" — equally produced by a
+    # note the score reader dropped. It used to be rendered as "plus the N-beat
+    # rest after it", asserting a rest in passages containing none.
+    # The score must contain a HOLE — a beat position with no readable note —
+    # because that is what manufactures the phantom rest. Here every measure's
+    # middle beat is missing, exactly as it would be if the vision reader
+    # returned "p": null for an unreadable notehead. Without a hole,
+    # gap_after_beats is 0, the old text was empty anyway, and the test passes
+    # for the wrong reason (it did, until a red-green check caught it).
+    score = make_score()
+    for m in score["measures"]:
+        m["notes"] = [n for n in m["notes"] if n["beat"] != 2.0]
+
+    played = [m for m in score["measures"] if START <= m["number"] <= END]
+    evs = []
+    for mi, m in enumerate(played):
+        for note in m["notes"]:
+            t = (mi * BEATS_PER_MEASURE + (note["beat"] - 1.0)) * SEC_PER_BEAT
+            evs.append({"time_sec": t, "end_sec": t + SEC_PER_BEAT,
+                        "pitches": [note["pitch"]], "confidence": 90,
+                        "cents_offset": 0, "cents_spread": 8,
+                        "held_sec": 0.45, "sound_end": t + 0.45,
+                        "loudness": "medium"})
+    # Hold one note far past its written value so a duration finding fires.
+    evs[6]["held_sec"] = 2.2
+    evs[6]["sound_end"] = evs[6]["time_sec"] + 2.2
+
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    flags = run_pipeline(score, aligned)
+    blob = " ".join(f"{f.get('title','')} {f.get('detail','')} {f.get('raw_detail','')}"
+                    for f in flags).lower()
+    check("no flag mentions a rest", "rest" not in blob,
+          [s for s in blob.split(".") if "rest" in s][:2])
+
+
+def test_a_grid_that_does_not_fit_produces_no_timing_flags():
+    print("\n[35] a tempo fit that does not describe the performance is rejected")
+    score = make_score()
+
+    # Coherent: one note held long displaces everything after it. Half the piece
+    # sits off the line, but the grid is sound and this IS the finding — the
+    # gate's first draft used spread and threw exactly these takes away.
+    _p, evs = make_performance(score, warp=lambda m, b, t: t + 0.45 if m >= 30 else t)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    rep = w.analyze_timing_vs_score(aligned, score, BEATS_PER_MEASURE)
+    check("a coherent displacement still yields a usable timing report",
+          isinstance(rep, dict) and rep.get("ok") is not False,
+          str(rep.get("reason") if isinstance(rep, dict) else rep))
+
+    # Incoherent: every note independently scattered. The line means nothing.
+    import random
+    random.seed(7)
+    _p, evs = make_performance(
+        score, warp=lambda m, b, t: t + random.uniform(-0.30, 0.30))
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    rep = w.analyze_timing_vs_score(aligned, score, BEATS_PER_MEASURE)
+    check("a scattered performance produces NO timing flags",
+          isinstance(rep, dict) and rep.get("ok") is False,
+          str(rep.get("reason") if isinstance(rep, dict) else rep))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1081,7 +1405,15 @@ def main():
               test_hold_length_is_measured_not_inferred,
               test_staccato_is_not_clipped,
               test_placement_threshold_scales_with_tempo,
-              test_note_ordinals_are_corrected):
+              test_note_ordinals_are_corrected,
+              test_squeaks_separated_from_leaps_by_timbre,
+              test_crack_routing_ignores_gemini_wording,
+              test_loudness_measures_the_note_not_the_attack,
+              test_music21_accidental_spellings_parse,
+              test_median_is_not_biased_upward,
+              test_squeaks_are_never_reported_as_wrong_notes,
+              test_no_flag_ever_asserts_a_rest,
+              test_a_grid_that_does_not_fit_produces_no_timing_flags):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

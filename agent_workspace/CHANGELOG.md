@@ -1,5 +1,178 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-23 (accuracy) — flats parsed as negative octaves, and five more
+
+Three reported symptoms — phantom rests, wrong-note false positives, bad
+dragging/timing flags — investigated to root cause before any fix. They were not
+three bugs.
+
+**1. `midi_from_name` mis-parsed every flat in every MusicXML score.** music21
+writes a flat as `-`, so B♭4 is the string `"B-4"`. The pattern was
+`([#b♯♭]?)(-?\d+)` — `-` is not in that accidental set, so the accidental matched
+EMPTY and `(-?\d+)` swallowed `-4` as the octave. `midi_from_name("B-4")`
+returned **-25** for a note whose real MIDI is 70.
+
+Confirmed against real music21 9.1.0. In flat-key repertoire — most clarinet
+writing — that is most of the score. Those values sit in the DTW cost matrix, so
+a real note scores ~86 against them and alignment warps *around* every flat note:
+wrong measure labels (→ wrong notes), holes in the beat axis (→ phantom rests),
+and meaningless residuals (→ bad timing). One defect, all three symptoms.
+
+Invisible in output because `midi_to_scientific(-25)` renders as `"A-4"`, which
+reads as A-flat. Zero test coverage: music21 is stubbed and every fixture pitch
+was a natural. Accidentals now parse as a run, so `"F##4"`/`"C--4"` work too —
+they previously returned `None` and were dropped from the expectation set, which
+alone let a correctly-played double-accidental note be reported wrong.
+
+**2. The placement "median" was not a median.** `sv[len(sv)//2]` takes the UPPER
+element on even-length lists, and the rule admits as few as two notes — so a
+2-note bar returned `max(v1, v2)`, precisely the single worst onset the "two
+notes must agree" guard exists to exclude. Asymmetric, and visible to the user:
+`[40,120]` flagged late (true median 80, under threshold) while `[-100,-120]` did
+not flag early (true median -110, over it). Over-reports dragging, under-reports
+rushing. New `median()` helper applied wherever a small even sample moves a
+user-visible threshold — placement, dynamics contrast (`_DYN_MIN_NOTES = 4`), and
+the squeak flatness baseline.
+
+**3. Squeaks reached the wrong-note detector.** Regression from 2026-08-22: once
+clarinet register-break events stopped being deleted, an event kept on TIMBRE
+alone can still be confidently tracked and stable in pitch, clearing every
+wrong-note gate. It then looks exactly like a deliberate note a 12th up. Now
+skipped there; cracks are reported by the crack detector, which is what it is for.
+
+**4. Gemini wrong-note claims were confirmed by crack evidence.** The union
+introduced on 2026-08-22 was too loose: crack evidence says a note broke and says
+nothing about which pitch was played, so any brief airy note in measure N
+confirmed "you played F instead of E in measure N" — surfaced as Gemini's
+unverified prose at confidence 92. A pitch claim now needs pitch evidence.
+Cracks are not lost: `find_crack_candidates` emits its own confirmed flag for the
+same measure carrying CREPE's evidence, and wins the dedup.
+
+**5. The phantom rest.** `rest_beats = gap_beats - written_beats` was rendered as
+"plus the N-beat rest after it". But `parse_musicxml` discards rests deliberately
+("False rest detection creates bad coaching"), so nothing has rest data — the gap
+is only "distance to the next note we could READ", equally produced by a vision
+reader returning `"p": null`, a skipped measure (its prompt says numbering gaps
+"are correct and expected"), or a metre mismatch. In a passage with no rests, any
+dropped note manufactured one. Field renamed `gap_after_beats`, kept as a
+diagnostic, never stated. The coach prompt also gains an explicit ban on
+introducing notation not present in `observed` — it had none, and "release it on
+the following beat" is idiomatically paraphrased as "you ran into the rest".
+
+**6. A goodness-of-fit gate on the tempo fit.** The only validation was "is the
+slope between 20 and 500 BPM"; a fit with 400 ms of scatter emitted
+`confirmed=True` timing flags as readily as a clean one. The gate measures
+note-to-note ROUGHNESS, not spread — the first draft used spread and broke the
+"note held past its value" test, because a player who holds one note long
+displaces everything after it, so half the piece sits off the line legitimately.
+A coherent displacement is a step (one big jump, small median); a grid that does
+not describe the performance is rough everywhere.
+
+**Not shipped — fix 7, the 55 ms rhythm corroboration.** Gemini rhythm claims are
+corroborated by any single note over 55 ms of raw residual, which is below this
+pipeline's own onset noise (23 ms grid, 50 ms dedupe, synthetic probes every
+350 ms) and reads un-de-trended residuals whose anchor makes the first note's
+error a global constant. Three attempts at a better statistic each broke the
+coverage matrix in a way the evidence did not predict, and the isolating probe
+contradicted the bisect. **Reverted rather than shipped half-understood** — see
+Backlog. The threshold is still too low; the replacement needs a real take.
+
+151/151 unit checks (2 new suites), 28/28 coverage behaviours.
+
+## 2026-08-23 (dynamics) — loudness measured the attack, not the note
+
+Every note's loudness and timbre were measured over a **fixed 100 ms window
+starting at the onset**. For a half note held two seconds, that described the
+first twentieth of it — the attack transient, not the note.
+
+The consequence was specific and bad: **articulation was inside the dynamics
+measurement.** `analyze_dynamics_vs_score` compares the median dB of notes under
+each marked dynamic level and flags a spread under 3 dB as "no contrast". A
+hard-tongued note marked *p* can out-peak a gently slurred note marked *f*, so
+two passages played at plainly different volumes could be reported as having no
+contrast — or as inverted. The attack says how a note was STARTED; the body says
+how loud it was PLAYED.
+
+`note_body_window()` now returns the sustained span: attack trimmed (30 ms),
+capped at 500 ms, taken from the middle of the note for the same reason
+`measure_note_pitch` uses the middle 60%, and never allowed to run into the next
+onset. Release detection moved above the measurement block so `sound_end` is
+known when the window is chosen.
+
+**Event selection is deliberately unchanged.** The breath-noise gate still reads
+the original 100 ms attack window, because its 0.012 threshold is tuned against
+that window and it decides which events *exist*. Improving how a kept note is
+measured is a different change from changing which notes are kept, and mixing
+them would have made a regression impossible to attribute.
+
+Also fixed while testing: a note starting within ~30 ms of the end of the buffer
+produced a **one-sample** window — a garbage dB value feeding straight into the
+dynamics comparison. The window now slides backwards to keep a usable length.
+The last note of a take is exactly where this would have hit.
+
+`torch`, `torchaudio` and `torchcrepe` gain major-version ceilings. They were the
+only unpinned audio deps and they are the ones running pitch tracking, while
+numpy is held `<2.0` — a future torch requiring numpy 2.x would have broken the
+image build with nothing in the source to blame. The ceilings exclude no current
+release.
+
+142/142 unit checks (11 new), 28/28 coverage behaviours. The new test builds two
+synthetic notes — loud attack/quiet body vs quiet attack/loud body — and asserts
+that the old window ranks them **backwards** while the body window ranks them
+correctly, so the defect itself is pinned, not just the fix.
+
+**Not covered by tests:** the change inside `run_pitch_tracking` needs real audio
+to exercise end-to-end. `note_body_window` is tested directly.
+
+## 2026-08-22 (timbre) — the pipeline can finally hear tone, and clarinet squeaks exist again
+
+The worker had **no spectral analysis of any kind**. Every `librosa` call was
+load / resample / onset_detect / beat_track / duration / frames_to_time; the
+only non-pitch acoustic quantity computed anywhere was scalar RMS. Squeaks were
+therefore inferred purely from pitch geometry — "did it leap up briefly and come
+back" — which cannot separate a squeak from a written leap that happens to be
+short.
+
+Three defects, each below the one above it:
+
+1. **Clarinet squeaks were deleted before any detector saw them.** CREPE can
+   track the 3rd harmonic instead of the fundamental, so `run_pitch_tracking`
+   discarded any clarinet event a 12th (±2 semitones) above a neighbour within
+   400ms. A register-break squeak has *exactly that* pitch signature — it is
+   what breaking to the clarion register is. On the one instrument where cracks
+   matter most, the most common mistake was suppressed as noise. Suppression now
+   consults timbre: brief + unstable + noisy is kept and tagged `squeak_suspect`;
+   sustained, stable and tonal is still discarded as a harmonic artifact.
+
+2. **Crack-vs-wrong-note routing was substring-matching Gemini's prose** for
+   nine keywords. Survival of a true finding depended on the LLM's word choice:
+   "the tone splinters on the high F" matched nothing, was sent to the wrong-note
+   detector, failed there and was deleted — while "breaks the phrase" matched
+   `"break"` and sent a genuine wrong note to the crack detector. Gemini is only
+   claiming *something went wrong with the notes here*, so that claim is now
+   confirmed against **both** detectors.
+
+3. **The crack detector read no timbre**, though `db`, `confidence` and
+   `cents_spread` were already on every event it iterated.
+
+Events now carry `centroid_hz`, `flatness` and `centroid_ratio` (brightness
+relative to the note's own fundamental, so the number is comparable across
+registers). `find_crack_candidates` gains a second signature that needs no pitch
+jump at all — an airy, noise-like burst where a tone should be, which no
+pitch-based test can see.
+
+`looks_like_squeak` returns **None** when timbre is unmeasurable, never False.
+Collapsing unknown into False is how a missing field silently disables a
+detector — the same failure that once turned off the wrong-note detector via an
+absent `end_sec`. Where timbre cannot be measured, the geometric test still
+stands alone, and a test asserts it.
+
+131/131 unit checks (10 new), 28/28 coverage behaviours.
+
+**Not covered by tests:** the clarinet suppression change is inside
+`run_pitch_tracking` and needs real audio to exercise end-to-end. Its decision
+function is tested; its integration is not.
+
 ## 2026-08-21 (fragility) — the evidence bail-out is gone, not just patched
 
 Last commit added cracks and dynamics to `compare_and_coach_claude`'s early

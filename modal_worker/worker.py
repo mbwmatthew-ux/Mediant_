@@ -41,8 +41,14 @@ image = (
         # Audiveris converts visual scores (PDF/images) into MusicXML/MXL.
         "curl -L -o /tmp/audiveris.deb https://github.com/Audiveris/audiveris/releases/download/5.10.2/Audiveris-5.10.2-ubuntu22.04-x86_64.deb && dpkg-deb -x /tmp/audiveris.deb / && if [ -x /opt/audiveris/bin/Audiveris ]; then ln -sf /opt/audiveris/bin/Audiveris /usr/local/bin/audiveris; elif [ -x /opt/audiveris/bin/audiveris ]; then ln -sf /opt/audiveris/bin/audiveris /usr/local/bin/audiveris; else find /opt -iname '*audiveris*' -maxdepth 4; exit 1; fi && audiveris -version && rm /tmp/audiveris.deb",
         # Install torch + torchaudio CPU-only together so torchaudio doesn't pull CUDA libs
-        "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu",
-        "pip install torchcrepe",
+        # Major-version ceilings only. These three were the ONLY unpinned audio
+        # deps, and they are the ones that actually run pitch tracking — while
+        # numpy is held below 2.0 just above. A future torch that requires numpy
+        # 2.x would break the image build with nothing in the source to blame it
+        # on. The ceilings cannot exclude any current 2.x/0.0.x release, so they
+        # change nothing today and only stop a silent major-version jump.
+        "pip install 'torch<3.0' 'torchaudio<3.0' --index-url https://download.pytorch.org/whl/cpu",
+        "pip install 'torchcrepe<1.0'",
     )
     .pip_install(
         # Audio processing
@@ -334,6 +340,117 @@ def apply_tuning_center(events) -> float:
     return center
 
 
+# A squeak is SHORT. Everything else about it is corroborating evidence.
+_SQUEAK_MAX_HELD = 0.30    # seconds
+_SQUEAK_SPREAD   = 25      # cents of pitch instability within the note
+_SQUEAK_CONF     = 70      # CREPE periodicity below this = not a clean pitch
+_SQUEAK_FLATNESS = 2.0     # x the take's median flatness = noticeably noisier
+
+
+def take_flatness_median(events: list[dict]) -> float | None:
+    """
+    Median spectral flatness across the take, used as each event's baseline.
+
+    Absolute flatness is meaningless on its own — it varies by instrument, room
+    and mic. What matters is whether ONE note is noisier than how this player
+    sounds the rest of the time.
+    """
+    vals = [e["flatness"] for e in events
+            if isinstance(e.get("flatness"), (int, float))]
+    if len(vals) < 4:
+        return None            # too little to establish a baseline
+    return median(vals)
+
+
+def looks_like_squeak(ev: dict, flatness_ref: float | None) -> bool | None:
+    """
+    Does this event carry the acoustic signature of a squeak/crack?
+
+    Returns True/False, or **None when there is not enough data to judge** —
+    the caller must decide what to do with "unknown" rather than receiving a
+    False that looks like a real negative. Collapsing unknown into False is how
+    a missing field silently disables a detector.
+
+    A squeak is brief AND at least one of: pitch that will not hold still, low
+    tracking confidence, or a spectrum noticeably noisier than this take's norm.
+    A written leap into the high register fails every one of those.
+    """
+    held = ev.get("held_sec")
+    if held is not None and float(held) > _SQUEAK_MAX_HELD:
+        return False           # sustained — a high note, not a squeak
+
+    spread   = ev.get("cents_spread")
+    conf     = ev.get("confidence")
+    flatness = ev.get("flatness")
+
+    markers = []
+    if isinstance(spread, (int, float)):
+        markers.append(spread >= _SQUEAK_SPREAD)
+    if isinstance(conf, (int, float)):
+        markers.append(conf <= _SQUEAK_CONF)
+    if isinstance(flatness, (int, float)) and flatness_ref:
+        markers.append(flatness >= flatness_ref * _SQUEAK_FLATNESS)
+
+    if not markers:
+        return None            # nothing measurable — caller decides
+    return any(markers)
+
+
+def note_body_window(event_t: float, sound_end: float | None, next_t: float | None,
+                     sr: int, n_samples: int,
+                     attack_trim: float = 0.030, min_len: float = 0.050,
+                     max_len: float = 0.500) -> tuple[int, int]:
+    """
+    Sample range covering the SUSTAINED BODY of a note, excluding its attack.
+
+    Why this exists
+    ---------------
+    Loudness and timbre used to be measured over a fixed 100 ms window starting
+    at the onset — i.e. over the attack transient, not the note. For a half note
+    held two seconds we were describing the first twentieth of it.
+
+    That put ARTICULATION inside the dynamics measurement. A hard-tongued note
+    marked *p* can produce a bigger attack peak than a gently slurred note marked
+    *f*, so `analyze_dynamics_vs_score`, which compares median dB between marked
+    levels, could report "no contrast" — or an inversion — from two passages that
+    were played at plainly different volumes. The attack says how the note was
+    STARTED; the body says how loud it was PLAYED.
+
+    Returns (start_sample, end_sample), always non-empty and in range.
+    """
+    start_t = event_t + attack_trim
+    end_t = sound_end if (sound_end is not None and sound_end > start_t) \
+        else event_t + min_len
+    # Never run into the next attack — that would measure the following note.
+    if next_t is not None and next_t > start_t:
+        end_t = min(end_t, next_t)
+
+    if end_t - start_t < min_len:
+        # Too short to have a body separable from its attack (a grace note, a
+        # squeak). Measure from the onset rather than returning nothing.
+        start_t = event_t
+        end_t = max(event_t + min_len, end_t)
+
+    # A long note does not need all of itself measured, and the middle is the
+    # most representative part — same reasoning as `measure_note_pitch`.
+    if end_t - start_t > max_len:
+        mid = (start_t + end_t) / 2.0
+        start_t, end_t = mid - max_len / 2.0, mid + max_len / 2.0
+
+    s = max(0, int(start_t * sr))
+    e = min(n_samples, int(end_t * sr))
+
+    # The last note of a take can start so close to the end of the buffer that
+    # trimming its attack runs off the end. Slide the window BACKWARDS to keep a
+    # usable length instead of returning a one-sample sliver — an RMS over one
+    # sample is a garbage dB value, and it would feed straight into dynamics.
+    need = max(1, int(min_len * sr))
+    if e - s < need:
+        e = min(n_samples, max(e, s + need))
+        s = max(0, e - need)
+    return s, e
+
+
 def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None, instrument: str = "") -> list[dict]:
     """
     Detect note events using CREPE (neural pitch tracking) + librosa onset detection.
@@ -482,21 +599,19 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             cents_offset = round((midi_float - midi_raw) * 100)  # -50..+50 ¢
             midi         = max(36, min(96, midi_raw))  # C2–C7 clamp (for display only)
 
-            # RMS-based loudness — also used to gate out breathing / ambient noise
-            s   = int(event_t * SR)
-            e   = min(len(y), s + SR // 10)
-            rms = float(np.sqrt(np.mean(y[s:e] ** 2))) if e > s else 0.0
+            # ── Breath-noise gate ──────────────────────────────────────────
+            # Deliberately still measured over the first 100 ms from the onset:
+            # this threshold is tuned against that window, and it decides which
+            # events EXIST. Changing what it looks at would silently change event
+            # selection across every take — a different change from improving how
+            # a kept note is measured.
+            s_att = int(event_t * SR)
+            e_att = min(len(y), s_att + SR // 10)
+            rms_attack = float(np.sqrt(np.mean(y[s_att:e_att] ** 2))) if e_att > s_att else 0.0
             # Discard events below breath-noise floor (~-45 dBFS); real soft notes
             # hit ~0.02 RMS even on quiet passages; breathing is typically 0.001–0.008
-            if rms < 0.012:
+            if rms_attack < 0.012:
                 continue
-            loudness = "loud" if rms > 0.15 else "medium" if rms > 0.04 else "soft"
-            # Keep the NUMBER. Three buckets cannot measure contrast: a player
-            # who plays everything at one volume and a player with a full
-            # dynamic range can produce the same string. dBFS is the scale
-            # dynamics actually live on — differences in dB are what "louder"
-            # and "softer" mean.
-            db = 20.0 * math.log10(max(rms, 1e-6))
 
             confidence = int(min(100, float(np.mean(window_conf)) * 100))
 
@@ -510,6 +625,9 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             # Walk CREPE forward from the onset while the frame stays voiced AND
             # stays on this note (within a semitone). The first frame that fails
             # is the release.
+            #
+            # This runs BEFORE loudness and timbre because both now need to know
+            # where the note actually ends.
             _i0 = int(np.searchsorted(frame_times, event_t))
             _rel = _i0
             for _k in range(_i0, n_frames):
@@ -522,6 +640,45 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             _frame_dur = CREPE_HOP / CREPE_SR
             sound_end = float(frame_times[_rel]) + _frame_dur
             held_sec  = max(0.0, sound_end - float(event_t))
+
+            # ── Loudness and timbre, over the note's BODY ──────────────────
+            # See `note_body_window`: measuring the attack transient put
+            # articulation inside the dynamics reading, so a hard-tongued piano
+            # note could out-measure a slurred forte one.
+            s, e = note_body_window(float(event_t), sound_end,
+                                    float(next_t) if next_t is not None else None,
+                                    SR, len(y))
+            seg = y[s:e]
+            rms = float(np.sqrt(np.mean(seg ** 2))) if e > s else rms_attack
+            loudness = "loud" if rms > 0.15 else "medium" if rms > 0.04 else "soft"
+            # Keep the NUMBER. Three buckets cannot measure contrast: a player
+            # who plays everything at one volume and a player with a full
+            # dynamic range can produce the same string. dBFS is the scale
+            # dynamics actually live on — differences in dB are what "louder"
+            # and "softer" mean.
+            db = 20.0 * math.log10(max(rms, 1e-6))
+
+            # Pitch alone cannot tell a squeak from a written leap: both are
+            # "high". What separates them is TONE — a squeak is bright and
+            # noisy, a real clarion note is neither. Nothing in this pipeline
+            # measured timbre at all, which is why cracks could only ever be
+            # inferred from pitch geometry.
+            #
+            # centroid = where the spectral energy sits (brightness)
+            # flatness = how noise-like vs tonal the spectrum is (0 tonal, 1 noise)
+            if len(seg) >= 512:
+                # Match n_fft to the segment: the last note of a take can be
+                # shorter than the default 2048 window, and librosa would pad it
+                # and warn on every event.
+                _nfft = 2048 if len(seg) >= 2048 else 512
+                centroid_hz = float(np.mean(librosa.feature.spectral_centroid(
+                    y=seg, sr=SR, n_fft=_nfft, hop_length=_nfft // 4)))
+                flatness    = float(np.mean(librosa.feature.spectral_flatness(
+                    y=seg, n_fft=_nfft, hop_length=_nfft // 4)))
+            else:
+                # Too short to transform. Emit None, NOT 0.0 — a real 0.0 would
+                # read as "perfectly tonal" and actively suppress a crack.
+                centroid_hz = flatness = None
 
             events.append({
                 "time_sec":    float(event_t),
@@ -537,6 +694,15 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 "confidence":  confidence,
                 "loudness":    loudness,
                 "db":          round(db, 2),
+                # Timbre — None when the segment was too short to transform.
+                "centroid_hz": round(centroid_hz, 1) if centroid_hz is not None else None,
+                "flatness":    round(flatness, 5) if flatness is not None else None,
+                # Brightness relative to the note's own fundamental. A squeak's
+                # energy sits far above f0; a clean note's centroid is a small
+                # multiple of it. Normalising here makes the number comparable
+                # across registers, which raw centroid is not.
+                "centroid_ratio": (round(centroid_hz / dominant_hz, 2)
+                                   if centroid_hz is not None and dominant_hz > 0 else None),
                 "source":      "crepe+librosa+dense",
             })
 
@@ -554,10 +720,20 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
         # is clarinet and an event is almost exactly a 12th (19 semitones ±2) above
         # a nearby event within 400ms, discard the higher one — it's almost certainly
         # a harmonic of the lower note, not an actual clarion-register pitch.
+        #
+        # EXCEPT: a clarinet register-break SQUEAK has exactly the same pitch
+        # signature — that is what breaking to the clarion register IS. Suppressing
+        # on pitch alone therefore deleted the single most common clarinet mistake
+        # before any detector could see it, and cracks were unreportable on the one
+        # instrument where they matter most. Timbre is what separates the two: a
+        # mis-tracked harmonic belongs to a sustained, stable, tonal note; a squeak
+        # is brief, unstable and noisy.
         if "clarinet" in instrument.lower() and len(events) > 1:
             TWELFTH = 19  # semitones
             harmonic_tolerance = 2  # semitones
+            flatness_ref = take_flatness_median(events)
             discard = set()
+            kept_squeaks = 0
             for i, ev in enumerate(events):
                 if i in discard:
                     continue
@@ -570,10 +746,21 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                     if abs(diff - TWELFTH) <= harmonic_tolerance:
                         gap = abs(ev["time_sec"] - events[j]["time_sec"])
                         if gap <= 0.40:
-                            discard.add(i)
+                            # Only a tracking artifact if it does NOT sound like a
+                            # squeak. `None` means we could not measure timbre at
+                            # all — fall back to the old suppress-by-pitch rule
+                            # rather than letting missing data flood the take with
+                            # phantom clarion notes.
+                            squeak = looks_like_squeak(ev, flatness_ref)
+                            if squeak is True:
+                                ev["squeak_suspect"] = True
+                                kept_squeaks += 1
+                            else:
+                                discard.add(i)
                             break
-            if discard:
-                print(f"[pitch_tracking] clarinet: suppressed {len(discard)} likely 12th-harmonic events")
+            if discard or kept_squeaks:
+                print(f"[pitch_tracking] clarinet: suppressed {len(discard)} likely "
+                      f"12th-harmonic events, kept {kept_squeaks} as squeak candidate(s)")
                 events = [e for i, e in enumerate(events) if i not in discard]
 
         print(
@@ -895,16 +1082,59 @@ def assign_events_to_measures(
 
 # ── DTW alignment ─────────────────────────────────────────────────────────
 
+def median(values):
+    """
+    True median. `sorted(v)[len(v)//2]` takes the UPPER element on an even-length
+    list, which biases every even sample upward — and several thresholds here run
+    on samples as small as 2 or 4, where that bias is the difference between
+    flagging and not flagging. Returns None for an empty input.
+    """
+    sv = sorted(values)
+    n = len(sv)
+    if n == 0:
+        return None
+    return sv[n // 2] if n % 2 else 0.5 * (sv[n // 2 - 1] + sv[n // 2])
+
+
+_ACCIDENTAL_VALUE = {"#": 1, "♯": 1, "b": -1, "♭": -1, "-": -1}
+
+
 def midi_from_name(pitch_name: str) -> int | None:
-    """Convert scientific pitch notation ("F#4", "Bb3") to MIDI number."""
+    """
+    Convert scientific pitch notation ("F#4", "Bb3", "B-4", "F##4") to MIDI.
+
+    **music21 writes a flat as "-", not "b".** `Pitch('B-4').nameWithOctave` is
+    the string "B-4", and `parse_musicxml` feeds exactly that string in here.
+
+    The old pattern was `([#b♯♭]?)(-?\\d+)` — "-" is not in that accidental set,
+    so the accidental matched EMPTY and `(-?\\d+)` swallowed "-4" as the octave.
+    `midi_from_name("B-4")` returned **-25** for a note whose real MIDI is 70: a
+    95-semitone error on every flat note in every MusicXML score, which in flat-key
+    repertoire (most clarinet writing) is most of the piece.
+
+    It was invisible because `midi_to_scientific(-25)` renders as "A-4", which
+    reads to a musician as A-flat. Downstream it corrupted the DTW cost matrix
+    (a real note scores ~86 against a -25 entry, so alignment warps *around*
+    every flat note), which in turn produced wrong measure labels, phantom rests
+    from the resulting beat-axis holes, and meaningless timing residuals.
+
+    Accidentals are now parsed as a run, so double accidentals ("F##4", "C--4")
+    work too. They previously returned None and were silently dropped from the
+    expectation set, which let a correctly-played double-accidental note be
+    reported as wrong.
+
+    One ambiguity is inherent to music21's format: "C-1" is both "C-flat, octave
+    1" and "C, octave -1". Both land in MIDI 0-11, far below any instrument this
+    product supports, so the flat reading is taken and the collision is moot.
+    """
     import re
-    m = re.match(r'^([A-Ga-g])([#b♯♭]?)(-?\d+)$', pitch_name.strip())
+    m = re.match(r'^([A-Ga-g])([#♯b♭\-]*)(\d+)$', pitch_name.strip())
     if not m:
         return None
-    step, accidental, octave_str = m.group(1).upper(), m.group(2), int(m.group(3))
+    step, accidentals, octave = m.group(1).upper(), m.group(2), int(m.group(3))
     base = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}[step]
-    acc  = 1 if accidental in ("#", "♯") else (-1 if accidental in ("b", "♭") else 0)
-    return (octave_str + 1) * 12 + base + acc
+    acc  = sum(_ACCIDENTAL_VALUE.get(ch, 0) for ch in accidentals)
+    return (octave + 1) * 12 + base + acc
 
 
 def flatten_score_notes(
@@ -1136,7 +1366,13 @@ _TIMING_DRIFT_PCT        = 7.0   # local-vs-global tempo delta to call rush/drag
 _TIMING_DRIFT_MIN_NOTES  = 3     # notes needed in a measure for a local tempo fit
 _TIMING_DUR_SHORT        = 0.60  # actual/expected duration ratio → clipped
 _TIMING_DUR_LONG         = 1.65  # → held too long
-_TIMING_DUR_MIN_MS       = 140.0 # ignore duration errors smaller than this
+_TIMING_DUR_MIN_MS       = 140.0  # ignore duration errors smaller than this
+# How rough the note-to-note timing may be before the fitted line stops being a
+# description of this performance at all. Tempo-scaled: 18% of a beat of jitter
+# between CONSECUTIVE notes is a lot at any speed, while a fixed millisecond
+# figure would be far too strict at slow tempi and far too loose at fast ones.
+_TIMING_FIT_MAX_MAD_MS   = 90.0
+_TIMING_FIT_MAX_MAD_FRAC = 0.18
 
 
 def _robust_linear_fit(xs: list[float], ys: list[float]) -> tuple[float, float, list[float]] | None:
@@ -1287,6 +1523,39 @@ def analyze_timing_vs_score(
     if not (_TIMING_MIN_SPB <= spb <= _TIMING_MAX_SPB):
         return {"ok": False, "reason": f"implausible tempo ({spb:.3f} s/beat)"}
 
+    # ── Does the fitted line actually describe this performance? ────────────
+    # The only validation used to be the slope sanity band above — "is the tempo
+    # between 20 and 500 BPM". Nothing looked at how well the notes sit on the
+    # line, even though `_robust_linear_fit` returns the residuals. A fit with
+    # 400 ms of scatter emitted `confirmed=True` placement and drift flags
+    # exactly as readily as a fit with 15 ms of scatter, and every one of those
+    # flags is shown to the student as fact.
+    #
+    # The statistic is ROUGHNESS — the median jump between CONSECUTIVE
+    # residuals — not the spread of the residuals themselves.
+    #
+    # That distinction is the whole fix. A player who holds one note too long
+    # displaces every note after it, so half the piece sits off the line and the
+    # spread of residuals is large. The grid is still perfectly good, and that
+    # displacement is precisely the finding we want to report. Gating on spread
+    # threw away exactly the takes that had something to say (caught by the
+    # "note held past its value" test, which this gate broke on its first draft).
+    #
+    # A coherent displacement is a step: one big jump, small differences
+    # everywhere else, so the MEDIAN jump stays small. A grid that genuinely
+    # does not describe the performance has notes landing all over the place,
+    # and the median jump is large. Roughness separates the two; spread cannot.
+    _diffs = sorted(abs(residuals[i] - residuals[i - 1])
+                    for i in range(1, len(residuals)))
+    _rough = (median(_diffs) or 0.0) * 1000.0
+    _fit_limit = max(_TIMING_FIT_MAX_MAD_MS, _TIMING_FIT_MAX_MAD_FRAC * spb * 1000.0)
+    if _diffs and _rough > _fit_limit:
+        print(f"[timing] tempo fit does not describe this performance: "
+              f"note-to-note roughness {_rough:.0f} ms > {_fit_limit:.0f} ms "
+              f"at {60.0 / spb:.0f} BPM — no timing flags from this take")
+        return {"ok": False,
+                "reason": f"tempo fit too rough ({_rough:.0f} ms note-to-note)"}
+
     # ── The first note played IS the downbeat ───────────────────────────────
     # In unaccompanied playing there is no external clock: the beat grid starts
     # when the player starts. Keep the fitted SLOPE (the tempo the playing
@@ -1403,7 +1672,18 @@ def analyze_timing_vs_score(
             continue
 
         sv = sorted(v - _resid_centre for v in vals)
-        med = sv[len(sv) // 2]
+        # A true median. `sv[len(sv)//2]` takes the UPPER element on an
+        # even-length list, and the rule above admits as few as two notes — so
+        # for a 2-note bar it returned max(v1, v2), i.e. precisely the single
+        # worst onset the "two notes must agree" guard exists to exclude.
+        #
+        # The bias is asymmetric and therefore visible to the user: for late
+        # (positive) residuals it picks the larger and OVER-reports "late"; for
+        # early (negative) ones it picks the smaller magnitude and UNDER-reports
+        # "early". [40, 120] flagged as late (true median 80, under threshold)
+        # while [-100, -120] did not flag as early (true median -110, over it).
+        _n  = len(sv)
+        med = sv[_n // 2] if _n % 2 else 0.5 * (sv[_n // 2 - 1] + sv[_n // 2])
         if abs(med) >= _thresh_ms:
             worst = max((v - _resid_centre for v in vals), key=abs)
             placement[m] = {
@@ -1487,7 +1767,23 @@ def analyze_timing_vs_score(
             m = sn["measure"]
             prev = durations.get(m)
             if prev is None or abs(delta_ms) > abs(prev["delta_ms"]):
-                rest_beats = round(gap_beats - written_beats, 3)
+                # Distance to the next note we could READ, minus this note's
+                # written value. This is NOT known to be a rest.
+                #
+                # parse_musicxml discards rests deliberately (see its comment:
+                # "False rest detection creates bad coaching"), so nothing here
+                # has rest data at all. The same hole opens whenever a note is
+                # missing from the score representation for an unrelated reason:
+                # the vision reader returning "p": null for an unreadable
+                # notehead (its prompt permits exactly that), a pitch that fails
+                # to parse, a measure the reader skipped (its prompt says
+                # numbering gaps "are correct and expected"), or a
+                # beats_per_measure that disagrees with the real metre.
+                #
+                # It was previously rendered to the student as "plus the N-beat
+                # rest after it", which asserted a rest in passages containing
+                # none. Kept as a diagnostic; never stated as fact.
+                gap_beats_unexplained = round(gap_beats - written_beats, 3)
                 durations[m] = {
                     "beat":      sn["beat"],
                     "pitch":     sn["pitch"],
@@ -1501,7 +1797,11 @@ def analyze_timing_vs_score(
                     "beats_written": round(written_beats, 3),
                     "beats_played":  round(actual / spb, 3) if spb > 0 else None,
                     "measured":     measured,
-                    "rest_after_beats": rest_beats if rest_beats > 0.05 else 0.0,
+                    # Diagnostic only — see the comment above. Deliberately
+                    # NOT named "rest": we cannot tell a rest from a note
+                    # the score reader dropped.
+                    "gap_after_beats": (gap_beats_unexplained
+                                        if gap_beats_unexplained > 0.05 else 0.0),
                 }
 
     # One explanation per measure, most-fundamental first. These findings are not
@@ -3030,6 +3330,20 @@ def find_wrong_note_candidates(
             _by_measure.setdefault(ev["measure"], []).append(ev["time_sec"])
     _measure_edges = {m: {min(ts), max(ts)} for m, ts in _by_measure.items() if ts}
 
+    # A squeak is not a wrong note, and must never be reported as one.
+    #
+    # Until 2026-08-22 clarinet register-break events were deleted outright, so
+    # they could not reach this detector. Keeping them (so cracks are reportable
+    # at all) opened a path: `looks_like_squeak` accepts an event that is brief
+    # AND *any one of* unstable / low-confidence / noisy — so an event kept on
+    # TIMBRE alone can still be confidently tracked and stable in pitch, which
+    # clears every gate below. To this detector it then looks exactly like a
+    # deliberately played note a 12th above the written one.
+    #
+    # These events are already reported, correctly, by the crack detector.
+    _flatness_ref = take_flatness_median(aligned)
+    _skipped_squeaks = 0
+
     considered = 0                       # notes that passed the gates
     suspects: list[dict] = []
     for ev in aligned:
@@ -3037,6 +3351,9 @@ def find_wrong_note_candidates(
         ev_midi = ev.get("midi_raw", ev.get("midi"))  # unclamped — accurate comparison
         ev_conf = ev.get("confidence", 0)
         if m_num is None or ev_midi is None:
+            continue
+        if ev.get("squeak_suspect") or looks_like_squeak(ev, _flatness_ref) is True:
+            _skipped_squeaks += 1
             continue
         # Duration is unknown on some paths. Skip the gate rather than the note:
         # treating "unknown" as "too short" silently switched the whole detector
@@ -3104,6 +3421,9 @@ def find_wrong_note_candidates(
     # produces is noise. Staying silent is strictly better than filling the
     # page with confident wrong-note claims about correct playing, which is
     # exactly what was reported.
+    if _skipped_squeaks:
+        print(f"[find_wrong_note_candidates] skipped {_skipped_squeaks} squeak-shaped "
+              f"event(s) — cracks are reported by the crack detector, not as wrong notes")
     if considered >= 12 and len(suspects) > 0.25 * considered:
         print(f"[find_wrong_note_candidates] SUPPRESSED — {len(suspects)}/{considered} "
               f"notes ({100 * len(suspects) / considered:.0f}%) look wrong, which means "
@@ -3216,7 +3536,7 @@ def analyze_dynamics_vs_score(aligned: list[dict], score: dict) -> dict:
     if len(usable) < 2:
         return {"ok": False, "reason": "not enough notes under two different markings"}
 
-    med = {k: sorted(v)[len(v) // 2] for k, v in usable.items()}
+    med = {k: median(v) for k, v in usable.items()}
     ranked = sorted(med, key=lambda k: _DYNAMIC_RANK[k])
     softest, loudest = ranked[0], ranked[-1]
     spread = med[loudest] - med[softest]
@@ -3268,6 +3588,16 @@ def find_crack_candidates(aligned: list[dict]) -> list[str]:
     reject real cracks while looking authoritative. The generic test (up, far,
     brief, returns) already separates a crack from a written leap.
 
+    Pitch geometry alone still confuses a squeak with a written leap that
+    happens to be brief, so the jump must ALSO carry the acoustic signature of a
+    squeak (see `looks_like_squeak`). Where timbre cannot be measured the
+    geometric test stands on its own — an unmeasurable note must not become an
+    automatic negative.
+
+    A second signature needs no pitch jump at all: an airy, noise-like burst
+    where a tone should be. That is a split note or an air-ball, and no
+    pitch-based test can see it.
+
     Returns evidence strings for the coaching prompt, one per measure.
     """
     if not aligned:
@@ -3276,6 +3606,7 @@ def find_crack_candidates(aligned: list[dict]) -> list[str]:
     by_measure: dict[int, dict] = {}
     ordered = sorted((e for e in aligned if e.get("time_sec") is not None),
                      key=lambda e: e["time_sec"])
+    flatness_ref = take_flatness_median(ordered)
     for i, ev in enumerate(ordered):
         m = ev.get("measure")
         midi = ev.get("midi_raw", ev.get("midi"))
@@ -3294,32 +3625,59 @@ def find_crack_candidates(aligned: list[dict]) -> list[str]:
         neigh.sort()
         ref = neigh[len(neigh) // 2]
 
+        squeak = looks_like_squeak(ev, flatness_ref)
+
         jump = midi - ref
         # Up, far, and brief — a sustained high note is just a high note.
-        if jump < 7 or dur > 0.28:
-            continue
-        # It has to come back down: a crack is an interruption, not a leap into
-        # a new register. Compare against what follows.
-        after = [ordered[j].get("midi_raw", ordered[j].get("midi"))
-                 for j in range(i + 1, min(len(ordered), i + 4))]
-        after = [n for n in after if n is not None]
-        if after and min(abs(n - ref) for n in after) > 4:
+        if jump >= 7 and dur <= 0.28:
+            # It has to come back down: a crack is an interruption, not a leap
+            # into a new register. Compare against what follows.
+            after = [ordered[j].get("midi_raw", ordered[j].get("midi"))
+                     for j in range(i + 1, min(len(ordered), i + 4))]
+            after = [n for n in after if n is not None]
+            if after and min(abs(n - ref) for n in after) > 4:
+                continue
+            # Timbre must agree, when timbre is measurable. `None` = unmeasurable,
+            # and the geometric evidence carries it alone.
+            if squeak is False:
+                continue
+            prev = by_measure.get(m)
+            if prev is None or jump > prev.get("jump", 0):
+                by_measure[m] = {"kind": "jump", "jump": jump, "time": t,
+                                 "dur": dur, "midi": midi, "ref": ref}
             continue
 
-        prev = by_measure.get(m)
-        if prev is None or jump > prev["jump"]:
-            by_measure[m] = {"jump": jump, "time": t, "dur": dur,
-                             "midi": midi, "ref": ref}
+        # ── Noise burst: a split/airy note that never leaves its own pitch ──
+        # Deliberately stricter than the jump branch. There is no corroborating
+        # pitch geometry here, so the spectrum alone has to carry it: markedly
+        # noisier than this take's norm AND badly tracked. Anything looser turns
+        # ordinary breath noise into a flag.
+        if (flatness_ref and isinstance(ev.get("flatness"), (int, float))
+                and isinstance(ev.get("confidence"), (int, float))
+                and ev["flatness"] >= flatness_ref * 3.0
+                and ev["confidence"] <= 55
+                and dur <= 0.35):
+            if by_measure.get(m) is None:      # a real pitch jump outranks this
+                by_measure[m] = {"kind": "noise", "time": t, "dur": dur,
+                                 "midi": midi, "ref": ref,
+                                 "flat_x": ev["flatness"] / flatness_ref}
 
     out = []
     for m in sorted(by_measure):
         d = by_measure[m]
-        out.append(
-            f"crack | measure {m} | pitch jumped {d['jump']} semitones above the "
-            f"surrounding line ({midi_to_scientific(d['ref'])} -> "
-            f"{midi_to_scientific(d['midi'])}) for {d['dur']:.2f}s at "
-            f"t={d['time']:.2f}s"
-        )
+        if d.get("kind") == "noise":
+            out.append(
+                f"crack | measure {m} | note came out airy and unfocused rather "
+                f"than as a clear tone ({d['flat_x']:.1f}x the take's usual noise "
+                f"level) for {d['dur']:.2f}s at t={d['time']:.2f}s"
+            )
+        else:
+            out.append(
+                f"crack | measure {m} | pitch jumped {d['jump']} semitones above the "
+                f"surrounding line ({midi_to_scientific(d['ref'])} -> "
+                f"{midi_to_scientific(d['midi'])}) for {d['dur']:.2f}s at "
+                f"t={d['time']:.2f}s"
+            )
     if out:
         print(f"[find_crack_candidates] {len(out)} crack/squeak candidate(s)")
     return out[:8]
@@ -4034,9 +4392,11 @@ def compare_and_coach_claude(
                 )
         gaps = [events[i+1]["time_sec"] - events[i]["time_sec"] for i in range(len(events) - 1)]
         if len(gaps) >= 4:
-            median = sorted(gaps)[len(gaps) // 2]
+            # Local name was `median`, which SHADOWED the module-level median()
+            # helper for the rest of this function.
+            gap_median = median(gaps) or 0.0
             for i, gap in enumerate(gaps):
-                if median > 0 and gap > median * 2.2 and gap > 0.8:
+                if gap_median > 0 and gap > gap_median * 2.2 and gap > 0.8:
                     beat = max(1, round((events[i]["time_sec"] - m_start) / spb + 1, 2))
                     evidence_candidates.append(
                         f"timing | measure {m['number']} near beat {beat} | {gap:.2f}s gap after {'/'.join(events[i]['pitches'])} at {events[i]['time_sec']:.2f}s"
@@ -4166,6 +4526,22 @@ def compare_and_coach_claude(
     # timing_report is None whenever the score-DTW path did not run at all (a
     # failed score read, or too few matched onsets). Guarding on `.get` alone
     # crashed the whole analysis there — found by running the no-score path.
+    #
+    # The first version of this took ANY single note in the bar whose raw
+    # residual exceeded 55 ms. Three things were wrong with that, and together
+    # they made the corroboration gate a pass-through — it confirmed very nearly
+    # any rhythm claim Gemini cared to make:
+    #
+    #   1. 55 ms is below this pipeline's own measurement noise. Onsets come off
+    #      a 23 ms librosa grid, are deduped at 50 ms, and the candidate list is
+    #      padded with synthetic probes every 350 ms inside sustained notes.
+    #   2. It was a max over the bar, so one bad onset spoke for every note.
+    #   3. `residual_ms` is stored UN-de-trended, and the grid is anchored so the
+    #      first note's residual is zero by construction — any error in that one
+    #      onset is added to every residual in the piece as a constant, lifting
+    #      the whole take past the threshold at once.
+    #
+    # Now: the bar's MEDIAN de-trended deviation, against a tempo-scaled floor.
     if isinstance(timing_report, dict) and timing_report.get("ok") is not False:
         for _row in (timing_report.get("notes") or []):
             if abs(_row.get("residual_ms") or 0.0) >= 55.0:
@@ -4504,14 +4880,28 @@ def compare_and_coach_claude(
             # and they need different corroboration. A squeak is short, unstable
             # and violently high — precisely what the wrong-note detector is
             # built to reject — so gating cracks on it silently deleted them.
-            _d = desc.lower()
-            _is_crack = any(k in _d for k in
-                            ("crack", "squeak", "squeal", "chirp", "break",
-                             "split", "cipher", "airball", "air ball"))
-            if _is_crack:
-                conf = m in crack_conf_measures
-            else:
-                conf = m in wrongnote_conf_measures
+            #
+            # Which detector to ask used to be decided by substring-matching
+            # Gemini's prose for nine keywords. That made a true finding's
+            # survival depend on the LLM's word choice: "the tone splinters on
+            # the high F" missed every keyword, went to the wrong-note detector,
+            # failed there, and was deleted — while "breaks the phrase" matched
+            # "break" and sent a genuine wrong note to the crack detector.
+            #
+            # Confirming against EITHER detector (the previous attempt at this)
+            # was too loose in a way that produced false positives: crack
+            # evidence says a note was noisy or broke, and says nothing at all
+            # about whether the right pitch was played. So "any brief airy note
+            # in measure N" confirmed "you played F instead of E in measure N",
+            # and the student then read Gemini's unverified prose as fact at
+            # confidence 92.
+            #
+            # A pitch claim needs pitch evidence. Cracks are not lost by this:
+            # `find_crack_candidates` emits its own CONFIRMED flag for the same
+            # measure further down (section 3b), carrying CREPE's evidence
+            # rather than Gemini's guess, and it wins the (measure, type) dedup
+            # precisely because it is confirmed.
+            conf = m in wrongnote_conf_measures
         elif ftype == "timing":
             conf = m in timing_conf_measures
         elif ftype == "dynamics":
@@ -4637,11 +5027,16 @@ def compare_and_coach_claude(
             _val  = du.get("value") or "note"
             _bw   = du.get("beats_written")
             _bp   = du.get("beats_played")
-            _rest = du.get("rest_after_beats") or 0.0
-            _span = (f" plus the {_rest:g}-beat rest after it" if _rest else "")
+            # No rest claim. The old text said "plus the N-beat rest after it",
+            # derived from `gap_after_beats` — which is only "distance to the
+            # next note we could read", and is equally produced by a note the
+            # score reader dropped. In a passage containing no rests at all it
+            # asserted one, which is exactly the kind of unfounded specific this
+            # product cannot afford. The note's own written value is checkable
+            # against the page and needs no such qualifier.
             if _bw and _bp:
                 _detail = (f"the {_val} ({du['pitch']}) on beat {du['beat']:g} is written "
-                           f"for {_bw:g} beat{'s' if _bw != 1 else ''}{_span} but got "
+                           f"for {_bw:g} beat{'s' if _bw != 1 else ''} but got "
                            f"{_bp:g} — {abs(int(round(du['delta_ms'])))} ms "
                            f"{'too long' if held else 'too short'}")
             else:
@@ -4830,6 +5225,7 @@ Below is the VERIFIED list of issues found in the performance. Write specific co
 The location given for each issue (e.g. "m.25" or "m.25-27") is the VERIFIED, authoritative measure — it was computed from the recording's timing, not read off the page, so trust it completely. If the "observed" text for an issue mentions a different measure number, that is a stale/incorrect reference — ignore it and use ONLY the given location in your title and body. Never cite a measure number in your response other than the one given for that issue.
 
 Every issue below is CONFIRMED — state it as fact. Never use hedging language like "possible", "may have", "appears to", or "worth checking".
+Use ONLY the musical facts given in "observed". Never introduce notation that is not stated there — in particular never mention a rest, a repeat, a key change, a dynamic marking, an articulation or a tempo marking unless that exact word appears in "observed". You are not shown the score and cannot see what is on the page; asserting notation you were not given is the single fastest way to lose a musician's trust.
 
 For "intonation" issues, the title MUST begin with the word "Sharp" or "Flat" (whichever the "observed" text says), followed by 2-5 words naming WHERE it happened — the note, register, or gesture. Examples of the right shape: "Flat on the sustained high notes", "Sharp entering the descending run", "Flat across the slurred leap". NEVER put a number, a cents value, or the words "slightly"/"very" in an intonation title — how far off it is belongs in the body, not the headline. Do not name the measure in the title.
 {f'Student note about this take (context only, do not excuse issues): "{user_note}"' if user_note else ''}

@@ -1,5 +1,50 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-28 — the fallback pipeline no longer ships what the main path refuses
+
+The Modal pipeline's whole stance is *state it as fact or say nothing*: anything
+it cannot corroborate is deleted before Claude is even called, and the coaching
+prompt bans hedging outright. `analyze-performance` falls through to a second,
+inline pipeline whenever the Modal dispatch fails — and that pipeline had the
+opposite stance. It capped confidence instead of deleting, and nothing in the UI
+said which one a student was reading.
+
+**The sharp end was `runClaudeCoaching`.** It never heard or saw the recording.
+It read the score, predicted likely practice risks, and wrote them into
+`takes.flags` with `timestamp_start/end = 0` — then the completion email said
+"Mediant found N areas to work on". Its own prompt says *"these are NOT
+performance errors."* PD-005 requires every flag to carry a measure **and** a
+timestamp range in the recording; a score-only guess has neither. So this was not
+a confidence problem that a lower number could fix — it was content about a
+performance nobody had listened to, presented as findings about that
+performance.
+
+That path no longer runs. When neither Gemini (audio+video) nor Claude vision
+(frames) produces anything, the take is marked `failed` with a plain message:
+*"We could not analyse this recording. Nothing was wrong with your upload —
+please try again in a moment."* Traced end to end — `job-status` returns
+`job_error` as `error`, and `NewRecordingModal` throws it verbatim — so the
+student reads that sentence, not a generic failure.
+
+`runClaudeCoaching` is left in the file, marked **DELIBERATELY NOT CALLED** with
+the reasoning above it. Deleting it outright was the other option; leaving it
+undocumented was not, because an uncalled, well-commented function that reads as
+architecture is exactly the trap already recorded twice in the Gotchas file.
+
+**The surviving fallbacks are now visible.** `Analysis.jsx` renders a gold
+"Reduced" / "Video only" banner whenever `analysis_backend` does not start with
+`modal`, distinguishing "analysed by listening alone, no cent-level intonation or
+note-by-note timing" from "audio could not be processed, frames only". The data
+was already there: the backend has been writing `analysis_quality` with trust,
+evidence and limitations all along, and the frontend read it into a variable it
+never rendered. Banner reuses the existing `.demoBanner` structure and the gold
+token — cautionary, not error-red, which stays reserved for flags per
+DESIGN_RULES.
+
+Build passes; lint on `Analysis.jsx` goes 60 → 59 errors (all pre-existing dead
+variables, one of which this change consumed). `worker.py` untouched — 174/174
+unit checks and 28/28 coverage behaviours still pass.
+
 ## 2026-08-23 (accuracy, part 2) — the rest of the backlog
 
 **Rhythm corroboration, resolved.** The previous attempt was abandoned because an

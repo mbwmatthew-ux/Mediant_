@@ -982,6 +982,18 @@ Give 2–5 flags. Always cite the frame timestamp and the specific body part or 
 }
 
 // ── Claude coaching fallback (piece-aware, no video scoring) ─────────────────
+//
+// DELIBERATELY NOT CALLED as of 2026-08-28. Kept for reference only.
+//
+// This function never hears or sees the recording — it reads the score and
+// predicts likely practice risks. That is useful content, but it is NOT analysis
+// of a performance, and it was being written into `takes.flags` with
+// timestamp_start/end = 0, which PD-005 forbids. See the "fail honestly" block in
+// the handler below for the full reasoning.
+//
+// Do not re-wire it to `flags`. If score-only practice tips are wanted, they need
+// their own column and their own UI treatment, clearly separated from measured
+// findings — that is an unapproved Backlog item, not a fallback.
 async function runClaudeCoaching(opts: {
   scoreUrl:      string | null
   scoreMimeType: string | null
@@ -1402,14 +1414,14 @@ serve(async (req: Request) => {
 
         let score: number | null = null
         let flags: unknown[]     = []
-        let backend              = 'claude-coaching'
+        let backend              = 'none'
         let backendError: string | null = null
         let quality: unknown     = buildQuality({
           trust: 'low',
           backend,
           evidence: 'score-only',
           flags: [],
-          reasons: ['Sheet music analysis only — no video score or timestamps available.'],
+          reasons: ['No recording-based analysis has run yet.'],
         })
 
         function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -1486,29 +1498,31 @@ serve(async (req: Request) => {
           }
         }
 
-        // Path C: Claude coaching fallback (15s max)
+        // ── Nothing could analyse the actual recording → fail honestly ──────
+        // There used to be a "Path C" here: `runClaudeCoaching` read the SCORE
+        // and invented likely practice risks WITHOUT ever hearing or seeing the
+        // take, then wrote them into `flags` with timestamp_start/end = 0.
+        //
+        // That violates PD-005, which requires every flag to carry a measure AND
+        // a timestamp range in the recording. A score-only guess has neither. The
+        // completion email still said "Mediant found N areas to work on", so
+        // content generated without the recording was presented to the student as
+        // findings about their performance — while that path's own prompt says
+        // "these are NOT performance errors".
+        //
+        // If neither Gemini (audio+video) nor Claude vision (frames) produced
+        // anything, we have no evidence about this performance. Say so and let
+        // them retry, rather than filling the page with plausible invention.
         if (score === null) {
-          try {
-            const claudeResult = await withTimeout(
-              runClaudeCoaching({ scoreUrl: scoreSignedUrl, scoreMimeType: scoreMimeType ?? null, ...sharedOpts }),
-              15_000, 'Claude coaching'
-            )
-            flags = claudeResult.flags
-            backend = 'claude-coaching'
-            quality = buildQuality({
-              trust: 'low',
-              backend,
-              evidence: 'score-only',
-              flags: claudeResult.flags,
-              reasons: [
-                'Generated practice priorities from score/context because full recording analysis was unavailable.',
-                ...evidenceReasons(safeScoreFacts, safeAudioFeatures, measureTimeline),
-              ],
-              backendError,
-            })
-          } catch (err) {
-            console.error('[analyze-performance] Claude coaching failed:', (err as Error).message)
-          }
+          const why = backendError ?? 'no analysis backend was available'
+          console.error(`[analyze-performance] no recording-based analysis for take ${takeId}: ${why}`)
+          await admin.from('takes').update({
+            job_status:       'failed',
+            job_error:        'We could not analyse this recording. Nothing was wrong with your upload — please try again in a moment.',
+            analysis_backend: 'none',
+            pipeline_debug:   { inline_fallback_failed: why },
+          }).eq('id', takeId)
+          return
         }
 
         await admin.from('takes').update({

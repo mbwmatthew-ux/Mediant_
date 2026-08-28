@@ -1669,6 +1669,29 @@ const videoRef    = useRef(null)
   const score = take?.score ?? null
   const issueCount = chips.length
   const analysisQuality = take?.analysis_quality ?? null
+
+  // Reduced-evidence notice. The Modal pipeline deletes any finding it cannot
+  // corroborate; the inline fallback in analyze-performance caps confidence
+  // instead. Those two produce visibly different feedback, and the difference
+  // used to be invisible here — analysis_quality was read into a variable and
+  // never rendered. `analysis_backend` is the discriminator: the full pipeline
+  // always writes "modal+...".
+  const evidenceNotice = useMemo(() => {
+    if (isDemoTake) return null
+    const backend = take?.analysis_backend
+    if (!backend || backend.startsWith('modal')) return null
+    if (analysisQuality?.evidence === 'visual-only' || backend === 'claude-vision') {
+      return {
+        label: 'Video only',
+        text: 'The audio could not be processed, so this take was analysed from video frames. Pitch, timing and dynamics were not measured — only what is visible.',
+      }
+    }
+    return {
+      label: 'Reduced',
+      text: 'Our measurement engine was unavailable, so this take was analysed by listening alone. Cent-level intonation and note-by-note timing were not measured, so these findings are less precise than usual.',
+    }
+  }, [take?.analysis_backend, analysisQuality, isDemoTake])
+
   const info = activeFlag ? flagsMap[activeFlag] : null
 
   const subtext = useMemo(() => {
@@ -1844,6 +1867,13 @@ const videoRef    = useRef(null)
           <span className={aStyles.demoPill}>Demo</span>
           Sample analysis for Clair de lune.{' '}
           <a href="#/signup" className={aStyles.demoBannerLink}>Create a free account →</a>
+        </div>
+      )}
+
+      {evidenceNotice && (
+        <div className={aStyles.evidenceBanner}>
+          <span className={aStyles.evidencePill}>{evidenceNotice.label}</span>
+          {evidenceNotice.text}
         </div>
       )}
 

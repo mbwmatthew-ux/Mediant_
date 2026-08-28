@@ -25,7 +25,11 @@ The frontend collects:
 
 Main entrypoint:
 
-- `src/pages/Record.jsx`
+- `src/components/NewRecordingModal.jsx`
+
+Note: `src/pages/Record.jsx` used to be this entrypoint and is now unrouted and
+unimported (`/record` redirects to `/home`). Do not read it as a description of
+the current flow.
 
 ### 2. Secure storage
 
@@ -52,18 +56,23 @@ Preferred path:
 - CREPE pitch tracking
 - librosa beat/onset tracking
 - music21 MusicXML parsing when available
-- Audiveris OMR conversion for visual scores (PDF/images) before parsing
 
 Files:
 
 - `modal_worker/worker.py`
 - `modal_worker/deploy.sh`
 
-Score-reading order:
+Score-reading order, as actually implemented in `_score_pipeline`:
 
 - MusicXML / MXL upload -> parse directly with `music21`
-- PDF / image upload -> convert to MXL with Audiveris, then parse with `music21`
-- If structured parsing fails -> fall back to Claude visual reading
+- PDF / image upload -> read with Claude vision (`read_score_notes_claude`),
+  then ask Gemini for each measure's on-page coordinates
+- Parsed results are cached in `score_cache`, keyed by `score_path`
+
+There is **no OMR step**. `convert_visual_score_to_musicxml` (Audiveris) exists
+in `worker.py` and has zero call sites, though Audiveris is still installed into
+the Modal image on every build. This document previously described that path as
+live; it never runs.
 
 Fallback path:
 

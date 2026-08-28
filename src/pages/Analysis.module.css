@@ -94,6 +94,22 @@
 .demoBannerLink { color: var(--hero-green); font-weight: 600; margin-left: auto; text-decoration: none; }
 .demoBannerLink:hover { text-decoration: underline; }
 
+/* Reduced-evidence banner — shown when a take did NOT come from the full
+   measurement pipeline. Gold tint reads as "note this", not as an error: red
+   stays reserved for error flags per DESIGN_RULES. Structurally identical to
+   .demoBanner so the two never look like different kinds of object. */
+.evidenceBanner {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  background: var(--gold-soft); border: 1px solid rgba(200,148,26,0.38);
+  border-radius: 10px; color: var(--text-soft); font-size: 0.88rem;
+  line-height: 1.6; margin-bottom: 8px; padding: 8px 14px;
+}
+.evidencePill {
+  background: var(--gold); border-radius: 5px; color: #fff; flex-shrink: 0;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+  padding: 2px 8px; text-transform: uppercase;
+}
+
 /* Back button (from sessions) — full-bleed row (breaks out of .page's own
    horizontal padding via matching negative margin) so the hover fill reads as
    one continuous row flush with the page edges, not a floating rounded box. */

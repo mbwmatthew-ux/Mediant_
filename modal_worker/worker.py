@@ -3212,6 +3212,11 @@ _LAST_TRANSPOSE_DEBUG: str = ""
 # the gate's false-positive rate is measurable. Never shown to the student.
 _LAST_DROPPED_UNCONFIRMED: list = []
 
+# Evidence bundle from the most recent compare_and_coach_claude call, read by
+# run_full_analysis and posted to the webhook. Same channel pattern as
+# _LAST_DROPPED_UNCONFIRMED above.
+_LAST_EVIDENCE: dict = {}
+
 
 def _note_transposition_debug(msg: str) -> None:
     global _LAST_TRANSPOSE_DEBUG
@@ -3950,6 +3955,15 @@ def compare_and_coach_claude(
     end_measure: int | None = None,
     dtw_verified: bool = False,
 ) -> list[dict]:
+    # Reset before ANY early return can execute (there are three below). Modal
+    # reuses warm containers across invocations, so without this reset an early
+    # return would leave the PREVIOUS take's evidence bundle in the global and
+    # the webhook would post one student's measurements as another's. Same
+    # convention as _note_transposition_debug resetting _LAST_TRANSPOSE_DEBUG
+    # at entry.
+    global _LAST_EVIDENCE
+    _LAST_EVIDENCE = {}
+
     import anthropic as ac, re
     CLAUDE_MODEL = "claude-sonnet-4-6"
     allowed_types = {
@@ -5369,6 +5383,21 @@ Return JSON only (no markdown):
     # measure the Loop actually plays — the same measure the teacher saw.
     assign_flag_keys(flags)
 
+    try:
+        from evidence import build_evidence_bundle
+        _LAST_EVIDENCE = build_evidence_bundle(
+            flags=flags, timing_report=timing_report,
+            dynamics_report=dynamics_report,
+            wrong_note_candidates=wrong_note_candidates,
+            crack_candidates=crack_candidates,
+            aligned=aligned, beats={"tempo_bpm": (tempo or {}).get("bpm"),
+                                    "beat_times": beat_times or []},
+            score=score, alignment_method="score_dtw" if dtw_verified else "beat_grid",
+        )
+    except Exception as e:                       # never fail an analysis over telemetry
+        print(f"[compare_and_coach_claude] evidence bundle failed: {e}")
+        _LAST_EVIDENCE = {"version": 0, "error": str(e)}
+
     flags.sort(key=lambda x: x["measure"])
     # Do NOT group: the user wants to see EVERY played measure with an issue as its own
     # row, not collapsed into "Recurring intonation — N passages" headers. Each issue
@@ -5831,6 +5860,7 @@ def run_full_analysis(payload: dict) -> None:
             "pipelineDebug":     debug_steps,
             "parsedScoreNotes":  parsed_score_notes,
             "scorePath":         score_path,
+            "analysisEvidence":  _LAST_EVIDENCE or None,
         }, anon_key=webhook_anon_key)
 
     except Exception as e:

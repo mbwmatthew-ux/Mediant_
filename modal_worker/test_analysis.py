@@ -1587,6 +1587,37 @@ def test_squeak_survives_the_release_tolerance():
           str(got))
 
 
+def test_flag_keys_are_stable_and_unique():
+    print("\n[41] flags carry a stable, unique key")
+    flags = [
+        {"type": "intonation", "measure": 20},
+        {"type": "timing",     "measure": 20},
+        {"type": "intonation", "measure": 21},
+    ]
+    w.assign_flag_keys(flags)
+    keys = [f["flag_key"] for f in flags]
+    check("keys are unique", len(set(keys)) == 3, str(keys))
+    check("key names the type and measure",
+          keys[0] == "intonation:20" and keys[1] == "timing:20", str(keys))
+
+    # Reordering the array must not change any flag's key — that is the whole
+    # point: annotations survive a re-analysis that reorders flags.
+    shuffled = [flags[2], flags[0], flags[1]]
+    for f in shuffled:
+        f.pop("flag_key")
+    w.assign_flag_keys(shuffled)
+    check("key is independent of array position",
+          shuffled[1]["flag_key"] == "intonation:20", shuffled[1]["flag_key"])
+
+    # A collision (two same-type flags relabelled onto one measure) must still
+    # produce distinct keys rather than silently merging two annotations.
+    collide = [{"type": "timing", "measure": 30}, {"type": "timing", "measure": 30}]
+    w.assign_flag_keys(collide)
+    check("collisions get distinct keys",
+          collide[0]["flag_key"] != collide[1]["flag_key"],
+          f'{collide[0]["flag_key"]} vs {collide[1]["flag_key"]}')
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1624,7 +1655,8 @@ def main():
               test_rhythm_corroboration_needs_real_signal,
               test_compound_articulation_is_short_by_design,
               test_ambiguous_instrument_does_not_guess_a_transposition,
-              test_squeak_survives_the_release_tolerance):
+              test_squeak_survives_the_release_tolerance,
+              test_flag_keys_are_stable_and_unique):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

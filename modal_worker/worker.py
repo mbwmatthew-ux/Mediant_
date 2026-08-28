@@ -3916,6 +3916,28 @@ def build_measure_timeline(
     return out
 
 
+def assign_flag_keys(flags: list[dict]) -> None:
+    """
+    Stamp a stable `flag_key` on each flag, in place.
+
+    `flag_annotations` was keyed on flag_index — the flag's POSITION in the
+    array. Re-running an analysis reorders flags, so every annotation then
+    pointed at a different flag than the teacher looked at, silently corrupting
+    the only ground truth this project has.
+
+    Dedup guarantees one flag per (measure, type), so "type:measure" identifies
+    a flag by what it SAYS rather than where it sits. The relabel pass can move
+    a flag's measure after dedup, which can collide two same-type flags onto one
+    key, so collisions take a suffix in array order.
+    """
+    seen: dict[str, int] = {}
+    for f in flags:
+        base = f"{f.get('type', 'issue')}:{f.get('measure', '?')}"
+        n = seen.get(base, 0) + 1
+        seen[base] = n
+        f["flag_key"] = base if n == 1 else f"{base}#{n}"
+
+
 def compare_and_coach_claude(
     score: dict, aligned: list[dict], alignment_ranges: list[dict],
     tempo: dict, piece_title: str, composer: str, instrument: str,
@@ -5342,6 +5364,10 @@ Return JSON only (no markdown):
     if _relabelled:
         print(f"[compare_and_coach_claude] corrected {_relabelled} flag label(s) to "
               f"match what the Loop plays")
+
+    # Keys are assigned AFTER the relabel pass, so a key always names the
+    # measure the Loop actually plays — the same measure the teacher saw.
+    assign_flag_keys(flags)
 
     flags.sort(key=lambda x: x["measure"])
     # Do NOT group: the user wants to see EVERY played measure with an issue as its own

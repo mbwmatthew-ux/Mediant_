@@ -77,6 +77,7 @@ serve(async (req: Request) => {
       const {
         takeId,
         flagIndex,       // null/undefined = teacher-added flag
+        flagKey,         // null/undefined = teacher-added flag, or a pre-key row
         action,
         originalFlag,
         editedFlag,
@@ -105,6 +106,7 @@ serve(async (req: Request) => {
         take_id:          takeId,
         teacher_id:       user.id,
         flag_index:       flagIndex ?? null,
+        flag_key:         flagKey ?? null,
         action,
         original_flag:    originalFlag ?? null,
         edited_flag:      editedFlag   ?? null,

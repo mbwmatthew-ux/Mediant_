@@ -1050,9 +1050,20 @@ def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "")
                     if _off <= float(el.offset) + 1e-6:
                         cur_dynamic = _v
                 if isinstance(el, m21.note.Rest):
-                    # Rests are intentionally ignored in this version. False
-                    # rest detection creates bad coaching, and sounded-note
-                    # feedback is the trustworthy core of the product.
+                    # Rests used to be dropped outright, on the reasoning that
+                    # "false rest detection creates bad coaching". That was right
+                    # about the risk and wrong about the remedy: a student playing
+                    # through a written rest is a real, common mistake nobody was
+                    # ever told about. They are kept here; the strictness lives in
+                    # find_rest_violations, not in refusing to look.
+                    notes_out.append({
+                        "pitch": None,
+                        "is_rest": True,
+                        "beat": float(el.beat),
+                        "duration_beats": float(el.duration.quarterLength),
+                        "articulation": None,
+                        "dynamic": cur_dynamic,
+                    })
                     continue
                 elif isinstance(el, m21.note.Note):
                     # ALL articulations, not just the first.
@@ -1352,7 +1363,9 @@ def flatten_score_notes(
     window — which is what the timing analysis diffs performed onsets against.
 
     Notes without a parseable pitch are skipped (same rule DTW always used).
-    Rests are already absent: parse_musicxml drops them deliberately.
+    Rests now survive parsing (see collect_rest_windows) but carry pitch=None,
+    so this filter is what keeps them out of DTW, which matches pitch
+    sequences and would be corrupted by a pitchless entry.
 
     Returns: [{"midi", "measure", "beat", "dur_beats", "pitch"}]
       beat       — 1-based position within its measure, in the time signature's
@@ -1402,6 +1415,41 @@ def flatten_score_notes(
         first_m = min(sn["measure"] for sn in out)
         for sn in out:
             sn["abs_beat"] = (sn["measure"] - first_m) * bpm_m + (sn["beat"] - 1.0)
+    return out
+
+
+_REST_MIN_BEATS = 1.0   # shorter rests sit inside articulation noise
+
+
+def collect_rest_windows(score: dict, beats_per_measure: int) -> list[dict]:
+    """
+    Written rests long enough to be worth checking, as beat spans.
+
+    Deliberately NOT part of flatten_score_notes: that list feeds DTW, which
+    matches pitch sequences, and a rest has no pitch. Rests travel separately.
+
+    Rests under one beat are excluded. A staccato passage is full of sub-beat
+    silence that the player is correct to leave, and flagging it would recreate
+    the "false rest detection creates bad coaching" problem that caused rests to
+    be dropped in the first place.
+    """
+    out: list[dict] = []
+    for m in score.get("measures", []):
+        num = m.get("number")
+        if not isinstance(num, int):
+            continue
+        for n in m.get("notes", []):
+            if not n.get("is_rest"):
+                continue
+            try:
+                beat = float(n.get("beat") or 1.0)
+                dur = float(n.get("duration_beats") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if dur < _REST_MIN_BEATS:
+                continue
+            out.append({"measure": num, "start_beat": beat,
+                        "end_beat": beat + dur, "beats": dur})
     return out
 
 
@@ -3020,19 +3068,24 @@ MULTIPLE PAGES: You may be given several images. They are consecutive pages of O
 
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
-Return every measure that CONTAINS AT LEAST ONE SOUNDED NOTE, in order. Omit measures that are entirely rest (including multirests) — but per the numbering rules above, they still consume their measure numbers. For each sounded note (skip rests):
+Return every measure that CONTAINS AT LEAST ONE SOUNDED NOTE, in order. Omit measures that are entirely rest (including multirests) — but per the numbering rules above, they still consume their measure numbers. For each sounded note:
 - "p": pitch in scientific notation ("D3", "F#4") — null only if notehead present but pitch unreadable
 - "b": beat position in measure (1.0 = downbeat)
 - "d": duration in beats
 - "a": articulation — "staccato", "tenuto", "accent", or null
 - "dyn": dynamic marking at this note — "pp","p","mp","mf","f","ff","cresc","dim", or null
 
+Also return written rests of a beat or longer (do NOT report a multirest as a rest entry — those are already handled by the numbering rule above):
+- "r": true, and no "p" (omit or leave null)
+- "b": beat position where the rest begins
+- "d": duration in beats
+
 Use short field names to keep the JSON compact. Return JSON only (no markdown):
 {{
   "key_signature": "...",
   "time_signature": "...",
   "tempo_marking": "...",
-  "measures": [{{"number": {start_measure}, "pg": 1, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}]}}]
+  "measures": [{{"number": {start_measure}, "pg": 1, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}, {{"r": true, "b": 2.5, "d": 1.5}}]}}]
 }}"""
 
     try:
@@ -3087,9 +3140,12 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
                     "measures": [], "error": "unparseable JSON from score read"}
         def _norm_note(n: dict) -> dict:
             # Accept both old long names (pitch/beat/duration_beats/articulation/dynamic)
-            # and new compact names (p/b/d/a/dyn) — normalize to long form.
+            # and new compact names (p/b/d/a/dyn/r) — normalize to long form.
+            # "is_rest" carries the "r" marker so a rest reads the same shape as
+            # parse_musicxml's rest entries — pitch=None, is_rest=True.
             return {
                 "pitch":          n.get("pitch") or n.get("p"),
+                "is_rest":        bool(n.get("is_rest") or n.get("r") or False),
                 "beat":           n.get("beat")  if n.get("beat")  is not None else n.get("b"),
                 "duration_beats": n.get("duration_beats") if n.get("duration_beats") is not None else n.get("d"),
                 "articulation":   n.get("articulation") or n.get("a"),
@@ -3098,7 +3154,6 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
         measures = [
             {**m, "page": int(m.get("pg") or m.get("page") or 1), "notes": [
                 _norm_note(n) for n in m.get("notes", [])
-                if str(n.get("pitch") or n.get("p", "")).lower() != "rest"
             ]}
             for m in (parsed.get("measures") or [])
             if isinstance(m.get("notes"), list)
@@ -3367,7 +3422,10 @@ def find_wrong_note_candidates(
     for m in score["measures"]:
         midis = []
         for n in m.get("notes", []):
-            midi = midi_from_name(n.get("pitch", ""))
+            # Rests now carry an explicit "pitch": None entry, so a bare
+            # `.get("pitch", "")` would return None (the default only fires on a
+            # MISSING key) and midi_from_name(None) would crash on .strip().
+            midi = midi_from_name(n.get("pitch") or "")
             if midi is not None:
                 midis.append(midi)
         if midis:

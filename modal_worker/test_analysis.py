@@ -2085,6 +2085,37 @@ def test_one_file_keeps_flat_positions_even_when_it_has_many_pages():
           "the null-page escape hatch is missing")
 
 
+def test_rest_windows_are_collected_from_the_score():
+    print("\n[52] rests survive the score model and become windows")
+    score = {"time_signature": "4/4", "measures": [
+        {"number": 5, "notes": [
+            {"pitch": "C4", "beat": 1.0, "duration_beats": 1.0},
+            {"is_rest": True, "pitch": None, "beat": 2.0, "duration_beats": 2.0},
+            {"pitch": "D4", "beat": 4.0, "duration_beats": 1.0}]},
+        {"number": 6, "notes": [
+            {"pitch": "E4", "beat": 1.0, "duration_beats": 4.0}]},
+    ]}
+    wins = w.collect_rest_windows(score, 4)
+    check("one rest window found", len(wins) == 1, str(len(wins)))
+    if wins:
+        r = wins[0]
+        check("window names its measure", r["measure"] == 5, str(r["measure"]))
+        check("window spans beats 2->4", (r["start_beat"], r["end_beat"]) == (2.0, 4.0),
+              f'{r["start_beat"]}->{r["end_beat"]}')
+    # A pitched note must never be mistaken for a rest.
+    only_notes = {"time_signature": "4/4", "measures": [
+        {"number": 1, "notes": [{"pitch": "C4", "beat": 1.0, "duration_beats": 4.0}]}]}
+    check("no rests means no windows", w.collect_rest_windows(only_notes, 4) == [])
+
+    # Sub-beat rests are inside articulation noise and must be excluded, or every
+    # staccato passage becomes a rest violation.
+    short = {"time_signature": "4/4", "measures": [
+        {"number": 2, "notes": [
+            {"is_rest": True, "pitch": None, "beat": 2.0, "duration_beats": 0.5}]}]}
+    check("sub-beat rests are excluded", w.collect_rest_windows(short, 4) == [],
+          str(w.collect_rest_windows(short, 4)))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -2133,7 +2164,8 @@ def main():
               test_each_page_declares_its_own_mime,
               test_gemini_sees_every_page_not_just_the_first,
               test_partial_runs_declare_the_true_page_total_and_do_not_poison_the_cache,
-              test_one_file_keeps_flat_positions_even_when_it_has_many_pages):
+              test_one_file_keeps_flat_positions_even_when_it_has_many_pages,
+              test_rest_windows_are_collected_from_the_score):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

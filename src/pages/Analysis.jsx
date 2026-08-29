@@ -1965,7 +1965,14 @@ const videoRef    = useRef(null)
                   // measure referenced by a flag, plus per-row full-width bounds. This
                   // lets a multi-measure issue draw a bar across exactly the measures it
                   // spans (even across a line wrap) instead of one point per issue. ----
-                  const layoutMeasures = take?.measure_layout?.measures ?? []
+                  // Only the measures belonging to the page on screen. x_pct/y_pct are
+                  // relative to their OWN page's image, so a page-3 measure's coordinates
+                  // drawn over page 1 put the highlight somewhere arbitrary — and the
+                  // row-wrap heuristic below would stitch a row across the page break.
+                  // Measures with no `page` are everything analysed before multi-page
+                  // reading existed; those really were page 1 and must still render.
+                  const layoutMeasures = (take?.measure_layout?.measures ?? [])
+                    .filter(lm => lm.page == null || lm.page === currentScorePage + 1)
                   const hasExactPositions = layoutMeasures.some(lm => lm.x_pct != null && lm.y_pct != null)
 
                   const boxByMeasure = {}   // number -> {x, y, left, right, rowIndex}
@@ -2086,8 +2093,11 @@ const videoRef    = useRef(null)
                           (scoreImgBox, measured via ResizeObserver above) — NOT the wrapper,
                           which can be larger than the image when it's letterboxed. Markers/
                           spans below are positioned by percentage relative to THIS layer.
-                          Only page 0 has been read by the AI, so only page 0 gets markers —
-                          other pages are reference-only until multi-page analysis exists. */}
+                          Markers are drawn on page 1 only. Every page is now READ, but the
+                          overlay's row/wrap geometry has only ever been exercised against
+                          page 1, and layoutMeasures above is filtered to the visible page —
+                          so pages 2+ stay reference-only rather than showing highlights
+                          whose placement has not been verified. */}
                       {scoreImgBox && currentScorePage === 0 && (
                         <div style={{ position: 'absolute', left: scoreImgBox.left, top: scoreImgBox.top, width: scoreImgBox.width, height: scoreImgBox.height }}>
                           {/* Span bars for multi-measure issues, one segment per printed row crossed */}

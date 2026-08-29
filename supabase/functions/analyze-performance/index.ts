@@ -1217,10 +1217,12 @@ serve(async (req: Request) => {
         status: 403, headers: { 'Content-Type': 'application/json', ...CORS },
       })
     }
-    // Multiple sheet-music pages (optional). Only scorePaths[0] is actually fed to
-    // the analysis pipeline below (as `scorePath` already is) — the rest are just
-    // stored for the Analysis page to display. Still validated for ownership since
-    // they're persisted and later signed-URL'd the same way.
+    // Multiple sheet-music pages (optional). ALL of these are fed to the analysis
+    // pipeline below: every page is signed and sent as `score_urls`, and the worker
+    // reads them as one ordered set so measure numbering runs continuously across a
+    // page break. `scorePath` (singular) is still sent as `score_url` for the other
+    // consumers that expect one file, and is the fallback when signing the full set
+    // fails. Validated for ownership since they're persisted and signed-URL'd.
     const safeScorePaths: string[] = Array.isArray(scorePaths)
       ? scorePaths.filter((p): p is string => typeof p === 'string' && ownsPath(p))
       : []
@@ -1368,6 +1370,12 @@ serve(async (req: Request) => {
               video_mime_type:      videoMimeType,
               score_url:            scoreSignedUrl,
               score_urls:           scoreSignedUrls.length ? scoreSignedUrls : null,
+              // How many pages the student actually uploaded, sent separately from the
+              // URLs. When signing one page fails, score_urls goes null and the worker
+              // falls back to page 1 — deriving the total from score_urls would then
+              // report "1 of 1" and the partial-analysis caveat would go silent on the
+              // exact run that most needs it.
+              score_pages_total:    safeScorePaths.length || (scorePath ? 1 : 0),
               score_mime_type:      scoreMimeType      ?? null,
               reference_midi_url:   referenceMidiUrl   ?? null,
               user_note:            cleanNote,

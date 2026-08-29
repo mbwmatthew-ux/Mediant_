@@ -111,6 +111,62 @@ def is_visual_score(score_mime: str, score_url: str) -> bool:
     return score_mime_lower in VISUAL_SCORE_MIMES or score_url_lower.endswith(VISUAL_SCORE_EXTENSIONS)
 
 
+def page_mime_from_response(header_value: str | None, fallback_mime: str) -> str:
+    """
+    The media type of ONE downloaded score page, taken from its own download.
+
+    Every page used to inherit `score_mime`, which is the type of the FIRST
+    uploaded file. That was harmless while only file 0 was ever sent; now that
+    every page goes into one vision request, a mixed upload (a JPEG photo plus a
+    PNG screenshot, a PDF plus photos — the file input allows all of them with
+    `multiple`) declared every page under the wrong type. A PNG labelled
+    image/jpeg is a decode error, and JPEG bytes inside a `document` block is a
+    hard 400: either one kills the whole call and yields zero measures.
+
+    Storage returns the real type per object, so trust it — but only when it is
+    a type we actually accept. Generic values like application/octet-stream, and
+    the HTML of an expired-URL error page, must fall back rather than be sent on.
+    """
+    mime = (header_value or "").split(";")[0].strip().lower()
+    if mime == "image/jpg":            # non-standard spelling; APIs want image/jpeg
+        mime = "image/jpeg"
+    if mime in VISUAL_SCORE_MIMES:
+        return mime
+    return fallback_mime
+
+
+# Raw bytes we are willing to inline into a single Gemini request. base64 inflates
+# by ~4/3, so 12 MiB of pages is roughly 16 MB on the wire — comfortably inside the
+# ~20 MB inline-request ceiling with room for the prompt.
+GEMINI_INLINE_BYTE_CAP = 12 * 1024 * 1024
+
+
+def cap_inlined_pages(
+    pages: list[tuple[bytes, str]], cap: int = GEMINI_INLINE_BYTE_CAP,
+) -> tuple[list[tuple[bytes, str]], int]:
+    """
+    Trim an ordered page list to what fits in one inline request.
+
+    Returns (kept, dropped). Order is never changed, so page N stays page N. The
+    first page is kept even if it alone exceeds the cap: sending nothing is
+    strictly worse than sending one page, and the request would have carried that
+    page before this cap existed anyway.
+
+    `dropped` is RETURNED rather than merely logged because the caller has to be
+    able to state it in the student-facing coverage caveat. Quietly sending fewer
+    pages than were uploaded and reporting nothing is precisely the defect this
+    whole area exists to remove.
+    """
+    kept: list[tuple[bytes, str]] = []
+    total = 0
+    for i, (pg_bytes, pg_mime) in enumerate(pages):
+        if i > 0 and total + len(pg_bytes) > cap:
+            break
+        kept.append((pg_bytes, pg_mime))
+        total += len(pg_bytes)
+    return kept, len(pages) - len(kept)
+
+
 def sniff_score_kind(score_bytes: bytes, score_mime: str, score_url: str) -> str:
     """Classify score bytes as mxl, xml, visual, or unknown."""
     head = score_bytes[:64].lstrip()
@@ -2675,11 +2731,17 @@ def evaluate_with_gemini(
     user_note: str = "",
     score_bytes: bytes | None = None,
     score_mime: str | None = None,
+    score_pages: list[tuple[bytes, str]] | None = None,
 ) -> dict:
     """
-    Audio/video analysis via Gemini. When score_bytes is provided, Gemini receives
-    both the score image and the recording, enabling direct score-to-audio comparison
+    Audio/video analysis via Gemini. When score pages are provided, Gemini receives
+    both the score images and the recording, enabling direct score-to-audio comparison
     and accurate printed measure number reporting.
+
+    `score_pages` is every uploaded page in order — Gemini is the component that
+    AUTHORS the flags, so whatever it cannot see is not covered by the analysis no
+    matter how many pages the reader parsed. `score_bytes`/`score_mime` remain for
+    single-page callers and are treated as a one-element page list.
     Raises if ALL models fail — never returns None.
     """
     import httpx, base64
@@ -2692,10 +2754,21 @@ def evaluate_with_gemini(
         if user_note else ""
     )
 
-    has_score = bool(score_bytes and score_mime)
+    pages_in: list[tuple[bytes, str]] = [
+        (b, m) for b, m in (score_pages or []) if b and m
+    ]
+    if not pages_in and score_bytes and score_mime:
+        pages_in = [(score_bytes, score_mime)]
+    has_score = bool(pages_in)
+    multipage_block = (
+        "\nMULTIPLE PAGES: the score images above are consecutive pages of ONE part, in order — "
+        "the first image is page 1. Measure numbering runs continuously ACROSS them: the first "
+        "measure of page 2 is NOT measure 1, it continues from where page 1 ended. Read every page.\n"
+        if len(pages_in) > 1 else ""
+    )
     score_block = f"""
 SHEET MUSIC: You have the score image above. Read the printed measure numbers directly off the page (look for numbers printed above/below the staff, or boxed rehearsal marks which indicate measure numbers).
-
+{multipage_block}
 WHERE THE RECORDING STARTS — CRITICAL: The student's recording BEGINS at printed measure {start_measure}. The very FIRST note you hear (at 0:00) is measure {start_measure} in the score — NOT the first measure printed at the top of the page. The student did NOT play any measures before {start_measure}; ignore everything printed before measure {start_measure}. Align every note you hear to the score starting from measure {start_measure} and count forward from there.
 
 When reporting issues, give the EXACT PRINTED measure number from the score. Every measure number you report MUST be {start_measure} or higher — never report a measure below {start_measure}, because the student did not play those.
@@ -2771,9 +2844,11 @@ Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") w
 
     # Build Gemini request parts
     parts: list = []
-    if has_score:
-        b64_score = base64.b64encode(score_bytes).decode()
-        parts.append({"inlineData": {"mimeType": score_mime, "data": b64_score}})
+    # One inlineData part per page, IN ORDER — the prompt above tells Gemini the
+    # first image is page 1, so order is load-bearing, not cosmetic.
+    for pg_bytes, pg_mime in pages_in:
+        parts.append({"inlineData": {
+            "mimeType": pg_mime, "data": base64.b64encode(pg_bytes).decode()}})
     parts.append({"fileData": {"mimeType": mime_type, "fileUri": file_uri}})
     parts.append({"text": prompt})
 
@@ -5482,6 +5557,7 @@ def assess_quality(
     alignment_ranges: list[dict],
     pages_read: int | None = None, pages_total: int | None = None,
     has_repeats: bool = False, first_repeat_measure: int | None = None,
+    listening_pages_read: int | None = None,
 ) -> dict:
     """
     Trust plus an explicit statement of what was NOT analysed.
@@ -5503,10 +5579,28 @@ def assess_quality(
     measures = sorted({int(r["measure"]) for r in (alignment_ranges or [])
                        if r.get("measure") is not None})
     caveats: list[str] = []
-    if pages_total and pages_read and pages_read < pages_total:
+    # `is not None`, NOT a truthiness test. pages_read is an int, so a plain
+    # `and pages_read` treats ZERO pages read as "unknown" and skips the caveat —
+    # meaning the WORST coverage produced the quietest output. That is the exact
+    # shape of failure this function exists to prevent: a score read that failed
+    # outright (oversized multi-image request, 429, unparseable JSON) returns no
+    # measures, _pages_covered() returns 0, the run continues on synthesized
+    # skeleton measures, and the student was told nothing.
+    if pages_total and pages_read is not None and pages_read < pages_total:
         caveats.append(
             f"This analysis covers {pages_read} of {pages_total} uploaded score "
             f"pages. Anything on the remaining pages was not examined.")
+    # A second, separate coverage question: the READER (Claude) and the LISTENER
+    # (Gemini) see the score independently, and Gemini is the one that authors the
+    # flags. Pages the reader parsed but the listener never saw still bound what
+    # the flags can possibly cover, so a full `pages_read` must not be allowed to
+    # speak for it. None means "no visual score was inlined at all by design"
+    # (MusicXML, or no score) — that is not partial coverage and gets no caveat.
+    if pages_total and listening_pages_read is not None and listening_pages_read < pages_total:
+        caveats.append(
+            f"The recording itself was compared against only {listening_pages_read} of "
+            f"{pages_total} uploaded score pages, so problems on the remaining pages "
+            f"may have been missed entirely or attributed to the wrong measure.")
     if has_repeats:
         where = f"measure {first_repeat_measure}" if first_repeat_measure else "a repeat"
         caveats.append(
@@ -5521,6 +5615,7 @@ def assess_quality(
             "measures_analysed": [measures[0], measures[-1]] if measures else None,
             "pages_analysed": pages_read,
             "pages_total": pages_total,
+            "listening_pages_analysed": listening_pages_read,
             "caveats": caveats,
         },
     }
@@ -5615,36 +5710,63 @@ def run_full_analysis(payload: dict) -> None:
             evts = run_pitch_tracking(wav_b, guide_times=bts["beat_times"], instrument=instrument)
             return wav_b, dur, bts, evts
 
+        # How many score pages the LISTENING pass actually saw. Gemini authors the
+        # flags, so this — not the reader's page count — bounds what the flags can
+        # cover. None means "no visual score was inlined by design" (MusicXML, or no
+        # score at all), which is not partial coverage; an int is a real count and is
+        # allowed to raise a caveat. Written by the pipeline thread, read only after
+        # the pool has joined.
+        listening_pages_read: int | None = None
+
         def _gemini_pipeline():
+            nonlocal listening_pages_read
             print("[run_full_analysis] uploading video to Gemini Files API")
             uri = upload_video_to_gemini(video_bytes, video_mime, gemini_key)
-            # Download score bytes for simultaneous comparison (visual formats only)
-            sc_bytes: bytes | None = None
-            sc_mime:  str   | None = None
-            if score_url:
+            # Download EVERY uploaded score page for simultaneous comparison, in
+            # order (visual formats only). Same fallback rules as the reader:
+            # score_urls when the dispatch signed the whole set, otherwise the
+            # single score_url. Gemini used to get page 1 alone, which meant the
+            # flag author saw one page while the coverage banner — derived from the
+            # reader — happily reported 3 of 3.
+            sc_pages: list[tuple[bytes, str]] = []
+            urls = payload.get("score_urls") or ([score_url] if score_url else [])
+            if urls:
                 try:
-                    with httpx.Client(timeout=60) as cl:
-                        sr = cl.get(score_url, follow_redirects=True)
-                        sr.raise_for_status()
-                        sc_bytes = sr.content
-                    kind = sniff_score_kind(sc_bytes, score_mime, score_url)
+                    with httpx.Client(timeout=90) as cl:
+                        for u in urls:
+                            if not u:
+                                continue
+                            sr = cl.get(u, follow_redirects=True)
+                            sr.raise_for_status()
+                            sc_pages.append((sr.content, page_mime_from_response(
+                                sr.headers.get("content-type"), score_mime or "image/png")))
+                    kind = sniff_score_kind(sc_pages[0][0], score_mime, score_url) if sc_pages else "unknown"
                     if kind == "visual":
                         # "visual" covers PNG, JPEG, TIFF, and PDF (sniff_score_kind returns
                         # "visual" for PDFs). Gemini inlineData accepts application/pdf natively.
-                        # score_mime from the browser is the authoritative type (e.g. "application/pdf").
-                        sc_mime = score_mime or "image/png"
-                        print(f"[_gemini_pipeline] score included ({len(sc_bytes):,}B, {sc_mime})")
+                        sc_pages, dropped = cap_inlined_pages(sc_pages)
+                        if dropped:
+                            print(f"[_gemini_pipeline] inline byte cap hit — {dropped} page(s) NOT sent")
+                        listening_pages_read = len(sc_pages)
+                        print(f"[_gemini_pipeline] score included: {len(sc_pages)} page(s), "
+                              f"{sum(len(b) for b, _ in sc_pages):,}B, "
+                              f"mimes={[m for _, m in sc_pages]}")
                     else:
-                        sc_bytes = None
+                        # A MusicXML/MXL score is still never inlined.
+                        sc_pages = []
                         print(f"[_gemini_pipeline] score kind={kind} — not visual, skipping inline")
                 except Exception as e:
                     print(f"[_gemini_pipeline] score download failed (continuing without): {e}")
+                    sc_pages = []
+                    # Only claim partial LISTENING coverage when a visual score was
+                    # expected — a failed MusicXML fetch was never going to be inlined.
+                    if is_visual_score(score_mime, score_url):
+                        listening_pages_read = 0
             return evaluate_with_gemini(
                 uri, video_mime, instrument,
                 piece_title, composer, start_measure, end_measure, gemini_key,
                 user_note=user_note,
-                score_bytes=sc_bytes,
-                score_mime=sc_mime,
+                score_pages=sc_pages or None,
             )
 
         def _score_pipeline():
@@ -5678,13 +5800,17 @@ def run_full_analysis(payload: dict) -> None:
                     try:
                         sresp = client.get(u, follow_redirects=True)
                         sresp.raise_for_status()
-                        pages.append((sresp.content, score_mime))
+                        # Each page declares its OWN type — see page_mime_from_response.
+                        # score_mime is only the first uploaded file's type and a mixed
+                        # upload would otherwise mislabel every later page.
+                        pages.append((sresp.content, page_mime_from_response(
+                            sresp.headers.get("content-type"), score_mime)))
                     except Exception as e:
                         print(f"[run_full_analysis] failed to download score page: {e}")
             if not pages:
                 return s, ps_notes, _pages_covered(s)
             print(f"[run_full_analysis] score: {sum(len(b) for b, _ in pages):,} bytes "
-                  f"across {len(pages)} page(s), mime={score_mime}")
+                  f"across {len(pages)} page(s), mimes={[m for _, m in pages]}")
             kind = sniff_score_kind(pages[0][0], score_mime, score_url)
             print(f"[run_full_analysis] score kind: {kind}")
             if kind in ("xml", "mxl"):
@@ -5700,19 +5826,36 @@ def run_full_analysis(payload: dict) -> None:
                     ps_notes = res
                 elif res.get("error"):
                     s = {**s, "error": res["error"]}
-            # For any visual score, get exact measure positions from Gemini, per page —
-            # a measure's x_pct/y_pct are only meaningful together with the page it was
-            # read from, since each page's coordinates are relative to that page's image.
+            # For any visual score, get exact measure positions from Gemini.
+            #
+            # The count of FILES decides how to merge them, NOT the count of pages.
+            # One file can still contain many pages: a single multi-page PDF gives
+            # Claude every page (it stamps pg=1,2,3…) but gives the position call one
+            # document, which comes back as one flat map with no page dimension.
+            # Keying that flat map by page would match only the measures Claude marked
+            # pg=1 and leave every later measure with no x_pct/y_pct at all — after
+            # which Analysis.jsx takes its exact-positions branch and snaps those
+            # flags onto page 1. So: one file → apply the single map to every measure
+            # (the behaviour that was already correct before this branch); several
+            # files → each file IS one page image, and its coordinates are only
+            # meaningful inside its own page's frame.
             if kind == "visual" and gemini_key and s.get("measures"):
-                positions_by_page: dict[int, dict[int, tuple[float, float]]] = {}
-                for idx, (pg_bytes, pg_mime) in enumerate(pages, start=1):
-                    positions = get_measure_positions_gemini(pg_bytes, pg_mime, gemini_key)
-                    if positions:
-                        positions_by_page[idx] = positions
-                for m in s["measures"]:
-                    pos = positions_by_page.get(m.get("page", 1), {}).get(m["number"])
-                    if pos:
-                        m["x_pct"], m["y_pct"] = pos
+                if len(pages) == 1:
+                    positions = get_measure_positions_gemini(pages[0][0], pages[0][1], gemini_key)
+                    for m in s["measures"]:
+                        pos = positions.get(m["number"])
+                        if pos:
+                            m["x_pct"], m["y_pct"] = pos
+                else:
+                    positions_by_page: dict[int, dict[int, tuple[float, float]]] = {}
+                    for idx, (pg_bytes, pg_mime) in enumerate(pages, start=1):
+                        positions = get_measure_positions_gemini(pg_bytes, pg_mime, gemini_key)
+                        if positions:
+                            positions_by_page[idx] = positions
+                    for m in s["measures"]:
+                        pos = positions_by_page.get(m.get("page", 1), {}).get(m["number"])
+                        if pos:
+                            m["x_pct"], m["y_pct"] = pos
             return s, ps_notes, _pages_covered(s)
 
         with ThreadPoolExecutor(max_workers=3) as pool:
@@ -5942,12 +6085,22 @@ def run_full_analysis(payload: dict) -> None:
             print(f"[run_full_analysis] synthesized {count} skeleton measures")
 
         # ── Step 6: Quality assessment ─────────────────────────────────────
-        pages_total = len(payload.get("score_urls") or ([score_url] if score_url else []))
+        # How many pages the STUDENT uploaded, as its own dispatch field. It must NOT
+        # be derived from score_urls: when signing one page fails, the edge function
+        # deliberately empties score_urls (an ordered set with a hole is worse than
+        # none) and we fall back to score_url — page 1. len(score_urls) would then say
+        # "1 of 1", the caveat would stay silent, and a page-1 analysis of a three-page
+        # piece would be presented as complete on exactly the run that most needs the
+        # warning. Older dispatches carry no field, hence the fallback.
+        _pages_total_field = payload.get("score_pages_total")
+        pages_total = (int(_pages_total_field) if _pages_total_field is not None
+                       else len(payload.get("score_urls") or ([score_url] if score_url else [])))
         quality = assess_quality(
             score, raw_events, aligned, alignment_ranges,
             pages_read=pages_read, pages_total=pages_total,
             has_repeats=score.get("has_repeats", False),
             first_repeat_measure=score.get("first_repeat_measure"),
+            listening_pages_read=listening_pages_read,
         )
         if ref_notes:
             quality["alignment_source"] = "reference_midi"
@@ -5988,6 +6141,20 @@ def run_full_analysis(payload: dict) -> None:
         backend    = f"modal+gemini+claude ({alignment_method})"
         print(f"[run_full_analysis] done | score={base_score} | flags={len(flags)} | backend={backend}")
 
+        # Do NOT cache a parse that came from a degraded run. This looks like a missed
+        # optimisation; it is not. The cache key is the joined multi-page key, but on a
+        # signing failure we only read page 1 — writing that under the multi-page key
+        # poisons it permanently: every later re-analysis short-circuits on the cache
+        # and returns the page-1 parse even once signing works again, and only a manual
+        # row delete clears it. A cache miss costs one re-read; a poisoned row costs
+        # every future take on this score.
+        _degraded = bool(pages_total and pages_read is not None and pages_read < pages_total)
+        if _degraded and parsed_score_notes:
+            print(f"[run_full_analysis] not caching score parse: read {pages_read} of "
+                  f"{pages_total} pages — a partial parse must not be written under the "
+                  f"full-score cache key")
+            debug_steps.append(f"score_cache: suppressed ({pages_read}/{pages_total} pages)")
+
         post_webhook(webhook_url, webhook_secret, {
             "takeId":            take_id,
             "score":             base_score,
@@ -5997,7 +6164,7 @@ def run_full_analysis(payload: dict) -> None:
             "analysisQuality":   quality,
             "analysisBackend":   backend,
             "pipelineDebug":     debug_steps,
-            "parsedScoreNotes":  parsed_score_notes,
+            "parsedScoreNotes":  None if _degraded else parsed_score_notes,
             "scorePath":         score_path,
             "analysisEvidence":  _LAST_EVIDENCE or None,
         }, anon_key=webhook_anon_key)

@@ -1817,6 +1817,274 @@ def test_score_pipeline_returns_derive_pages_read_from_helper():
           not bad, "offending line(s): " + "; ".join(bad) if bad else "")
 
 
+def _worker_source_lines():
+    """worker.py as a line list — shared by the source-level guards below."""
+    worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker.py")
+    with open(worker_path) as f:
+        return f.readlines()
+
+
+def _function_body(lines, header_prefix):
+    """The lines of the def whose header starts with header_prefix, at any indent."""
+    start = next(i for i, ln in enumerate(lines) if ln.lstrip().startswith(header_prefix))
+    def_indent = len(lines[start]) - len(lines[start].lstrip())
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if not lines[i].strip():
+            continue
+        if len(lines[i]) - len(lines[i].lstrip()) <= def_indent:
+            end = i
+            break
+    return lines[start:end]
+
+
+def test_zero_pages_read_is_still_declared():
+    print("\n[47] reading ZERO pages is declared, not treated as 'unknown'")
+    # `if pages_total and pages_read and ...` silenced the caveat for pages_read=0,
+    # because 0 is falsy. That is the WORST coverage producing the QUIETEST output:
+    # a score read that fails outright returns no measures, _pages_covered() gives 0,
+    # the run continues on synthesized skeleton measures and emits flags anyway, and
+    # nothing in src/ renders `reasons` — only coverage.caveats.
+    score_empty = {"measures": []}
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+
+    q = w.assess_quality(score_empty, evs, aligned, ranges,
+                         pages_read=0, pages_total=3,
+                         has_repeats=False, first_repeat_measure=None)
+    txt = " ".join(q["coverage"]["caveats"]).lower()
+    check("a total score-read failure still produces a caveat",
+          len(q["coverage"]["caveats"]) >= 1, str(q["coverage"]["caveats"]))
+    check("the caveat says 0 of 3", "0" in txt and "3" in txt, txt[:100])
+
+    # Genuinely unknown (no pages field at all) must still stay silent — the caveat
+    # may only fire on a number we actually have.
+    q2 = w.assess_quality(score_empty, evs, aligned, ranges,
+                          pages_read=None, pages_total=3,
+                          has_repeats=False, first_repeat_measure=None)
+    check("unknown page count declares nothing", q2["coverage"]["caveats"] == [],
+          str(q2["coverage"]["caveats"]))
+
+
+def test_each_page_declares_its_own_mime():
+    print("\n[48] every score page's media type comes from its own download")
+    # score_mime is the FIRST uploaded file's type. Sending N pages under it means a
+    # mixed upload (JPEG photo + PNG screenshot, PDF + photos) mislabels every later
+    # page: a PNG declared image/jpeg is a decode error and JPEG bytes in a `document`
+    # block is a hard 400 — either kills the whole vision call.
+    check("a page's real type wins over the first file's",
+          w.page_mime_from_response("image/png", "image/jpeg") == "image/png")
+    check("charset parameters are stripped",
+          w.page_mime_from_response("image/png; charset=binary", "image/jpeg") == "image/png")
+    check("case and padding are normalised",
+          w.page_mime_from_response("  IMAGE/PNG ", "image/jpeg") == "image/png")
+    check("image/jpg is normalised to image/jpeg",
+          w.page_mime_from_response("image/jpg", "application/pdf") == "image/jpeg")
+    check("PDF pages keep application/pdf",
+          w.page_mime_from_response("application/pdf", "image/jpeg") == "application/pdf")
+    # Implausible / missing headers must fall back rather than be forwarded: storage
+    # can answer application/octet-stream, and an expired URL answers with HTML.
+    for bad in (None, "", "application/octet-stream", "text/html", "binary/octet-stream"):
+        check(f"implausible content-type {bad!r} falls back",
+              w.page_mime_from_response(bad, "image/jpeg") == "image/jpeg")
+
+    body = _function_body(_worker_source_lines(), "def _score_pipeline(")
+    appends = [ln.strip() for ln in body if "pages.append(" in ln]
+    check("_score_pipeline appends exactly one page tuple", len(appends) == 1,
+          f"found {len(appends)}: {appends}")
+    check("the reader derives each page's mime from its own response",
+          all("page_mime_from_response(" in a for a in appends),
+          "offending: " + "; ".join(appends))
+
+
+def test_gemini_sees_every_page_not_just_the_first():
+    print("\n[49] the flag author (Gemini) receives every score page, in order")
+    # Gemini AUTHORS the flags. While it saw page 1 only, pages_read (from Claude's
+    # reader) could report 3 of 3 and the banner stayed silent — a coverage claim
+    # broader than the evidence, one layer below the defect this branch fixes.
+    captured = {}
+
+    def _fake_post(url, **kw):
+        captured["parts"] = kw["json"]["contents"][0]["parts"]
+        raise RuntimeError("stop after capturing the request")
+
+    class _FakeClient:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def post(self, url, **kw): return _fake_post(url, **kw)
+
+    _httpx = sys.modules["httpx"]
+    _orig = _httpx.Client
+    _httpx.Client = _FakeClient
+    try:
+        w.evaluate_with_gemini(
+            "files/x", "video/mp4", "clarinet", "Piece", "Composer", 1, None, "key",
+            score_pages=[(b"\x89PNG\r\n\x1a\n1", "image/png"),
+                         (b"\xff\xd8\xff2", "image/jpeg"),
+                         (b"%PDF-1.4 3", "application/pdf")],
+        )
+    except Exception:
+        pass
+    finally:
+        _httpx.Client = _orig
+
+    parts = captured.get("parts") or []
+    inline = [p["inlineData"] for p in parts if isinstance(p, dict) and "inlineData" in p]
+    check("all three pages are inlined", len(inline) == 3, f"{len(inline)} inlineData part(s)")
+    check("each page keeps its own media type",
+          [p["mimeType"] for p in inline] == ["image/png", "image/jpeg", "application/pdf"],
+          str([p.get("mimeType") for p in inline]))
+    import base64 as _b64
+    check("pages are inlined in upload order",
+          [_b64.b64decode(p["data"])[-1:] for p in inline] == [b"1", b"2", b"3"],
+          str([_b64.b64decode(p["data"])[-1:] for p in inline]))
+    check("the recording is still attached",
+          any("fileData" in p for p in parts if isinstance(p, dict)))
+    prompt = " ".join(p["text"] for p in parts if isinstance(p, dict) and "text" in p)
+    check("multi-page numbering is explained to the model",
+          "MULTIPLE PAGES" in prompt and "page 2" in prompt, prompt[:0])
+
+    # The single-page callers' contract is unchanged.
+    captured.clear()
+    _httpx.Client = _FakeClient
+    try:
+        w.evaluate_with_gemini(
+            "files/x", "video/mp4", "clarinet", "Piece", "Composer", 1, None, "key",
+            score_bytes=b"\x89PNG\r\n\x1a\n", score_mime="image/png",
+        )
+    except Exception:
+        pass
+    finally:
+        _httpx.Client = _orig
+    one = [p for p in (captured.get("parts") or []) if isinstance(p, dict) and "inlineData" in p]
+    check("legacy score_bytes/score_mime still inlines one page", len(one) == 1, str(len(one)))
+    oneprompt = " ".join(p["text"] for p in (captured.get("parts") or [])
+                         if isinstance(p, dict) and "text" in p)
+    check("a single page gets no multi-page instructions",
+          "MULTIPLE PAGES" not in oneprompt)
+
+    # Byte cap: keep as many as fit, in order, and REPORT the shortfall.
+    pages = [(b"x" * 5, "image/png"), (b"y" * 5, "image/png"), (b"z" * 5, "image/png")]
+    kept, dropped = w.cap_inlined_pages(pages, cap=12)
+    check("the cap keeps as many whole pages as fit", len(kept) == 2, str(len(kept)))
+    check("the cap reports what it dropped", dropped == 1, str(dropped))
+    check("kept pages stay in order", kept == pages[:2])
+    kept2, dropped2 = w.cap_inlined_pages([(b"x" * 99, "image/png")], cap=10)
+    check("one oversized page is still sent rather than nothing",
+          len(kept2) == 1 and dropped2 == 0, f"{len(kept2)}/{dropped2}")
+    kept3, dropped3 = w.cap_inlined_pages(pages, cap=10_000)
+    check("an ample cap drops nothing", kept3 == pages and dropped3 == 0)
+
+    # A truncated (or failed) listening pass must reach the student, and must not be
+    # able to hide behind a complete reader page count.
+    score = {"measures": [{"number": n, "notes": []} for n in range(1, 9)]}
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+    q = w.assess_quality(score, evs, aligned, ranges,
+                         pages_read=3, pages_total=3, listening_pages_read=1)
+    txt = " ".join(q["coverage"]["caveats"]).lower()
+    check("a partial listening pass is declared even when the reader read everything",
+          len(q["coverage"]["caveats"]) == 1, str(q["coverage"]["caveats"]))
+    check("that caveat names 1 of 3", "1 of 3" in txt, txt[:120])
+    q2 = w.assess_quality(score, evs, aligned, ranges,
+                          pages_read=3, pages_total=3, listening_pages_read=3)
+    check("a complete listening pass declares nothing", q2["coverage"]["caveats"] == [],
+          str(q2["coverage"]["caveats"]))
+    q3 = w.assess_quality(score, evs, aligned, ranges,
+                          pages_read=3, pages_total=3, listening_pages_read=None)
+    check("a non-visual score (nothing inlined by design) declares nothing",
+          q3["coverage"]["caveats"] == [], str(q3["coverage"]["caveats"]))
+
+    # Source-level guard: _gemini_pipeline is a closure nested inside
+    # run_full_analysis and cannot be invoked from a test (it needs video bytes,
+    # a Gemini upload and live keys). Guard its shape instead — the regression to
+    # protect against is it going back to downloading score_url alone.
+    body = _function_body(_worker_source_lines(), "def _gemini_pipeline(")
+    src = "".join(body)
+    check("_gemini_pipeline reads the full ordered page set",
+          'payload.get("score_urls")' in src, "score_urls lookup missing")
+    check("_gemini_pipeline passes every page to evaluate_with_gemini",
+          "score_pages=" in src, "score_pages= missing")
+    check("_gemini_pipeline no longer passes a lone score_bytes",
+          "score_bytes=" not in src, "score_bytes= still present")
+    check("_gemini_pipeline still gates inlining on a visual score",
+          'kind == "visual"' in src and "sniff_score_kind(" in src,
+          "visual-only gate missing")
+    check("_gemini_pipeline caps inlined bytes and records the shortfall",
+          "cap_inlined_pages(" in src and "listening_pages_read" in src,
+          "cap/record missing")
+
+
+def test_partial_runs_declare_the_true_page_total_and_do_not_poison_the_cache():
+    print("\n[50] a degraded run reports the true page total and is never cached")
+    lines = _worker_source_lines()
+    src = "".join(lines)
+    # Both of these live in run_full_analysis's body, which no test can call (it
+    # needs audio, network and API keys), so they are guarded at source level in
+    # the same spirit as [46].
+    check("pages_total prefers the dispatch's own score_pages_total field",
+          'payload.get("score_pages_total")' in src,
+          "score_pages_total not read from the payload")
+    check("the legacy derivation is kept only as a fallback",
+          src.count('len(payload.get("score_urls") or ([score_url] if score_url else []))') == 1,
+          "expected exactly one fallback expression")
+    check("a degraded run suppresses the cached parse",
+          '"parsedScoreNotes":  None if _degraded else parsed_score_notes,' in src,
+          "parsedScoreNotes is not gated on _degraded")
+    check("the suppression explains itself to a later reader",
+          "poisons it permanently" in src, "missing the why-comment")
+
+    # The edge function must send the field the worker now prefers, and must send
+    # the count of PATHS (not of successfully signed URLs).
+    ts_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "supabase", "functions", "analyze-performance", "index.ts")
+    with open(ts_path) as f:
+        ts = f.read()
+    check("the dispatch sends score_pages_total",
+          "score_pages_total:" in ts, "field missing from the Modal dispatch")
+    check("score_pages_total counts uploaded paths, not signed URLs",
+          "score_pages_total:    safeScorePaths.length || (scorePath ? 1 : 0)," in ts,
+          "unexpected expression for score_pages_total")
+    check("the stale 'only scorePaths[0] is fed to the pipeline' claim is gone",
+          "Only scorePaths[0] is actually fed" not in ts, "stale comment still present")
+
+
+def test_one_file_keeps_flat_positions_even_when_it_has_many_pages():
+    print("\n[51] a lone multi-page PDF keeps its measure positions")
+    # One uploaded FILE can still hold many pages. Claude reads them all and stamps
+    # pg=1,2,3, but the position call sees one document and returns one flat map with
+    # no page dimension. Keying that map by page matched only the pg=1 measures and
+    # left the rest with no x_pct/y_pct — after which Analysis.jsx takes its
+    # exact-positions branch, drops them, and snaps their flags onto page 1.
+    body = "".join(_function_body(_worker_source_lines(), "def _score_pipeline("))
+    check("the merge branches on the number of FILES",
+          "len(pages) == 1" in body, "no single-file branch in the position merge")
+    check("the single-file branch applies positions to every measure regardless of page",
+          "positions.get(m[\"number\"])" in body,
+          "expected a flat positions.get(m['number']) lookup")
+    check("the multi-file branch still keys by page",
+          'positions_by_page.get(m.get("page", 1), {})' in body,
+          "per-page keying lost")
+    check("the comment explains why files, not pages, decide",
+          "count of FILES" in body.replace("The count of FILES", "count of FILES"),
+          "missing rationale comment")
+
+    # The consumer side: Analysis.jsx must draw only the visible page's measures,
+    # and must keep rendering pre-branch measures that carry no page at all.
+    jsx = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "..", "src", "pages", "Analysis.jsx")
+    with open(jsx) as f:
+        ui = f.read()
+    check("layoutMeasures is filtered to the page on screen",
+          "lm.page === currentScorePage + 1" in ui, "no page filter on layoutMeasures")
+    check("measures with no page still render",
+          "lm.page == null || lm.page === currentScorePage + 1" in ui,
+          "the null-page escape hatch is missing")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1860,7 +2128,12 @@ def main():
               test_score_reader_sends_every_page,
               test_coverage_declares_what_was_not_analysed,
               test_coverage_pages_read_reflects_pages_covered_not_downloaded,
-              test_score_pipeline_returns_derive_pages_read_from_helper):
+              test_score_pipeline_returns_derive_pages_read_from_helper,
+              test_zero_pages_read_is_still_declared,
+              test_each_page_declares_its_own_mime,
+              test_gemini_sees_every_page_not_just_the_first,
+              test_partial_runs_declare_the_true_page_total_and_do_not_poison_the_cache,
+              test_one_file_keeps_flat_positions_even_when_it_has_many_pages):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

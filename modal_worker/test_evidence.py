@@ -132,11 +132,65 @@ def test_error_flags_carry_their_measurement():
           f"{prov['error:12']['evidence_class']} / {prov['error:20']['evidence_class']}")
 
 
+def test_replay_reproduces_the_recorded_flags():
+    print("\n[5] replay reproduces flags from a bundle alone")
+    from replay import replay_bundle
+    bundle = {
+        "version": 1,
+        "flags": [
+            {"flag_key": "timing:20", "type": "timing", "measure": 20,
+             "detector": "analyze_timing_vs_score", "evidence_class": "measured",
+             "rule": "placement", "measured": 130.0, "confirmed": True,
+             "raw_detail": ""},
+            {"flag_key": "intonation:21", "type": "intonation", "measure": 21,
+             "detector": "run_pitch_tracking", "evidence_class": "measured",
+             "rule": "cents_vs_tuning_centre", "measured": 18.0,
+             "confirmed": True, "raw_detail": ""},
+        ],
+        "timing_notes": [], "timing_fit": {"ok": True},
+        "dynamics": {"ok": False}, "candidates": {"wrong_notes": [], "cracks": []},
+        "alignment": {"method": "score_dtw"}, "score_parse": {}, "events": [],
+    }
+    out = replay_bundle(bundle)
+    check("returns one entry per flag", len(out) == 2, str(len(out)))
+    check("keys round-trip",
+          {f["flag_key"] for f in out} == {"timing:20", "intonation:21"},
+          str(sorted(f["flag_key"] for f in out)))
+    check("measurement round-trips",
+          next(f for f in out if f["flag_key"] == "timing:20")["measured"] == 130.0)
+
+
+def test_replay_applies_a_threshold_override():
+    print("\n[6] replay can re-decide a flag at a new threshold")
+    from replay import replay_bundle
+    bundle = {
+        "version": 1,
+        "flags": [
+            {"flag_key": "timing:20", "type": "timing", "measure": 20,
+             "detector": "analyze_timing_vs_score", "evidence_class": "measured",
+             "rule": "placement", "measured": 130.0, "confirmed": True,
+             "raw_detail": ""},
+        ],
+        "timing_notes": [], "timing_fit": {"ok": True},
+        "dynamics": {"ok": False}, "candidates": {"wrong_notes": [], "cracks": []},
+        "alignment": {"method": "score_dtw"}, "score_parse": {}, "events": [],
+    }
+    # Raising the placement floor above the measured value must drop the flag.
+    # This is the whole point of the harness: try a threshold, see what changes,
+    # WITHOUT re-running CREPE or paying for an API call.
+    kept = replay_bundle(bundle, thresholds={"placement_ms": 200.0})
+    check("flag drops above the new floor", kept == [], str(kept))
+    kept2 = replay_bundle(bundle, thresholds={"placement_ms": 100.0})
+    check("flag survives below it", len(kept2) == 1, str(len(kept2)))
+
+
 def main():
     test_bundle_is_json_safe_and_bounded()
     test_every_flag_gets_provenance()
     test_stamped_rule_beats_reconstruction()
     test_error_flags_carry_their_measurement()
+    test_replay_reproduces_the_recorded_flags()
+    test_replay_applies_a_threshold_override()
     failed = [r for r in RESULTS if not r[1]]
     print("\n" + "=" * 70)
     print(f"{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")

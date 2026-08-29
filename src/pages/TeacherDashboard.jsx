@@ -178,6 +178,11 @@ export default function TeacherDashboard() {
       const body = {
         takeId:          selectedTake.id,
         flagIndex:       action === 'add' ? null : flagIndex,
+        // Stable identity for this flag, stamped by the worker. flag_index is
+        // positional and re-points at a different flag whenever a take is
+        // re-analysed; flag_key survives that, and is what the accuracy scorer
+        // joins on. Null for action === 'add' (no AI original to key).
+        flagKey:         originalFlag?.flag_key ?? null,
         action,
         originalFlag,
         ...extras,

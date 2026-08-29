@@ -945,14 +945,21 @@ def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "")
         # Repeat barlines and DC/DS jumps mean the audio contains passages the
         # note list does not — see the note on `has_repeats` in the return value.
         has_repeats = False
+        first_repeat_measure = None
         try:
-            for _el in source_part.recurse():
-                if isinstance(_el, m21.bar.Repeat) or isinstance(
-                        _el, getattr(m21.repeat, "RepeatExpression", ())):
-                    has_repeats = True
+            for _m in source_part.getElementsByClass(m21.stream.Measure):
+                for _el in _m.recurse():
+                    if isinstance(_el, m21.bar.Repeat) or isinstance(
+                            _el, getattr(m21.repeat, "RepeatExpression", ())):
+                        has_repeats = True
+                        if _m.number is not None:
+                            first_repeat_measure = int(_m.number)
+                        break
+                if has_repeats:
                     break
         except Exception:
             has_repeats = False
+            first_repeat_measure = None
         if has_repeats:
             print("[parse_musicxml] WARNING: score contains repeats and they are "
                   "NOT expanded — if the student played them, every measure after "
@@ -1054,6 +1061,9 @@ def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "")
             # Loop windows assume cannot happen. Detect and report it rather than
             # silently producing confident nonsense.
             "has_repeats": has_repeats,
+            # Measure number where the first repeat appears. Used by a coverage
+            # caveat to name what measure the student should check.
+            "first_repeat_measure": first_repeat_measure,
         }
 
     except Exception as e:

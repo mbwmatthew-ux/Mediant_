@@ -24,7 +24,7 @@ looks in production rather than in the idealised one-row-per-flag case:
              sharing one flag_key. Counting both would double-count a single
              teacher judgement and skew whichever verdict happened twice.
              We keep only the most recent row per flag_key (latest
-             updated_at wins; see _pick_latest for the tie-break).
+             updated_at wins; see _dedup_by_flag_key for the tie-break).
 
   legacy  -- rows written before flag_key existed have flag_key = NULL but a
              valid flag_index (the flag's array position at annotation time).

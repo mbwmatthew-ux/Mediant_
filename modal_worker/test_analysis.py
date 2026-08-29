@@ -1741,6 +1741,17 @@ def test_coverage_declares_what_was_not_analysed():
     check("measure range reported", q["coverage"]["measures_analysed"] == [1, 4],
           str(q["coverage"]["measures_analysed"]))
 
+    # A repeat can sit in an unnumbered measure — has_repeats is still True but
+    # first_repeat_measure is None. The caveat must still fire, and must not
+    # degrade into the literal word "None" or an empty measure reference — that
+    # is the failure a student would actually see.
+    q4 = w.assess_quality(score_two_pages, evs, aligned, ranges,
+                          pages_read=1, pages_total=1,
+                          has_repeats=True, first_repeat_measure=None)
+    r4txt = " ".join(q4["coverage"]["caveats"]).lower()
+    check("repeat with no measure number is still declared", "repeat" in r4txt, r4txt[:90])
+    check("unnumbered repeat caveat does not say 'none'", "none" not in r4txt, r4txt[:90])
+
 
 def test_coverage_pages_read_reflects_pages_covered_not_downloaded():
     print("\n[45] cache-hit coverage uses pages actually parsed, not files downloaded")
@@ -1765,6 +1776,45 @@ def test_coverage_pages_read_reflects_pages_covered_not_downloaded():
                          has_repeats=False, first_repeat_measure=None)
     check("fully-covered cache hit produces no page caveat",
           q["coverage"]["caveats"] == [], str(q["coverage"]["caveats"]))
+
+
+def test_score_pipeline_returns_derive_pages_read_from_helper():
+    print("\n[46] every _score_pipeline return site derives pages_read from _pages_covered")
+    # [45] proves _pages_covered and assess_quality cooperate correctly, but it
+    # calls both by hand — it never goes through _score_pipeline itself. That
+    # closure lives nested inside run_full_analysis and cannot be invoked from a
+    # test (it needs audio bytes, API keys, a live payload). If a cache-hit return
+    # site were ever reverted to a hardcoded `pages_read = 0`, [45] would keep
+    # passing while the false "covers 0 of N pages" caveat came straight back.
+    # This is a source-level guard in the same spirit as test_no_undefined_names:
+    # inspect the text of _score_pipeline and require every one of its `return`
+    # statements to derive its third value from _pages_covered(...), so a
+    # regression to a literal trips this test even though nothing can call the
+    # closure directly.
+    worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker.py")
+    with open(worker_path) as f:
+        lines = f.readlines()
+
+    start = next(i for i, ln in enumerate(lines)
+                 if ln.lstrip().startswith("def _score_pipeline("))
+    def_indent = len(lines[start]) - len(lines[start].lstrip())
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        stripped = lines[i].strip()
+        if not stripped:
+            continue
+        indent = len(lines[i]) - len(lines[i].lstrip())
+        if indent <= def_indent:
+            end = i
+            break
+
+    body = lines[start:end]
+    returns = [ln.strip() for ln in body if ln.strip().startswith("return ")]
+    check("_score_pipeline has exactly 4 return statements", len(returns) == 4,
+          f"found {len(returns)}: {returns}")
+    bad = [r for r in returns if "_pages_covered(" not in r]
+    check("every _score_pipeline return derives pages_read from _pages_covered",
+          not bad, "offending line(s): " + "; ".join(bad) if bad else "")
 
 
 def main():
@@ -1809,7 +1859,8 @@ def main():
               test_evidence_reset_survives_container_reuse,
               test_score_reader_sends_every_page,
               test_coverage_declares_what_was_not_analysed,
-              test_coverage_pages_read_reflects_pages_covered_not_downloaded):
+              test_coverage_pages_read_reflects_pages_covered_not_downloaded,
+              test_score_pipeline_returns_derive_pages_read_from_helper):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

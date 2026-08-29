@@ -1432,7 +1432,23 @@ def collect_rest_windows(score: dict, beats_per_measure: int) -> list[dict]:
     silence that the player is correct to leave, and flagging it would recreate
     the "false rest detection creates bad coaching" problem that caused rests to
     be dropped in the first place.
+
+    UNITS — the asymmetry here is the trap. The two fields on a rest are NOT in
+    the same unit, and they look like they are:
+
+      `beat`            — music21's `el.beat`, already in NOTATED BEATS.
+                          Needs no conversion. Do not "fix" it.
+      `duration_beats`  — a music21 quarterLength, despite the name.
+
+    They agree only when the beat IS a quarter. In 6/8 the beat is a dotted
+    quarter, so a dotted-quarter rest is 1.5 quarterLengths but exactly ONE
+    beat — and reading it raw both stretched the window half a beat past where
+    the silence really ends and measured it against `_REST_MIN_BEATS` on the
+    wrong scale. `quarter_lengths_per_beat` is the single definition of that
+    conversion (the timing duration check uses it for the same reason); convert
+    the duration through it, and leave `beat` alone.
     """
+    ql_per_beat = quarter_lengths_per_beat(score.get("time_signature")) or 1.0
     out: list[dict] = []
     for m in score.get("measures", []):
         num = m.get("number")
@@ -1442,14 +1458,17 @@ def collect_rest_windows(score: dict, beats_per_measure: int) -> list[dict]:
             if not n.get("is_rest"):
                 continue
             try:
-                beat = float(n.get("beat") or 1.0)
-                dur = float(n.get("duration_beats") or 0.0)
+                beat = float(n.get("beat") or 1.0)     # notated beats already
+                dur = float(n.get("duration_beats") or 0.0)   # quarterLengths
             except (TypeError, ValueError):
                 continue
-            if dur < _REST_MIN_BEATS:
+            beats = dur / ql_per_beat                  # -> notated beats
+            # Threshold the CONVERTED value: an eighth rest in 6/8 is a third of
+            # a beat, not half of one, and the raw number would judge it wrong.
+            if beats < _REST_MIN_BEATS:
                 continue
             out.append({"measure": num, "start_beat": beat,
-                        "end_beat": beat + dur, "beats": dur})
+                        "end_beat": beat + beats, "beats": beats})
     return out
 
 
@@ -5334,13 +5353,20 @@ def compare_and_coach_claude(
     # 3c. Playing through a written rest. Confirmed by construction: the gates in
     # find_rest_violations are the wrong-note detector's, and nothing else in the
     # pipeline measures silence, so there is no second opinion to wait for.
+    #
+    # priority=3 — above the timing-fit findings (placement/drift/durations, all
+    # priority=2), which share type "timing" and therefore compete with this for
+    # the one (measure, type) slot. Playing where the score is silent is the more
+    # fundamental error AND the rarer, more specific one: "you played through the
+    # rest in bar 22" is worth more to a student than "bar 22 sits 120 ms behind
+    # the beat", and if one of the two must be dropped it must not be this.
     for cand in rest_candidates:
         mm = re.search(r'measure (\d+)', cand)
         if mm:
             _t = re.search(r't=([\d.]+)s', cand)
             _add(int(mm.group(1)), "timing", cand,
                  float(_t.group(1)) if _t else None, confirmed=True,
-                 rule="rest_violation", measured=None)
+                 priority=3, rule="rest_violation", measured=None)
 
     # 3d. Measured dynamics: the score's markings vs what was actually played.
     if isinstance(dynamics_report, dict) and dynamics_report.get("ok"):

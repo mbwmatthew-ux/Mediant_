@@ -2116,6 +2116,35 @@ def test_rest_windows_are_collected_from_the_score():
           str(w.collect_rest_windows(short, 4)))
 
 
+def test_compound_metre_rest_window_conversion():
+    print("\n[54] rest windows convert quarterLengths to notated beats in compound metre")
+    # 6/8: the beat is a dotted quarter (1.5 quarterLengths). A rest written as
+    # a single dotted-quarter rest is ONE beat, not 1.5 -- the trap this closes.
+    compound = {"time_signature": "6/8", "measures": [
+        {"number": 3, "notes": [
+            {"is_rest": True, "pitch": None, "beat": 1.0, "duration_beats": 1.5}]}]}
+    wins = w.collect_rest_windows(compound, 6)
+    check("6/8 dotted-quarter rest produces one window", len(wins) == 1, str(wins))
+    if wins:
+        r = wins[0]
+        check("6/8 window is exactly one converted beat",
+              (r["start_beat"], r["end_beat"], r["beats"]) == (1.0, 2.0, 1.0),
+              f'{r["start_beat"]}->{r["end_beat"]} ({r["beats"]} beats)')
+
+    # 4/4: the beat IS a quarter, so the identical quarterLength needs no
+    # conversion -- pins the other half, that simple metres are untouched.
+    simple = {"time_signature": "4/4", "measures": [
+        {"number": 3, "notes": [
+            {"is_rest": True, "pitch": None, "beat": 1.0, "duration_beats": 1.0}]}]}
+    wins4 = w.collect_rest_windows(simple, 4)
+    check("4/4 quarter rest produces one window", len(wins4) == 1, str(wins4))
+    if wins4:
+        r = wins4[0]
+        check("4/4 window is exactly one unconverted beat",
+              (r["start_beat"], r["end_beat"], r["beats"]) == (1.0, 2.0, 1.0),
+              f'{r["start_beat"]}->{r["end_beat"]} ({r["beats"]} beats)')
+
+
 def test_rest_violations_need_real_playing_not_decay():
     print("\n[53] rest violations fire on playing, not on a note ringing out")
     wins = [{"measure": 5, "start_beat": 2.0, "end_beat": 4.0, "beats": 2.0}]
@@ -2152,6 +2181,71 @@ def test_rest_violations_need_real_playing_not_decay():
     # No timeline for the measure means we cannot place the rest at all.
     check("no span means no flag",
           w.find_rest_violations(ev(11.0), wins, lambda m: None, 4) == [])
+
+
+def test_rest_violation_outranks_a_placement_finding_in_dedup():
+    print("\n[55] a rest violation beats a competing timing-placement finding for the same bar")
+    # m.2 carries a written rest on beat 2 AND is played 300ms late as a whole --
+    # both a genuine rest_violation (priority=3) and a genuine placement finding
+    # (priority=2) are real for this bar. Only one can survive (measure, "timing")
+    # dedup, and it must be the rest violation.
+    SCALE = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"]
+    score = {"time_signature": "4/4", "measures": [
+        {"number": 1, "notes": [{"pitch": SCALE[b % 8], "beat": float(b + 1),
+                                  "duration_beats": 1.0} for b in range(4)]},
+        {"number": 2, "notes": [
+            {"pitch": "E4", "beat": 1.0, "duration_beats": 1.0},
+            {"is_rest": True, "pitch": None, "beat": 2.0, "duration_beats": 1.0},
+            {"pitch": "G4", "beat": 3.0, "duration_beats": 1.0},
+            {"pitch": "A4", "beat": 4.0, "duration_beats": 1.0}]},
+        {"number": 3, "notes": [{"pitch": SCALE[b % 8], "beat": float(b + 1),
+                                  "duration_beats": 1.0} for b in range(4)]},
+    ]}
+    spb, late = 0.5, 0.3          # 0.3s at 120bpm is well over half a beat
+    evs = []
+    for mi, m in enumerate(score["measures"]):
+        base_t = mi * 4 * spb
+        shift = late if m["number"] == 2 else 0.0
+        for n in m["notes"]:
+            if n.get("is_rest"):
+                continue
+            t = base_t + (n["beat"] - 1.0) * spb + shift
+            evs.append({"time_sec": t, "end_sec": t + spb, "pitches": [n["pitch"]],
+                        "confidence": 90, "cents_offset": 0, "cents_spread": 8,
+                        "held_sec": 0.4})
+    # A confidently-played note inside m.2's rest window (beat 2, shifted late
+    # with the rest of the bar) -- the rest violation.
+    phantom_t = 1 * 4 * spb + 1 * spb + late + 0.2
+    evs.append({"time_sec": phantom_t, "end_sec": phantom_t + 0.3, "pitches": ["F4"],
+                "confidence": 90, "cents_offset": 0, "cents_spread": 8, "held_sec": 0.3})
+    evs.sort(key=lambda e: e["time_sec"])
+
+    al = w.dtw_align_to_score(evs, score, 1, 4, end_measure=3)
+    acc = {}
+    for e in al:
+        m, t = e["measure"], e["time_sec"]
+        r = acc.setdefault(m, {"start": t, "end": t})
+        r["start"], r["end"] = min(r["start"], t), max(r["end"], t)
+    items = sorted(acc.items())
+    spm = 4 * spb
+    ranges = []
+    for i, (m, r) in enumerate(items):
+        nxt = items[i + 1] if i + 1 < len(items) else None
+        end = (nxt[1]["start"] if nxt[0] == m + 1 else min(nxt[1]["start"], r["start"] + spm)) \
+            if nxt else max(r["end"] + spm / 4, r["start"] + spm)
+        ranges.append({"measure": m, "start": r["start"], "end": max(end, r["start"] + 0.25)})
+
+    flags = w.compare_and_coach_claude(
+        score=score, aligned=al, alignment_ranges=ranges, tempo={"bpm": 120},
+        piece_title="Test", composer="X", instrument="clarinet",
+        gemini_assessment=dict(EMPTY_GEMINI), anthropic_api_key="k",
+        beats_per_measure=4, start_measure=1, end_measure=3, dtw_verified=True)
+
+    m2 = [f for f in flags if f["measure"] == 2 and f["type"] == "timing"]
+    check("exactly one timing flag survives for m.2", len(m2) == 1, str(len(m2)))
+    check("the rest violation is the one that survives",
+          bool(m2) and m2[0].get("rule") == "rest_violation",
+          m2[0].get("rule") if m2 else "no flag")
 
 
 def main():
@@ -2204,7 +2298,9 @@ def main():
               test_partial_runs_declare_the_true_page_total_and_do_not_poison_the_cache,
               test_one_file_keeps_flat_positions_even_when_it_has_many_pages,
               test_rest_windows_are_collected_from_the_score,
-              test_rest_violations_need_real_playing_not_decay):
+              test_compound_metre_rest_window_conversion,
+              test_rest_violations_need_real_playing_not_decay,
+              test_rest_violation_outranks_a_placement_finding_in_dedup):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

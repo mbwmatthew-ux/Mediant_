@@ -68,14 +68,26 @@ def _dedup_by_flag_key(annotations: list[dict]) -> tuple[dict, set]:
     Also returns the set of flag_keys where the collapsed rows disagreed on
     `action` — i.e. this wasn't one teacher's re-annotation, it was two
     different verdicts and we kept one of them. Rows that all agree are not
-    disagreement, even if there are several of them."""
+    disagreement, even if there are several of them.
+
+    A row with a missing or empty `action` contributes NOTHING to that set. It
+    is not a verdict, so it cannot disagree with one: counting its absent action
+    as a distinct value would let a single malformed row push a flag_key into
+    `disagreed` on its own. `action` is NOT NULL in the schema so this cannot
+    come from the database, but ACCURACY_BASELINE.md Step 2 documents feeding
+    this scorer hand-assembled rows, and `disagreed` is the column that exists
+    to keep the headline number honest — inflating it corrupts exactly that.
+    Such rows are already ignored for tp/fp (`_apply_action` matches none of the
+    known actions), so ignoring them here makes the two consistent."""
     keyed: dict[str, dict] = {}
     actions_seen: dict[str, set] = {}
     for a in annotations:
         key = a.get("flag_key")
         if not key:
             continue
-        actions_seen.setdefault(key, set()).add(a.get("action"))
+        action = a.get("action")
+        if action:
+            actions_seen.setdefault(key, set()).add(action)
         existing = keyed.get(key)
         if existing is None:
             keyed[key] = a

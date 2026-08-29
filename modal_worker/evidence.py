@@ -49,11 +49,18 @@ def _provenance_for(flag: dict, timing_report, dynamics_report) -> dict:
     # same measure actually won and would misattribute it. Only fall back to
     # that reconstruction when the flag predates this field (e.g. an older
     # bundle replayed offline).
+    #
+    # The gate is "neither field is stamped", NOT "measured is missing". Some
+    # call sites legitimately stamp a rule with no number: the crack "noise"
+    # variant has no "jumped N semitones" text by design, so it is stamped
+    # rule="crack", measured=None. Keying only on `measured is None` sent it
+    # into reconstruction, where type "error" matches no branch, and the
+    # stamped rule was overwritten with None — throwing away the one thing that
+    # flag DID know about itself. A stamped rule must always survive.
     rule = flag.get("rule")
     measured = flag.get("measured")
 
-    if measured is None:
-        rule = None
+    if measured is None and rule is None:
         if ftype in ("timing", "rhythm") and isinstance(timing_report, dict) and timing_report.get("ok"):
             for name in ("placement", "drift", "durations"):
                 row = (timing_report.get(name) or {}).get(measure)

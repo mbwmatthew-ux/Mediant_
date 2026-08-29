@@ -156,10 +156,18 @@ serve(async (req: Request) => {
     })
   }
 
-  // Fire-and-forget: evidence is diagnostics, and losing it must never fail the
-  // analysis the student is waiting for.
+  // Awaited on purpose, unlike the fire-and-forget writes below it. This bundle
+  // is by far the largest write in this handler (up to ~300-400 KB at evidence.py's
+  // 2000/2000 caps), this function has no EdgeRuntime.waitUntil, and the isolate
+  // can tear down as soon as we `return new Response` — so fire-and-forget was
+  // liable to lose the write outright, leaving analysis_evidence sparse while
+  // every analysis still looked green. Awaiting is safe: the `takes` update above
+  // has already committed (and its dbErr guard already returned on failure), so
+  // this only delays the 200 handed back to the Modal worker, which nothing
+  // blocks on. The .catch stays, so a failed evidence write still cannot throw
+  // into the handler and cannot fail the analysis the student is waiting for.
   if (analysisEvidence && typeof analysisEvidence === 'object') {
-    admin.from('analysis_evidence')
+    await admin.from('analysis_evidence')
       .upsert({
         take_id: takeId,
         version: Number((analysisEvidence as { version?: number }).version ?? 1),

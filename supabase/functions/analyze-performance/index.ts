@@ -1303,13 +1303,40 @@ serve(async (req: Request) => {
           scoreSignedUrl = sSigned?.signedUrl ?? null
         }
 
+        // Sign EVERY uploaded page, not just the first. The worker reads them as one
+        // ordered set so measure numbering can run continuously across a page break.
+        // score_url (singular) is left exactly as it was — other consumers still use it.
+        let scoreSignedUrls: string[] = []
+        if (safeScorePaths.length) {
+          const signed = await Promise.all(
+            safeScorePaths.map(p =>
+              admin.storage.from('sheet-music').createSignedUrl(p, 7200)
+                .then(r => r.data?.signedUrl ?? null)
+                .catch(() => null)
+            )
+          )
+          // A missing page must not silently shift the order — drop the whole set
+          // rather than hand the reader pages 1 and 3 labelled 1 and 2.
+          scoreSignedUrls = signed.every(Boolean) ? (signed as string[]) : []
+          if (!scoreSignedUrls.length && safeScorePaths.length > 1) {
+            console.warn('[analyze-performance] could not sign all score pages — falling back to page 1 only')
+          }
+        }
+
+        // Opaque cache key, NOT a storage path: a multi-file score must not collide
+        // with its own first page. Joined with "|" so it stays a single TEXT key and
+        // needs no migration.
+        const scoreCacheKey = safeScorePaths.length > 1
+          ? safeScorePaths.join('|')
+          : scorePath
+
         let cachedScoreNotes: unknown = null
         if (scorePath && scoreMimeType && /pdf|image/i.test(scoreMimeType)) {
           const { data: cacheRow } = await admin
-            .from('score_cache').select('parsed_notes').eq('score_path', scorePath).maybeSingle()
+            .from('score_cache').select('parsed_notes').eq('score_path', scoreCacheKey).maybeSingle()
           if (cacheRow?.parsed_notes) {
             cachedScoreNotes = cacheRow.parsed_notes
-            console.log('[analyze-performance] score cache hit for', scorePath)
+            console.log('[analyze-performance] score cache hit for', scoreCacheKey)
           }
         }
 
@@ -1340,6 +1367,7 @@ serve(async (req: Request) => {
               video_url:            videoSignedUrl,
               video_mime_type:      videoMimeType,
               score_url:            scoreSignedUrl,
+              score_urls:           scoreSignedUrls.length ? scoreSignedUrls : null,
               score_mime_type:      scoreMimeType      ?? null,
               reference_midi_url:   referenceMidiUrl   ?? null,
               user_note:            cleanNote,
@@ -1354,7 +1382,7 @@ serve(async (req: Request) => {
               score_facts:          safeScoreFacts,
               audio_features:       safeAudioFeatures,
               measure_timeline:     measureTimeline,
-              score_path:           scorePath           ?? null,
+              score_path:           scoreCacheKey       ?? null,
               cached_score_notes:   cachedScoreNotes    ?? null,
               gemini_api_key:       Deno.env.get('GOOGLE_AI_API_KEY'),
               anthropic_api_key:    Deno.env.get('ANTHROPIC_API_KEY'),

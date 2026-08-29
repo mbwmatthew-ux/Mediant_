@@ -40,23 +40,35 @@ def _provenance_for(flag: dict, timing_report, dynamics_report) -> dict:
     detector, evidence_class = _DETECTOR_BY_TYPE.get(ftype, ("unknown", "unverifiable"))
     measure = flag.get("measure")
 
-    measured = None
-    rule = None
-    if ftype in ("timing", "rhythm") and isinstance(timing_report, dict) and timing_report.get("ok"):
-        for name in ("placement", "drift", "durations"):
-            row = (timing_report.get(name) or {}).get(measure)
-            if row:
-                rule = name
-                measured = (row.get("median_ms") if name == "placement"
-                            else row.get("pct") if name == "drift"
-                            else row.get("delta_ms"))
-                break
-    elif ftype == "intonation":
-        rule = "cents_vs_tuning_centre"
-        measured = flag.get("cents_deviation")
-    elif ftype == "dynamics" and isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
-        rule = "contrast" if dynamics_report.get("contrast") else "inverted"
-        measured = dynamics_report.get("spread_db")
+    # Prefer the rule/measurement stamped on the flag at creation time by the
+    # sub-detector that actually produced it (see compare_and_coach_claude's
+    # _add()). Several timing sub-types (placement/drift/durations/overall)
+    # share type="timing" and only one survives (measure, type) dedup, so
+    # reconstructing "which rule fired" from the report dicts alone — keyed
+    # only on measure number — cannot tell which of several candidates for the
+    # same measure actually won and would misattribute it. Only fall back to
+    # that reconstruction when the flag predates this field (e.g. an older
+    # bundle replayed offline).
+    rule = flag.get("rule")
+    measured = flag.get("measured")
+
+    if measured is None:
+        rule = None
+        if ftype in ("timing", "rhythm") and isinstance(timing_report, dict) and timing_report.get("ok"):
+            for name in ("placement", "drift", "durations"):
+                row = (timing_report.get(name) or {}).get(measure)
+                if row:
+                    rule = name
+                    measured = (row.get("median_ms") if name == "placement"
+                                else row.get("pct") if name == "drift"
+                                else row.get("delta_ms"))
+                    break
+        elif ftype == "intonation":
+            rule = "cents_vs_tuning_centre"
+            measured = flag.get("cents_deviation")
+        elif ftype == "dynamics" and isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
+            rule = "contrast" if dynamics_report.get("contrast") else "inverted"
+            measured = dynamics_report.get("spread_db")
 
     if measured is None:
         measured = flag.get("timing_deviation_ms")

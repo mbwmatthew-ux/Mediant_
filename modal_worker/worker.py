@@ -4640,7 +4640,8 @@ def compare_and_coach_claude(
 
     def _add(measure, ftype, observed, time_sec, confirmed,
              cents=None, timing=None, is_global=False,
-             measure_end=None, time_end_sec=None, direction=None, priority=0):
+             measure_end=None, time_end_sec=None, direction=None, priority=0,
+             rule=None, measured=None):
         observed = str(observed or "").strip()
         if not observed or "not visible" in observed.lower():
             return
@@ -4660,6 +4661,14 @@ def compare_and_coach_claude(
             "timing":       timing,
             "global":       is_global,
             "direction":    direction,   # "sharp"/"flat" for intonation; else None
+            # Which sub-detector actually produced this issue and the number it
+            # measured, stamped here at the source rather than reconstructed
+            # later — several timing sub-types share type="timing" and only one
+            # survives (measure, type) dedup, so reconstruction from the report
+            # dict alone cannot tell which one won. Evidence-only: not shown to
+            # the student, read by evidence.py.
+            "rule":         rule,
+            "measured":     measured,
             # Dedup tie-break only (see the sort below); not part of the output.
             "_priority":    priority,
         })
@@ -4992,7 +5001,8 @@ def compare_and_coach_claude(
              (f"the {_note} " if _note else "pitch ")
              + f"sits {round(d['cents'])}¢ {direction} of the rest of your playing "
              f"here — {fix_hint}",
-             d["time"], confirmed=True, cents=round(d["cents"], 1), direction=direction)
+             d["time"], confirmed=True, cents=round(d["cents"], 1), direction=direction,
+             rule="cents_vs_tuning_centre", measured=round(d["cents"], 1))
 
     # 2b. Timing — CREPE+DTW owns it, exactly as CREPE owns intonation above.
     # Previously timing had NO objective author: flags came only from Gemini's
@@ -5011,14 +5021,15 @@ def compare_and_coach_claude(
                  f"notes land about {int(round(ms))} ms {p['direction']} against the beat here — "
                  f"count the pulse aloud and place the downbeat exactly with it",
                  _t_of(m), confirmed=True, timing=round(ms, 1), priority=2,
-                 direction=p["direction"])
+                 direction=p["direction"], rule="placement", measured=round(ms, 1))
 
         for m, d in timing_report["drift"].items():
             _add(m, "timing",
                  f"this measure runs at about {d['local_bpm']:.0f} BPM against your "
                  f"{d['piece_bpm']:.0f} BPM — {d['pct']}% {d['direction']}; "
                  f"practise it with a metronome at {d['piece_bpm']:.0f}",
-                 _t_of(m), confirmed=True, priority=2, direction=d["direction"])
+                 _t_of(m), confirmed=True, priority=2, direction=d["direction"],
+                 rule="drift", measured=d["pct"])
 
         for m, du in timing_report["durations"].items():
             held  = du["direction"] == "long"
@@ -5049,7 +5060,8 @@ def compare_and_coach_claude(
                  f"{'release it on the following beat' if held else 'sustain it to its full value'}",
                  du.get("time_sec") or _t_of(m), confirmed=True,
                  timing=round(abs(du["delta_ms"]), 1), priority=2,
-                 direction=f"held-{du['direction']}")
+                 direction=f"held-{du['direction']}",
+                 rule="durations", measured=round(abs(du["delta_ms"]), 1))
 
         ov = timing_report.get("overall")
         if ov:
@@ -5058,21 +5070,31 @@ def compare_and_coach_claude(
                  f"{ov['start_bpm']:.0f} BPM and finish around {ov['end_bpm']:.0f} BPM "
                  f"({ov['pct']}%); play it through with a metronome to hold one tempo",
                  _t_of(ov["measure_lo"]), confirmed=True, is_global=True, priority=2,
-                 measure_end=ov["measure_hi"] if ov["measure_hi"] > ov["measure_lo"] else None)
+                 measure_end=ov["measure_hi"] if ov["measure_hi"] > ov["measure_lo"] else None,
+                 rule="overall", measured=ov["pct"])
 
     # 3. CREPE-detected wrong notes not already flagged by Gemini.
     for cand in wrong_note_candidates:
         mm = re.search(r'measure (\d+)', cand)
         if mm:
-            _add(int(mm.group(1)), "error", cand, None, confirmed=True)
+            # The candidate string is our own fixed format (see
+            # find_wrong_note_candidates) — pull the semitone distance back out
+            # for evidence rather than leaving this "measured" category with no
+            # measurement. A non-matching string (format drift upstream) yields
+            # None rather than a guess.
+            _sd = re.search(r'(\d+) semitones away', cand)
+            _add(int(mm.group(1)), "error", cand, None, confirmed=True,
+                 rule="wrong_note", measured=(float(_sd.group(1)) if _sd else None))
 
     # 3b. CREPE-detected cracks/squeaks, same treatment.
     for cand in crack_candidates:
         mm = re.search(r'measure (\d+)', cand)
         if mm:
             _t = re.search(r't=([\d.]+)s', cand)
+            _cj = re.search(r'jumped (\d+) semitones', cand)
             _add(int(mm.group(1)), "error", cand,
-                 float(_t.group(1)) if _t else None, confirmed=True)
+                 float(_t.group(1)) if _t else None, confirmed=True,
+                 rule="crack", measured=(float(_cj.group(1)) if _cj else None))
 
     # 3c. Measured dynamics: the score's markings vs what was actually played.
     if isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
@@ -5085,7 +5107,8 @@ def compare_and_coach_claude(
                  f"are there but the contrast is not. Play the {_con['softest']} "
                  f"markedly softer and let the {_con['loudest']} open up",
                  _t_of(min(_ms)), confirmed=True, is_global=True,
-                 measure_end=max(_ms) if max(_ms) > min(_ms) else None, priority=2)
+                 measure_end=max(_ms) if max(_ms) > min(_ms) else None, priority=2,
+                 rule="contrast", measured=_con["spread_db"])
         for _inv in (dynamics_report.get("inverted") or [])[:2]:
             _ms = _inv["measures"]
             if not _ms:
@@ -5095,7 +5118,8 @@ def compare_and_coach_claude(
                  f"{_inv['delta_db']} dB SOFTER than the {_inv['louder_marking']} "
                  f"passage — the two are the wrong way round",
                  _t_of(min(_ms)), confirmed=True,
-                 measure_end=max(_ms) if max(_ms) > min(_ms) else None, priority=2)
+                 measure_end=max(_ms) if max(_ms) > min(_ms) else None, priority=2,
+                 rule="inverted", measured=_inv["delta_db"])
 
     # 4. Posture & technique — global visual observations from Gemini.
     # Derive a measure from any timestamp in the text so the flag lands somewhere
@@ -5339,6 +5363,12 @@ Return JSON only (no markdown):
             "cents_deviation":      iss["cents"],
             "timing_deviation_ms":  iss["timing"],
             "confirmed":            iss["confirmed"],
+            # Evidence-only fields, not rendered to the student — see _add()
+            # above and evidence.py's _provenance_for, which reads these
+            # directly instead of reconstructing (and sometimes misattributing)
+            # them from the timing/dynamics report dicts.
+            "rule":                 iss.get("rule"),
+            "measured":             iss.get("measured"),
         })
 
     # ── HARD INVARIANT: the Loop must play the measure printed on the flag ────

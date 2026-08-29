@@ -1618,6 +1618,43 @@ def test_flag_keys_are_stable_and_unique():
           f'{collide[0]["flag_key"]} vs {collide[1]["flag_key"]}')
 
 
+def test_evidence_reset_survives_container_reuse():
+    print("\n[42] a warm container does not leak one take's evidence into the next")
+    # Modal reuses warm containers across invocations. The FIRST call here is a
+    # normal take that produces real flags, so worker._LAST_EVIDENCE ends up
+    # non-empty. The SECOND call is a pathological take (empty score, no
+    # aligned events, no Gemini assessment) that hits
+    # compare_and_coach_claude's very FIRST early return
+    # (`if not played_measures and not gemini_assessment: return []`) before
+    # ever reaching the evidence-bundle build. If the reset at the top of the
+    # function were removed, wrapped in a branch, moved after that return, or
+    # lost its `global`, the second take's webhook would still post the FIRST
+    # take's measurements as its own — silently mislabelling one student's
+    # analysis with another's numbers.
+    score = make_score()
+    played, evs = make_performance(score, warp=lambda m, b, t: t + 0.25 if m == 30 else t)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    for e in aligned:
+        if e["measure"] in (25, 26, 27):
+            e["cents_offset"] = 30
+    flags = run_pipeline(score, aligned)
+    check("first take produced flags", len(flags) > 0, f"{len(flags)} flags")
+    check("first take populated _LAST_EVIDENCE",
+          bool(w._LAST_EVIDENCE) and bool(w._LAST_EVIDENCE.get("flags")),
+          str(sorted(w._LAST_EVIDENCE.keys())))
+
+    second = w.compare_and_coach_claude(
+        score={"measures": []}, aligned=[], alignment_ranges=[], tempo={"bpm": 120},
+        piece_title="Empty", composer="X", instrument="clarinet",
+        gemini_assessment={}, anthropic_api_key="k",
+        beats_per_measure=BEATS_PER_MEASURE, start_measure=1, end_measure=1,
+        dtw_verified=True)
+    check("second (pathological) take hits the early return",
+          second == [], str(second))
+    check("second take's early return does not inherit the first take's evidence",
+          w._LAST_EVIDENCE == {}, str(w._LAST_EVIDENCE))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1656,7 +1693,8 @@ def main():
               test_compound_articulation_is_short_by_design,
               test_ambiguous_instrument_does_not_guess_a_transposition,
               test_squeak_survives_the_release_tolerance,
-              test_flag_keys_are_stable_and_unique):
+              test_flag_keys_are_stable_and_unique,
+              test_evidence_reset_survives_container_reuse):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

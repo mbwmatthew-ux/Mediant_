@@ -73,9 +73,70 @@ def test_every_flag_gets_provenance():
           prov["posture:20"]["evidence_class"])
 
 
+def test_stamped_rule_beats_reconstruction():
+    print("\n[3] a flag's own stamped rule/measured wins over reconstruction")
+    # Two timing sub-detectors both have a row for measure 20 (placement AND
+    # durations). Reconstructing provenance from the report dicts alone always
+    # picks "placement" first (see the fixed priority order in
+    # _provenance_for's fallback) regardless of which sub-detector's finding
+    # actually survived (measure, type) dedup and became this flag. worker.py
+    # now stamps the true rule/measured on the flag at creation time — this
+    # must win, or a measure with two candidate timing issues silently
+    # reports the wrong one's number to Phase 2's threshold calibration.
+    bundle = build_evidence_bundle(
+        flags=[{"flag_key": "timing:20", "type": "timing", "measure": 20,
+                "rule": "durations", "measured": 45.0}],
+        timing_report={"ok": True, "spb": 0.5, "bpm": 120.0, "n_notes": 40,
+                       "placement": {20: {"median_ms": 130.0, "worst_ms": 150.0,
+                                          "direction": "late", "n": 3}},
+                       "drift": {}, "durations": {20: {"delta_ms": 45.0}},
+                       "overall": None, "notes": []},
+        dynamics_report={"ok": False, "reason": "no markings"},
+        wrong_note_candidates=[], crack_candidates=[], aligned=[],
+        beats={"tempo_bpm": 120.0, "beat_times": []},
+        score={"source": "music21", "measures": []}, alignment_method="score_dtw",
+    )
+    prov = bundle["flags"][0]
+    check("stamped rule wins over the 'placement' reconstruction default",
+          prov["rule"] == "durations", prov["rule"])
+    check("stamped measured value wins", prov["measured"] == 45.0, str(prov["measured"]))
+
+
+def test_error_flags_carry_their_measurement():
+    print("\n[4] wrong-note/crack flags are traceable, not just labelled measured")
+    # Before the fix, type=="error" always fell through _provenance_for with
+    # measured=None even though _DETECTOR_BY_TYPE labels it evidence_class
+    # "measured" — an untraceable member of a category that claims to be
+    # traceable. worker.py now parses the semitone distance/jump out of the
+    # candidate string at the _add() call site and stamps it on the flag.
+    bundle = build_evidence_bundle(
+        flags=[
+            {"flag_key": "error:12", "type": "error", "measure": 12,
+             "rule": "wrong_note", "measured": 5.0},
+            {"flag_key": "error:20", "type": "error", "measure": 20,
+             "rule": "crack", "measured": 19.0},
+        ],
+        timing_report={"ok": False}, dynamics_report={"ok": False},
+        wrong_note_candidates=[], crack_candidates=[], aligned=[],
+        beats={"tempo_bpm": 120.0, "beat_times": []},
+        score={"source": "music21", "measures": []}, alignment_method="score_dtw",
+    )
+    prov = {p["flag_key"]: p for p in bundle["flags"]}
+    check("wrong-note flag carries its semitone distance",
+          prov["error:12"]["measured"] == 5.0, str(prov["error:12"]["measured"]))
+    check("crack flag carries its semitone jump",
+          prov["error:20"]["measured"] == 19.0, str(prov["error:20"]["measured"]))
+    check("both stay labelled measured (not demoted to unverifiable)",
+          prov["error:12"]["evidence_class"] == "measured"
+          and prov["error:20"]["evidence_class"] == "measured",
+          f"{prov['error:12']['evidence_class']} / {prov['error:20']['evidence_class']}")
+
+
 def main():
     test_bundle_is_json_safe_and_bounded()
     test_every_flag_gets_provenance()
+    test_stamped_rule_beats_reconstruction()
+    test_error_flags_carry_their_measurement()
     failed = [r for r in RESULTS if not r[1]]
     print("\n" + "=" * 70)
     print(f"{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")

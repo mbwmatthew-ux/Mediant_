@@ -987,6 +987,7 @@ def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "")
         key_sig = None
         time_sig_str = None
         tempo_marking = None
+        tempo_bpm = None
 
         for el in part.recurse():
             if isinstance(el, m21.key.Key) and key_sig is None:
@@ -997,6 +998,7 @@ def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "")
                 time_sig_str = el.ratioString
             elif isinstance(el, m21.tempo.MetronomeMark) and tempo_marking is None:
                 tempo_marking = str(el)
+                tempo_bpm = getattr(el, "number", None)
 
         # Repeat barlines and DC/DS jumps mean the audio contains passages the
         # note list does not — see the note on `has_repeats` in the return value.
@@ -1020,6 +1022,29 @@ def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "")
             print("[parse_musicxml] WARNING: score contains repeats and they are "
                   "NOT expanded — if the student played them, every measure after "
                   "the first repeat may be misaligned")
+
+        # Crescendo/diminuendo wedges. An unusual score (no spanners, a malformed
+        # one) must not fail the whole parse over a feature this is purely
+        # additive to.
+        wedges_out: list[dict] = []
+        try:
+            for _w in part.recurse().getElementsByClass(m21.dynamics.DynamicWedge):
+                try:
+                    _first, _last = _w.getFirst(), _w.getLast()
+                    _m0 = getattr(_first, "measureNumber", None) if _first is not None else None
+                    _m1 = getattr(_last, "measureNumber", None) if _last is not None else None
+                    if _m0 is None:
+                        continue
+                    if _m1 is None or _m1 < _m0:
+                        _m1 = _m0
+                    kind = "cresc" if isinstance(_w, m21.dynamics.Crescendo) else "dim"
+                    wedges_out.append({"kind": kind, "start_measure": int(_m0),
+                                        "end_measure": int(_m1)})
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"[parse_musicxml] wedge parse error (non-fatal): {e}")
+            wedges_out = []
 
         measures_out = []
         measure_elements = source_part.getElementsByClass(m21.stream.Measure)
@@ -1113,6 +1138,8 @@ def parse_musicxml(score_bytes: bytes, start_measure: int, instrument: str = "")
             "key_signature": key_sig,
             "time_signature": time_sig_str,
             "tempo_marking": tempo_marking,
+            "tempo_bpm": float(tempo_bpm) if tempo_bpm else None,
+            "wedges": wedges_out,
             "measures": measures_out,
             "source": "music21",
             # Repeats are NOT expanded. A repeated strain appears once here but
@@ -3201,6 +3228,26 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
                 n = (_prev + 1) if _prev is not None else start_measure
             m["number"] = n
             _prev = n
+        # Crescendo/diminuendo wedges: fold a run of consecutive measures that
+        # each carry the same single "cresc"/"dim" marker into one span, the
+        # vision-reader equivalent of a MusicXML DynamicWedge spanner.
+        wedges: list[dict] = []
+        _run_kind = _run_start = _run_end = None
+        for m in measures:
+            _kinds = {str(n.get("dynamic")).lower() for n in m.get("notes", [])
+                      if str(n.get("dynamic") or "").lower() in ("cresc", "dim")}
+            _kind = next(iter(_kinds)) if len(_kinds) == 1 else None
+            if _kind and _kind == _run_kind:
+                _run_end = m["number"]
+            else:
+                if _run_kind:
+                    wedges.append({"kind": _run_kind, "start_measure": _run_start,
+                                    "end_measure": _run_end})
+                _run_kind = _kind
+                _run_start = _run_end = m["number"] if _kind else None
+        if _run_kind:
+            wedges.append({"kind": _run_kind, "start_measure": _run_start,
+                            "end_measure": _run_end})
         total_notes = sum(len(m["notes"]) for m in measures)
         if measures:
             _nums = [m["number"] for m in measures]
@@ -3220,6 +3267,8 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
             "key_signature":  parsed.get("key_signature"),
             "time_signature": parsed.get("time_signature"),
             "tempo_marking":  parsed.get("tempo_marking"),
+            "tempo_bpm":      parse_marked_bpm(parsed.get("tempo_marking")),
+            "wedges":         wedges,
             "measures":       measures,
             # Was missing entirely on the success path — without it, run_full_analysis's
             # DTW-eligibility check ("claude_vision" in score_source) could never be true
@@ -3783,6 +3832,49 @@ def analyze_dynamics_vs_score(aligned: list[dict], score: dict) -> dict:
     return findings
 
 
+_WEDGE_MIN_NOTES = 6     # a slope through fewer points is noise
+_WEDGE_MIN_DB    = 1.5   # dB the loudness must move across the whole span
+
+
+def analyze_wedges(aligned: list[dict], wedges: list[dict]) -> list[dict]:
+    """
+    Does a written crescendo or diminuendo actually happen?
+
+    Uses the per-note `db` already measured over the note BODY (the window that
+    was fixed so articulation stops leaking into dynamics). Relative within the
+    take only — absolute dBFS is a fact about mic placement, not playing.
+    """
+    if not aligned or not wedges:
+        return []
+    out: list[dict] = []
+    for wd in wedges:
+        try:
+            lo, hi = int(wd["start_measure"]), int(wd["end_measure"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        pts = sorted(
+            ((float(e["time_sec"]), float(e["db"])) for e in aligned
+             if e.get("db") is not None and e.get("time_sec") is not None
+             and e.get("measure") is not None and lo <= int(e["measure"]) <= hi
+             and e.get("confidence", 0) >= 50),
+            key=lambda p: p[0])
+        if len(pts) < _WEDGE_MIN_NOTES:
+            continue
+        # Compare the two halves rather than fitting a line: a wedge is a
+        # direction, and the halves' medians are robust to one loud note.
+        half = len(pts) // 2
+        first = median([d for _, d in pts[:half]]) or 0.0
+        last = median([d for _, d in pts[-half:]]) or 0.0
+        delta = last - first
+        wants_louder = str(wd.get("kind", "cresc")).startswith("cresc")
+        achieved = delta >= _WEDGE_MIN_DB if wants_louder else delta <= -_WEDGE_MIN_DB
+        if not achieved:
+            out.append({"kind": "cresc" if wants_louder else "dim",
+                        "start_measure": lo, "end_measure": hi,
+                        "delta_db": round(delta, 1)})
+    return out
+
+
 def find_crack_candidates(aligned: list[dict]) -> list[str]:
     """
     Detect squeaks, cracks and register breaks.
@@ -3898,6 +3990,52 @@ def find_crack_candidates(aligned: list[dict]) -> list[str]:
     if out:
         print(f"[find_crack_candidates] {len(out)} crack/squeak candidate(s)")
     return out[:8]
+
+
+_TEMPO_MARK_PCT = 15.0   # below this, a performance is simply not a metronome
+
+
+def parse_marked_bpm(marking) -> float | None:
+    """
+    A number from a tempo marking, or None.
+
+    "Allegro" is a tempo WORD, not a tempo. Mapping words to BPM ranges would be
+    inventing a number the page does not carry, which is the kind of fabrication
+    this pipeline exists to avoid.
+    """
+    if marking is None:
+        return None
+    if isinstance(marking, (int, float)):
+        return float(marking) if 20 <= float(marking) <= 300 else None
+    import re as _re
+    m = _re.search(r'(\d{2,3})(?:\.\d+)?', str(marking))
+    if not m:
+        return None
+    val = float(m.group(1))
+    return val if 20 <= val <= 300 else None
+
+
+def check_tempo_vs_marking(fitted_bpm, marked_bpm) -> dict | None:
+    """
+    How the played tempo compares with the printed one.
+
+    Reported as FACT, not fault. A student practising deliberately slowly has
+    made no mistake, and nothing here can tell practice from error — so the
+    wording names both numbers and judges neither.
+    """
+    try:
+        f = float(fitted_bpm or 0.0)
+        m = float(marked_bpm or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if f <= 0 or m <= 0:
+        return None
+    pct = (f - m) / m * 100.0
+    if abs(pct) < _TEMPO_MARK_PCT:
+        return None
+    return {"pct": round(abs(pct), 1),
+            "direction": "faster" if pct > 0 else "slower",
+            "fitted": round(f, 1), "marked": round(m, 1)}
 
 
 _REST_ONSET_GRACE   = 0.15   # s after the rest starts before an onset counts
@@ -5327,6 +5465,19 @@ def compare_and_coach_claude(
                  measure_end=ov["measure_hi"] if ov["measure_hi"] > ov["measure_lo"] else None,
                  rule="overall", measured=ov["pct"])
 
+        # Tempo against the marked tempo. Deliberately reported as fact, not
+        # fault — see check_tempo_vs_marking's docstring.
+        _marked = parse_marked_bpm(score.get("tempo_bpm") or score.get("tempo_marking"))
+        _tm = check_tempo_vs_marking(timing_report.get("bpm"), _marked)
+        if _tm:
+            _add(measure_lo, "timing",
+                 f"you played this at about {_tm['fitted']:.0f} BPM against a marked "
+                 f"{_tm['marked']:.0f} BPM ({_tm['pct']}% {_tm['direction']}). If that "
+                 f"was deliberate practice tempo, ignore this",
+                 None, confirmed=True, is_global=True, priority=2,
+                 measure_end=measure_hi if measure_hi > measure_lo else None,
+                 rule="tempo_vs_marking", measured=_tm["pct"])
+
     # 3. CREPE-detected wrong notes not already flagged by Gemini.
     for cand in wrong_note_candidates:
         mm = re.search(r'measure (\d+)', cand)
@@ -5392,6 +5543,18 @@ def compare_and_coach_claude(
                  _t_of(min(_ms)), confirmed=True,
                  measure_end=max(_ms) if max(_ms) > min(_ms) else None, priority=2,
                  rule="inverted", measured=_inv["delta_db"])
+
+    for _wd in analyze_wedges(aligned, score.get("wedges") or []):
+        _word = "crescendo" if _wd["kind"] == "cresc" else "diminuendo"
+        _dirn = "louder" if _wd["kind"] == "cresc" else "softer"
+        _add(_wd["start_measure"], "dynamics",
+             f"the {_word} here does not arrive — the passage ends "
+             f"{abs(_wd['delta_db']):.1f} dB "
+             f"{'louder' if _wd['delta_db'] > 0 else 'softer'} than it began, where "
+             f"it should get noticeably {_dirn}",
+             None, confirmed=True, priority=2,
+             measure_end=_wd["end_measure"] if _wd["end_measure"] > _wd["start_measure"] else None,
+             rule="wedge", measured=_wd["delta_db"])
 
     # 4. Posture & technique — global visual observations from Gemini.
     # Derive a measure from any timestamp in the text so the flag lands somewhere

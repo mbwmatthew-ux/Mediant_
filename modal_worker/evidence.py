@@ -37,7 +37,9 @@ _DETECTOR_BY_TYPE = {
     "posture":    ("gemini",                    "unverifiable"),
     "technique":  ("gemini",                    "unverifiable"),
     # Keyed by rule (see above), not by flag type.
-    "rest_violation": ("find_rest_violations",  "measured"),
+    "rest_violation":     ("find_rest_violations",       "measured"),
+    "tempo_vs_marking":   ("check_tempo_vs_marking",     "measured"),
+    "wedge":              ("analyze_wedges",             "measured"),
 }
 
 _MAX_TIMING_NOTES = 2000

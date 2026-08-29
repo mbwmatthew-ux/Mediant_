@@ -2248,6 +2248,55 @@ def test_rest_violation_outranks_a_placement_finding_in_dedup():
           m2[0].get("rule") if m2 else "no flag")
 
 
+def test_tempo_vs_marking_reports_fact_not_fault():
+    print("\n[56] played tempo is compared to the marked tempo")
+    check("15% slower is reported",
+          (w.check_tempo_vs_marking(84.0, 120.0) or {}).get("direction") == "slower")
+    check("the percentage is real",
+          abs((w.check_tempo_vs_marking(84.0, 120.0) or {})["pct"] - 30.0) < 0.6,
+          str(w.check_tempo_vs_marking(84.0, 120.0)))
+    check("faster is reported too",
+          (w.check_tempo_vs_marking(138.0, 120.0) or {}).get("direction") == "faster")
+    # Inside tolerance is not a finding — musicians are not metronomes.
+    check("a close tempo is silent", w.check_tempo_vs_marking(126.0, 120.0) is None,
+          str(w.check_tempo_vs_marking(126.0, 120.0)))
+    # No marked tempo means nothing to compare against. "Allegro" is not a number
+    # and inventing one for it would be fabrication.
+    check("no marking means no finding", w.check_tempo_vs_marking(84.0, None) is None)
+    check("zero marking is rejected", w.check_tempo_vs_marking(84.0, 0.0) is None)
+    check("parses a numeric marking", w.parse_marked_bpm("♩ = 120") == 120.0,
+          str(w.parse_marked_bpm("♩ = 120")))
+    check("a tempo word yields nothing", w.parse_marked_bpm("Allegro") is None,
+          str(w.parse_marked_bpm("Allegro")))
+
+
+def test_crescendo_that_never_arrives_is_flagged():
+    print("\n[57] a crescendo must actually get louder")
+    wedges = [{"kind": "cresc", "start_measure": 3, "end_measure": 6}]
+
+    def evs(dbs):
+        return [{"measure": 3 + i // 2, "time_sec": i * 0.5,
+                 "db": d, "confidence": 90, "score_idx": i}
+                for i, d in enumerate(dbs)]
+
+    flat = w.analyze_wedges(evs([-30, -30, -29.5, -30, -29.8, -30, -30, -29.9]), wedges)
+    check("a flat crescendo is flagged", len(flat) == 1, str(flat))
+    real = w.analyze_wedges(evs([-34, -32, -30, -28, -26, -24, -22, -20]), wedges)
+    check("a real crescendo is silent", real == [], str(real))
+    backwards = w.analyze_wedges(evs([-20, -22, -24, -26, -28, -30, -32, -34]), wedges)
+    check("a crescendo played backwards is flagged", len(backwards) == 1, str(backwards))
+    check("the finding carries a dB number",
+          bool(flat) and isinstance(flat[0].get("delta_db"), (int, float)), str(flat))
+    # Too few notes to fit a slope through.
+    check("a short span is silent", w.analyze_wedges(evs([-30, -29]), wedges) == [])
+    # A diminuendo is the mirror image.
+    dim = [{"kind": "dim", "start_measure": 3, "end_measure": 6}]
+    check("a diminuendo that gets louder is flagged",
+          len(w.analyze_wedges(evs([-34, -32, -30, -28, -26, -24, -22, -20]), dim)) == 1)
+    check("a real diminuendo is silent",
+          w.analyze_wedges(evs([-20, -22, -24, -26, -28, -30, -32, -34]), dim) == [])
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -2300,7 +2349,9 @@ def main():
               test_rest_windows_are_collected_from_the_score,
               test_compound_metre_rest_window_conversion,
               test_rest_violations_need_real_playing_not_decay,
-              test_rest_violation_outranks_a_placement_finding_in_dedup):
+              test_rest_violation_outranks_a_placement_finding_in_dedup,
+              test_tempo_vs_marking_reports_fact_not_fault,
+              test_crescendo_that_never_arrives_is_flagged):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

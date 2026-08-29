@@ -1,0 +1,51 @@
+name: Analysis CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The suites stub every heavy import, so they need numpy and nothing else.
+      - name: Install test dependencies
+        run: pip install 'numpy>=1.24,<2.0'
+
+      - name: Worker unit checks
+        run: python3 modal_worker/test_analysis.py
+
+      - name: Coverage behaviours
+        run: python3 modal_worker/diagnose_coverage.py
+
+      - name: Evidence, replay and scoring
+        run: python3 modal_worker/test_evidence.py
+
+      # Catches a syntax error in the 5,800-line worker before it reaches Modal,
+      # where the only symptom is a failed deploy nobody is watching.
+      - name: Byte-compile the worker
+        run: python3 -m compileall -q modal_worker/
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: Build
+        run: npm run build
+      # Lint is NOT gated yet: the baseline is 100 errors, 13 warnings, all pre-existing dead
+      # variables. Gating today would block every PR on unrelated debt. The
+      # count is printed so it is visible, and Phase 3 drops the gate in once
+      # the baseline is clean.
+      - name: Lint (report only)
+        run: npm run lint || true

@@ -1,13 +1,21 @@
 # Changelog — Practapal (formerly Mediant)
 
-## 2026-08-29 — Analysis accuracy Phase 1: flags become traceable and scorable, baseline published unpopulated
+## 2026-08-29 — Analysis accuracy Phase 1: instrumentation for measuring accuracy, baseline published unpopulated
 
 Every flag emitted by the analysis pipeline already claimed a rule and a
 measurement in the coaching prose. Nothing recorded WHICH measurement decided
 WHICH flag, so a teacher rejecting a flag could not be tied back to the number
 that produced it, and "is this threshold too tight?" had no evidence to
-answer it with. Phase 1 closes that loop end to end without changing what a
-student sees.
+answer it with.
+
+Phase 1 builds the **instrumentation** to answer that — durable flag identity, a
+recorded evidence bundle, an offline replay harness, a scorer, and CI over the
+unit suites — without changing what a student sees. It does **not** close the
+measurement loop: no corpus has been read, so no precision or recall number
+exists, and three of the plan's five Terminal State criteria are not yet met.
+The honest per-criterion grade (two partly true, three not yet) is in
+`agent_workspace/ACCURACY_BASELINE.md`; the short version is at the end of this
+entry.
 
 **Every flag now carries a `flag_key`** — `"{type}:{measure}"`, plus a `#N`
 suffix on same-measure collisions — that survives re-analysis, so a teacher's
@@ -26,10 +34,20 @@ review caught that it silently misattributed provenance whenever two timing
 sub-issues landed on the same measure.
 
 **`modal_worker/replay.py`** re-decides a bundle's flags under different
-numeric thresholds (timing placement/drift/duration, cents, dynamics
+numeric thresholds (timing placement/drift/duration/overall, cents, dynamics
 contrast) with no audio, network or API keys — milliseconds instead of a real
-pipeline run. It intentionally does not re-implement the detectors: a change
-to *how* something is measured still needs a real re-run.
+pipeline run. Two limits, stated plainly because they bound what Phase 2 can
+use it for: it intentionally does not re-implement the detectors, so a change
+to *how* something is measured still needs a real re-run; and it **filters the
+flags that already shipped**, so it answers "which already-shipped flags
+survive at threshold X?" rather than "what would this take have reported at
+threshold X?". That means it can measure a threshold *tightening* (precision)
+and **cannot measure a loosening — and therefore cannot measure recall**, which
+is the direction Phase 2 most wants to move. The raw residuals to do that are
+in the bundle (`timing_notes`, `events`); re-deriving flags from them is work
+this harness does not do. It also raises rather than returning `[]` on a
+malformed or version-0 bundle, so an errored analysis cannot be swept up as a
+take that genuinely had no flags.
 
 **`modal_worker/score_against_annotations.py`** computes precision and recall
 per flag type from teacher verdicts: approve/edit → true positive, reject →
@@ -45,12 +63,26 @@ in the original plan).** The scorer joins on `flag_key`, but
 `TeacherDashboard.jsx` was posting only `flagIndex` — every future annotation
 would have landed with `flag_key = NULL`, making the whole measurement loop
 this phase exists to build compute precision over zero matched rows. Now
-sends `flagKey` alongside `flagIndex`; `annotate-flags` targets the keyed
-index when a key is present.
+sends `flagKey` alongside `flagIndex`. The `annotate-flags` **conflict target
+is unchanged** — still `onConflict: 'take_id,teacher_id,flag_index'` — because
+targeting the key is not available: Supabase's `onConflict` takes a bare column
+list and cannot express the `WHERE flag_key IS NOT NULL` predicate a partial
+unique index needs as an inference target. Migration `20260829000003` therefore
+dropped that unique index rather than trying to upsert against it, and the
+scorer resolves the resulting duplicates by keeping the most recent row per
+`flag_key`.
 
-**CI now runs all three worker suites plus the frontend build on every
-push and PR** (new `.github/workflows/analysis-ci.yml`), closing the "no
-silent regression" exit criterion.
+Note the counterpart on the Analysis page: `submitAnnotation`/`deleteAnnotation`
+in `src/pages/Analysis.jsx` are dead (zero callers) and were **not** given
+`flagKey`. Deleting or reviving them is its own change; it is now in the
+Backlog.
+
+**CI now runs the three worker suites plus the frontend build on every push
+and PR** (new `.github/workflows/analysis-ci.yml`). That makes *unit-test*
+regressions fail CI. It is **not** the plan's "no silent regression" criterion,
+which is "a change that lowers precision **on the corpus** fails CI" — there is
+no corpus, no scorer invocation in CI, and no gate (lint runs `|| true`). Real
+and worth having, but a weaker claim than closing that criterion.
 
 **`agent_workspace/ACCURACY_BASELINE.md` is published in its honest,
 unpopulated form.** Producing real numbers requires service-role database
@@ -59,12 +91,54 @@ appears anywhere in the document — not even as an illustrative example. It
 contains the exact harvesting query, a full explanation of how
 `score_against_annotations.py` turns that query's output into numbers, the
 counting rules, and an empty results table with every flag type listed and
-marked not-yet-measured. **The gate into Phase 2 is corpus size, not code** —
-every tool Phase 2 needs already exists and is tested; what's missing is
-calendar time for enough takes to be teacher-annotated.
+marked not-yet-measured. It also records three limitations that bound any
+future number: replay cannot measure recall (above); no threshold is stored in
+the bundle, so `replay.py`'s `DEFAULT_THRESHOLDS` is a hand-maintained mirror
+of `worker.py` that has drifted before; and re-analysing a take overwrites its
+bundle while annotations persist by `flag_key`, so a stale reject can be
+counted against a measurement that never produced it. Detecting that last one
+needs a schema change (`created_at` is set on INSERT and is not refreshed by
+the upsert, so it does not record when the *current* bundle was written) and is
+Phase 2 work.
+
+**The gate into Phase 2 is corpus size, not the scoring code** — the scorer and
+the harvesting query are ready to run the moment there is service-role access
+and enough teacher-annotated takes. That is not the same as "every tool Phase 2
+needs already exists": measuring a threshold *loosening*, i.e. recall, needs a
+re-derivation harness nobody has written.
+
+**Per-criterion status against the plan's five Terminal State criteria:**
+precision measured — **not yet** (no corpus); recall measured and chosen —
+**not yet** (no corpus, no targets, and replay cannot measure it); every flag
+traceable to measurement, rule *and threshold* — **partly** (threshold is not
+recorded); everything unverifiable visibly marked — **not yet, not delivered at
+all** (`evidence_class: "unverifiable"` lives only in a service-role-only JSONB
+column; nothing in `src/` reads it, so nothing is visible to any user);
+regression impossible to ship silently — **partly** (unit tests, not the
+corpus). Full table in `ACCURACY_BASELINE.md`.
+
+**Final whole-branch review fixes, folded in.** The `analysis_evidence` upsert
+in `analysis-webhook` is now **awaited** — it was fire-and-forget in a function
+with no `EdgeRuntime.waitUntil`, and it is by far the largest write there
+(~300-400 KB), so the isolate could tear down mid-write and leave the table
+sparse while every analysis still looked green; the `takes` update has already
+committed by then, so awaiting only delays the 200 to the Modal worker.
+`replay.py` gained the missing `"overall" → drift_pct` mapping (those flags were
+passing a drift sweep unfiltered), matched production's strict
+`spread < _DYN_MIN_DB` on `contrast` (replay used `<=`, so at exactly 3.0 dB it
+kept a flag production never emitted — and sweeps land on round numbers by
+construction), and now rejects malformed bundles loudly. `evidence.py` no longer
+discards a legitimately stamped `rule` when the flag carries no number — the
+crack "noise" variant stamps `rule="crack", measured=None` by design and was
+coming out of the bundle as `rule: None`. The scorer no longer counts a
+missing `action` as a distinct verdict, which could inflate `disagreed`, the
+column that exists to keep the headline number honest. And `test_evidence.py`'s
+`main()` now wraps each test in `try/except` like `test_analysis.py` does: one
+raising test used to abort the run, masking every check after it — the same
+self-blinding this phase exists to remove.
 
 182/182 unit checks (`test_analysis.py`), 28/28 coverage behaviours
-(`diagnose_coverage.py`), 45/45 evidence/scoring checks (`test_evidence.py`).
+(`diagnose_coverage.py`), 61/61 evidence/scoring checks (`test_evidence.py`).
 Every review round in this phase caught at least one real defect in the
 plan or the implementation before it shipped — see
 `.superpowers/sdd/2026-08-28-measured-analysis-accuracy/progress.md` for the

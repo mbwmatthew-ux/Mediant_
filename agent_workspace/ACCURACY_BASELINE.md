@@ -129,6 +129,44 @@ corpora and should not be trusted on its own — a flag type with a high
 `legacy_matched` or `disagreed` count relative to its `n_labelled` needs a
 wider error bar than the raw percentage implies.
 
+### A third caveat that has no column yet: re-analysis invalidates annotations
+
+`analysis_evidence.take_id` is the table's primary key and the webhook upserts
+`ON CONFLICT (take_id)`, so **re-analysing a take overwrites its evidence
+bundle.** Annotations, meanwhile, persist and are matched by `flag_key`.
+
+The failure that produces:
+
+> A teacher rejects `timing:20` when it measured 130 ms. The take is
+> re-analysed. `timing:20` now measures 400 ms and is plainly correct. The
+> stale reject still matches by key and is counted as a false positive against
+> a measurement that never produced it.
+
+Neither existing column catches this. `disagreed` is about two *raters*
+conflicting, not a rater conflicting with a *later measurement*.
+`legacy_matched` is about positional matching, and this row matched cleanly on
+its key. So a re-analysed corpus can understate precision with nothing in the
+report saying so.
+
+**Detection signal, for whoever wires it up:** compare the time the *current*
+bundle was written against the annotation's `updated_at`. An annotation older
+than the bundle it is being scored against was written about a different
+measurement, and belongs in a third caveat column (`stale_after_reanalysis`, or
+similar) rather than being silently trusted.
+
+**That signal does not exist yet, and `created_at` is not it.**
+`analysis_evidence.created_at` is `DEFAULT NOW()` on INSERT, and the webhook's
+upsert sets only `take_id`, `version` and `bundle` — so on the conflict path
+`created_at` keeps its *original* value and still reads as the first analysis
+even after the bundle has been replaced. Wiring this up therefore needs a
+schema change first (an `updated_at` column with an on-update trigger, or the
+webhook stamping a written-at timestamp explicitly), not just a scorer change.
+
+All of that is deliberately **not implemented in Phase 1** — it is Phase 2
+work, recorded here so nobody quotes a number off a re-analysed corpus without
+knowing this is in it. Until it exists, prefer scoring takes that have been
+analysed exactly once.
+
 ## Step 3: what comes after this document (calibration, not this plan)
 
 `modal_worker/replay.py` re-decides flags from a stored evidence bundle
@@ -139,13 +177,37 @@ placement threshold from 110ms to 90ms can be evaluated against the whole
 corpus in milliseconds instead of re-running the pipeline against real
 recordings.
 
-**Its documented limitation, restated here because it bounds what the next
-phase can do without this baseline:** `replay_bundle` re-applies a final
-numeric gate to an already-measured value. It cannot evaluate a change to
-*how* something is measured — a new pitch-tracking model, a different
-analysis window, a new detector. Those require a real pipeline run against
-real audio. Replay covers threshold calibration, which is the bulk of the
-next phase's work but not all of it.
+**Its limitations, restated here because they bound what the next phase can do
+even once this baseline is populated.** There are two, and the second is the
+bigger one.
+
+**1. It cannot evaluate a change to *how* something is measured.**
+`replay_bundle` re-applies a final numeric gate to an already-measured value. A
+new pitch-tracking model, a different analysis window, a new detector — all
+require a real pipeline run against real audio.
+
+**2. It cannot measure a loosening, and therefore cannot measure recall.**
+`replay_bundle` *filters* `bundle["flags"]` — the flags that already shipped. So
+the question it answers is **"which already-shipped flags survive at threshold
+X?"**, not "what would this take have reported at threshold X?". Tightening a
+threshold removes flags that are in the bundle, so its effect on **precision**
+is measurable. Loosening a threshold would admit flags that were never emitted
+and are therefore not in the bundle at all, so replay can never show them.
+
+**Recall — the thing Phase 2 most needs to improve — is the one direction this
+tool cannot measure.** `bundle["timing_notes"]` and `bundle["events"]` do carry
+the raw per-note residuals and cents that would in principle let a looser gate
+be evaluated, but doing so means *re-deriving* flags from those arrays, which
+this harness deliberately does not do. Anyone who needs a loosening measured
+has to write that re-derivation or run the real pipeline; a replay sweep must
+not be read as having covered it.
+
+A related gap worth knowing before trusting a sweep: **no threshold is recorded
+in the bundle.** `replay.py`'s `DEFAULT_THRESHOLDS` is a hand-maintained mirror
+of the constants in `worker.py`, nothing enforces the correspondence, and it
+has already drifted from production once (an `overall` rule with no threshold
+mapping, and a `<=`/`<` boundary mismatch on `contrast` — both fixed
+2026-08-29). Re-check that table against `worker.py` before quoting a sweep.
 
 ---
 
@@ -178,6 +240,29 @@ to plan toward yet.
 
 ---
 
+## Where Phase 1 actually left the plan's five Terminal State criteria
+
+The plan
+(`docs/superpowers/plans/2026-08-28-measured-analysis-accuracy.md`) sets five
+criteria. The honest grade at the close of Phase 1 is **two partly true, three
+not yet**. It is written down here so the next person starts from the truth
+rather than from a claim they have to disprove first.
+
+| # | Criterion | Status |
+|---|-----------|--------|
+| 1 | **Precision is measured, not assumed.** | **Not yet.** The scorer exists and is tested; no corpus has been read, so no precision exists. |
+| 2 | **Recall is measured and deliberately chosen.** | **Not yet.** Same corpus gap, plus no per-type target has been set (deliberately — see above). Note also that `replay.py` structurally cannot measure recall at all. |
+| 3 | **Every flag is traceable to its measurement, rule and threshold.** | **Partly.** Measurement and rule are recorded per flag in `analysis_evidence`. **Threshold is not.** Nothing stores the threshold live at analysis time; `replay.py`'s `DEFAULT_THRESHOLDS` is a hand-maintained mirror that has drifted from production before. |
+| 4 | **Everything unverifiable is marked.** | **Not yet — not delivered at all.** `evidence_class: "unverifiable"` exists only inside a service-role-only JSONB column. Nothing in `src/` reads it. The criterion says *visibly distinguished*; nothing is visible to any user. |
+| 5 | **Regression is impossible to ship silently.** | **Partly.** The criterion is "a change that lowers precision **on the corpus** fails CI". There is no corpus, no scorer invocation in CI and no gate (lint runs `\|\| true`). What shipped is "unit-test regressions fail CI" — real and valuable, but a different and much weaker claim. |
+
+What Phase 1 built is **instrumentation**: durable flag identity, a recorded
+evidence bundle, an offline replay harness, a scorer, and CI that runs the unit
+suites. It is not a closed measurement loop, and reading it as one is how the
+next phase would end up quoting a number nothing stands behind.
+
+---
+
 ## The gate into the next phase is the corpus, not the code
 
 Every task in this plan — stable `flag_key`s that survive re-analysis
@@ -189,10 +274,17 @@ Every task in this plan — stable `flag_key`s that survive re-analysis
 can be executed. `replay.py` is ready to calibrate the moment there is
 something real to calibrate against.
 
-None of that makes the numbers trustworthy today. A precision/recall figure
-is only as good as the annotated corpus behind it, and building the
-annotation UI (already shipped, per `AGENT_TASKS.md`) is not the same as
-teachers having used it on enough takes. That gap closes with calendar time —
+None of that makes the numbers trustworthy today. A precision/recall figure is
+only as good as the annotated corpus behind it, and the live annotation UI —
+**the teacher dashboard, `src/pages/TeacherDashboard.jsx`, which is the only
+annotation path that renders and the only one that sends `flagKey`** —
+existing is not the same as teachers having used it on enough takes.
+
+(Do not confuse it with `submitAnnotation`/`deleteAnnotation` in
+`src/pages/Analysis.jsx`. Those are dead code: zero callers, part of the
+pre-existing lint errors, and never given a `flagKey`. Anything they wrote
+would land with `flag_key = NULL` and fall into the weaker `legacy_matched`
+path. See the `Backlog` entry in `AGENT_TASKS.md`.) That gap closes with calendar time —
 takes get uploaded, teachers annotate them — not with more engineering
 effort. Re-running this task once that has happened, with real service-role
 access, is the entire remaining work of standing up the baseline.

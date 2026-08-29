@@ -13,6 +13,15 @@ CREATE INDEX IF NOT EXISTS idx_fa_flag_key ON public.flag_annotations(take_id, f
 
 -- Teacher-added flags (action='add') have no AI original and so no key.
 -- Everything else must be reachable by key once the worker is emitting them.
+--
+-- SUPERSEDED: 20260829000003 DROPS the unique index created below. It caused an
+-- uncaught 500 whenever a take was re-analysed and the same issue re-annotated
+-- at its new array position: annotate-flags upserts ON CONFLICT
+-- (take_id, teacher_id, flag_index), that finds no row, and the resulting
+-- INSERT then violates this index. Targeting the key instead is impossible —
+-- Supabase's onConflict takes a bare column list and cannot express a partial
+-- index's WHERE predicate. Read ...03 before reasoning about uniqueness here.
+-- The SQL below is left exactly as applied; do not edit an applied migration.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fa_take_teacher_key
   ON public.flag_annotations(take_id, teacher_id, flag_key)
   WHERE flag_key IS NOT NULL;

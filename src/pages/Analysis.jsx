@@ -1676,8 +1676,18 @@ const videoRef    = useRef(null)
   // used to be invisible here — analysis_quality was read into a variable and
   // never rendered. `analysis_backend` is the discriminator: the full pipeline
   // always writes "modal+...".
+  //
+  // Coverage caveats (unread score pages, an un-expanded repeat) are checked
+  // FIRST and unconditionally on backend — a full "modal+..." run can still
+  // have them, in fact that's the common case, so the backend early-return
+  // below must never sit above this check or it would hide the caveat
+  // exactly when it's true.
   const evidenceNotice = useMemo(() => {
     if (isDemoTake) return null
+    const caveats = analysisQuality?.coverage?.caveats
+    if (Array.isArray(caveats) && caveats.length) {
+      return { label: 'Partial', text: caveats.join(' ') }
+    }
     const backend = take?.analysis_backend
     if (!backend || backend.startsWith('modal')) return null
     if (analysisQuality?.evidence === 'visual-only' || backend === 'claude-vision') {

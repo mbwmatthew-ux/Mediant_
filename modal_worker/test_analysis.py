@@ -1703,6 +1703,70 @@ def test_score_reader_sends_every_page():
     check("each measure records its page", pgs == [1, 2], str(pgs))
 
 
+def test_coverage_declares_what_was_not_analysed():
+    print("\n[44] coverage declares partial analysis instead of implying completeness")
+    score_two_pages = {"measures": [{"number": n, "notes": [{"pitch": "C4"}]}
+                                     for n in range(1, 9)]}
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+
+    # Every page read, no repeat → nothing to declare.
+    q = w.assess_quality(score_two_pages, evs, aligned, ranges,
+                         pages_read=3, pages_total=3,
+                         has_repeats=False, first_repeat_measure=None)
+    check("clean take declares no caveats", q["coverage"]["caveats"] == [],
+          str(q["coverage"]["caveats"]))
+    check("pages recorded", q["coverage"]["pages_analysed"] == 3)
+
+    # One page of three unread → must say so.
+    q2 = w.assess_quality(score_two_pages, evs, aligned, ranges,
+                          pages_read=1, pages_total=3,
+                          has_repeats=False, first_repeat_measure=None)
+    txt = " ".join(q2["coverage"]["caveats"]).lower()
+    check("unread pages are declared", len(q2["coverage"]["caveats"]) >= 1, txt[:90])
+    check("the caveat names how many pages", "1" in txt and "3" in txt, txt[:90])
+
+    # A repeat → must name the measure, and must NOT claim pages are missing.
+    q3 = w.assess_quality(score_two_pages, evs, aligned, ranges,
+                          pages_read=1, pages_total=1,
+                          has_repeats=True, first_repeat_measure=17)
+    rtxt = " ".join(q3["coverage"]["caveats"]).lower()
+    check("repeat is declared", "repeat" in rtxt, rtxt[:90])
+    check("repeat caveat names the measure", "17" in rtxt, rtxt[:90])
+    check("no page caveat when all pages read",
+          "page" not in rtxt, rtxt[:90])
+
+    # Measure range comes from what was actually aligned.
+    check("measure range reported", q["coverage"]["measures_analysed"] == [1, 4],
+          str(q["coverage"]["measures_analysed"]))
+
+
+def test_coverage_pages_read_reflects_pages_covered_not_downloaded():
+    print("\n[45] cache-hit coverage uses pages actually parsed, not files downloaded")
+    # A cache hit downloads nothing, but if every page's measures made it into the
+    # cached score dict, coverage must not read as "0 of 3 pages" — the bug this
+    # guards against is pages_read defined as files-downloaded (always 0 on a cache
+    # hit) instead of pages actually represented in the parsed measures.
+    cached_score = {"measures": [
+        {"number": n, "page": p, "notes": [{"pitch": "C4"}]}
+        for p in (1, 2, 3) for n in range((p - 1) * 4 + 1, p * 4 + 1)
+    ]}
+    pages_read = w._pages_covered(cached_score)
+    check("pages_covered counts distinct pages from parsed measures",
+          pages_read == 3, str(pages_read))
+
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+
+    q = w.assess_quality(cached_score, evs, aligned, ranges,
+                         pages_read=pages_read, pages_total=3,
+                         has_repeats=False, first_repeat_measure=None)
+    check("fully-covered cache hit produces no page caveat",
+          q["coverage"]["caveats"] == [], str(q["coverage"]["caveats"]))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1743,7 +1807,9 @@ def main():
               test_squeak_survives_the_release_tolerance,
               test_flag_keys_are_stable_and_unique,
               test_evidence_reset_survives_container_reuse,
-              test_score_reader_sends_every_page):
+              test_score_reader_sends_every_page,
+              test_coverage_declares_what_was_not_analysed,
+              test_coverage_pages_read_reflects_pages_covered_not_downloaded):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

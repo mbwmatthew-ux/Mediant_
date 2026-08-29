@@ -5463,10 +5463,34 @@ Return JSON only (no markdown):
     return grouped
 
 
+def _pages_covered(score_dict: dict) -> int:
+    """
+    How many distinct score pages actually produced measures.
+
+    NOT "how many files we downloaded": those differ, and the coverage caveat
+    speaks about what was analysed. This also catches three pages sent but only
+    two yielding measures. Cache entries written before pages existed carry no
+    `page` and default to 1, which is correct — those parses really did only
+    cover page one.
+    """
+    measures = (score_dict or {}).get("measures") or []
+    return len({int(m.get("page") or 1) for m in measures}) if measures else 0
+
+
 def assess_quality(
     score: dict, events: list[dict], aligned: list[dict],
     alignment_ranges: list[dict],
+    pages_read: int | None = None, pages_total: int | None = None,
+    has_repeats: bool = False, first_repeat_measure: int | None = None,
 ) -> dict:
+    """
+    Trust plus an explicit statement of what was NOT analysed.
+
+    `reasons` already described why confidence might be low. `coverage` answers a
+    different and blunter question the student actually needs: which measures and
+    pages were examined at all. Presenting a page-1 analysis of a three-page piece
+    as if it were the whole thing is the failure this exists to prevent.
+    """
     # Gemini is always present (required upstream) — quality depends on CREPE + score
     reasons: list[str] = []
     if len(score.get("measures", [])) < 2:
@@ -5475,9 +5499,32 @@ def assess_quality(
         reasons.append("Few audio events detected — recording may be very short or quiet.")
     if len(aligned) < 4:
         reasons.append("Few events aligned to score measures — timestamp accuracy limited.")
-    if not reasons:
-        return {"trust": "high", "canProceed": True, "reasons": []}
-    return {"trust": "medium", "canProceed": True, "reasons": reasons}
+
+    measures = sorted({int(r["measure"]) for r in (alignment_ranges or [])
+                       if r.get("measure") is not None})
+    caveats: list[str] = []
+    if pages_total and pages_read and pages_read < pages_total:
+        caveats.append(
+            f"This analysis covers {pages_read} of {pages_total} uploaded score "
+            f"pages. Anything on the remaining pages was not examined.")
+    if has_repeats:
+        where = f"measure {first_repeat_measure}" if first_repeat_measure else "a repeat"
+        caveats.append(
+            f"This score contains a repeat at {where}. Repeats are not expanded yet, "
+            f"so if you played it, measure numbers after that point may be offset.")
+
+    quality = {
+        "trust": "high" if not reasons else "medium",
+        "canProceed": True,
+        "reasons": reasons,
+        "coverage": {
+            "measures_analysed": [measures[0], measures[-1]] if measures else None,
+            "pages_analysed": pages_read,
+            "pages_total": pages_total,
+            "caveats": caveats,
+        },
+    }
+    return quality
 
 
 def post_webhook(webhook_url: str, webhook_secret: str | None, payload: dict, anon_key: str | None = None) -> None:
@@ -5603,9 +5650,8 @@ def run_full_analysis(payload: dict) -> None:
         def _score_pipeline():
             s: dict = {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
             ps_notes = None
-            pages_read = 0
             if not score_url:
-                return s, ps_notes, pages_read
+                return s, ps_notes, _pages_covered(s)
 
             # Cache short-circuit BEFORE any download. cached_score_notes is only ever
             # populated for visual (pdf/image) scores — see the analyze-performance edge
@@ -5613,9 +5659,11 @@ def run_full_analysis(payload: dict) -> None:
             # already carries whatever x_pct/y_pct measure positions were computed the
             # first time this score was read (they were merged into the same dict that
             # got cached). A cache hit therefore needs neither the page images nor a
-            # fresh Gemini position call: it must not download or read anything.
+            # fresh Gemini position call: it must not download or read anything. Coverage
+            # is still derived from the cached measures' `page` values, not from "0 files
+            # downloaded" — a cache hit that covers every page must not read as a miss.
             if cached_score_notes and cached_score_notes.get("measures"):
-                return cached_score_notes, ps_notes, pages_read
+                return cached_score_notes, ps_notes, _pages_covered(cached_score_notes)
 
             # Download every uploaded page, in order. Task 1 signs the full ordered set
             # as score_urls; a legacy client (or a run where signing some pages failed)
@@ -5633,9 +5681,8 @@ def run_full_analysis(payload: dict) -> None:
                         pages.append((sresp.content, score_mime))
                     except Exception as e:
                         print(f"[run_full_analysis] failed to download score page: {e}")
-            pages_read = len(pages)
             if not pages:
-                return s, ps_notes, pages_read
+                return s, ps_notes, _pages_covered(s)
             print(f"[run_full_analysis] score: {sum(len(b) for b, _ in pages):,} bytes "
                   f"across {len(pages)} page(s), mime={score_mime}")
             kind = sniff_score_kind(pages[0][0], score_mime, score_url)
@@ -5666,7 +5713,7 @@ def run_full_analysis(payload: dict) -> None:
                     pos = positions_by_page.get(m.get("page", 1), {}).get(m["number"])
                     if pos:
                         m["x_pct"], m["y_pct"] = pos
-            return s, ps_notes, pages_read
+            return s, ps_notes, _pages_covered(s)
 
         with ThreadPoolExecutor(max_workers=3) as pool:
             crepe_fut  = pool.submit(_crepe_pipeline)
@@ -5895,7 +5942,13 @@ def run_full_analysis(payload: dict) -> None:
             print(f"[run_full_analysis] synthesized {count} skeleton measures")
 
         # ── Step 6: Quality assessment ─────────────────────────────────────
-        quality = assess_quality(score, raw_events, aligned, alignment_ranges)
+        pages_total = len(payload.get("score_urls") or ([score_url] if score_url else []))
+        quality = assess_quality(
+            score, raw_events, aligned, alignment_ranges,
+            pages_read=pages_read, pages_total=pages_total,
+            has_repeats=score.get("has_repeats", False),
+            first_repeat_measure=score.get("first_repeat_measure"),
+        )
         if ref_notes:
             quality["alignment_source"] = "reference_midi"
         print(f"[run_full_analysis] quality trust={quality['trust']}, canProceed={quality['canProceed']}")

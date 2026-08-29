@@ -358,6 +358,81 @@ def main():
     ROWS.append(("complete coverage declares nothing", "(silence)", not caveats,
                  f"caveats={caveats}" if caveats else ""))
 
+    # ── rest violations: playing where the score is silent ────────────────
+    # The silent row matters more than the defect row here: this detector
+    # accuses a student of playing where they believe they rested.
+    def rest_score():
+        r = make_score()
+        for m in r["measures"]:
+            if m["number"] == 5:
+                m["notes"] = [m["notes"][0],
+                              {"is_rest": True, "pitch": None, "beat": 2.0,
+                               "duration_beats": 1.0},
+                              m["notes"][2], m["notes"][3]]
+        return r
+
+    def rest_perform(r, phantom):
+        # perform() cannot build events for a rest note (pitch=None), so build
+        # this one by hand from only the non-rest notes.
+        evs = []
+        for m in r["measures"]:
+            for n in m["notes"]:
+                if n.get("is_rest"):
+                    continue
+                ab = (m["number"] - START) * BPM_M + (n["beat"] - 1.0)
+                t = ab * SPB
+                evs.append({"time_sec": t, "end_sec": t + SPB, "sound_end": t + SPB,
+                            "held_sec": SPB, "pitches": [n["pitch"]],
+                            "midi": w.midi_from_name(n["pitch"]),
+                            "midi_raw": w.midi_from_name(n["pitch"]),
+                            "pitch_hz": 440.0, "cents_offset": 0, "cents_spread": 6,
+                            "confidence": 92, "loudness": "medium"})
+        if phantom:
+            # a confident, held note starting well inside m.5's rest window
+            ab = (5 - START) * BPM_M + (2.0 - 1.0)
+            t = ab * SPB + 0.2
+            evs.append({"time_sec": t, "end_sec": t + 0.3, "sound_end": t + 0.3,
+                        "held_sec": 0.3, "pitches": ["F4"],
+                        "midi": w.midi_from_name("F4"), "midi_raw": w.midi_from_name("F4"),
+                        "pitch_hz": 440.0, "cents_offset": 0, "cents_spread": 6,
+                        "confidence": 92, "loudness": "medium"})
+        evs.sort(key=lambda e: e["time_sec"])
+        return evs
+
+    rs = rest_score()
+    case("rest: playing through a written rest", "timing",
+         rest_perform(rs, phantom=True), rs, expect_text="rest is written")
+    negative("rest: a note decaying into a rest is silent",
+             rest_perform(rs, phantom=False), rs)
+
+    # ── tempo vs marking: fact, not fault ──────────────────────────────────
+    def tempo_score(marked_bpm):
+        return {**sc, "tempo_bpm": marked_bpm}
+
+    case("tempo: playing well under the marked tempo", "timing",
+         perform(sc), tempo_score(160.0), expect_text="marked")
+    negative("tempo: playing at the marked tempo is silent",
+             perform(sc), tempo_score(120.0))
+
+    # ── wedges: a written crescendo/diminuendo that does or doesn't happen ──
+    def wedge_score():
+        d = make_score()
+        d["wedges"] = [{"kind": "cresc", "start_measure": START, "end_measure": END}]
+        return d
+
+    def wedge_perform(d, db_fn):
+        e = perform(d)
+        n = len(e)
+        for i, x in enumerate(e):
+            x["db"] = db_fn(i, n)
+        return e
+
+    ws = wedge_score()
+    case("wedge: a crescendo that never arrives", "dynamics",
+         wedge_perform(ws, lambda i, n: -20.0), ws, expect_text="does not arrive")
+    negative("wedge: a real crescendo is silent",
+             wedge_perform(ws, lambda i, n: -34.0 + 14.0 * i / max(1, n - 1)), ws)
+
     # ── report ──
     width = max(len(r[0]) for r in ROWS) + 2
     print("\n" + "=" * (width + 34))

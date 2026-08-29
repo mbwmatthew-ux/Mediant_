@@ -1,5 +1,50 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-29 — Analysis accuracy, Plan B: rests, tempo vs marking, wedges
+
+Three new detectors, closing the three blind spots identified in the launch-accuracy
+design spec (Parts 3-5). Not pushed to `origin` yet — merged locally, held pending a
+migration-sequencing check.
+
+**Rests now survive the score model.** `parse_musicxml` used to drop them entirely;
+`flatten_score_notes`'s existing `if not pitch: continue` guard already keeps them out
+of DTW (a rest has no pitch), so keeping them was safe to add. Doing so exposed a
+latent crash in `find_wrong_note_candidates`: `n.get("pitch", "")` never applied its
+`""` default, because a rest's `pitch` key is present and `None` — `midi_from_name`
+then called `.strip()` on `None`. Fixed to `n.get("pitch") or ""`.
+
+**`find_rest_violations` catches playing through a written rest** — gated as strictly
+as the wrong-note detector (confidence ≥65, a cents-spread cap, ≥150ms actually held,
+and the onset must start >150ms past the rest's own start so a note ringing into the
+rest is never mistaken for a new one). `collect_rest_windows` converts the rest's
+`duration_beats` (a quarterLength) through the existing `quarter_lengths_per_beat`
+helper before measuring it — a dotted-quarter rest in 6/8 is one beat, not 1.5, the
+same beat/quarterLength trap the timing-duration check was fixed for earlier. Rest
+violations are stamped `priority=3`, above the `priority=2` timing-fit findings
+(placement/drift/duration) they compete with for the same `(measure, "timing")` dedup
+slot — "you played through a written rest" is the more fundamental, rarer fault and
+must survive when only one finding can.
+
+**`check_tempo_vs_marking` compares the played tempo to the printed one**, reported as
+fact rather than fault — deliberate slow practice is indistinguishable from error here,
+so the wording states both numbers and judges neither. Silent inside ±15%; silent when
+the marking is a tempo word ("Allegro") rather than a number, since inventing a BPM for
+a word would be fabrication.
+
+**`analyze_wedges` catches a crescendo or diminuendo that never happens.** Dynamic
+wedges were never parsed at all, and the vision reader's `cresc`/`dim` per-note values
+were silently discarded by `_DYNAMIC_RANK`. Both readers now populate `score["wedges"]`
+(MusicXML via `DynamicWedge` spanners; vision via runs of consecutive measures sharing
+one `dyn` marker). The check compares the medians of the first and second half of the
+span's already-measured per-note loudness rather than fitting a slope, so one loud note
+can't fake a trend.
+
+`diagnose_coverage.py` gained six rows — one defect and one silent-on-clean-playing row
+per detector; the silent rows are the ones that actually constrain the implementation.
+
+`test_analysis.py` **283/283** (249 before), `diagnose_coverage.py` **36/36** (30
+before), `test_evidence.py` 61/61 unchanged.
+
 ## 2026-08-29 — Plan A review pass: the "presented as complete" defect, found three more times inside its own fix
 
 A whole-branch review of the work below found the same defect it exists to close,

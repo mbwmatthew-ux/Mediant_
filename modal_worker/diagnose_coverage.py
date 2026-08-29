@@ -338,6 +338,26 @@ def main():
     g["posture_issues"] = ["Shoulders raised."]
     only("Gemini only", perform(sc), sc, g)
 
+    # ── coverage: what was actually examined, told to the student ─────────
+    # assess_quality's `coverage.caveats` is the source of the banner shown to
+    # the student. A caveat builder that fires unconditionally would pass the
+    # first row alone, so the silent-on-clean pair below is the real assertion.
+    def coverage_caveats(pages_read, pages_total, has_repeats=False, first_repeat_measure=None):
+        q = w.assess_quality(
+            score=sc, events=perform(sc), aligned=[],
+            alignment_ranges=[{"measure": m} for m in range(START, END + 1)],
+            pages_read=pages_read, pages_total=pages_total,
+            has_repeats=has_repeats, first_repeat_measure=first_repeat_measure)
+        return q["coverage"]["caveats"]
+
+    caveats = coverage_caveats(pages_read=1, pages_total=3)
+    ROWS.append(("partial page coverage is declared", "caveats", bool(caveats),
+                 "" if caveats else "caveats=[]"))
+
+    caveats = coverage_caveats(pages_read=3, pages_total=3, has_repeats=False)
+    ROWS.append(("complete coverage declares nothing", "(silence)", not caveats,
+                 f"caveats={caveats}" if caveats else ""))
+
     # ── report ──
     width = max(len(r[0]) for r in ROWS) + 2
     print("\n" + "=" * (width + 34))

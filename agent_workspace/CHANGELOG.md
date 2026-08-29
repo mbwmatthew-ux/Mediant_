@@ -1,5 +1,50 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-29 — Plan A: read every uploaded score page, declare repeats instead of expanding them, tell the student what wasn't covered
+
+Two ways the analysis pipeline was silently wrong, both now closed by making the
+gap visible instead of hiding it.
+
+**Only the first uploaded score file ever reached the pipeline.** Sheet music
+uploaded as several separate files — phone photos of each page are the common
+case — stored every file, but `analyze-performance` and `read_score_notes_claude`
+only ever fed the first one to Claude. Pages 2+ existed only for the
+Analysis-page viewer. Now the Modal payload signs and forwards every uploaded
+score page (`score_urls`), `read_score_notes_claude` sends all of them to Claude
+in one vision call, every parsed measure carries a `page` field, and
+`score_cache` is keyed off the full joined path array instead of one path. To be
+precise about what this fixes: **a single multi-page PDF already worked** before
+this change — Claude reads every page inside a PDF document block on its own.
+The bug was specific to multiple separate files, and this is not "multi-page
+support" in the general sense.
+
+**Repeats are now declared — not expanded.** `parse_musicxml` detects repeat
+barlines and records `first_repeat_measure`. The analyser still cannot follow a
+repeat (a repeated strain appears once in the note list and twice in the audio,
+so alignment folds ~2x the events onto the written notes and everything after
+the repeat drifts), but the student is now told: "This score contains a repeat
+at measure N. Repeats are not expanded yet, so if you played it, measure numbers
+after that point may be offset." Expansion is design-settled but blocked on a
+real invariant — see Backlog in `AGENT_TASKS.md`.
+
+**`assess_quality` gains a `coverage` object** naming the measure range examined
+and pages read vs. uploaded, plus the two caveats above. `pages_read` is defined
+as the count of distinct pages that actually produced measures, not files
+downloaded — the first definition tried would have told a fully-analysed cache
+hit "this analysis covers 0 of 3 uploaded score pages," a false partial-coverage
+warning caught before it shipped. `Analysis.jsx` surfaces `coverage.caveats` in
+the existing gold banner, ordered below the Modal-fallback check so a full Modal
+run with unread pages still shows its own caveat.
+
+**Verification.** `diagnose_coverage.py` gained the pair of rows that constrain
+the caveat logic, in the file's existing behaviour-matrix style: a take whose
+score reports fewer pages read than uploaded must produce a non-empty
+`coverage.caveats` ("partial page coverage is declared"), and a take with every
+page read and no repeat must produce `caveats == []` ("complete coverage
+declares nothing"). The second is the row that actually matters — a caveat
+builder that fires unconditionally would pass the first alone. `test_analysis.py`
+200/200, `diagnose_coverage.py` 30/30, `test_evidence.py` 61/61.
+
 ## 2026-08-29 — Analysis accuracy Phase 1: instrumentation for measuring accuracy, baseline published unpopulated
 
 Every flag emitted by the analysis pipeline already claimed a rule and a

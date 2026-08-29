@@ -184,6 +184,34 @@ def test_replay_applies_a_threshold_override():
     check("flag survives below it", len(kept2) == 1, str(len(kept2)))
 
 
+def test_replay_contrast_fires_below_its_floor():
+    print("\n[7] contrast rule has inverted semantics: fires when spread is BELOW floor")
+    from replay import replay_bundle
+    # Contrast is the only rule that fires when the measurement is BELOW the
+    # threshold, not above. A contrast finding means "insufficient dynamic range",
+    # so it triggers when the spread is small. This test pins both directions to
+    # prevent a future swap of <= and >= from silently inverting all contrast
+    # flags during calibration.
+    bundle = {
+        "version": 1,
+        "flags": [
+            {"flag_key": "dynamics:20", "type": "dynamics", "measure": 20,
+             "detector": "run_dynamics_check", "evidence_class": "measured",
+             "rule": "contrast", "measured": 2.0, "confirmed": True,
+             "raw_detail": ""},
+        ],
+        "timing_notes": [], "timing_fit": {"ok": True},
+        "dynamics": {"ok": False}, "candidates": {"wrong_notes": [], "cracks": []},
+        "alignment": {"method": "score_dtw"}, "score_parse": {}, "events": [],
+    }
+    # 2.0 dB spread is below the production floor of 3.0, so it IS a contrast flag.
+    kept = replay_bundle(bundle, thresholds={"dynamics_db": 3.0})
+    check("flag survives below the floor (spread too small)", len(kept) == 1, str(len(kept)))
+    # 2.0 dB spread now exceeds the lower floor of 1.0, so it is NOT a contrast flag.
+    kept2 = replay_bundle(bundle, thresholds={"dynamics_db": 1.0})
+    check("flag drops above the floor (spread sufficient)", kept2 == [], str(kept2))
+
+
 def main():
     test_bundle_is_json_safe_and_bounded()
     test_every_flag_gets_provenance()
@@ -191,6 +219,7 @@ def main():
     test_error_flags_carry_their_measurement()
     test_replay_reproduces_the_recorded_flags()
     test_replay_applies_a_threshold_override()
+    test_replay_contrast_fires_below_its_floor()
     failed = [r for r in RESULTS if not r[1]]
     print("\n" + "=" * 70)
     print(f"{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")

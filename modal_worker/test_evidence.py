@@ -212,6 +212,117 @@ def test_replay_contrast_fires_below_its_floor():
     check("flag drops above the floor (spread sufficient)", kept2 == [], str(kept2))
 
 
+def test_scoring_against_annotations():
+    print("\n[8] precision and recall per flag type")
+    from score_against_annotations import score_take, aggregate
+    flags = [
+        {"flag_key": "timing:20", "type": "timing"},
+        {"flag_key": "timing:24", "type": "timing"},
+        {"flag_key": "intonation:21", "type": "intonation"},
+        {"flag_key": "posture:20", "type": "posture"},   # unlabelled
+    ]
+    annotations = [
+        {"flag_key": "timing:20", "action": "approve"},
+        {"flag_key": "timing:24", "action": "reject", "rejection_reason": "not_audible"},
+        {"flag_key": "intonation:21", "action": "edit"},
+        {"flag_key": None, "action": "add",
+         "edited_flag": {"type": "dynamics", "measure": 30}},
+    ]
+    r = score_take(flags, annotations)
+    check("approve counts as a hit", r["timing"]["tp"] == 1, str(r["timing"]))
+    check("reject counts against us", r["timing"]["fp"] == 1, str(r["timing"]))
+    check("edit counts as a hit", r["intonation"]["tp"] == 1, str(r["intonation"]))
+    check("teacher-added is a miss", r["dynamics"]["fn"] == 1, str(r["dynamics"]))
+    # An unlabelled flag must not be scored at all. Counting it as correct is
+    # how a precision number flatters itself.
+    check("unlabelled flag is not scored",
+          "posture" not in r or r["posture"]["tp"] == 0, str(r.get("posture")))
+
+    agg = aggregate([r])
+    check("timing precision is 0.5", abs(agg["timing"]["precision"] - 0.5) < 1e-9,
+          str(agg["timing"]["precision"]))
+    check("dynamics recall is 0.0", agg["dynamics"]["recall"] == 0.0,
+          str(agg["dynamics"]["recall"]))
+
+
+def test_dedup_by_flag_key():
+    print("\n[9] duplicate rows for one flag_key are counted once")
+    from score_against_annotations import score_take, aggregate
+    # 20260829000003 dropped the UNIQUE index on (take_id, teacher_id,
+    # flag_key): a take re-analysed and re-annotated can legitimately leave
+    # two rows sharing one flag_key. Scoring must not count both, or a
+    # single teacher judgement inflates whichever verdict happened twice.
+    flags = [{"flag_key": "timing:5", "type": "timing"}]
+    annotations = [
+        {"flag_key": "timing:5", "action": "reject",
+         "updated_at": "2026-08-01T00:00:00Z"},
+        {"flag_key": "timing:5", "action": "approve",
+         "updated_at": "2026-08-10T00:00:00Z"},   # newer -> this one should win
+    ]
+    r = score_take(flags, annotations)
+    check("only one verdict counted, not two",
+          r["timing"]["tp"] + r["timing"]["fp"] == 1, str(r["timing"]))
+    check("the latest updated_at wins (approve, not reject)",
+          r["timing"]["tp"] == 1 and r["timing"]["fp"] == 0, str(r["timing"]))
+
+    agg = aggregate([r])
+    check("aggregate reflects the deduped count, not the raw row count",
+          agg["timing"]["n_labelled"] == 1, str(agg["timing"]))
+
+    # Missing/equal updated_at: no reliable signal, so the tie-break is the
+    # last row encountered in iteration order (explicit, not accidental).
+    flags2 = [{"flag_key": "timing:9", "type": "timing"}]
+    annotations2 = [
+        {"flag_key": "timing:9", "action": "reject"},   # no updated_at
+        {"flag_key": "timing:9", "action": "approve"},  # no updated_at, encountered last
+    ]
+    r2 = score_take(flags2, annotations2)
+    check("tie-break keeps the last row encountered when updated_at is missing",
+          r2["timing"]["tp"] == 1 and r2["timing"]["fp"] == 0, str(r2["timing"]))
+
+
+def test_legacy_flag_index_matching():
+    print("\n[10] legacy flag_key=NULL rows fall back to flag_index and are counted")
+    from score_against_annotations import score_take, aggregate, format_report
+    # Rows written before flag_key existed have flag_key = NULL but a valid
+    # flag_index. That position is only trustworthy if the take has not been
+    # re-analysed since -- so every match on it must be visible, not silent.
+    flags = [
+        {"flag_key": "timing:5", "type": "timing"},
+        {"flag_key": "intonation:9", "type": "intonation"},
+    ]
+    annotations = [
+        {"flag_key": None, "flag_index": 1, "action": "approve"},
+    ]
+    r = score_take(flags, annotations)
+    check("legacy row matched by array position",
+          r["intonation"]["tp"] == 1, str(r.get("intonation")))
+    check("legacy match is tallied separately",
+          r["intonation"]["legacy_matched"] == 1, str(r.get("intonation")))
+    check("the other flag (position 0) is untouched",
+          "timing" not in r, str(r.get("timing")))
+
+    agg = aggregate([r])
+    check("legacy_matched survives aggregation",
+          agg["intonation"]["legacy_matched"] == 1, str(agg["intonation"]))
+    report = format_report(agg)
+    intonation_line = next(l for l in report.splitlines() if l.startswith("intonation"))
+    check("legacy count is visible in the report",
+          "LEGACY" in report and intonation_line.rstrip().endswith("1"), report)
+
+    # A teacher-added flag (action='add') must never be routed through the
+    # positional fallback even if it happens to carry a flag_index.
+    add_annotations = [
+        {"flag_key": None, "flag_index": 0, "action": "add",
+         "edited_flag": {"type": "dynamics", "measure": 12}},
+    ]
+    r2 = score_take(flags, add_annotations)
+    check("'add' rows are never treated as a legacy positional match",
+          "timing" not in r2, str(r2.get("timing")))
+    check("'add' rows still score as a miss for the added type",
+          r2["dynamics"]["fn"] == 1, str(r2.get("dynamics")))
+
+
 def main():
     test_bundle_is_json_safe_and_bounded()
     test_every_flag_gets_provenance()
@@ -220,6 +331,9 @@ def main():
     test_replay_reproduces_the_recorded_flags()
     test_replay_applies_a_threshold_override()
     test_replay_contrast_fires_below_its_floor()
+    test_scoring_against_annotations()
+    test_dedup_by_flag_key()
+    test_legacy_flag_index_matching()
     failed = [r for r in RESULTS if not r[1]]
     print("\n" + "=" * 70)
     print(f"{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")

@@ -1,5 +1,84 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-29 — Plan A review pass: the "presented as complete" defect, found three more times inside its own fix
+
+A whole-branch review of the work below found the same defect it exists to close,
+surviving in three places inside the fix. All eight findings are closed.
+
+**The caveat went silent exactly when nothing was read.** `assess_quality` tested
+`if pages_total and pages_read and …`. `pages_read` is an int, so zero — the
+value produced when the score read fails outright (oversized multi-image request,
+a 429, unparseable JSON) — was treated as "unknown" and no caveat was produced at
+all. The run then continued on synthesized skeleton measures and emitted flags
+with nothing said. Now `pages_read is not None`. The worst coverage no longer
+produces the quietest output.
+
+**A degraded run claimed completeness and poisoned the cache.** When one
+`createSignedUrl` fails, `analyze-performance` deliberately drops the whole set
+and the worker falls back to page 1. `pages_total` was derived from
+`score_urls`, so it evaluated to 1, and "1 of 1 pages" fired no caveat: a page-1
+analysis presented as complete on exactly the run that most needed the warning.
+The dispatch now sends **`score_pages_total`** as its own field (count of
+uploaded paths), which the worker prefers, falling back to the old expression for
+older dispatches. On that same path the page-1 parse was being written to
+`score_cache` under the *multi-page* key, so every later re-analysis
+short-circuited on it even once signing worked again — a durable row only a
+manual delete would clear. The worker now suppresses `parsedScoreNotes` whenever
+fewer pages were read than uploaded, with a comment saying why, because "don't
+cache" reads as a missed optimisation.
+
+**Gemini — the component that AUTHORS the flags — still saw page 1 only.** The
+design spec asked for it; only the `get_measure_positions_gemini` half reached
+the plan. So the reader could report 3 of 3 while the flag author had seen one
+page. `_gemini_pipeline` now downloads every entry of `score_urls` (same fallback
+rules as the reader) and `evaluate_with_gemini` inlines each page as its own
+`inlineData` part, in order, with the multi-page numbering instruction added to
+the prompt. The visual-only gate is unchanged — a MusicXML score is still never
+inlined. Total inlined bytes are capped (12 MiB raw, ~16 MB base64); if the cap
+is hit, as many whole pages as fit are sent **and** the shortfall is recorded, so
+`coverage.caveats` states "the recording itself was compared against only N of M
+uploaded score pages" rather than truncating silently.
+
+**Every page inherited page 1's media type.** `score_mime` is the first uploaded
+file's type; a mixed upload (JPEG photo + PNG screenshot, PDF + photos — the file
+input allows all of them with `multiple`) declared every page under it. A PNG
+labelled `image/jpeg` is a decode error and JPEG bytes in a `document` block is a
+hard 400 — either kills the whole vision call. Each page's type now comes from
+its own download's `content-type`, stripped of parameters and validated against
+the accepted set, falling back to `score_mime` when absent or implausible.
+
+**A lone multi-page PDF lost its measure positions on pages 2+.** The position
+merge keyed by page index over *files*, which for one PDF is `{1: …}` only, while
+the new reader prompt has Claude stamp `pg=2,3`. Those measures got no
+`x_pct`/`y_pct` at all, and `Analysis.jsx` then took its exact-positions branch,
+dropped them, and snapped their flags to the nearest page-1 measure. The merge
+now branches on the count of **files**, not pages: one file → the single flat
+position map applies to every measure (the pre-branch behaviour); several files →
+each file is one page image and its coordinates only mean anything inside its own
+page's frame.
+
+**Highlights for one page were drawn over whichever page was showing.**
+`layoutMeasures` in `Analysis.jsx` is now filtered to the visible page
+(`lm.page == null || lm.page === currentScorePage + 1`). The null check keeps
+everything analysed before this branch rendering, since those measures really
+were page 1.
+
+**Scope the boards should not overstate.** The **repeat caveat only fires for an
+uploaded MusicXML/MXL score** — `has_repeats` is set only in `parse_musicxml`,
+and the vision reader never emits it. The dominant upload path (photos, PDFs)
+therefore produces **no repeat caveat at all**, even when the printed page plainly
+contains a repeat. Markers are still drawn on page 1 only: every page is now
+read, but the overlay's row/wrap geometry has only ever been exercised against
+page 1, so pages 2+ stay reference-only rather than showing placements nobody has
+verified.
+
+**Verification.** `test_analysis.py` 249/249 (200 before, five new tests adding 49
+checks), `diagnose_coverage.py` 30/30, `test_evidence.py` 61/61 unchanged.
+`_score_pipeline` and `_gemini_pipeline` are closures nested inside
+`run_full_analysis` and cannot be called from a test, so the changes that live
+only inside them are held by source-level guards in the same shape as
+`test_no_undefined_names` and the existing `_score_pipeline` return guard.
+
 ## 2026-08-29 — Plan A: read every uploaded score page, declare repeats instead of expanding them, tell the student what wasn't covered
 
 Two ways the analysis pipeline was silently wrong, both now closed by making the
@@ -13,10 +92,12 @@ Analysis-page viewer. Now the Modal payload signs and forwards every uploaded
 score page (`score_urls`), `read_score_notes_claude` sends all of them to Claude
 in one vision call, every parsed measure carries a `page` field, and
 `score_cache` is keyed off the full joined path array instead of one path. To be
-precise about what this fixes: **a single multi-page PDF already worked** before
-this change — Claude reads every page inside a PDF document block on its own.
-The bug was specific to multiple separate files, and this is not "multi-page
-support" in the general sense.
+precise about what this fixes: for a single multi-page PDF **the reader path was
+already correct** before this change — Claude reads every page inside a PDF
+document block on its own. The bug was specific to multiple separate files, and
+this is not "multi-page support" in the general sense. (The *position* half of
+that same path did briefly regress for a lone multi-page PDF and was fixed in
+the review pass below.)
 
 **Repeats are now declared — not expanded.** `parse_musicxml` detects repeat
 barlines and records `first_repeat_measure`. The analyser still cannot follow a

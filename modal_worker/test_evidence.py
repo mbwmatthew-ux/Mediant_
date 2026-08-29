@@ -234,15 +234,22 @@ def test_scoring_against_annotations():
     check("edit counts as a hit", r["intonation"]["tp"] == 1, str(r["intonation"]))
     check("teacher-added is a miss", r["dynamics"]["fn"] == 1, str(r["dynamics"]))
     # An unlabelled flag must not be scored at all. Counting it as correct is
-    # how a precision number flatters itself.
-    check("unlabelled flag is not scored",
-          "posture" not in r or r["posture"]["tp"] == 0, str(r.get("posture")))
+    # how a precision number flatters itself. Strict membership check, not
+    # "absent or zero" -- the latter would also pass an implementation that
+    # wrongly created a posture entry with a bogus fp/fn but tp==0.
+    check("unlabelled flag is not scored", "posture" not in r, str(r.get("posture")))
 
     agg = aggregate([r])
     check("timing precision is 0.5", abs(agg["timing"]["precision"] - 0.5) < 1e-9,
           str(agg["timing"]["precision"]))
     check("dynamics recall is 0.0", agg["dynamics"]["recall"] == 0.0,
           str(agg["dynamics"]["recall"]))
+    # dynamics has tp=0, fp=0 -> "no labelled data for precision" must read as
+    # None, not 0.0. 0.0 is also falsy, which is exactly the confusion this
+    # guards against: "nobody has reviewed this type" must be distinguishable
+    # from "this type scored zero."
+    check("dynamics precision is None (no shipped dynamics flags were labelled)",
+          agg["dynamics"]["precision"] is None, str(agg["dynamics"]["precision"]))
 
 
 def test_dedup_by_flag_key():
@@ -307,8 +314,12 @@ def test_legacy_flag_index_matching():
           agg["intonation"]["legacy_matched"] == 1, str(agg["intonation"]))
     report = format_report(agg)
     intonation_line = next(l for l in report.splitlines() if l.startswith("intonation"))
-    check("legacy count is visible in the report",
-          "LEGACY" in report and intonation_line.rstrip().endswith("1"), report)
+    tokens = intonation_line.split()
+    # tokens: TYPE PRECISION RECALL TP FP FN LABELLED LEGACY DISAGREED
+    check("legacy count is visible in the report, in the LEGACY column",
+          "LEGACY" in report and tokens[-2] == "1", report)
+    check("disagreed count is 0 here (only one row, nothing to disagree with)",
+          tokens[-1] == "0", report)
 
     # A teacher-added flag (action='add') must never be routed through the
     # positional fallback even if it happens to carry a flag_index.
@@ -323,6 +334,52 @@ def test_legacy_flag_index_matching():
           r2["dynamics"]["fn"] == 1, str(r2.get("dynamics")))
 
 
+def test_disagreement_is_surfaced():
+    print("\n[11] two teachers disagreeing on one flag_key is surfaced, not hidden")
+    from score_against_annotations import score_take, aggregate, format_report
+    # The dedup in [9] is correct for one teacher re-annotating after a
+    # re-analysis. It is the WRONG read for two different teachers grading
+    # the same flag_key -- one approve, one reject -- because collapsing that
+    # to "whoever graded later" turns a genuine split into an artifact of
+    # scheduling. The latest row still decides tp/fp (that part doesn't
+    # change), but the split itself must be visible.
+    flags = [{"flag_key": "timing:5", "type": "timing"}]
+    annotations = [
+        {"flag_key": "timing:5", "action": "approve",
+         "updated_at": "2026-08-01T00:00:00Z"},
+        {"flag_key": "timing:5", "action": "reject",
+         "updated_at": "2026-08-10T00:00:00Z"},   # newer -> still decides the verdict
+    ]
+    r = score_take(flags, annotations)
+    check("the newer row still decides tp/fp (reject wins)",
+          r["timing"]["tp"] == 0 and r["timing"]["fp"] == 1, str(r["timing"]))
+    check("the disagreement itself is counted",
+          r["timing"]["disagreed"] == 1, str(r["timing"]))
+
+    agg = aggregate([r])
+    check("disagreed survives aggregation",
+          agg["timing"]["disagreed"] == 1, str(agg["timing"]))
+    report = format_report(agg)
+    check("DISAGREED column header is present", "DISAGREED" in report, report)
+
+    # Second half of the proof: two rows that AGREE must not be flagged as a
+    # disagreement. Without this half, a counter that just counts "more than
+    # one row collapsed here" (regardless of whether they agreed) would also
+    # pass the first half of this test.
+    flags2 = [{"flag_key": "timing:9", "type": "timing"}]
+    annotations2 = [
+        {"flag_key": "timing:9", "action": "approve",
+         "updated_at": "2026-08-01T00:00:00Z"},
+        {"flag_key": "timing:9", "action": "approve",
+         "updated_at": "2026-08-10T00:00:00Z"},
+    ]
+    r2 = score_take(flags2, annotations2)
+    check("two rows agreeing is not disagreement",
+          r2["timing"]["disagreed"] == 0, str(r2["timing"]))
+    check("the agreed verdict still counts once, not twice",
+          r2["timing"]["tp"] == 1, str(r2["timing"]))
+
+
 def main():
     test_bundle_is_json_safe_and_bounded()
     test_every_flag_gets_provenance()
@@ -334,6 +391,7 @@ def main():
     test_scoring_against_annotations()
     test_dedup_by_flag_key()
     test_legacy_flag_index_matching()
+    test_disagreement_is_surfaced()
     failed = [r for r in RESULTS if not r[1]]
     print("\n" + "=" * 70)
     print(f"{len(RESULTS) - len(failed)}/{len(RESULTS)} checks passed")

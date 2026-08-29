@@ -1,5 +1,75 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-29 — Analysis accuracy Phase 1: flags become traceable and scorable, baseline published unpopulated
+
+Every flag emitted by the analysis pipeline already claimed a rule and a
+measurement in the coaching prose. Nothing recorded WHICH measurement decided
+WHICH flag, so a teacher rejecting a flag could not be tied back to the number
+that produced it, and "is this threshold too tight?" had no evidence to
+answer it with. Phase 1 closes that loop end to end without changing what a
+student sees.
+
+**Every flag now carries a `flag_key`** — `"{type}:{measure}"`, plus a `#N`
+suffix on same-measure collisions — that survives re-analysis, so a teacher's
+annotation stays pointed at the same logical flag even after the take is
+re-scored and the flags array reorders.
+
+**Every analysis run writes a full evidence bundle** to a new
+`analysis_evidence` table: every flag's rule, its measured value, and the raw
+per-note timing/dynamics/pitch data behind it, versioned and reset at the top
+of `compare_and_coach_claude` so a warm Modal container can never leak one
+take's evidence into the next take's bundle (caught in pre-flight review,
+fixed before it shipped). `rule`/`measured` are stamped at flag creation, in
+the sub-detector that actually produced them, rather than reconstructed
+afterward by measure-number lookup — the reconstruction was tried first and a
+review caught that it silently misattributed provenance whenever two timing
+sub-issues landed on the same measure.
+
+**`modal_worker/replay.py`** re-decides a bundle's flags under different
+numeric thresholds (timing placement/drift/duration, cents, dynamics
+contrast) with no audio, network or API keys — milliseconds instead of a real
+pipeline run. It intentionally does not re-implement the detectors: a change
+to *how* something is measured still needs a real re-run.
+
+**`modal_worker/score_against_annotations.py`** computes precision and recall
+per flag type from teacher verdicts: approve/edit → true positive, reject →
+false positive, add → false negative, unlabelled excluded. Two extra columns
+— `legacy_matched` (pre-`flag_key` annotations matched by array position,
+trustworthy only if the take was never re-analysed since) and `disagreed`
+(two teachers gave different verdicts on the same flag_key; dedup keeps the
+later one and this counts how often that happened) — exist so a precision
+number cannot be read as more confident than the evidence supports.
+
+**The teacher annotation write path was found broken and fixed (Task 3b, not
+in the original plan).** The scorer joins on `flag_key`, but
+`TeacherDashboard.jsx` was posting only `flagIndex` — every future annotation
+would have landed with `flag_key = NULL`, making the whole measurement loop
+this phase exists to build compute precision over zero matched rows. Now
+sends `flagKey` alongside `flagIndex`; `annotate-flags` targets the keyed
+index when a key is present.
+
+**CI now runs all three worker suites plus the frontend build on every
+push and PR** (new `.github/workflows/analysis-ci.yml`), closing the "no
+silent regression" exit criterion.
+
+**`agent_workspace/ACCURACY_BASELINE.md` is published in its honest,
+unpopulated form.** Producing real numbers requires service-role database
+access this environment does not have, so no precision or recall figure
+appears anywhere in the document — not even as an illustrative example. It
+contains the exact harvesting query, a full explanation of how
+`score_against_annotations.py` turns that query's output into numbers, the
+counting rules, and an empty results table with every flag type listed and
+marked not-yet-measured. **The gate into Phase 2 is corpus size, not code** —
+every tool Phase 2 needs already exists and is tested; what's missing is
+calendar time for enough takes to be teacher-annotated.
+
+182/182 unit checks (`test_analysis.py`), 28/28 coverage behaviours
+(`diagnose_coverage.py`), 45/45 evidence/scoring checks (`test_evidence.py`).
+Every review round in this phase caught at least one real defect in the
+plan or the implementation before it shipped — see
+`.superpowers/sdd/2026-08-28-measured-analysis-accuracy/progress.md` for the
+full ledger.
+
 ## 2026-08-28 — the fallback pipeline no longer ships what the main path refuses
 
 The Modal pipeline's whole stance is *state it as fact or say nothing*: anything

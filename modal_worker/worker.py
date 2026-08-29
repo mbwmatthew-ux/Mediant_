@@ -2894,20 +2894,32 @@ Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") w
 
 
 def read_score_notes_claude(
-    score_bytes: bytes, score_mime: str,
+    pages: list[tuple[bytes, str]],
     start_measure: int, instrument: str, time_sig: str,
     anthropic_api_key: str,
 ) -> dict:
     import base64, anthropic as ac
     CLAUDE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-    b64 = base64.b64encode(score_bytes).decode()
-    if score_mime == "application/pdf":
-        vision_part = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
-    elif score_mime in CLAUDE_IMAGE_TYPES:
-        vision_part = {"type": "image", "source": {"type": "base64", "media_type": score_mime, "data": b64}}
-    else:
-        print(f"[read_score_notes_claude] unsupported mime: {score_mime}")
-        return {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+
+    # One media block per uploaded file, in page order. A single multi-page PDF
+    # still arrives as ONE document block and Claude reads all of its pages — that
+    # path already worked and is unchanged. What was broken is several separate
+    # files (the usual case: phone photos of each page), where only the first was
+    # ever sent.
+    vision_parts: list = []
+    for pg_bytes, pg_mime in pages:
+        b64 = base64.b64encode(pg_bytes).decode()
+        if pg_mime == "application/pdf":
+            vision_parts.append({"type": "document", "source": {
+                "type": "base64", "media_type": "application/pdf", "data": b64}})
+        elif pg_mime in CLAUDE_IMAGE_TYPES:
+            vision_parts.append({"type": "image", "source": {
+                "type": "base64", "media_type": pg_mime, "data": b64}})
+        else:
+            print(f"[read_score_notes_claude] skipping unsupported mime: {pg_mime}")
+    if not vision_parts:
+        return {"key_signature": None, "time_signature": None,
+                "tempo_marking": None, "measures": []}
 
     prompt = f"""You are an expert music engraver reading sheet music for a {instrument} student.
 
@@ -2918,6 +2930,8 @@ MEASURE NUMBERING — THE MOST IMPORTANT PART OF THIS TASK. Get this wrong and e
 3. Number every measure continuously across the whole line, including measures that contain only rests. You will NOT output the rest measures (see below) — but they must still consume their numbers, so the measures you DO output carry their true printed numbers.
 4. Therefore the "number" values you output will normally have GAPS in them (e.g. ... 37, then 40 ...). That is correct and expected. A perfectly consecutive 1,2,3,4... run is almost always a sign you renumbered — do not do that.
 5. Do NOT start counting from the student's starting measure, and do not renumber to make the first measure you see come out as any particular value. Only if the page shows no printed numbers anywhere should you count barlines, and in that case the FIRST measure in the image is measure 1.
+
+MULTIPLE PAGES: You may be given several images. They are consecutive pages of ONE part, in order. Measure numbering runs continuously ACROSS them — the first measure of page 2 is NOT measure 1, it continues from where page 1 ended. Do not restart numbering on a new page. For every measure, also return "pg": the 1-based number of the page you read it from (the first image is page 1).
 
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
@@ -2933,7 +2947,7 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
   "key_signature": "...",
   "time_signature": "...",
   "tempo_marking": "...",
-  "measures": [{{"number": {start_measure}, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}]}}]
+  "measures": [{{"number": {start_measure}, "pg": 1, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}]}}]
 }}"""
 
     try:
@@ -2957,7 +2971,7 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
             # page that plainly reads 3/4. Every one of those wrong values then
             # propagates into measure numbering and alignment.
             temperature=0,
-            messages=[{"role": "user", "content": [vision_part, {"type": "text", "text": prompt}]}],
+            messages=[{"role": "user", "content": [*vision_parts, {"type": "text", "text": prompt}]}],
         ) as stream:
             msg = stream.get_final_message()
         raw    = msg.content[0].text
@@ -2997,7 +3011,7 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
                 "dynamic":        n.get("dynamic") or n.get("dyn"),
             }
         measures = [
-            {**m, "notes": [
+            {**m, "page": int(m.get("pg") or m.get("page") or 1), "notes": [
                 _norm_note(n) for n in m.get("notes", [])
                 if str(n.get("pitch") or n.get("p", "")).lower() != "rest"
             ]}
@@ -5579,39 +5593,70 @@ def run_full_analysis(payload: dict) -> None:
         def _score_pipeline():
             s: dict = {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
             ps_notes = None
+            pages_read = 0
             if not score_url:
-                return s, ps_notes
-            print("[run_full_analysis] downloading score")
+                return s, ps_notes, pages_read
+
+            # Cache short-circuit BEFORE any download. cached_score_notes is only ever
+            # populated for visual (pdf/image) scores — see the analyze-performance edge
+            # function's cache lookup, gated on scoreMimeType matching pdf|image — and it
+            # already carries whatever x_pct/y_pct measure positions were computed the
+            # first time this score was read (they were merged into the same dict that
+            # got cached). A cache hit therefore needs neither the page images nor a
+            # fresh Gemini position call: it must not download or read anything.
+            if cached_score_notes and cached_score_notes.get("measures"):
+                return cached_score_notes, ps_notes, pages_read
+
+            # Download every uploaded page, in order. Task 1 signs the full ordered set
+            # as score_urls; a legacy client (or a run where signing some pages failed)
+            # sends score_urls: null, in which case we fall back to the single score_url.
+            urls = payload.get("score_urls") or [score_url]
+            pages: list[tuple[bytes, str]] = []
+            print(f"[run_full_analysis] downloading {len(urls)} score page(s)")
             with httpx.Client(timeout=90) as client:
-                sresp = client.get(score_url, follow_redirects=True)
-                sresp.raise_for_status()
-                sb = sresp.content
-            print(f"[run_full_analysis] score: {len(sb):,} bytes, mime={score_mime}")
-            kind = sniff_score_kind(sb, score_mime, score_url)
+                for u in urls:
+                    if not u:
+                        continue
+                    try:
+                        sresp = client.get(u, follow_redirects=True)
+                        sresp.raise_for_status()
+                        pages.append((sresp.content, score_mime))
+                    except Exception as e:
+                        print(f"[run_full_analysis] failed to download score page: {e}")
+            pages_read = len(pages)
+            if not pages:
+                return s, ps_notes, pages_read
+            print(f"[run_full_analysis] score: {sum(len(b) for b, _ in pages):,} bytes "
+                  f"across {len(pages)} page(s), mime={score_mime}")
+            kind = sniff_score_kind(pages[0][0], score_mime, score_url)
             print(f"[run_full_analysis] score kind: {kind}")
             if kind in ("xml", "mxl"):
-                res = parse_score_document(sb, start_measure, instrument)
+                # A MusicXML/MXL document is one file, not one-page-per-photo — only
+                # the first downloaded page applies here.
+                res = parse_score_document(pages[0][0], start_measure, instrument)
                 if not res.get("error") and res.get("measures"):
                     s = res
             elif kind == "visual" and anthropic_key:
-                if cached_score_notes and cached_score_notes.get("measures"):
-                    s = cached_score_notes
-                else:
-                    res = read_score_notes_claude(sb, score_mime, start_measure, instrument, time_sig, anthropic_key)
-                    if res.get("measures"):
-                        s = res
-                        ps_notes = res
-                    elif res.get("error"):
-                        s = {**s, "error": res["error"]}
-            # For any visual score, get exact measure positions from Gemini
+                res = read_score_notes_claude(pages, start_measure, instrument, time_sig, anthropic_key)
+                if res.get("measures"):
+                    s = res
+                    ps_notes = res
+                elif res.get("error"):
+                    s = {**s, "error": res["error"]}
+            # For any visual score, get exact measure positions from Gemini, per page —
+            # a measure's x_pct/y_pct are only meaningful together with the page it was
+            # read from, since each page's coordinates are relative to that page's image.
             if kind == "visual" and gemini_key and s.get("measures"):
-                positions = get_measure_positions_gemini(sb, score_mime, gemini_key)
-                if positions:
-                    for m in s["measures"]:
-                        pos = positions.get(m["number"])
-                        if pos:
-                            m["x_pct"], m["y_pct"] = pos
-            return s, ps_notes
+                positions_by_page: dict[int, dict[int, tuple[float, float]]] = {}
+                for idx, (pg_bytes, pg_mime) in enumerate(pages, start=1):
+                    positions = get_measure_positions_gemini(pg_bytes, pg_mime, gemini_key)
+                    if positions:
+                        positions_by_page[idx] = positions
+                for m in s["measures"]:
+                    pos = positions_by_page.get(m.get("page", 1), {}).get(m["number"])
+                    if pos:
+                        m["x_pct"], m["y_pct"] = pos
+            return s, ps_notes, pages_read
 
         with ThreadPoolExecutor(max_workers=3) as pool:
             crepe_fut  = pool.submit(_crepe_pipeline)
@@ -5637,13 +5682,14 @@ def run_full_analysis(payload: dict) -> None:
                 debug_steps.append(f"gemini: FAILED {gemini_err}")
                 raise
 
-            score, parsed_score_notes_inner = score_fut.result()
+            score, parsed_score_notes_inner, pages_read = score_fut.result()
             if parsed_score_notes_inner:
                 parsed_score_notes = parsed_score_notes_inner
             total_m = len(score.get("measures", []))
             _score_err = score.get("error")
             debug_steps.append(
-                f"score_parse: {total_m} measures" + (f" — FAILED: {_score_err}" if _score_err else "")
+                f"score_parse: {total_m} measures, {pages_read} page(s) read"
+                + (f" — FAILED: {_score_err}" if _score_err else "")
             )
 
         # Change 4: cross-validate Gemini measure numbers against parsed score range

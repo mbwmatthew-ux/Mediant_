@@ -1655,6 +1655,54 @@ def test_evidence_reset_survives_container_reuse():
           w._LAST_EVIDENCE == {}, str(w._LAST_EVIDENCE))
 
 
+def test_score_reader_sends_every_page():
+    print("\n[43] the score reader receives every uploaded page")
+    import types, json as _json
+
+    captured = {}
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)],
+                stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            captured["content"] = kw["messages"][0]["content"]
+            return _FakeStream(_json.dumps({
+                "key_signature": "C major", "time_signature": "4/4",
+                "tempo_marking": None,
+                "measures": [
+                    {"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]},
+                    {"number": 9, "pg": 2, "notes": [{"p": "G4", "b": 1.0, "d": 1.0}]},
+                ]}))
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    pages = [(b"\x89PNG-page-one", "image/png"), (b"\x89PNG-page-two", "image/png")]
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        res = w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    blocks = captured.get("content") or []
+    n_media = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") in ("image", "document"))
+    check("both pages reach the model", n_media == 2, f"{n_media} media block(s)")
+    check("prompt still present", any(b.get("type") == "text" for b in blocks))
+    nums = [m["number"] for m in res.get("measures", [])]
+    check("printed numbering preserved across pages", nums == [1, 9], str(nums))
+    pgs = [m.get("page") for m in res.get("measures", [])]
+    check("each measure records its page", pgs == [1, 2], str(pgs))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -1694,7 +1742,8 @@ def main():
               test_ambiguous_instrument_does_not_guess_a_transposition,
               test_squeak_survives_the_release_tolerance,
               test_flag_keys_are_stable_and_unique,
-              test_evidence_reset_survives_container_reuse):
+              test_evidence_reset_survives_container_reuse,
+              test_score_reader_sends_every_page):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

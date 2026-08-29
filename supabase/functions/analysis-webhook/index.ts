@@ -114,7 +114,7 @@ serve(async (req: Request) => {
   const {
     score, flags, measureLayout, audioAlignment,
     analysisQuality, analysisBackend, pipelineDebug,
-    parsedScoreNotes, scorePath,
+    parsedScoreNotes, scorePath, analysisEvidence,
   } = body as {
     score:            number
     flags:            unknown[]
@@ -125,6 +125,7 @@ serve(async (req: Request) => {
     pipelineDebug:    unknown
     parsedScoreNotes: unknown
     scorePath:        string | null
+    analysisEvidence: unknown
   }
 
   console.log('[analysis-webhook] writing result for take', takeId,
@@ -153,6 +154,19 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: dbErr.message }), {
       status: 500, headers: { 'Content-Type': 'application/json', ...CORS },
     })
+  }
+
+  // Fire-and-forget: evidence is diagnostics, and losing it must never fail the
+  // analysis the student is waiting for.
+  if (analysisEvidence && typeof analysisEvidence === 'object') {
+    admin.from('analysis_evidence')
+      .upsert({
+        take_id: takeId,
+        version: Number((analysisEvidence as { version?: number }).version ?? 1),
+        bundle:  analysisEvidence,
+      }, { onConflict: 'take_id' })
+      .then(() => console.log('[analysis-webhook] evidence stored for', takeId))
+      .catch((e: Error) => console.warn('[analysis-webhook] evidence write failed:', e.message))
   }
 
   // Store freshly-parsed score notes in cache (fire-and-forget)

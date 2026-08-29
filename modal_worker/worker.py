@@ -2820,10 +2820,10 @@ SHEET MUSIC: You have the score image above. Read the printed measure numbers di
 WHERE THE RECORDING STARTS — CRITICAL: The student's recording BEGINS at printed measure {start_measure}. The very FIRST note you hear (at 0:00) is measure {start_measure} in the score — NOT the first measure printed at the top of the page. The student did NOT play any measures before {start_measure}; ignore everything printed before measure {start_measure}. Align every note you hear to the score starting from measure {start_measure} and count forward from there.
 
 When reporting issues, give the EXACT PRINTED measure number from the score. Every measure number you report MUST be {start_measure} or higher — never report a measure below {start_measure}, because the student did not play those.
-IMPORTANT: Only flag issues during passages where notes are written in the score. Do NOT flag anything heard during rests, between phrases, or in silence — even if there is ambient sound or breathing audible in the recording. If a measure contains only rests, skip it entirely.
+IMPORTANT: During a written rest, do NOT flag ambient noise, breathing, page turns, key clicks or room sound — those are not playing and must never become an issue. The ONE thing worth reporting during a rest is the student SUSTAINING A NOTE where the score is silent (they held the previous note through the rest, or came in early). Report that as a rhythm issue naming the measure and timestamp. Otherwise judge only passages where notes are written.
 """ if has_score else f"""
 No score image provided. The recording starts at measure {start_measure}. Use timestamps only. Every measure number you report MUST be {start_measure} or higher.
-IMPORTANT: Only flag issues during passages where the student is actively playing. Do NOT flag sounds heard during rests, breaths, or silence between phrases.
+IMPORTANT: Judge passages where the student is actively playing. Do NOT flag ambient noise, breathing, page turns or room sound heard during rests or between phrases — those are not playing. The ONE exception is a sustained note held on where the music should be silent; report that as a rhythm issue with its timestamp.
 """
 
     prompt = f"""PERFORMANCE ANALYSIS TASK. You are analyzing a student's recording of "{piece_title}" by {composer} on {instrument}.
@@ -3881,6 +3881,63 @@ def find_crack_candidates(aligned: list[dict]) -> list[str]:
     return out[:8]
 
 
+_REST_ONSET_GRACE   = 0.15   # s after the rest starts before an onset counts
+_REST_MIN_CONF      = 65     # same bar as the wrong-note detector
+_REST_MAX_SPREAD    = 40     # cents; a sliding reading is not a held note
+_REST_MIN_HELD      = 0.15   # s of actual sound
+
+
+def find_rest_violations(aligned, rest_windows, measure_span_fn,
+                         beats_per_measure) -> list[str]:
+    """
+    Sustained playing where the score is silent.
+
+    This accuses a student of playing where they believe they rested, so the bar
+    is deliberately the wrong-note detector's, not something looser. A note
+    RINGING INTO a rest is correct playing — that is release, not sound — so an
+    onset must start meaningfully after the rest begins to count at all.
+
+    `measure_span_fn(measure) -> (start_sec, end_sec) | None` is supplied by the
+    caller rather than resolved here, so this stays a pure function testable
+    without the timeline, the score reader, or any audio.
+    """
+    if not aligned or not rest_windows:
+        return []
+    bpm_m = max(1, int(beats_per_measure or 4))
+    out: list[str] = []
+    for win in rest_windows:
+        span = measure_span_fn(win["measure"])
+        if not span:
+            continue                     # cannot place this rest in time
+        m_start, m_end = span
+        m_dur = max(0.01, m_end - m_start)
+        spb = m_dur / bpm_m
+        r_start = m_start + (win["start_beat"] - 1.0) * spb
+        r_end = min(m_end, m_start + (win["end_beat"] - 1.0) * spb)
+        if r_end - r_start <= 0:
+            continue
+        for ev in aligned:
+            t = ev.get("time_sec")
+            if t is None:
+                continue
+            # Must START inside the rest, past the grace window — anything
+            # earlier is the previous note still sounding.
+            if not (r_start + _REST_ONSET_GRACE <= float(t) < r_end):
+                continue
+            if ev.get("confidence", 0) < _REST_MIN_CONF:
+                continue
+            if ev.get("cents_spread", 0) > _REST_MAX_SPREAD:
+                continue
+            if float(ev.get("held_sec") or 0.0) < _REST_MIN_HELD:
+                continue
+            out.append(
+                f"rest_violation | measure {win['measure']} | "
+                f"a {win['beats']:g}-beat rest is written here but a note sounds "
+                f"for {float(ev.get('held_sec') or 0):.2f}s at t={float(t):.2f}s")
+            break                        # one per rest window
+    return out[:6]
+
+
 # ── Change 2: severity-weighted score formula ─────────────────────────────────
 # Base weights by flag type. `magnitude` names the field on the flag dict that
 # holds a numeric deviation value; None means no magnitude scaling.
@@ -4572,6 +4629,27 @@ def compare_and_coach_claude(
             print(f"[compare_and_coach_claude] timing analysis error: {e}")
             timing_report = None
 
+    # Playing through a written rest. This lives with the timing block rather
+    # than beside the other detector calls above because it needs the CANONICAL
+    # timeline to place a rest in seconds at all, and `_timeline()` is what
+    # decides where the music starts — the same reason the timing fit is here.
+    # Measures outside the timeline resolve to None and are skipped, which is
+    # how rests the student never reached stay silent.
+    rest_candidates: list[str] = []
+    try:
+        _rest_wins = collect_rest_windows(score, bpm)
+        if _rest_wins:
+            _tl_idx = {r["measure"]: r for r in _timeline()}
+            def _span(m):
+                r = _tl_idx.get(int(m))
+                return (r["start"], r["end"]) if r else None
+            rest_candidates = find_rest_violations(aligned, _rest_wins, _span, bpm)
+            if rest_candidates:
+                print(f"[compare_and_coach_claude] {len(rest_candidates)} "
+                      f"rest violation(s)")
+    except Exception as e:                # never fail an analysis over a detector
+        print(f"[compare_and_coach_claude] rest detection error: {e}")
+
     # `crepe_has_data` and `has_gemini_data` used to live here to feed the early
     # bail-out. They are gone with it — leaving them would be a standing
     # invitation to wire a new short-circuit back up to a hand-written list.
@@ -5253,7 +5331,18 @@ def compare_and_coach_claude(
                  float(_t.group(1)) if _t else None, confirmed=True,
                  rule="crack", measured=(float(_cj.group(1)) if _cj else None))
 
-    # 3c. Measured dynamics: the score's markings vs what was actually played.
+    # 3c. Playing through a written rest. Confirmed by construction: the gates in
+    # find_rest_violations are the wrong-note detector's, and nothing else in the
+    # pipeline measures silence, so there is no second opinion to wait for.
+    for cand in rest_candidates:
+        mm = re.search(r'measure (\d+)', cand)
+        if mm:
+            _t = re.search(r't=([\d.]+)s', cand)
+            _add(int(mm.group(1)), "timing", cand,
+                 float(_t.group(1)) if _t else None, confirmed=True,
+                 rule="rest_violation", measured=None)
+
+    # 3d. Measured dynamics: the score's markings vs what was actually played.
     if isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
         _con = dynamics_report.get("contrast")
         if _con:

@@ -2116,6 +2116,44 @@ def test_rest_windows_are_collected_from_the_score():
           str(w.collect_rest_windows(short, 4)))
 
 
+def test_rest_violations_need_real_playing_not_decay():
+    print("\n[53] rest violations fire on playing, not on a note ringing out")
+    wins = [{"measure": 5, "start_beat": 2.0, "end_beat": 4.0, "beats": 2.0}]
+    # m.5 runs 10.0-12.0s at 4 beats -> 0.5s per beat; the rest spans 10.5-11.5s.
+    span = lambda m: (10.0, 12.0) if m == 5 else None
+
+    def ev(t, **kw):
+        base = {"time_sec": t, "measure": 5, "confidence": 90,
+                "cents_spread": 10, "held_sec": 0.6}
+        base.update(kw)
+        return [base]
+
+    # A note that started BEFORE the rest and rings into it is a release.
+    check("decay into a rest does not flag",
+          w.find_rest_violations(ev(10.2), wins, span, 4) == [],
+          str(w.find_rest_violations(ev(10.2), wins, span, 4)))
+    # An onset just inside the boundary is still decay, not a new note.
+    check("an onset on the boundary does not flag",
+          w.find_rest_violations(ev(10.55), wins, span, 4) == [])
+    # Sustained, confident playing in the middle of the rest IS the finding.
+    hit = w.find_rest_violations(ev(11.0), wins, span, 4)
+    check("sustained playing inside a rest flags", len(hit) == 1, str(hit))
+    check("the evidence names the measure",
+          bool(hit) and "measure 5" in hit[0], str(hit))
+    # Low confidence is noise, not playing.
+    check("low-confidence events do not flag",
+          w.find_rest_violations(ev(11.0, confidence=40), wins, span, 4) == [])
+    # A brief blip is a key click or a breath.
+    check("brief events do not flag",
+          w.find_rest_violations(ev(11.0, held_sec=0.05), wins, span, 4) == [])
+    # An unstable pitch has no note to speak of.
+    check("unstable pitch does not flag",
+          w.find_rest_violations(ev(11.0, cents_spread=90), wins, span, 4) == [])
+    # No timeline for the measure means we cannot place the rest at all.
+    check("no span means no flag",
+          w.find_rest_violations(ev(11.0), wins, lambda m: None, 4) == [])
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -2165,7 +2203,8 @@ def main():
               test_gemini_sees_every_page_not_just_the_first,
               test_partial_runs_declare_the_true_page_total_and_do_not_poison_the_cache,
               test_one_file_keeps_flat_positions_even_when_it_has_many_pages,
-              test_rest_windows_are_collected_from_the_score):
+              test_rest_windows_are_collected_from_the_score,
+              test_rest_violations_need_real_playing_not_decay):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

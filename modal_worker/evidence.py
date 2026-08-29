@@ -20,6 +20,13 @@ BUNDLE_VERSION = 1
 # anything. "unverifiable" is not a hedge — it is the honest label for a
 # category with no corroborating measurement, and Phase 4 uses it to decide what
 # gets marked in the UI.
+#
+# A few entries are keyed by RULE rather than by type, for detectors that emit
+# under a borrowed type: `find_rest_violations` produces type "timing" because
+# that is the category a student reads it as, but it is not the timing fit and
+# must not claim to be. `_provenance_for` prefers a rule match over the type
+# match, so those entries are reachable rather than decorative — the alternative
+# was letting the rest detector report itself as `analyze_timing_vs_score`.
 _DETECTOR_BY_TYPE = {
     "intonation": ("run_pitch_tracking",        "measured"),
     "timing":     ("analyze_timing_vs_score",   "measured"),
@@ -29,6 +36,8 @@ _DETECTOR_BY_TYPE = {
     "tone":       ("gemini",                    "unverifiable"),
     "posture":    ("gemini",                    "unverifiable"),
     "technique":  ("gemini",                    "unverifiable"),
+    # Keyed by rule (see above), not by flag type.
+    "rest_violation": ("find_rest_violations",  "measured"),
 }
 
 _MAX_TIMING_NOTES = 2000
@@ -76,6 +85,13 @@ def _provenance_for(flag: dict, timing_report, dynamics_report) -> dict:
         elif ftype == "dynamics" and isinstance(dynamics_report, dict) and dynamics_report.get("ok"):
             rule = "contrast" if dynamics_report.get("contrast") else "inverted"
             measured = dynamics_report.get("spread_db")
+
+    # A stamped rule that names a detector outranks the flag's type. Only the
+    # rule knows that a "timing" flag came from the rest detector rather than
+    # from the timing fit; without this the bundle would credit the wrong
+    # detector, and threshold work reads these attributions.
+    if rule in _DETECTOR_BY_TYPE:
+        detector, evidence_class = _DETECTOR_BY_TYPE[rule]
 
     if measured is None:
         measured = flag.get("timing_deviation_ms")

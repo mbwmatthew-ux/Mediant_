@@ -15,9 +15,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      # The suites stub every heavy import, so they need numpy and nothing else.
+      # The suites stub every heavy import, so they need numpy plus pyflakes
+      # (test [0] shells out to it for a whole-module static check).
       - name: Install test dependencies
-        run: pip install 'numpy>=1.24,<2.0'
+        run: pip install 'numpy>=1.24,<2.0' pyflakes
 
       - name: Worker unit checks
         run: python3 modal_worker/test_analysis.py

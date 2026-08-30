@@ -1,5 +1,20 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-08-30 — Pushed Phase 1 + Plan A + Plan B to main; migrations applied; CI fixed
+
+28 commits (Phase 1, Plan A, Plan B) pushed to `origin/main` for the first time,
+after applying the three pending migrations (`flag_key` on `flag_annotations`,
+the `analysis_evidence` table, and the non-unique index fix) directly to
+production first — pushing without them would have made every teacher
+annotation POST fail with a 500, since `annotate-flags` writes `flag_key`
+unconditionally. Verified against the live schema before and after.
+
+`analysis-ci.yml`'s first-ever real run on GitHub Actions failed: test `[0]`
+shells out to `pyflakes` for a whole-module static check, and the install step
+only pinned `numpy`. Added `pyflakes` to the install step; verified clean
+(no undefined names in `worker.py`) before pushing the fix. All three CI jobs
+and both deploy workflows (Modal worker, Supabase edge functions) are green.
+
 ## 2026-08-29 — Analysis accuracy, Plan B: rests, tempo vs marking, wedges
 
 Three new detectors, closing the three blind spots identified in the launch-accuracy

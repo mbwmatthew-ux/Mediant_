@@ -8,7 +8,7 @@
   align-items: center;
   animation: authIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
   background: var(--bg);
-  font-family: 'Karla', sans-serif;
+  font-family: 'Newsreader', serif;
   display: flex;
   flex-direction: column;
   justify-content: center;

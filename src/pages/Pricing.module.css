@@ -9,7 +9,7 @@
   animation: pageIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Karla', sans-serif;
+  font-family: 'Newsreader', serif;
   display: flex;
   flex-direction: column;
   min-height: 100vh;

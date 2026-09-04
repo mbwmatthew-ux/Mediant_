@@ -8,6 +8,7 @@
   align-items: center;
   animation: authIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
   background: var(--bg);
+  font-family: 'Karla', sans-serif;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -20,11 +21,12 @@
   align-items: center;
   color: var(--text);
   display: flex;
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 1.1rem;
-  font-weight: 800;
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  font-size: 1.35rem;
+  font-weight: 400;
   gap: 10px;
-  letter-spacing: 0.06em;
+  letter-spacing: -0.01em;
   margin-bottom: 24px;
   text-decoration: none;
 }
@@ -53,9 +55,11 @@
 /* ── Heading + sub ───────────────────────────────────────────── */
 .heading {
   color: var(--text);
-  font-size: 1.55rem;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  font-size: 1.8rem;
+  font-weight: 400;
+  letter-spacing: -0.005em;
   line-height: 1.2;
   margin: 0 0 6px;
 }

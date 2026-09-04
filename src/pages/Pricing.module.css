@@ -9,6 +9,7 @@
   animation: pageIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
   background: var(--bg);
   color: var(--text);
+  font-family: 'Karla', sans-serif;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -38,11 +39,12 @@
   align-items: center;
   color: var(--text);
   display: flex;
-  font-family: Arial, Helvetica, sans-serif;
-  font-size: 0.96rem;
-  font-weight: 800;
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  font-size: 1.15rem;
+  font-weight: 400;
   gap: 9px;
-  letter-spacing: 0.06em;
+  letter-spacing: -0.01em;
   text-decoration: none;
 }
 
@@ -104,9 +106,10 @@
 
 .title {
   color: var(--text);
-  font-size: clamp(2rem, 5vw, 3.2rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  font-family: 'Instrument Serif', serif;
+  font-size: clamp(2.2rem, 5vw, 3.6rem);
+  font-weight: 400;
+  letter-spacing: -0.005em;
   line-height: 1.1;
   margin: 0;
 }

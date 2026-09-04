@@ -1,5 +1,6 @@
 .page {
   background: var(--bg);
+  font-family: 'Karla', sans-serif;
   min-height: 100vh;
   padding: 60px 20px;
   display: flex;
@@ -26,10 +27,10 @@
 
 .title {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
-  font-size: 2rem;
+  font-family: 'Instrument Serif', serif;
+  font-size: 2.2rem;
   font-weight: 400;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.005em;
   margin: 0 0 6px;
 }
 

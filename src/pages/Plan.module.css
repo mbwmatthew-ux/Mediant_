@@ -19,7 +19,7 @@
 
 .pageTitle {
   color: var(--text);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -40,7 +40,7 @@
   color: #fff;
   cursor: pointer;
   display: inline-flex;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Karla', sans-serif;
   font-size: 0.82rem;
   font-weight: 700;
   gap: 6px;

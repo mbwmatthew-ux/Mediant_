@@ -22,7 +22,7 @@
 
 .title {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.85rem;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -32,7 +32,7 @@
 
 .reviewTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.6rem;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -187,7 +187,7 @@
 
 .metricValue {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 2.1rem;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -234,7 +234,7 @@
 /* ── Legacy stat classes (unused but kept for other pages) ───── */
 .statsRow { display: flex; gap: 0; }
 .statCard { flex: 1; }
-.statValue { color: var(--text); font-size: 1.4rem; font-family: "Iowan Old Style", Georgia, serif; }
+.statValue { color: var(--text); font-size: 1.4rem; font-family: 'Instrument Serif', serif; }
 
 /* ── Tuner trigger button ───────────────────────────────────── */
 .tunerBtn {
@@ -508,7 +508,7 @@
 }
 .emptyLibraryTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.25rem;
   font-weight: 400;
   margin: 0;
@@ -574,7 +574,7 @@
 .sessionPiece { color: var(--text); font-size: 0.88rem; font-weight: 500; }
 .sessionMeta  { color: var(--text-faint); font-size: 0.78rem; }
 .sessionScore {
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.2rem;
   font-weight: 400;
   flex-shrink: 0;
@@ -857,7 +857,7 @@
   text-align: center;
 }
 .analyzeIcon  { font-size: 2.4rem; color: var(--hero-green); }
-.analyzeTitle { color: var(--text); font-family: "Iowan Old Style", Georgia, serif; font-size: 1.5rem; font-weight: 400; letter-spacing: -0.02em; margin: 0; }
+.analyzeTitle { color: var(--text); font-family: 'Instrument Serif', serif; font-size: 1.5rem; font-weight: 400; letter-spacing: -0.02em; margin: 0; }
 .analyzeSub   { color: var(--text-dim); font-size: 0.88rem; line-height: 1.65; }
 .progressBar  { background: var(--surface-border); border-radius: 999px; height: 3px; overflow: hidden; width: 100%; }
 .progressFill { background: #2D5A4E; border-radius: 999px; height: 100%; transition: width 280ms ease; }
@@ -1140,7 +1140,7 @@
 }
 .detailTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.15rem;
   letter-spacing: -0.02em;
   margin-bottom: 10px;
@@ -1368,7 +1368,7 @@
 .summaryLeadTitle {
   color: var(--text);
   font-size: 1.15rem;
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-weight: 400;
   margin: 5px 0 7px;
 }
@@ -1698,7 +1698,7 @@
 
 .coachWelcomeTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.3rem;
   font-weight: 400;
   letter-spacing: -0.02em;

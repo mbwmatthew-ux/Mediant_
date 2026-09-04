@@ -52,7 +52,7 @@
 
 .pieceTitle {
   color: var(--text-inverse);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.5rem;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -298,7 +298,7 @@
 
 .confirmMsg {
   color: var(--text-inverse);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.15rem;
   font-weight: 400;
   letter-spacing: -0.02em;

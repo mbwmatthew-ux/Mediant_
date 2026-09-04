@@ -21,7 +21,7 @@
 
 .pageTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: clamp(2rem, 3vw, 2.5rem);
   font-weight: 400;
   letter-spacing: -0.035em;
@@ -567,7 +567,7 @@
 
 .analyzeTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.5rem;
   font-weight: 400;
   letter-spacing: -0.02em;

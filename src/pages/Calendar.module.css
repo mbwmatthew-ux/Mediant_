@@ -19,7 +19,7 @@
 
 .pageTitle {
   color: var(--text);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -60,7 +60,7 @@
   border-radius: 7px;
   color: #fff;
   cursor: pointer;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Karla', sans-serif;
   font-size: 0.82rem;
   font-weight: 700;
   padding: 9px 18px;
@@ -85,7 +85,7 @@
 
 .statValue {
   color: var(--text);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.4rem;
   font-weight: 700;
   letter-spacing: -0.04em;

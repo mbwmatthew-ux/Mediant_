@@ -17,7 +17,7 @@
 
 .title {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.8rem;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -247,7 +247,7 @@
 
 .takesTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.2rem;
   font-weight: 400;
   letter-spacing: -0.02em;
@@ -635,7 +635,7 @@
 
 .notTeacher h2 {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.4rem;
   font-weight: 400;
   margin: 0;

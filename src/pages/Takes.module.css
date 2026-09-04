@@ -16,7 +16,7 @@
 
 .pageTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: clamp(2rem, 3vw, 2.5rem);
   font-weight: 400;
   letter-spacing: -0.035em;
@@ -168,7 +168,7 @@
 
 .pieceMetaValKey {
   color: var(--text);
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 0.92rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -358,7 +358,7 @@
 
 .threadTitle {
   color: var(--text);
-  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 2.25rem;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -439,7 +439,7 @@
 .progressDelta {
   align-items: center;
   display: flex;
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.6rem;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -527,7 +527,7 @@
 
 .takeScore {
   flex-shrink: 0;
-  font-family: "Iowan Old Style", Georgia, serif;
+  font-family: 'Instrument Serif', serif;
   font-size: 1.8rem;
   font-weight: 400;
   letter-spacing: -0.04em;
@@ -536,7 +536,7 @@
 
 .takeScoreDen {
   color: var(--text-faint);
-  font-family: system-ui, sans-serif;
+  font-family: 'Karla', sans-serif;
   font-size: 0.75rem;
   font-weight: 400;
 }

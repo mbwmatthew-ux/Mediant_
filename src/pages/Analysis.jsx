@@ -2111,7 +2111,7 @@ const videoRef    = useRef(null)
                                   left: `${seg.left}%`,
                                   top: `${seg.y}%`,
                                   width: `${Math.max(1, seg.right - seg.left)}%`,
-                                  background: isAct ? 'var(--accent)' : '#2A2A28',
+                                  background: isAct ? 'var(--accent)' : '#241E15',
                                 }}
                               />
                             ))
@@ -2137,7 +2137,7 @@ const videoRef    = useRef(null)
                                 style={{
                                   left: `${x}%`,
                                   top: `${y}%`,
-                                  background: isAct ? 'var(--accent)' : '#2A2A28',
+                                  background: isAct ? 'var(--accent)' : '#241E15',
                                   boxShadow: isAct ? '0 0 0 3px rgba(233,112,39,0.35)' : '0 1px 4px rgba(0,0,0,0.3)',
                                   fontSize: m.label ? 9 : 11,
                                 }}
@@ -2182,7 +2182,7 @@ const videoRef    = useRef(null)
                       <button className={aStyles.issueCardRow}
                         onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}>
                         <span className={aStyles.issueNum}
-                          style={{ background: isAct ? 'var(--accent)' : '#2A2A28' }}>
+                          style={{ background: isAct ? 'var(--accent)' : '#241E15' }}>
                           {i + 1}
                         </span>
                         <div className={aStyles.issueInfo}>
@@ -2244,7 +2244,7 @@ const videoRef    = useRef(null)
                               return (
                                 <div key={occ.label} className={aStyles.occurrenceRow}>
                                   <span className={aStyles.occurrenceLabel}
-                                    style={{ background: occLooping ? 'var(--accent)' : '#2A2A28' }}>
+                                    style={{ background: occLooping ? 'var(--accent)' : '#241E15' }}>
                                     {i + 1}{occ.label}
                                   </span>
                                   <div className={aStyles.occurrenceInfo}>
@@ -2288,7 +2288,7 @@ const videoRef    = useRef(null)
                     <button className={aStyles.issueCardRow}
                       onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}>
                       <span className={aStyles.issueNum}
-                        style={{ background: isAct ? 'var(--accent)' : '#2A2A28' }}>
+                        style={{ background: isAct ? 'var(--accent)' : '#241E15' }}>
                         {i + 1}
                       </span>
                       <div className={aStyles.issueInfo}>
@@ -2386,7 +2386,7 @@ const videoRef    = useRef(null)
               <span className={aStyles.breakdownDenom}>/ 100</span>
             </div>
             {scoreDelta != null && (
-              <span className={aStyles.breakdownDelta} style={{ color: scoreDelta > 0 ? 'var(--hero-green)' : scoreDelta < 0 ? '#C0534A' : 'var(--text-faint)' }}>
+              <span className={aStyles.breakdownDelta} style={{ color: scoreDelta > 0 ? 'var(--hero-green)' : scoreDelta < 0 ? '#9C2728' : 'var(--text-faint)' }}>
                 {scoreDelta > 0 ? '↗' : scoreDelta < 0 ? '↘' : '→'} {scoreDelta > 0 ? '+' : ''}{scoreDelta}
               </span>
             )}

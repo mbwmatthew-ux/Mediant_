@@ -252,7 +252,7 @@ export default function Landing() {
             <div className={styles.heroCopy}>
               <p className={styles.heroEyebrow}>AI Music Practice Coach</p>
               <h1 className={styles.heroH1}>
-                Finally, feedback that points to the measure.
+                Finally, feedback that points to the <em>measure</em>.
               </h1>
               <p className={styles.heroLead}>
                 Upload a recording. Mediant analyzes pitch, timing, and dynamics against your score — then shows you where to focus before your next session.
@@ -284,21 +284,21 @@ export default function Landing() {
                     <div className={styles.waveformMetricTrack}>
                       <div ref={fill1Ref} className={`${styles.waveformMetricFill} ${styles.waveformMetricFill1}`} style={{ width: '72%' }} />
                     </div>
-                    <span ref={num1Ref} className={styles.waveformMetricVal} style={{ color: '#EE7B53' }}>72</span>
+                    <span ref={num1Ref} className={styles.waveformMetricVal} style={{ color: 'var(--coral)' }}>72</span>
                   </div>
                   <div className={styles.waveformMetricRow}>
                     <span className={styles.waveformMetricLabel}>Dynamics</span>
                     <div className={styles.waveformMetricTrack}>
                       <div ref={fill2Ref} className={`${styles.waveformMetricFill} ${styles.waveformMetricFill2}`} style={{ width: '88%' }} />
                     </div>
-                    <span ref={num2Ref} className={styles.waveformMetricVal} style={{ color: '#C09230' }}>88</span>
+                    <span ref={num2Ref} className={styles.waveformMetricVal} style={{ color: 'var(--teal)' }}>88</span>
                   </div>
                   <div className={`${styles.waveformMetricRow} ${styles.waveformMetricRowOverall}`}>
                     <span className={styles.waveformMetricLabel}>Overall Score</span>
                     <div className={styles.waveformMetricTrack}>
                       <div ref={fill3Ref} className={`${styles.waveformMetricFill} ${styles.waveformMetricFill3}`} style={{ width: '79%' }} />
                     </div>
-                    <span ref={num3Ref} className={styles.waveformMetricVal} style={{ color: '#4ade80' }}>79</span>
+                    <span ref={num3Ref} className={styles.waveformMetricVal} style={{ color: 'var(--canvas)' }}>79</span>
                   </div>
                 </div>
               </div>

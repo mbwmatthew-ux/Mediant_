@@ -22,3 +22,6 @@ dist/
 
 # Supabase local state
 supabase/.temp/
+
+# Superpowers scratch state (brainstorm mockups, SDD ledgers)
+.superpowers/

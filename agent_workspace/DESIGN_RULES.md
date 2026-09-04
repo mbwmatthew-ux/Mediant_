@@ -1,5 +1,67 @@
 # Design Rules — Mediant
 
+> **2026-09-04 — "Atelier" is the new app-wide direction, rolling out
+> page by page.** Chosen through a mockup-comparison session (see
+> `.superpowers/brainstorm/` for the session's visual comparisons, if still
+> present) against two other explored directions ("Conservatory" and
+> "Studio"). Goal, in the user's own words: keep the existing teal/orange/
+> warm-white palette family, but rework the visual system so it reads as
+> deliberately designed rather than templated — and specifically so it does
+> not look AI-generated.
+>
+> **Status: `Landing.jsx` and `Analysis.jsx` are converted. Every other page
+> still runs the older tokens below this notice (or, for `/home`, its own
+> scoped exploration — see the note beneath this one) until it gets its own
+> conversion pass.** Do not assume the rest of the app matches this section
+> yet — check the individual page's CSS module before touching it.
+>
+> The Atelier system replaces the Colors and Typography sections below for
+> any page that has been converted. Component Rules (cards/buttons/flags)
+> are superseded specifically on `border-radius` — Atelier's cut-corner
+> shape replaces the uniform `8px`/`12px` radius everywhere it appears.
+>
+> ### Atelier — Colors
+>
+> | Role | Value | Notes |
+> |---|---|---|
+> | Background (paper) | `#F3EEE3` | Warm paper tone — replaces `#F7F4EF` |
+> | Surface (cards, panels) | `#FBF8F0` | Slightly lighter than paper |
+> | Text (primary / ink) | `#241E15` | Warm near-black |
+> | Text (secondary) | `#6E6555` | Muted warm brown-gray |
+> | Border / line | `#E3D9C2` | Warm, visible but quiet |
+> | Structural dark (teal) | `#2C4A3E` | Nav/score-panel grounds, secondary buttons — replaces the old near-black dark surface in this role |
+> | Teal, mid | `#3B6455` | Secondary data series, eyebrows, icons on teal |
+> | Accent (orange) | `#B5471F` | The one accent — CTAs, active states, highlighted measures. Replaces gold `#C09040` |
+> | Error (red) | `#9C2728` | Unchanged — still strictly semantic, error flags only |
+>
+> Same accent discipline as before: orange is structural/CTA, red is
+> semantic/error-only, never mixed as decoration. No blue, no purple.
+>
+> ### Atelier — Typography
+>
+> | Role | Font | Notes |
+> |---|---|---|
+> | Display (headings, hero) | `'Instrument Serif'` | Italic for emphasis words within a headline (e.g. "the way your *teacher* would") |
+> | Body / UI | `'Karla'` | Weights 400/500/600/700 |
+> | Monospace (timestamps, measure numbers) | unchanged — see the general Typography section below | |
+>
+> `Instrument Serif` + `Karla` replaces the SF Pro / Geist Sans / Playfair
+> stack for converted pages. Still never Inter, Roboto, or Open Sans as a
+> *primary* font — `Landing.module.css`'s old `Avenir Next → Inter → Segoe
+> UI` fallback stack goes away entirely on conversion, not just the first
+> link in the chain.
+>
+> ### Atelier — Shape language
+>
+> The signature differentiator. Every card, button, and panel that would
+> otherwise get a uniform `border-radius: 8px` / `12px` gets an asymmetric
+> **cut corner** instead: two opposite corners sharp, two rounded.
+> - Large elements (cards, panels): `border-radius: 3px 22px 3px 22px;`
+> - Small elements (buttons, chips, small cards): `border-radius: 2px 10px 2px 10px;`
+> - Never round all four corners uniformly on a converted page — that is
+>   the exact "rounded-lg everywhere" look this direction exists to move
+>   away from.
+
 > **2026-08-18 — Home screen is running a different palette on purpose.**
 > `/home` is an approved exploration of a new visual direction: sage green,
 > lavender, a serif display face, and an illustrated mascot. Those tokens are
@@ -12,8 +74,11 @@
 > and lavender all appear). Do not "fix" the Home screen back to the cream/gold
 > palette — it is intentional and the user asked for it. If the direction is
 > adopted app-wide, move those tokens up into `:root` and rewrite this file.
+>
+> `/home` has NOT been converted to Atelier. When it is, this note and the
+> Atelier note above both need updating.
 
-Last updated: 2026-06-05
+Last updated: 2026-09-04
 
 This file is the source of truth for Mediant's visual system.
 Coding agents must read this before touching any UI file.
@@ -28,7 +93,7 @@ Warm, precise, human, specific to music.
 
 ---
 
-## Colors
+## Colors (pages not yet converted to Atelier)
 
 | Role | Value | Notes |
 |---|---|---|
@@ -48,7 +113,7 @@ Warm, precise, human, specific to music.
 
 ---
 
-## Typography
+## Typography (pages not yet converted to Atelier)
 
 **Display / headings:**
 - Font: `'Instrument Serif'`, `'Newsreader'`, or `'Playfair Display'` for editorial hero headings only

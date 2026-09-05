@@ -146,6 +146,45 @@
   position: absolute;
 }
 
+/* ── Decorative music backdrop (MusicDeco) ──────────────────────────
+   Curved "staff lines" that drift on scroll (--scroll-y is written directly
+   to .page by useParallaxScroll, never through React state) plus note
+   glyphs that fade + slide in once when their section enters view. Always
+   an absolutely-positioned FIRST child of a `position:relative` section, so
+   plain DOM order — not z-index — puts real content on top; see
+   .sectionInner/.ctaInner/.heroInner below. */
+.deco {
+  color: var(--teal-deep);
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+}
+
+.decoCurveLayer {
+  height: 100%;
+  left: 0;
+  position: absolute;
+  top: 0;
+  transform: translateY(calc(var(--scroll-y, 0px) * var(--parallax, 0.05) * -1));
+  width: 100%;
+}
+
+.note {
+  font-family: var(--font-display);
+  font-style: italic;
+  opacity: 0;
+  position: absolute;
+  transform: translate(var(--slide-x, -16px), 16px) rotate(var(--rot, 0deg));
+  transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1), transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--delay, 0ms);
+}
+.decoRevealed .note {
+  opacity: var(--note-op, 0.09);
+  transform: translate(0, 0) rotate(var(--rot, 0deg));
+}
+.noteInverted { color: var(--canvas); }
+
 .heroInner {
   align-items: center;
   display: grid;
@@ -485,6 +524,7 @@
   margin: 0 auto;
   max-width: 1220px;
   padding: clamp(72px, 9vw, 116px) clamp(20px, 4vw, 56px);
+  position: relative;
 }
 
 .sectionHead {
@@ -526,6 +566,8 @@
 .howSection {
   background: var(--canvas);
   border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
 }
 
 .stepsStack {
@@ -581,6 +623,8 @@
 .featuresSection {
   background: var(--canvas);
   border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
 }
 
 .featuresList {
@@ -705,6 +749,8 @@
 .pricingSection {
   background: var(--canvas);
   border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
 }
 
 .pricingSection .sectionHead { text-align: center; max-width: 100%; }
@@ -796,6 +842,8 @@
 .faqSection {
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
 }
 
 .faqLayout {
@@ -876,12 +924,14 @@
 .ctaStrip {
   background: var(--coral);
   overflow: hidden;
+  position: relative;
 }
 
 .ctaInner {
   margin: 0 auto;
   max-width: 1220px;
   padding: clamp(60px, 8vw, 100px) clamp(20px, 4vw, 56px);
+  position: relative;
   text-align: center;
 }
 

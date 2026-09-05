@@ -49,6 +49,74 @@ function Reveal({ as: Tag = 'div', className = '', children, delay = '0ms' }) {
   )
 }
 
+// Scroll-linked parallax for the decorative staff lines — "measure lines
+// slide up like a train on a railroad" — a slow, continuous drift tied to
+// scroll position, not a one-time reveal (that's what the notes are for).
+// Written straight to the DOM via a CSS custom property rather than React
+// state, so a scroll event never triggers a re-render; rAF-throttled so at
+// most one write happens per frame no matter how many scroll events fire.
+function useParallaxScroll(reduced) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || reduced) return
+    let ticking = false
+    const apply = () => {
+      el.style.setProperty('--scroll-y', `${window.scrollY}px`)
+      ticking = false
+    }
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(apply)
+    }
+    apply()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [reduced])
+  return ref
+}
+
+// Decorative music-notation backdrop: gentle curved "staff lines" (parallax,
+// continuous) plus scattered note glyphs (fade + slide in once, on scroll
+// into view). Purely decorative — aria-hidden, pointer-events:none — and
+// each section hand-tunes its own density via the curves/notes it passes in,
+// per DESIGN_RULES: busier sections (Features) get more, the hero stays
+// sparse since the big clef mark already carries the motif there.
+function MusicDeco({ curves = [], notes = [], inverted = false }) {
+  const [ref, inView] = useInView(0.05)
+  return (
+    <div ref={ref} className={`${styles.deco} ${inView ? styles.decoRevealed : ''}`} aria-hidden="true">
+      {curves.map((c, i) => (
+        <svg
+          key={i}
+          className={styles.decoCurveLayer}
+          style={{ '--parallax': c.parallax ?? 0.05 }}
+          viewBox={`0 0 1440 ${c.h ?? 600}`}
+          preserveAspectRatio="none"
+        >
+          <path d={c.d} stroke="currentColor" strokeWidth="1.5" fill="none" opacity={c.opacity ?? 0.06} />
+        </svg>
+      ))}
+      {notes.map((n, i) => (
+        <span
+          key={i}
+          className={`${styles.note} ${inverted ? styles.noteInverted : ''}`}
+          style={{
+            top: n.top, left: n.left, fontSize: n.size ?? 28,
+            '--rot': `${n.rot ?? 0}deg`,
+            '--slide-x': `${n.slideX ?? -16}px`,
+            '--note-op': n.opacity ?? 0.09,
+            '--delay': `${n.delay ?? 0}ms`,
+          }}
+        >
+          {n.glyph ?? '♪'}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 const STEPS = [
   {
     n: '01',
@@ -168,6 +236,8 @@ export default function Landing() {
   const nav = useNavigate()
   const [navVisible, setNavVisible] = useState(true)
   const lastScrollY = useRef(0)
+  const reducedMotion = usePrefersReducedMotion()
+  const pageRef = useParallaxScroll(reducedMotion)
 
   // After Google OAuth, Supabase redirects back to the root URL which renders Landing.
   // Once AuthContext detects the session, send the user into the app.
@@ -222,7 +292,7 @@ export default function Landing() {
   }, [])
 
   return (
-    <div className={styles.page}>
+    <div className={styles.page} ref={pageRef}>
 
       {/* ── NAV ────────────────────────────────────────── */}
       <nav className={`${styles.nav} ${navVisible ? '' : styles.navHidden}`} aria-label="Main navigation">
@@ -248,6 +318,16 @@ export default function Landing() {
 
         {/* ── HERO ───────────────────────────────────────── */}
         <section className={styles.hero}>
+          <MusicDeco
+            curves={[
+              { d: 'M -50 90 C 300 30, 750 150, 1490 60', h: 600, opacity: 0.06, parallax: 0.04 },
+              { d: 'M -50 420 C 400 500, 900 360, 1490 440', h: 600, opacity: 0.05, parallax: 0.07 },
+            ]}
+            notes={[
+              { glyph: '♪', top: '8%', left: '47%', size: 30, rot: -8, opacity: 0.08, slideX: -18 },
+              { glyph: '♩', top: '72%', left: '13%', size: 24, rot: 6, opacity: 0.07, slideX: 16, delay: 150 },
+            ]}
+          />
           <div className={styles.heroInner}>
             <div className={styles.heroCopy}>
               <p className={styles.heroEyebrow}>AI Music Practice Coach</p>
@@ -319,6 +399,14 @@ export default function Landing() {
 
         {/* ── HOW IT WORKS ───────────────────────────────── */}
         <section className={styles.howSection} id="how-it-works">
+          <MusicDeco
+            curves={[{ d: 'M -50 50 C 250 120, 600 0, 1490 90', h: 500, opacity: 0.05, parallax: 0.05 }]}
+            notes={[
+              { glyph: '♫', top: '6%', left: '85%', size: 40, rot: 10, opacity: 0.08, slideX: 20 },
+              { glyph: '♪', top: '55%', left: '4%', size: 22, rot: -12, opacity: 0.06, slideX: -14, delay: 200 },
+              { glyph: '♬', top: '68%', left: '62%', size: 28, rot: 4, opacity: 0.06, slideX: 16, delay: 100 },
+            ]}
+          />
           <div className={styles.sectionInner}>
             <Reveal className={styles.sectionHead}>
               <p className={styles.eyebrow}>How it works</p>
@@ -343,6 +431,18 @@ export default function Landing() {
 
         {/* ── FEATURES GRID ──────────────────────────────── */}
         <section className={styles.featuresSection} id="features">
+          <MusicDeco
+            curves={[
+              { d: 'M -50 40 C 300 110, 750 -20, 1490 70', h: 560, opacity: 0.055, parallax: 0.045 },
+              { d: 'M -50 440 C 350 380, 800 480, 1490 400', h: 560, opacity: 0.05, parallax: 0.06 },
+            ]}
+            notes={[
+              { glyph: '♩', top: '5%', left: '8%', size: 26, rot: -6, opacity: 0.07, slideX: -16 },
+              { glyph: '♪', top: '8%', left: '90%', size: 34, rot: 9, opacity: 0.08, slideX: 18, delay: 120 },
+              { glyph: '♫', top: '75%', left: '48%', size: 22, rot: -4, opacity: 0.06, slideX: -14, delay: 220 },
+              { glyph: '♩', top: '82%', left: '82%', size: 20, rot: 14, opacity: 0.06, slideX: 16, delay: 320 },
+            ]}
+          />
           <div className={styles.sectionInner}>
             <Reveal className={styles.sectionHead}>
               <p className={styles.eyebrow}>What Mediant helps with</p>
@@ -365,6 +465,13 @@ export default function Landing() {
 
         {/* ── PRICING ────────────────────────────────────── */}
         <section className={styles.pricingSection} id="pricing">
+          <MusicDeco
+            curves={[{ d: 'M -50 60 C 320 130, 700 20, 1490 100', h: 520, opacity: 0.05, parallax: 0.05 }]}
+            notes={[
+              { glyph: '♪', top: '8%', left: '12%', size: 26, rot: -8, opacity: 0.07, slideX: -16 },
+              { glyph: '♬', top: '80%', left: '86%', size: 24, rot: 8, opacity: 0.06, slideX: 16, delay: 150 },
+            ]}
+          />
           <div className={styles.sectionInner}>
             <Reveal className={styles.sectionHead}>
               <p className={styles.eyebrow}>Pricing</p>
@@ -402,6 +509,13 @@ export default function Landing() {
 
         {/* ── FAQ ────────────────────────────────────────── */}
         <section className={styles.faqSection} id="faq">
+          <MusicDeco
+            curves={[{ d: 'M -50 400 C 350 460, 800 340, 1490 420', h: 480, opacity: 0.045, parallax: 0.05 }]}
+            notes={[
+              { glyph: '♫', top: '10%', left: '80%', size: 28, rot: 10, opacity: 0.06, slideX: 18 },
+              { glyph: '♩', top: '60%', left: '6%', size: 20, rot: -10, opacity: 0.05, slideX: -14, delay: 180 },
+            ]}
+          />
           <div className={styles.sectionInner}>
             <div className={styles.faqLayout}>
               <Reveal className={styles.faqLeft}>
@@ -422,6 +536,13 @@ export default function Landing() {
 
         {/* ── CTA STRIP ──────────────────────────────────── */}
         <section className={styles.ctaStrip}>
+          <MusicDeco
+            inverted
+            notes={[
+              { glyph: '♬', top: '12%', left: '14%', size: 50, rot: -8, opacity: 0.10, slideX: -20 },
+              { glyph: '♪', top: '55%', left: '88%', size: 36, rot: 10, opacity: 0.09, slideX: 20, delay: 150 },
+            ]}
+          />
           <div className={styles.ctaInner}>
             <Reveal>
               <h2>Ready for your next take?</h2>

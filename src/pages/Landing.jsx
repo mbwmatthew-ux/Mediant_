@@ -117,6 +117,88 @@ function MusicDeco({ curves = [], notes = [], inverted = false }) {
   )
 }
 
+// One bespoke illustration, not a repeated pattern like MusicDeco: a real
+// 5-line staff that curves like a ribbon (not just a single gentle arc),
+// carrying actual notated shapes — a treble clef, single notes, a beamed
+// pair, a beamed sixteenth-note cluster where the density builds — and
+// ending in a soft curl. Routed through the right ~60% of the hero (behind
+// and around the waveform card) so it never crosses the headline column.
+// Coordinates are exact points on the same two cubic beziers (computed
+// offline, not eyeballed), so notes sit precisely on the ribbon rather than
+// near it.
+function HeroStaffRibbon() {
+  return (
+    <div className={styles.staffRibbon} aria-hidden="true">
+      <svg width="100%" height="100%" viewBox="0 0 1440 340" preserveAspectRatio="xMidYMid meet">
+        <g stroke="currentColor" strokeWidth="1.6" fill="none">
+          <path d="M 560 106 C 820 6, 1050 246, 1300 96 C 1370 36, 1410 116, 1350 171" />
+          <path d="M 560 114 C 820 14, 1050 254, 1300 104 C 1370 44, 1410 124, 1350 179" />
+          <path d="M 560 122 C 820 22, 1050 262, 1300 112 C 1370 52, 1410 132, 1350 187" />
+          <path d="M 560 130 C 820 30, 1050 270, 1300 120 C 1370 60, 1410 140, 1350 195" />
+          <path d="M 560 138 C 820 38, 1050 278, 1300 128 C 1370 68, 1410 148, 1350 203" />
+        </g>
+
+        <text x="500" y="176" fontSize="118" fontFamily="serif">&#x1D11E;</text>
+
+        {/* sparse, right after the clef */}
+        <g>
+          <ellipse className={styles.noteHead} cx="637" cy="91" rx="7.5" ry="5.5" transform="rotate(-18 637 91)" />
+          <line className={styles.stem} x1="644.5" y1="89" x2="644.5" y2="57" />
+        </g>
+
+        {/* beamed eighth pair */}
+        <g>
+          <ellipse className={styles.noteHead} cx="728" cy="88" rx="7.5" ry="5.5" transform="rotate(-18 728 88)" />
+          <line className={styles.stem} x1="734.5" y1="86" x2="734.5" y2="50" />
+          <ellipse className={styles.noteHead} cx="817" cy="99" rx="7.5" ry="5.5" transform="rotate(-18 817 99)" />
+          <line className={styles.stem} x1="823.5" y1="97" x2="823.5" y2="50" />
+          <rect className={styles.beam} x="734.5" y="47.5" width="89" height="4" />
+        </g>
+
+        {/* half note */}
+        <g>
+          <ellipse className={styles.noteHeadHollow} cx="905" cy="118" rx="7.5" ry="5.5" transform="rotate(-18 905 118)" />
+          <line className={styles.stem} x1="912" y1="116" x2="912" y2="84" />
+        </g>
+
+        {/* dense sixteenth cluster — energy builds before the curl */}
+        <g>
+          <ellipse className={styles.noteHead} cx="992" cy="140" rx="7" ry="5" transform="rotate(-18 992 140)" />
+          <line className={styles.stem} x1="998.5" y1="138" x2="998.5" y2="96" />
+          <ellipse className={styles.noteHead} cx="1040" cy="150" rx="7" ry="5" transform="rotate(-18 1040 150)" />
+          <line className={styles.stem} x1="1046.5" y1="148" x2="1046.5" y2="96" />
+          <ellipse className={styles.noteHead} cx="1088" cy="156" rx="7" ry="5" transform="rotate(-18 1088 156)" />
+          <line className={styles.stem} x1="1094.5" y1="154" x2="1094.5" y2="96" />
+          <ellipse className={styles.noteHead} cx="1136" cy="157" rx="7" ry="5" transform="rotate(-18 1136 157)" />
+          <line className={styles.stem} x1="1142.5" y1="155" x2="1142.5" y2="96" />
+          <rect className={styles.beam} x="998.5" y="93.5" width="144" height="4" />
+          <rect className={styles.beam} x="998.5" y="101.5" width="144" height="4" />
+        </g>
+
+        {/* quarter approaching the curl */}
+        <g>
+          <ellipse className={styles.noteHead} cx="1255" cy="127" rx="7.5" ry="5.5" transform="rotate(-18 1255 127)" />
+          <line className={styles.stem} x1="1261.5" y1="125" x2="1261.5" y2="93" />
+        </g>
+
+        {/* notes riding the curl itself */}
+        <g transform="translate(1346,84) rotate(20)">
+          <ellipse className={styles.noteHead} cx="0" cy="0" rx="7" ry="5" />
+          <line className={styles.stem} x1="6.5" y1="-2" x2="6.5" y2="-28" />
+        </g>
+        <g transform="translate(1377,137) rotate(75)">
+          <ellipse className={styles.noteHead} cx="0" cy="0" rx="6.5" ry="5" />
+          <line className={styles.stem} x1="6" y1="-2" x2="6" y2="-24" />
+        </g>
+        <g transform="translate(1352,182) rotate(125)">
+          <ellipse className={styles.noteHead} cx="0" cy="0" rx="6" ry="4.5" />
+          <line className={styles.stem} x1="5.5" y1="-2" x2="5.5" y2="-20" />
+        </g>
+      </svg>
+    </div>
+  )
+}
+
 const STEPS = [
   {
     n: '01',
@@ -318,16 +400,7 @@ export default function Landing() {
 
         {/* ── HERO ───────────────────────────────────────── */}
         <section className={styles.hero}>
-          <MusicDeco
-            curves={[
-              { d: 'M -50 90 C 300 30, 750 150, 1490 60', h: 600, opacity: 0.06, parallax: 0.04 },
-              { d: 'M -50 420 C 400 500, 900 360, 1490 440', h: 600, opacity: 0.05, parallax: 0.07 },
-            ]}
-            notes={[
-              { glyph: '♪', top: '8%', left: '47%', size: 30, rot: -8, opacity: 0.08, slideX: -18 },
-              { glyph: '♩', top: '72%', left: '13%', size: 24, rot: 6, opacity: 0.07, slideX: 16, delay: 150 },
-            ]}
-          />
+          <HeroStaffRibbon />
           <div className={styles.heroInner}>
             <div className={styles.heroCopy}>
               <p className={styles.heroEyebrow}>AI Music Practice Coach</p>

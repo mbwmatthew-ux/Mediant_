@@ -185,6 +185,28 @@
 }
 .noteInverted { color: var(--canvas); }
 
+/* ── Hero staff-ribbon illustration (HeroStaffRibbon) ────────────────
+   A real 5-line staff that curves like a ribbon, not the single gentle arcs
+   .deco uses elsewhere — see agent_workspace/DESIGN_RULES.md. Positioned to
+   the right of the headline column so it never crosses the text; the SVG's
+   own viewBox (0 0 1440 340) already routes the curve through x=560-1410,
+   so this wrapper only needs to size and place that box, not reposition
+   the artwork inside it. */
+.staffRibbon {
+  aspect-ratio: 1440 / 340;
+  color: var(--teal-deep);
+  left: 0;
+  opacity: 0.16;
+  pointer-events: none;
+  position: absolute;
+  top: 60px;
+  width: 100%;
+}
+.noteHead { fill: currentColor; }
+.noteHeadHollow { fill: none; stroke: currentColor; stroke-width: 2.2; }
+.stem { stroke: currentColor; stroke-width: 2; }
+.beam { fill: currentColor; }
+
 .heroInner {
   align-items: center;
   display: grid;
@@ -1060,6 +1082,7 @@
 @media (max-width: 1060px) {
   .heroInner { grid-template-columns: 1fr; }
   .heroVisual { display: none; }
+  .staffRibbon { display: none; }
   .featuresList { grid-template-columns: 1fr; }
   .featListItem:nth-child(odd)  { border-right: none; padding-right: 0; }
   .featListItem:nth-child(even) { padding-left: 0; }

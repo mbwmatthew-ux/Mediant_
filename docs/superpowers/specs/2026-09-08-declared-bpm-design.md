@@ -28,12 +28,21 @@ threaded through the same dispatch payload, consumed by the worker.
 
 The other grounding fact: `run_beat_tracking(wav_bytes, estimated_bpm=None)`
 (worker.py:887) already accepts a tempo seed in its signature — `start_bpm =
-estimated_bpm if estimated_bpm and 30 <= estimated_bpm <= 300 else 120.0` — but its
-only call site on the main analysis path, `run_beat_tracking(wav_bytes)` at
-worker.py:2448, never passes one. Every take today seeds librosa's beat tracker with
-a blind 120 BPM guess, which is a documented source of octave-tempo errors (a slow
-Adagio tracked at 2x, a fast Presto at 0.5x). This is not a hypothetical improvement;
-it is an existing parameter with no live caller.
+estimated_bpm if estimated_bpm and 30 <= estimated_bpm <= 300 else 120.0` — but the
+call site on the live analysis path never passes one. **Correction from an earlier
+draft of this spec:** `worker.py` has two Modal endpoints — `analyze()` (a
+synchronous endpoint, `run_beat_tracking(wav_bytes)` at line 2448) and
+`analyze_async()`, which spawns `run_full_analysis` in the background and posts to a
+webhook when done. Only the second shape matches the documented architecture
+("returns `{jobId}` immediately... Modal owns it from here... POST results to the
+analysis-webhook edge function") and the payload fields `analyze-performance` sends
+(`take_id`, `webhook_url`, `webhook_secret`, `score_urls`, ...). `analyze()` is dead
+code with no live caller. The real call site is `bts = run_beat_tracking(wav_b)`
+inside the `_crepe_pipeline` closure of `run_full_analysis`, around line 6045. Every
+take today seeds librosa's beat tracker with a blind 120 BPM guess there, which is a
+documented source of octave-tempo errors (a slow Adagio tracked at 2x, a fast Presto
+at 0.5x). This is not a hypothetical improvement; it is an existing parameter with no
+live caller.
 
 The worker also already has `check_tempo_vs_marking(fitted_bpm, marked_bpm)`
 (worker.py:4018) comparing measured tempo against the sheet music's printed marking,

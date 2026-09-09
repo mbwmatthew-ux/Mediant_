@@ -3457,6 +3457,62 @@ def transpose_for_instrument(instrument: str) -> int | None:
     return max(hits)[1] if hits else None
 
 
+# General MIDI program numbers (0-indexed, per the GM spec) for every
+# instrument in src/lib/instruments.js's INSTRUMENT_OPTIONS list. Same
+# normalized-string-with-longest-substring-match shape as
+# INSTRUMENT_TRANSPOSE/transpose_for_instrument, reusing the same key set
+# where an instrument appears in both tables, so a string that already
+# resolves correctly for transposition resolves the same way here.
+#
+# Percussion (snare drum, drum set) is deliberately ABSENT: GM drum kits are
+# selected by MIDI channel 10, not a program number, and the flattened note
+# list's "pitch" field has no meaningful sense for unpitched percussion in
+# the first place — these fall through to the piano default below, same as
+# any unrecognised instrument. A few entries (bass clarinet, euphonium,
+# mandolin, cornet, flugelhorn, contrabassoon) have no distinct GM program
+# and reuse the closest available family member — a known, deliberate
+# approximation, not a bug.
+INSTRUMENT_GM_PROGRAM = {
+    "piccolo": 72, "flute": 73, "oboe": 68,
+    "english horn": 69, "cor anglais": 69,
+    "bassoon": 70, "contrabassoon": 70,
+    "clarinet (b♭)": 71, "clarinet (bb)": 71, "bb clarinet": 71, "clarinet": 71,
+    "clarinet (a)": 71, "a clarinet": 71,
+    "clarinet (e♭)": 71, "clarinet (eb)": 71, "eb clarinet": 71,
+    "bass clarinet": 71,
+    "soprano saxophone": 64, "alto saxophone": 65, "tenor saxophone": 66,
+    "baritone saxophone": 67, "alto sax": 65, "tenor sax": 66,
+    "recorder": 74,
+    "trumpet (b♭)": 56, "trumpet (bb)": 56, "trumpet": 56, "trumpet (c)": 56,
+    "cornet (b♭)": 56, "cornet": 56, "flugelhorn": 56,
+    "french horn (f)": 60, "french horn": 60, "horn": 60,
+    "trombone": 57, "bass trombone": 57, "euphonium": 58, "tuba": 58,
+    "violin": 40, "viola": 41, "cello": 42, "double bass": 43, "harp": 46,
+    "classical guitar": 24, "electric guitar": 27, "guitar": 24,
+    "bass guitar": 33, "ukulele": 24, "mandolin": 105, "banjo": 105,
+    "piano": 0, "organ": 19, "harpsichord": 6, "voice": 52,
+    "marimba": 12, "vibraphone": 11, "xylophone": 13, "glockenspiel": 9,
+    "timpani": 47,
+}
+
+_GM_PROGRAM_DEFAULT = 0   # Acoustic Grand Piano — silence would be worse
+
+
+def gm_program_for_instrument(instrument: str) -> int:
+    """
+    General MIDI program number for the declared instrument, or Acoustic Grand
+    Piano (0) when unrecognised. Unlike transpose_for_instrument, this never
+    returns None — an unmatched instrument should not block audio generation.
+    """
+    key = (instrument or "").strip().lower()
+    if not key:
+        return _GM_PROGRAM_DEFAULT
+    if key in INSTRUMENT_GM_PROGRAM:
+        return INSTRUMENT_GM_PROGRAM[key]
+    hits = [(len(k), v) for k, v in INSTRUMENT_GM_PROGRAM.items() if k in key]
+    return max(hits)[1] if hits else _GM_PROGRAM_DEFAULT
+
+
 def find_wrong_note_candidates(
     aligned: list[dict],
     score: dict,

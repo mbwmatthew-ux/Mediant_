@@ -2295,6 +2295,28 @@ def test_tempo_vs_declared_reports_fact_not_fault():
           w.parse_marked_bpm(400) is None, str(w.parse_marked_bpm(400)))
 
 
+def test_gm_program_lookup():
+    print("\n[61] instrument name -> General MIDI program number")
+    check("clarinet resolves", w.gm_program_for_instrument("Clarinet (B♭)") == 71,
+          str(w.gm_program_for_instrument("Clarinet (B♭)")))
+    check("bare clarinet resolves via substring match",
+          w.gm_program_for_instrument("Bb Clarinet 1") == 71,
+          str(w.gm_program_for_instrument("Bb Clarinet 1")))
+    check("violin resolves", w.gm_program_for_instrument("Violin") == 40)
+    check("piano resolves", w.gm_program_for_instrument("Piano") == 0)
+    check("trumpet resolves", w.gm_program_for_instrument("Trumpet (B♭)") == 56)
+    check("unmatched instrument falls back to piano, not None",
+          w.gm_program_for_instrument("Theremin") == 0,
+          str(w.gm_program_for_instrument("Theremin")))
+    check("empty string falls back to piano",
+          w.gm_program_for_instrument("") == 0)
+    check("None falls back to piano",
+          w.gm_program_for_instrument(None) == 0)
+    check("result is always an int in range",
+          isinstance(w.gm_program_for_instrument("Glockenspiel"), int)
+          and 0 <= w.gm_program_for_instrument("Glockenspiel") <= 127)
+
+
 def test_declared_bpm_flows_into_compare_and_coach_claude():
     print("\n[59] declared_bpm reaches compare_and_coach_claude and produces a flag")
     score = make_score()
@@ -2520,6 +2542,7 @@ def main():
               test_tempo_vs_marking_reports_fact_not_fault,
               test_tempo_vs_declared_reports_fact_not_fault,
               test_declared_bpm_flows_into_compare_and_coach_claude,
+              test_gm_program_lookup,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged):

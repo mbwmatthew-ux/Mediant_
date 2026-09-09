@@ -54,7 +54,7 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({
         audioUrl: signed.signedUrl,
         timeline: take.reference_audio_timeline ?? [],
-        bpm: take.reference_audio_bpm,
+        bpm: Number(take.reference_audio_bpm),
       }), { headers: jsonHeaders })
     }
 

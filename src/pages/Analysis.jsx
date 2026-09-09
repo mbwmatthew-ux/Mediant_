@@ -747,6 +747,50 @@ const videoRef    = useRef(null)
   const referenceAudio = useReferenceAudio(take?.id)
   const [selRange, setSelRange] = useState(null)   // {start, end} measure numbers, or null
   const [dragHandle, setDragHandle] = useState(null) // 'start' | 'end' | null
+  const boxByMeasureRef = useRef({}) // latest boxByMeasure geometry, kept fresh every render for the drag effect below to read
+
+  // Owns the pointermove/pointerup listener lifecycle for the range-selection
+  // drag handles. Must be a real top-level effect, not logic embedded in the
+  // render-time overlay IIFE below: hooks (and effect-cleanup semantics) can
+  // only run unconditionally at the top level of the component, and a
+  // setTimeout(fn, 0) "cleanup" inside a render-time closure fires on the next
+  // macrotask (~1-4ms) — almost always before the browser's next real
+  // pointermove (~8-16ms apart) — so it removed the listener before it could
+  // ever track a drag.
+  useEffect(() => {
+    if (!dragHandle) return
+    const onMove = (e) => {
+      const wrap = scoreImgWrapRef.current
+      if (!wrap) return
+      const rect = wrap.getBoundingClientRect()
+      const pctX = ((e.clientX - rect.left) / rect.width) * 100
+      const pctY = ((e.clientY - rect.top) / rect.height) * 100
+      const boxByMeasure = boxByMeasureRef.current
+      const knownMeasures = Object.keys(boxByMeasure).map(Number).sort((a, b) => a - b)
+      if (!knownMeasures.length) return
+      let best = knownMeasures[0]
+      let bestDist = Infinity
+      for (const n of knownMeasures) {
+        const box = boxByMeasure[n]
+        const dist = Math.abs(box.x - pctX) + Math.abs(box.y - pctY) * 4
+        if (dist < bestDist) { bestDist = dist; best = n }
+      }
+      setSelRange(prev => {
+        const cur = prev ?? { start: knownMeasures[0], end: knownMeasures[knownMeasures.length - 1] }
+        if (dragHandle === 'start') {
+          return { start: Math.min(best, cur.end), end: cur.end }
+        }
+        return { start: cur.start, end: Math.max(best, cur.start) }
+      })
+    }
+    const onUp = () => setDragHandle(null)
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    return () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+  }, [dragHandle])
 
   // Keep the active thread valid. If the current selection isn't among the
   // available threads (e.g. a real user whose demo defaults are no longer
@@ -2058,6 +2102,11 @@ const videoRef    = useRef(null)
                     }
                   }
 
+                  // Keep the ref fresh every render so the top-level drag effect
+                  // (below, outside this render-time IIFE) always reads current
+                  // geometry without needing boxByMeasure itself as a dependency.
+                  boxByMeasureRef.current = boxByMeasure
+
                   const getBox = (n) => {
                     if (boxByMeasure[n]) return boxByMeasure[n]
                     const known = Object.keys(boxByMeasure).map(Number)
@@ -2174,54 +2223,11 @@ const videoRef    = useRef(null)
                             const startM = selRange?.start ?? knownMeasures[0]
                             const endM = selRange?.end ?? knownMeasures[knownMeasures.length - 1]
 
-                            function nearestMeasure(pctX, pctY) {
-                              let best = knownMeasures[0]
-                              let bestDist = Infinity
-                              for (const n of knownMeasures) {
-                                const box = boxByMeasure[n]
-                                const dist = Math.abs(box.x - pctX) + Math.abs(box.y - pctY) * 4
-                                if (dist < bestDist) { bestDist = dist; best = n }
-                              }
-                              return best
-                            }
-
                             function onHandlePointerDown(which) {
                               return (e) => {
                                 e.preventDefault()
                                 setDragHandle(which)
                               }
-                            }
-
-                            // Document-level listeners while dragging — the pointer
-                            // routinely leaves the small handle element itself
-                            // mid-drag, so listening only on the handle would lose
-                            // the drag the moment the cursor moves off it.
-                            if (dragHandle) {
-                              const onMove = (e) => {
-                                const wrap = scoreImgWrapRef.current
-                                if (!wrap) return
-                                const rect = wrap.getBoundingClientRect()
-                                const pctX = ((e.clientX - rect.left) / rect.width) * 100
-                                const pctY = ((e.clientY - rect.top) / rect.height) * 100
-                                const nearest = nearestMeasure(pctX, pctY)
-                                setSelRange(prev => {
-                                  const cur = prev ?? { start: startM, end: endM }
-                                  if (dragHandle === 'start') {
-                                    return { start: Math.min(nearest, cur.end), end: cur.end }
-                                  }
-                                  return { start: cur.start, end: Math.max(nearest, cur.start) }
-                                })
-                              }
-                              const onUp = () => setDragHandle(null)
-                              document.addEventListener('pointermove', onMove)
-                              document.addEventListener('pointerup', onUp, { once: true })
-                              // Cleanup runs on every re-render while dragging is
-                              // active (dragHandle is a dependency of this whole
-                              // effect-like block by virtue of being read above) —
-                              // React re-invokes this IIFE on every state change,
-                              // so stale listeners from the previous render must
-                              // not accumulate.
-                              setTimeout(() => document.removeEventListener('pointermove', onMove), 0)
                             }
 
                             const startBox = getBox(startM)

@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import AnalysisOnboarding from '../components/AnalysisOnboarding'
+import { useReferenceAudio } from '../hooks/useReferenceAudio'
+import ReferenceAudioControls from '../components/ReferenceAudioControls'
 import styles from './Page.module.css'
 import aStyles from './Analysis.module.css'
 import { playTick, playPop, playNav } from '../utils/sounds'
@@ -741,6 +743,8 @@ const videoRef    = useRef(null)
     }
     return isDemo ? takesForActiveThread[0] : undefined
   }, [takesForActiveThread, selectedTakeId, isDemo])
+
+  const referenceAudio = useReferenceAudio(take?.id)
 
   // Keep the active thread valid. If the current selection isn't among the
   // available threads (e.g. a real user whose demo defaults are no longer
@@ -1953,6 +1957,14 @@ const videoRef    = useRef(null)
                 <span className={aStyles.scorePagerLabel}>Page {currentScorePage + 1} of {scorePageCount}</span>
               )}
             </div>
+            <ReferenceAudioControls
+              isLoading={referenceAudio.isLoading}
+              error={referenceAudio.error}
+              isPlaying={referenceAudio.isPlaying}
+              tempo={referenceAudio.tempo}
+              onPlayPause={referenceAudio.togglePlayPause}
+              onTempoChange={referenceAudio.setTempo}
+            />
             <div className={aStyles.scorePanelBody} ref={scorePanelBodyRef}>
             {scoreUrl ? (
               // display:contents so this wrapper doesn't break the height-percentage

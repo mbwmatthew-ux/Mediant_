@@ -2295,6 +2295,46 @@ def test_tempo_vs_declared_reports_fact_not_fault():
           w.parse_marked_bpm(400) is None, str(w.parse_marked_bpm(400)))
 
 
+def test_declared_bpm_flows_into_compare_and_coach_claude():
+    print("\n[59] declared_bpm reaches compare_and_coach_claude and produces a flag")
+    score = make_score()
+    played, evs = make_performance(score)
+    al = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    acc = {}
+    for e in al:
+        m, t = e["measure"], e["time_sec"]
+        r = acc.setdefault(m, {"start": t, "end": t})
+        r["start"], r["end"] = min(r["start"], t), max(r["end"], t)
+    items = sorted(acc.items())
+    spm = BEATS_PER_MEASURE * SEC_PER_BEAT
+    ranges = []
+    for i, (m, r) in enumerate(items):
+        nxt = items[i + 1] if i + 1 < len(items) else None
+        end = (nxt[1]["start"] if nxt[0] == m + 1 else min(nxt[1]["start"], r["start"] + spm)) \
+            if nxt else max(r["end"] + spm / 4, r["start"] + spm)
+        ranges.append({"measure": m, "start": r["start"], "end": max(end, r["start"] + 0.25)})
+
+    real_bpm = 60.0 / SEC_PER_BEAT
+    common_kwargs = dict(
+        score=score, aligned=al, alignment_ranges=ranges,
+        tempo={"bpm": real_bpm}, piece_title="Test", composer="X",
+        instrument="clarinet", gemini_assessment=dict(EMPTY_GEMINI),
+        anthropic_api_key="k", beats_per_measure=BEATS_PER_MEASURE,
+        start_measure=START, end_measure=END, dtw_verified=True,
+    )
+    with_declared = w.compare_and_coach_claude(**common_kwargs, declared_bpm=real_bpm * 1.3)
+    without_declared = w.compare_and_coach_claude(**common_kwargs)
+
+    td_with = [f for f in with_declared if f.get("rule") == "tempo_vs_declared"]
+    td_without = [f for f in without_declared if f.get("rule") == "tempo_vs_declared"]
+    check("a tempo_vs_declared flag is produced when declared_bpm differs enough",
+          len(td_with) == 1, str(len(with_declared)))
+    check("no tempo_vs_declared flag when declared_bpm is not supplied",
+          len(td_without) == 0, str(len(without_declared)))
+    check("the flag names the measured percentage",
+          bool(td_with) and td_with[0].get("measured") is not None, str(td_with))
+
+
 def test_crescendo_that_never_arrives_is_flagged():
     print("\n[57] a crescendo must actually get louder")
     wedges = [{"kind": "cresc", "start_measure": 3, "end_measure": 6}]
@@ -2377,6 +2417,7 @@ def main():
               test_rest_violation_outranks_a_placement_finding_in_dedup,
               test_tempo_vs_marking_reports_fact_not_fault,
               test_tempo_vs_declared_reports_fact_not_fault,
+              test_declared_bpm_flows_into_compare_and_coach_claude,
               test_crescendo_that_never_arrives_is_flagged):
         try:
             t()

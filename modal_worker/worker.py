@@ -4353,6 +4353,7 @@ def compare_and_coach_claude(
     beats_per_measure: int | None = None,
     end_measure: int | None = None,
     dtw_verified: bool = False,
+    declared_bpm: float | None = None,
 ) -> list[dict]:
     # Reset before ANY early return can execute (there are three below). Modal
     # reuses warm containers across invocations, so without this reset an early
@@ -5506,6 +5507,20 @@ def compare_and_coach_claude(
                  measure_end=measure_hi if measure_hi > measure_lo else None,
                  rule="tempo_vs_marking", measured=_tm["pct"])
 
+        # Tempo against what the student declared they'd play. Independent of the
+        # marked-tempo check above — see check_tempo_vs_declared's docstring for
+        # why both can fire on the same take.
+        _td = check_tempo_vs_declared(timing_report.get("bpm"), declared_bpm)
+        if _td:
+            _add(measure_lo, "timing",
+                 f"you said you'd practice this at {_td['declared']:.0f} BPM but "
+                 f"played it at about {_td['fitted']:.0f} BPM ({_td['pct']}% "
+                 f"{_td['direction']}) — worth practicing with a metronome if you "
+                 f"want to lock in your stated tempo",
+                 None, confirmed=True, is_global=True, priority=2,
+                 measure_end=measure_hi if measure_hi > measure_lo else None,
+                 rule="tempo_vs_declared", measured=_td["pct"])
+
     # 3. CREPE-detected wrong notes not already flagged by Gemini.
     for cand in wrong_note_candidates:
         mm = re.search(r'measure (\d+)', cand)
@@ -6034,6 +6049,7 @@ def run_full_analysis(payload: dict) -> None:
     piece_title         = payload.get("piece_title", "this piece")
     composer            = payload.get("composer", "the composer")
     time_sig            = payload.get("time_sig", "4/4")
+    declared_bpm         = parse_marked_bpm(payload.get("declared_bpm"))
     start_measure       = int(payload.get("start_measure", 1))
     end_measure         = payload.get("end_measure")
     gemini_key          = payload.get("gemini_api_key")
@@ -6070,7 +6086,7 @@ def run_full_analysis(payload: dict) -> None:
 
         def _crepe_pipeline():
             wav_b, dur = extract_audio_from_video(video_bytes)
-            bts = run_beat_tracking(wav_b)
+            bts = run_beat_tracking(wav_b, estimated_bpm=declared_bpm)
             evts = run_pitch_tracking(wav_b, guide_times=bts["beat_times"], instrument=instrument)
             return wav_b, dur, bts, evts
 
@@ -6486,6 +6502,7 @@ def run_full_analysis(payload: dict) -> None:
                 beats_per_measure=bpm_int,
                 end_measure=end_measure,
                 dtw_verified=(alignment_method_used in ("score_dtw", "reference_midi_dtw")),
+                declared_bpm=declared_bpm,
             )
             debug_steps.append(f"claude_coaching: {len(flags)} flags")
             # Make the transposition decision readable off the take. Without it,

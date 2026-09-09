@@ -1,5 +1,48 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-08 — Declared BPM: required tempo on every submission, wired into timing analysis
+
+Every recording submission now requires the student to declare the tempo
+they intend to play at (20-300 BPM, validated client-side and server-side).
+Threaded through `analyze-performance` the same way `time_sig` already is
+("form wins over vision read"), into the Modal worker, where it (1) seeds
+`run_beat_tracking`'s `start_bpm` — previously always a blind 120 BPM guess,
+a documented source of octave-tempo errors on slow/fast pieces — and
+(2) powers a new `check_tempo_vs_declared` coaching comparison (declared vs.
+actually-measured tempo), independent of the existing marked-vs-measured
+`check_tempo_vs_marking` comparison; both can now survive the same take.
+
+Built via subagent-driven-development against
+`docs/superpowers/specs/2026-09-08-declared-bpm-design.md` and
+`docs/superpowers/plans/2026-09-08-declared-bpm.md`. Final whole-branch
+review caught and fixed three real cross-task gaps no single task's review
+could see on its own:
+- The coaching-chat follow-up upload (`Analysis.jsx`'s `handleFileUpload`,
+  a live path) never sent `declaredBpm` and would have 400'd against the
+  now-required field — fixed by inheriting the parent take's `declared_bpm`.
+- A dedup-collision fix from mid-implementation (letting `tempo_vs_marking`
+  and `tempo_vs_declared` both survive per-measure dedup) initially widened
+  behavior for unrelated global flags too (`overall` drift, global
+  intonation/dynamics) even on takes with no `declared_bpm` at all — fixed
+  by scoping the widened dedup key to `tempo_vs_declared` only, verified by
+  a regression test that `overall` + `tempo_vs_marking` still collide
+  exactly as before this branch.
+- The pre-existing, previously-dead `tempo`/`safeTempo` field (feeds the
+  measure timeline and the inline-fallback pipeline's prompts) now falls
+  back to the declared BPM when a client doesn't send `tempo` directly,
+  instead of silently staying 0 forever.
+
+**Deploy order matters**: `supabase/migrations/20260908_add_declared_bpm_to_takes.sql`
+must be applied before `analyze-performance` is redeployed — the edge
+function now inserts `declared_bpm` unconditionally, so a missing column
+would break every take insert, not just declared-BPM-related ones.
+
+**Deferred, not blocking**: BPM field isn't visually distinguished from its
+optional sibling fields in `NewRecordingModal` (no asterisk/styling cue);
+`declaredBpm` isn't reset when the modal closes (matches existing pattern
+for sibling fields, but more consequential here since the value is meant to
+vary per take); placeholder text may clip in the 90px input.
+
 ## 2026-08-30 — Pushed Phase 1 + Plan A + Plan B to main; migrations applied; CI fixed
 
 28 commits (Phase 1, Plan A, Plan B) pushed to `origin/main` for the first time,

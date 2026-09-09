@@ -28,6 +28,19 @@ _Nothing active._
 
 ## Needs Review
 
+- [ ] **Declared BPM feature — deploy order + deferred UI polish.** Built on branch
+  `worktree-declared-bpm` via subagent-driven-development (spec + plan in
+  `docs/superpowers/specs/` and `docs/superpowers/plans/`, both dated 2026-09-08).
+  Before merging/deploying: apply `supabase/migrations/20260908_add_declared_bpm_to_takes.sql`
+  BEFORE redeploying `analyze-performance` — the edge function now inserts
+  `declared_bpm` unconditionally on every take, so a missing column breaks
+  every upload, not just this feature. Deferred (not blocking, parked during
+  final review): the BPM field in `NewRecordingModal` isn't visually marked
+  as required unlike its optional siblings (no asterisk/styling cue); the
+  field isn't reset when the modal closes even though it's meant to vary
+  per take; placeholder text may clip in its 90px input. See CHANGELOG.md's
+  2026-09-08 entry for the full list of what the final review caught and fixed.
+
 - [ ] **Settings — live backend check.** Visual + lint verified, but the functional controls (profile save, password change, email change) call `supabase.auth.updateUser` and could only be confirmed in-browser with placeholder Supabase keys. Re-test password/email/profile saves once real project credentials are in `.env` and a user is logged in.
 
 ---

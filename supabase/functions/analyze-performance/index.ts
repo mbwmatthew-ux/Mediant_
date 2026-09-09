@@ -1178,6 +1178,7 @@ serve(async (req: Request) => {
       startMeasure, endMeasure,
       videoFrames,
       tempo,
+      declaredBpm,
       songId,
       difficulty,
       scoreFacts,
@@ -1194,6 +1195,18 @@ serve(async (req: Request) => {
 
     if (!videoPath || !videoMimeType) {
       return new Response(JSON.stringify({ error: 'videoPath and videoMimeType are required' }), {
+        status: 400, headers: { 'Content-Type': 'application/json', ...CORS },
+      })
+    }
+
+    // Never trust client validation alone — NewRecordingModal enforces 20–300
+    // client-side, but the API boundary must reject a bad/missing value too.
+    const safeDeclaredBpm = Number.isFinite(Number(declaredBpm))
+      && Number(declaredBpm) >= 20 && Number(declaredBpm) <= 300
+      ? Math.round(Number(declaredBpm))
+      : null
+    if (safeDeclaredBpm === null) {
+      return new Response(JSON.stringify({ error: 'declaredBpm is required and must be between 20 and 300' }), {
         status: 400, headers: { 'Content-Type': 'application/json', ...CORS },
       })
     }
@@ -1276,6 +1289,7 @@ serve(async (req: Request) => {
         score_path:      scorePath   ?? null,
         score_paths:     safeScorePaths.length ? safeScorePaths : null,
         note:            cleanNote,
+        declared_bpm:    safeDeclaredBpm,
         score:           null,
         flags:           [],
         job_status:      'processing',
@@ -1384,6 +1398,7 @@ serve(async (req: Request) => {
               piece_title:          pieceTitle         ?? 'this piece',
               composer:             composer           ?? 'the composer',
               time_sig:             timeSig            ?? '4/4',
+              declared_bpm:         safeDeclaredBpm,
               key_signature:        keySignature       ?? '',
               start_measure:        safeStart,
               end_measure:          safeEnd,

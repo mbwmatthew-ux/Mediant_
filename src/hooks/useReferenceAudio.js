@@ -15,6 +15,15 @@ export function useReferenceAudio(takeId) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
+  // The measures the cached/generated audio actually covers — NOT guaranteed
+  // to be the whole piece. score_cache is shared across every take that
+  // reuses the same photographed page, and can hold a partial parse left
+  // over from whichever take first populated it (the vision read can anchor
+  // on that take's own played range instead of the full page — a real,
+  // observed failure: a page spanning m.1-58+ cached as just m.20-35).
+  // Surfacing this range is what keeps a partial excerpt from silently
+  // reading as "the wrong song" — null means unknown (not yet generated).
+  const [measureRange, setMeasureRange] = useState(null)
   const rangeEndRef = useRef(null)
 
   useEffect(() => {
@@ -31,6 +40,7 @@ export function useReferenceAudio(takeId) {
       setTempoState(null)
       setIsPlaying(false)
       setError('')
+      setMeasureRange(null)
       rangeEndRef.current = null
     }
   }, [takeId])
@@ -43,7 +53,7 @@ export function useReferenceAudio(takeId) {
   // PRE-generation value, not the one just fetched.
   const generate = useCallback(async () => {
     if (!takeId) return null
-    if (audioRef.current?.src) return { timeline, bpm: baselineBpm }
+    if (audioRef.current?.src) return { timeline, bpm: baselineBpm, measureRange }
     setIsLoading(true)
     setError('')
     try {
@@ -70,14 +80,15 @@ export function useReferenceAudio(takeId) {
       setTimeline(freshTimeline)
       setBaselineBpm(body.bpm)
       setTempoState(body.bpm)
-      return { timeline: freshTimeline, bpm: body.bpm }
+      setMeasureRange(body.measureRange ?? null)
+      return { timeline: freshTimeline, bpm: body.bpm, measureRange: body.measureRange ?? null }
     } catch (e) {
       setError(e.message || 'Failed to generate reference audio')
       return null
     } finally {
       setIsLoading(false)
     }
-  }, [takeId, timeline, baselineBpm])
+  }, [takeId, timeline, baselineBpm, measureRange])
 
   const setTempo = useCallback((bpm) => {
     setTempoState(bpm)
@@ -161,7 +172,7 @@ export function useReferenceAudio(takeId) {
   }, [isPlaying, clearRangeWatcher, generate])
 
   return useMemo(() => ({
-    audioRef, timeline, isLoading, error, isPlaying, tempo,
+    audioRef, timeline, isLoading, error, isPlaying, tempo, measureRange,
     generate, playRange, setTempo, togglePlayPause,
-  }), [timeline, isLoading, error, isPlaying, tempo, generate, playRange, setTempo, togglePlayPause])
+  }), [timeline, isLoading, error, isPlaying, tempo, measureRange, generate, playRange, setTempo, togglePlayPause])
 }

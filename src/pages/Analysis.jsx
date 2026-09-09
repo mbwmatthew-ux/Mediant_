@@ -2013,6 +2013,7 @@ const videoRef    = useRef(null)
               error={referenceAudio.error}
               isPlaying={referenceAudio.isPlaying}
               tempo={referenceAudio.tempo}
+              measureRange={referenceAudio.measureRange}
               onPlayPause={referenceAudio.togglePlayPause}
               onTempoChange={referenceAudio.setTempo}
             />

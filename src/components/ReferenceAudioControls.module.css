@@ -2,4 +2,5 @@
 .btn { padding: 8px 16px; cursor: pointer; }
 .tempoLabel { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .tempoInput { width: 64px; padding: 4px; }
+.rangeNote { font-size: 13px; opacity: 0.7; }
 .error { color: #9C2728; font-size: 13px; }

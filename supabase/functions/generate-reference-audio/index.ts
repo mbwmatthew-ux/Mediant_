@@ -2,6 +2,24 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders, requireAuth } from '../_shared/cors.ts'
 
+// The cached score a take's reference audio is built from is not guaranteed
+// to cover the whole piece from measure 1 — score_cache is shared across
+// every take that reuses the same photographed page, and can be a partial
+// parse left over from whichever take first populated it (the vision read
+// can anchor on that take's own played range instead of the full page).
+// Silently labelling a partial excerpt "the reference audio" reads as wrong
+// content ("this doesn't sound like my piece") rather than what it is: a
+// correct but incomplete window. Surface the actual measure range so the
+// caller can be honest about it instead of implying full-piece coverage.
+function measureRangeFromTimeline(timeline: unknown): { start: number, end: number } | null {
+  if (!Array.isArray(timeline) || timeline.length === 0) return null
+  const nums = timeline
+    .map((t: unknown) => (t && typeof t === 'object' ? (t as { measure?: unknown }).measure : null))
+    .filter((n: unknown): n is number => typeof n === 'number')
+  if (!nums.length) return null
+  return { start: Math.min(...nums), end: Math.max(...nums) }
+}
+
 serve(async (req: Request) => {
   const CORS = corsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -51,6 +69,7 @@ serve(async (req: Request) => {
           audioUrl: signed.signedUrl,
           timeline: take.reference_audio_timeline ?? [],
           bpm: Number(take.reference_audio_bpm),
+          measureRange: measureRangeFromTimeline(take.reference_audio_timeline),
         }), { headers: jsonHeaders })
       }
       // Signing failed (e.g. the stored object was deleted out from under a
@@ -157,6 +176,7 @@ serve(async (req: Request) => {
       audioUrl: signed.signedUrl,
       timeline: modalJson.timeline ?? [],
       bpm,
+      measureRange: measureRangeFromTimeline(modalJson.timeline),
     }), { headers: jsonHeaders })
 
   } catch (err) {

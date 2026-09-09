@@ -6,7 +6,7 @@ import styles from './ReferenceAudioControls.module.css'
  * Analysis.jsx is not load-bearing; wherever it's reachable is fine.
  */
 export default function ReferenceAudioControls({
-  isLoading, error, isPlaying, tempo, onPlayPause, onTempoChange,
+  isLoading, error, isPlaying, tempo, measureRange, onPlayPause, onTempoChange,
 }) {
   return (
     <div className={styles.wrap}>
@@ -23,6 +23,15 @@ export default function ReferenceAudioControls({
             onChange={e => onTempoChange(Number(e.target.value))}
           />
         </label>
+      )}
+      {measureRange && (
+        // The cached score this is built from is not guaranteed to cover the
+        // whole piece (see useReferenceAudio.js) — say exactly what range is
+        // playing so a partial excerpt reads as "this section", not as
+        // unrelated/wrong content.
+        <span className={styles.rangeNote}>
+          Covers m.{measureRange.start}–{measureRange.end}
+        </span>
       )}
       {error && <span className={styles.error}>{error}</span>}
     </div>

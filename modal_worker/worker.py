@@ -36,6 +36,8 @@ image = (
         "ffmpeg",
         "libsndfile1",
         "libxtst6",
+        "fluidsynth",
+        "fluid-soundfont-gm",
     )
     .run_commands(
         # Audiveris converts visual scores (PDF/images) into MusicXML/MXL.
@@ -60,6 +62,9 @@ image = (
         "music21==9.1.0",
         # PDF → PNG rendering for Gemini (so PDF scores work the same as image scores)
         "pymupdf==1.24.11",
+        # Reference-audio synthesis: builds MIDI from the parsed note list and
+        # renders it via the fluidsynth binary installed above.
+        "pretty_midi==0.2.10",
         # Utilities
         "fastapi[standard]",
         "requests==2.31.0",
@@ -3339,6 +3344,112 @@ def note_value_name(quarter_length: float) -> str:
         if abs(quarter_length - ql) < 0.02:
             return name
     return ""
+
+
+def build_measure_audio_timeline(
+    score: dict, time_sig: str, bpm: float, beats_per_measure: int,
+) -> list[dict]:
+    """
+    [{"measure", "start_sec", "end_sec"}] for every measure in the score, in
+    printed order, regardless of whether the measure contains any pitched
+    notes (a rest-only or multirest measure still gets a time span — silence
+    in the rendered audio is not a gap in this timeline).
+
+    Assumes one constant time signature for the whole piece — the same
+    assumption `score["time_signature"]` (a single top-level field, not
+    per-measure) already makes everywhere else in this file. Not a new
+    limitation introduced here.
+    """
+    sec_per_beat = 60.0 / bpm if bpm and bpm > 0 else 0.5
+    numbers = sorted(
+        m["number"] for m in score.get("measures", [])
+        if isinstance(m.get("number"), int)
+    )
+    if not numbers:
+        return []
+    first = numbers[0]
+    timeline = []
+    for num in numbers:
+        start_sec = (num - first) * beats_per_measure * sec_per_beat
+        end_sec = start_sec + beats_per_measure * sec_per_beat
+        timeline.append({
+            "measure": num,
+            "start_sec": round(start_sec, 3),
+            "end_sec": round(end_sec, 3),
+        })
+    return timeline
+
+
+def notes_to_timed_events(notes: list[dict], time_sig: str, bpm: float) -> list[dict]:
+    """
+    Convert flatten_score_notes() output into absolute-time note events:
+    [{"midi", "start_sec", "end_sec", "measure"}].
+
+    See this task's header comment for why dur_beats needs
+    quarter_lengths_per_beat() as a divisor and abs_beat does not — they are
+    different units (dur_beats is a quarterLength; abs_beat is already in
+    notated-beat units) despite both having "beat" in the name.
+    """
+    qlb = quarter_lengths_per_beat(time_sig)
+    sec_per_beat = 60.0 / bpm if bpm and bpm > 0 else 0.5
+    events = []
+    for n in notes:
+        start_sec = n["abs_beat"] * sec_per_beat
+        dur_notated_beats = (n["dur_beats"] / qlb) if qlb else n["dur_beats"]
+        end_sec = start_sec + max(dur_notated_beats, 0.0) * sec_per_beat
+        events.append({
+            "midi": n["midi"],
+            # Rounded to 6dp, not 3dp like build_measure_audio_timeline: at
+            # 3dp, non-terminating quotients (e.g. 1.0/1.5 in 6/8 time) round
+            # off by up to ~3.3e-4s, which is coarser than downstream
+            # comparisons expect. 6dp keeps float noise out while staying
+            # well under that tolerance.
+            "start_sec": round(start_sec, 6),
+            "end_sec": round(max(end_sec, start_sec), 6),
+            "measure": n["measure"],
+        })
+    return events
+
+
+def generate_reference_audio(score: dict, instrument: str, bpm: float) -> tuple[bytes, list[dict]]:
+    """
+    Render an AI reference performance of the WHOLE piece (not a played
+    range — see this plan's Global Constraints) as WAV audio, plus a
+    per-measure timeline for range-selection playback.
+
+    Not unit-tested for actual audio correctness (pretty_midi/soundfile are
+    mocked in the test harness, same convention as every other binary/IO-heavy
+    dependency in this file) — test_generate_reference_audio_smoke only
+    verifies the function runs end-to-end and returns the right shapes. Real
+    audio-quality verification is a manual smoke test against a live Modal
+    deployment (see this plan's Task 4).
+    """
+    time_sig = score.get("time_signature") or "4/4"
+    beats_per_measure = beats_per_measure_from_time_sig(time_sig)
+    notes = flatten_score_notes(score, None, None, beats_per_measure)
+    events = notes_to_timed_events(notes, time_sig, bpm)
+    timeline = build_measure_audio_timeline(score, time_sig, bpm, beats_per_measure)
+
+    import pretty_midi
+    safe_bpm = max(20.0, min(300.0, float(bpm))) if bpm else 120.0
+    midi = pretty_midi.PrettyMIDI(initial_tempo=safe_bpm)
+    inst = pretty_midi.Instrument(program=gm_program_for_instrument(instrument))
+    for ev in events:
+        if ev["end_sec"] <= ev["start_sec"]:
+            continue
+        pitch = max(0, min(127, int(ev["midi"])))
+        inst.notes.append(pretty_midi.Note(
+            velocity=90, pitch=pitch, start=ev["start_sec"], end=ev["end_sec"],
+        ))
+    midi.instruments.append(inst)
+
+    audio = midi.fluidsynth(fs=22050, sf2_path="/usr/share/sounds/sf2/FluidR3_GM.sf2")
+
+    import soundfile as sf
+    import io
+    buf = io.BytesIO()
+    sf.write(buf, audio, 22050, format="WAV")
+    return buf.getvalue(), timeline
 
 
 def anchor_and_align_py(

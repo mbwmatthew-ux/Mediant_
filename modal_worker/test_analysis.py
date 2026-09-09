@@ -2317,6 +2317,75 @@ def test_gm_program_lookup():
           and 0 <= w.gm_program_for_instrument("Glockenspiel") <= 127)
 
 
+def test_measure_audio_timeline_covers_every_measure():
+    print("\n[62] measure audio timeline covers every measure, including rest-only ones")
+    score = make_score()   # MEASURE_NUMBERS = 12..37 + 40..50, BEATS_PER_MEASURE = 3
+    timeline = w.build_measure_audio_timeline(score, "3/4", 120.0, 3)
+    check("one entry per measure in the score",
+          len(timeline) == len(score["measures"]), str(len(timeline)))
+    check("first measure starts at t=0",
+          timeline[0]["measure"] == 12 and abs(timeline[0]["start_sec"]) < 1e-6,
+          str(timeline[0]))
+    # 3 beats/measure at 120 BPM (0.5s/beat) = 1.5s per measure.
+    check("measure duration matches beats-per-measure at the given tempo",
+          abs(timeline[0]["end_sec"] - timeline[0]["start_sec"] - 1.5) < 1e-6,
+          str(timeline[0]))
+    check("measure 13 starts where measure 12 ends (no gap, no overlap)",
+          abs(timeline[1]["start_sec"] - timeline[0]["end_sec"]) < 1e-6,
+          str((timeline[0], timeline[1])))
+    check("timeline is in ascending measure order",
+          [t["measure"] for t in timeline] == sorted(t["measure"] for t in timeline))
+    check("empty score yields empty timeline",
+          w.build_measure_audio_timeline({"measures": []}, "3/4", 120.0, 3) == [])
+
+
+def test_notes_to_timed_events_uses_quarter_length_conversion():
+    print("\n[63] note durations convert from quarterLength, not raw beats")
+    # One note: abs_beat=0 (start of window), dur_beats=1.0 (a quarterLength,
+    # per flatten_score_notes' real field meaning), pitch C4=60.
+    notes = [{"midi": 60, "measure": 1, "beat": 1.0, "dur_beats": 1.0,
+              "pitch": "C4", "artic": "", "abs_beat": 0.0}]
+    # 4/4: quarter_lengths_per_beat=1.0, so a 1.0-quarterLength note IS exactly
+    # one notated beat — the simple case where the trap doesn't bite.
+    events_44 = w.notes_to_timed_events(notes, "4/4", 120.0)
+    check("4/4 at 120bpm: quarter note lasts exactly 0.5s",
+          abs(events_44[0]["end_sec"] - events_44[0]["start_sec"] - 0.5) < 1e-6,
+          str(events_44))
+    # 6/8: quarter_lengths_per_beat=1.5 (a dotted-quarter beat). The SAME
+    # 1.0-quarterLength note is 1.0/1.5 = 0.667 of a notated beat, NOT a full
+    # beat — this is exactly the conversion the trap above describes.
+    events_68 = w.notes_to_timed_events(notes, "6/8", 120.0)
+    expected_sec = (1.0 / 1.5) * (60.0 / 120.0)
+    check("6/8 at 120bpm: a 1.0-quarterLength note is 2/3 of a notated beat, not a full beat",
+          abs(events_68[0]["end_sec"] - events_68[0]["start_sec"] - expected_sec) < 1e-6,
+          f"got {events_68[0]}, expected duration {expected_sec}")
+    check("doubling the tempo halves every timestamp",
+          abs(w.notes_to_timed_events(notes, "4/4", 240.0)[0]["end_sec"] - 0.25) < 1e-6)
+    check("a note with abs_beat > 0 starts later, not at t=0",
+          w.notes_to_timed_events(
+              [{**notes[0], "abs_beat": 4.0}], "4/4", 120.0
+          )[0]["start_sec"] > 1.9)
+    check("a zero-duration note produces no negative-length event",
+          w.notes_to_timed_events(
+              [{**notes[0], "dur_beats": 0.0}], "4/4", 120.0
+          )[0]["end_sec"] >= w.notes_to_timed_events(
+              [{**notes[0], "dur_beats": 0.0}], "4/4", 120.0
+          )[0]["start_sec"])
+
+
+def test_generate_reference_audio_smoke():
+    print("\n[64] generate_reference_audio runs end-to-end (pretty_midi/soundfile mocked)")
+    score = make_score()
+    audio_bytes, timeline = w.generate_reference_audio(score, "Clarinet (B♭)", 96.0)
+    check("returns a bytes-like object", isinstance(audio_bytes, (bytes, bytearray)),
+          str(type(audio_bytes)))
+    check("returns one timeline entry per measure",
+          len(timeline) == len(score["measures"]), str(len(timeline)))
+    check("timeline entries have the expected keys",
+          set(timeline[0].keys()) == {"measure", "start_sec", "end_sec"},
+          str(timeline[0].keys()))
+
+
 def test_declared_bpm_flows_into_compare_and_coach_claude():
     print("\n[59] declared_bpm reaches compare_and_coach_claude and produces a flag")
     score = make_score()
@@ -2543,6 +2612,9 @@ def main():
               test_tempo_vs_declared_reports_fact_not_fault,
               test_declared_bpm_flows_into_compare_and_coach_claude,
               test_gm_program_lookup,
+              test_measure_audio_timeline_covers_every_measure,
+              test_notes_to_timed_events_uses_quarter_length_conversion,
+              test_generate_reference_audio_smoke,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged):

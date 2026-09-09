@@ -24,6 +24,19 @@ since the app has no live traffic yet and the last real take predates the
 broken deploy by two days. Applied the migration; verified the column now
 exists. See Gotchas: "'Merged and pushed' is not 'migration applied'".
 
+**Found and fixed the same day, from the user's own first real click:**
+"Play reference" failed with `"fluidsynth() was called but pyfluidsynth is
+not installed."` Root cause (confirmed against `pretty_midi` 0.2.10's own
+source before fixing): `.fluidsynth()` does `import fluidsynth` internally
+— that's a third, separate PyPI package (`pyFluidSynth`, ctypes bindings
+to the shared library), never installed alongside the apt `fluidsynth`
+binary/`fluid-soundfont-gm` soundfont and the `pretty_midi` pip package.
+Added `pyFluidSynth==1.3.3`, redeployed, and verified with a real note
+(not an empty score) that the response is genuine audio — peak amplitude,
+93% nonzero samples — not just an error-free empty WAV. See Gotchas: "An
+apt package and a pip package with overlapping names are not the same
+dependency."
+
 **Still needed:** a real browser-based smoke test of the full authenticated
 flow (Task 8 Step 5) — everything above verifies the deployed pieces
 respond correctly in isolation, not that the end-to-end student experience

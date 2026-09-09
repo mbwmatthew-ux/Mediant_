@@ -28,26 +28,30 @@ _Nothing active._
 
 ## Needs Review
 
-- [ ] **AI reference audio feature — deployed live, needs a real browser smoke
-  test.** Merged to `main`, pushed to `origin`, and fully deployed on
-  2026-09-09: migration applied (verified — `takes` has all three new
-  columns, `reference-audio` bucket exists), worker deployed
-  (`generate_reference_audio_endpoint` confirmed live via direct curl —
-  returns valid `audio_base64`/`timeline`), `MODAL_REFERENCE_AUDIO_URL`
-  secret set, edge function deployed (confirmed live — correctly rejects
-  an unauthenticated/non-user request with `{"error":"Unauthorized"}`),
-  and the previously-missing CI step for it added to
-  `deploy-edge-functions.yml`. What's NOT verified yet, and needs a human
-  in an actual browser: the full authenticated flow (generate → play →
-  cache hit on reload → tempo change preserves pitch → switching takes
-  doesn't play stale audio → drag-to-select works). Test against a
-  multi-page score on a transposing instrument specifically — that one
-  combination exercises three of the four Critical bugs the final review
-  caught. Deferred (not blocking, parked during final review, need a
-  follow-up pass): range selection confined to page 1 of multi-page
-  scores; a take with zero flags and no exact Gemini position data only
-  exposes one selectable measure in the drag-range fallback. See
-  CHANGELOG.md's 2026-09-08/09 entries for full detail.
+- [ ] **AI reference audio feature — deployed live and actually generating real
+  audio now, needs a real browser smoke test.** Merged to `main`, pushed to
+  `origin`, and fully deployed on 2026-09-09: migration applied (verified
+  — `takes` has all three new columns, `reference-audio` bucket exists),
+  worker deployed, `MODAL_REFERENCE_AUDIO_URL` secret set, edge function
+  deployed, missing CI step added to `deploy-edge-functions.yml`. The
+  user's own first real click surfaced a genuine bug the same day —
+  `pyFluidSynth` (the pip package `pretty_midi.fluidsynth()` needs
+  internally) was never in the image's `pip_install` list, so every
+  generation attempt threw `"fluidsynth() was called but pyfluidsynth is
+  not installed."` Fixed, redeployed, and verified with a real note that
+  the endpoint now returns genuine audio (peak amplitude, 93% nonzero
+  samples), not just an error-free empty response. See CHANGELOG.md and
+  Gotchas: "An apt package and a pip package with overlapping names are
+  not the same dependency." What's NOT verified yet, and needs a human in
+  an actual browser: the full authenticated flow (generate → play → cache
+  hit on reload → tempo change preserves pitch → switching takes doesn't
+  play stale audio → drag-to-select works). Test against a multi-page
+  score on a transposing instrument specifically — that one combination
+  exercises three of the four Critical bugs the final review caught.
+  Deferred (not blocking, parked during final review, need a follow-up
+  pass): range selection confined to page 1 of multi-page scores; a take
+  with zero flags and no exact Gemini position data only exposes one
+  selectable measure in the drag-range fallback.
 
 - [ ] **Declared-BPM migration was silently un-applied in production for ~13
   hours — now fixed, but worth a sanity pass.** Discovered 2026-09-09 while

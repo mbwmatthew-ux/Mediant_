@@ -78,6 +78,7 @@ export default function NewRecordingModal({ open, onClose }) {
   const [startMeasure, setStartMeasure] = useState('')
   const [endMeasure, setEndMeasure] = useState('')
   const [timeSig, setTimeSig] = useState('4/4')
+  const [declaredBpm, setDeclaredBpm] = useState('')
   const [instrument, setInstrument] = useState('')
   const [instQuery, setInstQuery] = useState('')
   const [instOpen, setInstOpen] = useState(false)
@@ -100,7 +101,10 @@ export default function NewRecordingModal({ open, onClose }) {
   const performanceFile = videoFile || audioFile
   // Everything is required now: a performance (video OR audio) AND at least one
   // sheet-music page. The score used to be optional-but-recommended.
-  const readyToAnalyze = Boolean(performanceFile) && scoreFiles.length > 0 && Boolean(instrument.trim())
+  const declaredBpmNum = parseInt(declaredBpm, 10)
+  const declaredBpmValid = Number.isFinite(declaredBpmNum) && declaredBpmNum >= 20 && declaredBpmNum <= 300
+  const readyToAnalyze = Boolean(performanceFile) && scoreFiles.length > 0
+    && Boolean(instrument.trim()) && declaredBpmValid
 
   // Reset when closed
   useEffect(() => {
@@ -259,6 +263,7 @@ export default function NewRecordingModal({ open, onClose }) {
             instrument:    instrument.trim(),
             pieceTitle:    pieceName.trim() || undefined,
             timeSig:       timeSig.trim() || '4/4',
+            declaredBpm:   declaredBpmNum,
             startMeasure:  startMeasure ? parseInt(startMeasure, 10) : 1,
             endMeasure:    endMeasure ? parseInt(endMeasure, 10) : undefined,
           }),
@@ -495,6 +500,22 @@ export default function NewRecordingModal({ open, onClose }) {
                     placeholder="4/4"
                     style={{ textAlign: 'center' }}
                     title="Only needed if the sheet music's time signature isn't read correctly from the score image"
+                  />
+                </div>
+                <div style={{ width: 90 }}>
+                  <label className={styles.fieldLabel}>Tempo (BPM)</label>
+                  <input
+                    className={styles.textInput}
+                    type="number"
+                    min="20"
+                    max="300"
+                    step="1"
+                    inputMode="numeric"
+                    value={declaredBpm}
+                    onChange={e => setDeclaredBpm(e.target.value)}
+                    placeholder="e.g. 96"
+                    style={{ textAlign: 'center' }}
+                    title="The tempo you intend to play this take at — used to seed timing analysis and compare against your actual tempo"
                   />
                 </div>
               </div>

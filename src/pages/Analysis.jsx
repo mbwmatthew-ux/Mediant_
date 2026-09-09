@@ -745,6 +745,8 @@ const videoRef    = useRef(null)
   }, [takesForActiveThread, selectedTakeId, isDemo])
 
   const referenceAudio = useReferenceAudio(take?.id)
+  const [selRange, setSelRange] = useState(null)   // {start, end} measure numbers, or null
+  const [dragHandle, setDragHandle] = useState(null) // 'start' | 'end' | null
 
   // Keep the active thread valid. If the current selection isn't among the
   // available threads (e.g. a real user whose demo defaults are no longer
@@ -2160,6 +2162,95 @@ const videoRef    = useRef(null)
                               </button>
                             )
                           })}
+
+                          {/* Range-selection handles — reuse the SAME boxByMeasure
+                              geometry the markers above already compute. All
+                              known measure numbers, sorted, define the draggable
+                              range; dragging snaps to the nearest measure box
+                              (no per-note position data exists to snap finer). */}
+                          {(() => {
+                            const knownMeasures = Object.keys(boxByMeasure).map(Number).sort((a, b) => a - b)
+                            if (!knownMeasures.length) return null
+                            const startM = selRange?.start ?? knownMeasures[0]
+                            const endM = selRange?.end ?? knownMeasures[knownMeasures.length - 1]
+
+                            function nearestMeasure(pctX, pctY) {
+                              let best = knownMeasures[0]
+                              let bestDist = Infinity
+                              for (const n of knownMeasures) {
+                                const box = boxByMeasure[n]
+                                const dist = Math.abs(box.x - pctX) + Math.abs(box.y - pctY) * 4
+                                if (dist < bestDist) { bestDist = dist; best = n }
+                              }
+                              return best
+                            }
+
+                            function onHandlePointerDown(which) {
+                              return (e) => {
+                                e.preventDefault()
+                                setDragHandle(which)
+                              }
+                            }
+
+                            // Document-level listeners while dragging — the pointer
+                            // routinely leaves the small handle element itself
+                            // mid-drag, so listening only on the handle would lose
+                            // the drag the moment the cursor moves off it.
+                            if (dragHandle) {
+                              const onMove = (e) => {
+                                const wrap = scoreImgWrapRef.current
+                                if (!wrap) return
+                                const rect = wrap.getBoundingClientRect()
+                                const pctX = ((e.clientX - rect.left) / rect.width) * 100
+                                const pctY = ((e.clientY - rect.top) / rect.height) * 100
+                                const nearest = nearestMeasure(pctX, pctY)
+                                setSelRange(prev => {
+                                  const cur = prev ?? { start: startM, end: endM }
+                                  if (dragHandle === 'start') {
+                                    return { start: Math.min(nearest, cur.end), end: cur.end }
+                                  }
+                                  return { start: cur.start, end: Math.max(nearest, cur.start) }
+                                })
+                              }
+                              const onUp = () => setDragHandle(null)
+                              document.addEventListener('pointermove', onMove)
+                              document.addEventListener('pointerup', onUp, { once: true })
+                              // Cleanup runs on every re-render while dragging is
+                              // active (dragHandle is a dependency of this whole
+                              // effect-like block by virtue of being read above) —
+                              // React re-invokes this IIFE on every state change,
+                              // so stale listeners from the previous render must
+                              // not accumulate.
+                              setTimeout(() => document.removeEventListener('pointermove', onMove), 0)
+                            }
+
+                            const startBox = getBox(startM)
+                            const endBox = getBox(endM)
+
+                            return (
+                              <>
+                                <div
+                                  className={aStyles.scoreMarker}
+                                  style={{ left: `${startBox.left}%`, top: `${startBox.y}%`, background: '#2C4A3E', cursor: 'ew-resize' }}
+                                  onPointerDown={onHandlePointerDown('start')}
+                                  title={`Range start: m.${startM}`}
+                                >{'◀'}</div>
+                                <div
+                                  className={aStyles.scoreMarker}
+                                  style={{ left: `${endBox.right}%`, top: `${endBox.y}%`, background: '#2C4A3E', cursor: 'ew-resize' }}
+                                  onPointerDown={onHandlePointerDown('end')}
+                                  title={`Range end: m.${endM}`}
+                                >{'▶'}</div>
+                                <button
+                                  type="button"
+                                  className={aStyles.scoreMarker}
+                                  style={{ left: `${(startBox.left + endBox.right) / 2}%`, top: `${Math.min(startBox.y, endBox.y) - 4}%`, background: 'var(--accent)' }}
+                                  onClick={() => { playTick(); referenceAudio.playRange(startM, endM) }}
+                                  title={`Play m.${startM}–${endM}`}
+                                >{'▸'}</button>
+                              </>
+                            )
+                          })()}
                         </div>
                       )}
                     </div>

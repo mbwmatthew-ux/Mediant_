@@ -1,5 +1,51 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-09 — Reference audio played the wrong section of the piece; root-caused to a shared, partial score cache
+
+User's second real test after the pyFluidSynth fix: "the reference isnt
+playing the right song, its playing a random song that isn't the one from
+the sheet music." Root-caused properly before touching anything — pulled
+the actual take from the live DB, downloaded and listened to the actual
+generated WAV's onset timing, and downloaded and viewed the actual
+uploaded sheet-music image directly, rather than guessing from the
+symptom.
+
+The audio was not garbage: it's genuinely the Bb Clarinet 1 part of
+"Procession of the Nobles" (Rimsky-Korsakov) — but only measures 20-35 of
+a part that spans 1-58+, rendered and labelled as if it were the whole
+piece. Cause: `score_cache` is keyed by the uploaded image's content
+hash and shared by every take that reuses that exact photo. An earlier
+take (2026-08-21) had played measures 20-35 specifically (confirmed in
+that take's own flags — "head tilts left from m.20 through m.35"), and
+the vision read that populated the cache for this image apparently
+anchored on that take's own start measure and only reported that narrow
+window — despite the prompt's own rule #5 explicitly warning against
+exactly this ("Do NOT start counting from the student's starting
+measure"). Today's take reused the same photo and inherited that stale,
+partial cache untouched, since a cache hit skips any fresh vision read by
+design.
+
+**Fixed the part that's actually reference-audio's own responsibility,
+not the deeper vision-pipeline issue:** `generate-reference-audio` now
+derives the measure range the audio genuinely covers from its own
+timeline and returns it; the UI shows "Covers m.X–Y" next to the
+controls. A partial excerpt now reads as "this section of the piece", not
+as unrelated content. Verified against the real live take that triggered
+the report, via a real authenticated call (a magic-link token minted with
+the service-role key for the user's own account, then exchanged for a
+real session — not a synthetic/service-role bypass): `{"start": 20, "end":
+35}`, exactly matching the diagnosis.
+
+**Deliberately not fixed, and flagged separately:** the deeper cause —
+Claude's vision read apparently not fully honoring its own anti-anchoring
+instruction on this image — is a pre-existing issue in the core score
+analysis pipeline (used by every take, not just reference audio), with a
+much bigger blast radius and a documented history of fragile regressions
+when touched carelessly (see the many Modal-worker entries in Gotchas).
+Did not attempt a fix in the same pass as an unrelated feature's bug
+report. See Gotchas: "`score_cache` is shared per-image and can silently
+hold a PARTIAL parse, not the whole piece."
+
 ## 2026-09-09 — Reference-audio feature deployed live; caught a 13-hour production gap on the way
 
 Completed the reference-audio feature's deploy checklist end-to-end:

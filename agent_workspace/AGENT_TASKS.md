@@ -28,30 +28,32 @@ _Nothing active._
 
 ## Needs Review
 
-- [ ] **AI reference audio feature — deployed live and actually generating real
-  audio now, needs a real browser smoke test.** Merged to `main`, pushed to
-  `origin`, and fully deployed on 2026-09-09: migration applied (verified
-  — `takes` has all three new columns, `reference-audio` bucket exists),
-  worker deployed, `MODAL_REFERENCE_AUDIO_URL` secret set, edge function
-  deployed, missing CI step added to `deploy-edge-functions.yml`. The
-  user's own first real click surfaced a genuine bug the same day —
-  `pyFluidSynth` (the pip package `pretty_midi.fluidsynth()` needs
-  internally) was never in the image's `pip_install` list, so every
-  generation attempt threw `"fluidsynth() was called but pyfluidsynth is
-  not installed."` Fixed, redeployed, and verified with a real note that
-  the endpoint now returns genuine audio (peak amplitude, 93% nonzero
-  samples), not just an error-free empty response. See CHANGELOG.md and
-  Gotchas: "An apt package and a pip package with overlapping names are
-  not the same dependency." What's NOT verified yet, and needs a human in
-  an actual browser: the full authenticated flow (generate → play → cache
-  hit on reload → tempo change preserves pitch → switching takes doesn't
-  play stale audio → drag-to-select works). Test against a multi-page
-  score on a transposing instrument specifically — that one combination
-  exercises three of the four Critical bugs the final review caught.
-  Deferred (not blocking, parked during final review, need a follow-up
-  pass): range selection confined to page 1 of multi-page scores; a take
-  with zero flags and no exact Gemini position data only exposes one
-  selectable measure in the drag-range fallback.
+- [ ] **AI reference audio feature — deployed live, two real bugs found from the
+  user's own first two tries and fixed same-day, needs a real browser smoke
+  test.** Merged to `main`, pushed to `origin`, fully deployed on 2026-09-09:
+  migration applied, worker deployed, `MODAL_REFERENCE_AUDIO_URL` secret set,
+  edge function deployed, missing CI step added to `deploy-edge-functions.yml`.
+  Bug 1 (first click): `pyFluidSynth` — the pip package `pretty_midi.fluidsynth()`
+  needs internally — was never in the image's `pip_install` list, so every
+  generation attempt threw `"fluidsynth() was called but pyfluidsynth is not
+  installed."` Fixed and verified with a real note (peak amplitude, 93%
+  nonzero samples). Bug 2 (second click, after Bug 1's fix): the generated
+  audio was real and musically correct but only covered measures 20-35 of a
+  58+-measure piece — `score_cache` is shared per-image and had inherited a
+  partial parse left over from an earlier, different take that only played
+  that range. Fixed reference-audio's own gap (it now surfaces the actual
+  covered measure range, "Covers m.X–Y", instead of implying full-piece
+  coverage) without touching the deeper vision-pipeline cause — see Backlog.
+  See CHANGELOG.md's 2026-09-09 entries and Gotchas: "An apt package and a
+  pip package with overlapping names are not the same dependency" / "`score_cache`
+  is shared per-image and can silently hold a PARTIAL parse, not the whole
+  piece." What's NOT verified yet, and needs a human in an actual browser:
+  the full authenticated flow (generate → play → cache hit on reload →
+  tempo change preserves pitch → switching takes doesn't play stale audio →
+  drag-to-select works). Deferred (not blocking, parked during final review,
+  need a follow-up pass): range selection confined to page 1 of multi-page
+  scores; a take with zero flags and no exact Gemini position data only
+  exposes one selectable measure in the drag-range fallback.
 
 - [ ] **Declared-BPM migration was silently un-applied in production for ~13
   hours — now fixed, but worth a sanity pass.** Discovered 2026-09-09 while
@@ -126,6 +128,28 @@ _Ideas that are not yet approved. Do not implement these until they move to Appr
 - [ ] **Rest-violation detector needs a score with rests to do anything.** It is silent on any take whose score failed to parse or whose vision read dropped rests, and (like every other score-anchored detector) silent whenever `parse_musicxml`/`read_score_notes_claude` fails outright — no separate caveat names this specific gap yet.
 - [ ] **Delete or revive the dead annotation path in `src/pages/Analysis.jsx`.** `submitAnnotation` and `deleteAnnotation` (around L1162) have **zero callers** — they are part of the pre-existing lint errors. The live annotation UI is `TeacherDashboard.jsx`, which is the only one that renders and the only one that sends `flagKey`. If the Analysis-page path is ever revived as-is it would post annotations with no `flagKey`, landing them with `flag_key = NULL` and pushing them into the weaker `legacy_matched` positional-matching path in `score_against_annotations.py` — quietly degrading the ground truth the accuracy work depends on. Either delete it (cheapest; stops it misleading readers, same reasoning as the `Record.jsx` entry below) or revive it *and* give it `flagKey`. Not a drive-by: it is its own change with its own review.
 - [ ] **Delete `src/pages/Record.jsx`.** 930 lines, unrouted (`/record` → `/home`) and imported nowhere; the live upload path is `NewRecordingModal.jsx`. Two docs described it as the main entrypoint until 2026-08-26. It also carries a 4-minute poll loop that sits below the 6-minute job-status self-heal floor, so it is a live bug waiting for anyone who re-routes `/record`. Deleting it is the cheapest way to stop it misleading readers.
+- [ ] **`score_cache` can hold a partial parse forever — investigate the vision
+  read's anchoring on `start_measure`, or stop trusting the cache is complete.**
+  Discovered 2026-09-09 debugging the reference-audio feature (see CHANGELOG,
+  Gotchas). A full clarinet part (58+ measures, confirmed by viewing the
+  actual uploaded photo) was cached as just 16 measures (20-35) — the exact
+  range an earlier, different take had played. `read_score_notes_claude`'s
+  prompt has an explicit rule (#5) telling Claude NOT to anchor on the
+  student's own start measure, and the code confirms an EARLIER version of
+  this exact failure mode was already found and fixed once (a renumbering
+  bug, not a reading bug — see the "DO NOT renumber to start at start_measure"
+  comment at worker.py's `read_score_notes_claude`). This instance is the
+  model still not fully honoring rule #5 when actually reading the image, not
+  a code-level filter — needs its own investigation (does removing the
+  `{start_measure}` value from the prompt's JSON example reduce the bias? Is
+  this reproducible on other scores, or specific to certain page layouts?)
+  rather than a reflexive fix. Separately, `score_cache`'s upsert is a full
+  overwrite (`onConflict: 'score_path'`) with no merge and no record of what
+  range a given parse actually covers — any consumer that assumes "cached ⇒
+  complete" (reference-audio did) inherits whatever the most recent writer
+  needed, silently. Worth deciding: should score_cache rows record their own
+  covered measure range, so partial-coverage can be detected generically
+  instead of feature-by-feature?
 - [ ] **Drop Audiveris from the Modal image, or wire it up.** `convert_visual_score_to_musicxml` has zero call sites; visual scores go to `read_score_notes_claude` instead. The image still curls + installs Audiveris 5.10.2 on every build. Removing it speeds up builds; wiring it in would give real OMR for photo scores. Either is fine — the current state is paying for it and not using it.
 
 - [ ] **K-weight the loudness measurement (ITU-R BS.1770).** Now that loudness is measured over the note body, the remaining error is perceptual: raw dBFS treats a low chalumeau note and a high clarion note at the same amplitude as equally loud, which they are not. `pyloudnorm` (MIT, v0.2.0, needs only scipy+numpy — both already in the image) designs correct K-weighting biquads at 22050 Hz. Verified API: `pyloudnorm.Meter(22050)._filters` yields `high_shelf` and `high_pass` IIRfilters with `.b`/`.a` coefficients — apply once to the whole signal with `scipy.signal.lfilter`, then take per-note RMS on the filtered signal. Do NOT use `Meter.integrated_loudness` per note: its 400 ms block size is longer than most notes. Caveat: `_filters` is a private attribute; the public `IIRfilter(G, Q, fc, rate, filter_type)` can build the same two filters from the BS.1770 constants. **Needs real audio to validate** — deferred for that reason, not for difficulty.

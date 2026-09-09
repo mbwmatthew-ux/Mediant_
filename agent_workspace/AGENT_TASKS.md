@@ -28,23 +28,42 @@ _Nothing active._
 
 ## Needs Review
 
-- [ ] **AI reference audio feature — deploy order + two deferred gaps.** Built on
-  branch `worktree-reference-audio` via subagent-driven-development (spec +
-  plan in `docs/superpowers/specs/` and `docs/superpowers/plans/`, both dated
-  2026-09-08). Before merging/deploying: apply
-  `supabase/migrations/20260908020000_create_reference_audio.sql` BEFORE
-  redeploying `generate-reference-audio` — it queries the new `takes` columns
-  unconditionally. The new Modal endpoint (`generate_reference_audio_endpoint`)
-  gets its own distinct URL — capture it from the deploy output/dashboard and
-  set it as the `MODAL_REFERENCE_AUDIO_URL` Supabase secret, since
-  `MODAL_WORKER_URL` won't reach it. Deferred (not blocking, parked during
-  final review, need a follow-up pass): range selection is confined to page 1
-  of multi-page scores; a take with zero flags and no exact Gemini position
-  data only exposes one selectable measure in the drag-range fallback. See
-  CHANGELOG.md's 2026-09-08 entry for the full list of what the final review
-  caught and fixed (three Critical cross-task bugs: multi-page score-cache
-  key, written-vs-sounding pitch transposition, stale audio across take
-  switches).
+- [ ] **AI reference audio feature — deployed live, needs a real browser smoke
+  test.** Merged to `main`, pushed to `origin`, and fully deployed on
+  2026-09-09: migration applied (verified — `takes` has all three new
+  columns, `reference-audio` bucket exists), worker deployed
+  (`generate_reference_audio_endpoint` confirmed live via direct curl —
+  returns valid `audio_base64`/`timeline`), `MODAL_REFERENCE_AUDIO_URL`
+  secret set, edge function deployed (confirmed live — correctly rejects
+  an unauthenticated/non-user request with `{"error":"Unauthorized"}`),
+  and the previously-missing CI step for it added to
+  `deploy-edge-functions.yml`. What's NOT verified yet, and needs a human
+  in an actual browser: the full authenticated flow (generate → play →
+  cache hit on reload → tempo change preserves pitch → switching takes
+  doesn't play stale audio → drag-to-select works). Test against a
+  multi-page score on a transposing instrument specifically — that one
+  combination exercises three of the four Critical bugs the final review
+  caught. Deferred (not blocking, parked during final review, need a
+  follow-up pass): range selection confined to page 1 of multi-page
+  scores; a take with zero flags and no exact Gemini position data only
+  exposes one selectable measure in the drag-range fallback. See
+  CHANGELOG.md's 2026-09-08/09 entries for full detail.
+
+- [ ] **Declared-BPM migration was silently un-applied in production for ~13
+  hours — now fixed, but worth a sanity pass.** Discovered 2026-09-09 while
+  deploying the reference-audio feature: `analyze-performance` had been
+  live since a 2026-09-09T00:49:40Z CI deploy writing `declared_bpm`
+  unconditionally into every `takes` insert, but the migration adding that
+  column had never been applied to the live DB. Every take submission in
+  that window would have hard-failed (confirmed zero takes created in the
+  window — no real user hit it, since the app has no traffic yet and the
+  last real take predates the broken deploy by two days). Migration is now
+  applied and verified. Worth: (1) a quick real submission test to confirm
+  new takes insert cleanly with `declared_bpm` set, (2) considering whether
+  this project wants a lightweight CI check that diffs `information_schema`
+  against `supabase/migrations/` so a gap like this fails a build instead
+  of waiting to be found by accident. See Gotchas: "'Merged and pushed' is
+  not 'migration applied'".
 
 - [ ] **Declared BPM feature — deploy order + deferred UI polish.** Built on branch
   `worktree-declared-bpm` via subagent-driven-development (spec + plan in

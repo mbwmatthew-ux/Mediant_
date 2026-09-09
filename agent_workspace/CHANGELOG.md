@@ -1,5 +1,35 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-09 — Reference-audio feature deployed live; caught a 13-hour production gap on the way
+
+Completed the reference-audio feature's deploy checklist end-to-end:
+applied `20260908020000_create_reference_audio.sql` (verified — `takes`
+has all three new columns, `reference-audio` bucket exists with correct
+RLS), deployed the Modal worker (confirmed `generate_reference_audio_endpoint`
+live via direct request — real `audio_base64`/`timeline` back), set
+`MODAL_REFERENCE_AUDIO_URL`, deployed `generate-reference-audio` (confirmed
+live — correctly 401s a non-user token), and closed a gap found in the
+process: `generate-reference-audio` was missing from
+`deploy-edge-functions.yml`'s explicit per-function step list, so CI would
+never have redeployed it on future changes — added.
+
+**Found and fixed on the way, unrelated to this feature:** the declared-BPM
+migration (`20260908_add_declared_bpm_to_takes.sql`) had never been applied
+to production, despite `analyze-performance` having deployed code that
+writes `declared_bpm` unconditionally into every `takes` insert roughly 13
+hours earlier (CI deploy at `2026-09-09T00:49:40Z`). Every take submission
+in that window would have hard-failed. `SELECT count(*) FROM takes WHERE
+created_at > '2026-09-09T00:49:40Z'` came back 0 — no real user hit it,
+since the app has no live traffic yet and the last real take predates the
+broken deploy by two days. Applied the migration; verified the column now
+exists. See Gotchas: "'Merged and pushed' is not 'migration applied'".
+
+**Still needed:** a real browser-based smoke test of the full authenticated
+flow (Task 8 Step 5) — everything above verifies the deployed pieces
+respond correctly in isolation, not that the end-to-end student experience
+works. Test against a multi-page score on a transposing instrument
+specifically.
+
 ## 2026-09-08 — AI reference audio: hear how a piece (or a selected range) is supposed to sound
 
 Students can generate and play an AI-synthesized reference recording of

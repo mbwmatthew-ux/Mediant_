@@ -3434,10 +3434,11 @@ def generate_reference_audio(score: dict, instrument: str, bpm: float) -> tuple[
     safe_bpm = max(20.0, min(300.0, float(bpm))) if bpm else 120.0
     midi = pretty_midi.PrettyMIDI(initial_tempo=safe_bpm)
     inst = pretty_midi.Instrument(program=gm_program_for_instrument(instrument))
+    transpose_semitones = transpose_for_instrument(instrument) or 0
     for ev in events:
         if ev["end_sec"] <= ev["start_sec"]:
             continue
-        pitch = max(0, min(127, int(ev["midi"])))
+        pitch = max(0, min(127, int(ev["midi"]) + transpose_semitones))
         inst.notes.append(pretty_midi.Note(
             velocity=90, pitch=pitch, start=ev["start_sec"], end=ev["end_sec"],
         ))
@@ -6788,6 +6789,8 @@ def generate_reference_audio_endpoint(body: dict) -> dict:
 
     if not isinstance(score, dict) or not score.get("measures"):
         return {"error": "score with at least one measure is required"}
+    if len(score.get("measures", [])) > 500:
+        return {"error": "score has too many measures for reference-audio generation (max 500)"}
     try:
         bpm_f = float(bpm)
     except (TypeError, ValueError):

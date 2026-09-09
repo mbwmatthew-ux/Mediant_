@@ -749,6 +749,11 @@ const videoRef    = useRef(null)
   const [dragHandle, setDragHandle] = useState(null) // 'start' | 'end' | null
   const boxByMeasureRef = useRef({}) // latest boxByMeasure geometry, kept fresh every render for the drag effect below to read
 
+  useEffect(() => {
+    setSelRange(null)
+    setDragHandle(null)
+  }, [take?.id])
+
   // Owns the pointermove/pointerup listener lifecycle for the range-selection
   // drag handles. Must be a real top-level effect, not logic embedded in the
   // render-time overlay IIFE below: hooks (and effect-cleanup semantics) can
@@ -761,10 +766,10 @@ const videoRef    = useRef(null)
     if (!dragHandle) return
     const onMove = (e) => {
       const wrap = scoreImgWrapRef.current
-      if (!wrap) return
+      if (!wrap || !scoreImgBox) return
       const rect = wrap.getBoundingClientRect()
-      const pctX = ((e.clientX - rect.left) / rect.width) * 100
-      const pctY = ((e.clientY - rect.top) / rect.height) * 100
+      const pctX = ((e.clientX - rect.left - scoreImgBox.left) / scoreImgBox.width) * 100
+      const pctY = ((e.clientY - rect.top - scoreImgBox.top) / scoreImgBox.height) * 100
       const boxByMeasure = boxByMeasureRef.current
       const knownMeasures = Object.keys(boxByMeasure).map(Number).sort((a, b) => a - b)
       if (!knownMeasures.length) return
@@ -790,7 +795,7 @@ const videoRef    = useRef(null)
       document.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerup', onUp)
     }
-  }, [dragHandle])
+  }, [dragHandle, scoreImgBox])
 
   // Keep the active thread valid. If the current selection isn't among the
   // available threads (e.g. a real user whose demo defaults are no longer

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 /**
@@ -16,6 +16,24 @@ export function useReferenceAudio(takeId) {
   const [error, setError] = useState('')
   const [isPlaying, setIsPlaying] = useState(false)
   const rangeEndRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      const audio = audioRef.current
+      if (audio) {
+        audio.pause()
+        audio.removeAttribute('src')
+        audio.load()
+      }
+      audioRef.current = null
+      setTimeline([])
+      setBaselineBpm(null)
+      setTempoState(null)
+      setIsPlaying(false)
+      setError('')
+      rangeEndRef.current = null
+    }
+  }, [takeId])
 
   // Returns { timeline, bpm } on success, null on failure — callers that need
   // the fresh data immediately after calling this (see playRange below) MUST

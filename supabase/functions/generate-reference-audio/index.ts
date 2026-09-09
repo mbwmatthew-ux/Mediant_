@@ -30,7 +30,7 @@ serve(async (req: Request) => {
     // like a take that doesn't exist. Same pattern as job-status/index.ts.
     const { data: take, error: takeErr } = await admin
       .from('takes')
-      .select('id, score_path, instrument, declared_bpm, reference_audio_path, reference_audio_bpm, reference_audio_timeline')
+      .select('id, score_path, score_paths, instrument, declared_bpm, reference_audio_path, reference_audio_bpm, reference_audio_timeline')
       .eq('id', takeId)
       .eq('user_id', user.id)
       .single()
@@ -46,16 +46,17 @@ serve(async (req: Request) => {
       const { data: signed, error: signErr } = await admin.storage
         .from('reference-audio')
         .createSignedUrl(take.reference_audio_path, 86400)
-      if (signErr || !signed?.signedUrl) {
-        return new Response(JSON.stringify({ error: 'Could not sign cached reference audio' }), {
-          status: 500, headers: jsonHeaders,
-        })
+      if (!signErr && signed?.signedUrl) {
+        return new Response(JSON.stringify({
+          audioUrl: signed.signedUrl,
+          timeline: take.reference_audio_timeline ?? [],
+          bpm: Number(take.reference_audio_bpm),
+        }), { headers: jsonHeaders })
       }
-      return new Response(JSON.stringify({
-        audioUrl: signed.signedUrl,
-        timeline: take.reference_audio_timeline ?? [],
-        bpm: Number(take.reference_audio_bpm),
-      }), { headers: jsonHeaders })
+      // Signing failed (e.g. the stored object was deleted out from under a
+      // still-cached path) — fall through to regeneration instead of a
+      // permanent dead end.
+      console.warn('[generate-reference-audio] cached reference audio could not be signed, regenerating:', signErr?.message)
     }
 
     if (!take.score_path) {
@@ -66,10 +67,19 @@ serve(async (req: Request) => {
 
     // Cache miss: read the already-parsed score (same cache analyze-performance
     // reads — no fresh vision read here, see this task's edge-case note).
+    // score_cache.score_path is not always a plain storage path — for scores
+    // with multiple uploaded pages, analyze-performance/index.ts keys the row
+    // by a `|`-joined path list instead of the single score_path column, so
+    // the lookup must reconstruct the same key.
+    const paths = Array.isArray(take.score_paths)
+      ? take.score_paths.filter((p: unknown): p is string => typeof p === 'string')
+      : []
+    const scoreCacheKey = paths.length > 1 ? paths.join('|') : take.score_path
+
     const { data: cacheRow } = await admin
       .from('score_cache')
       .select('parsed_notes')
-      .eq('score_path', take.score_path)
+      .eq('score_path', scoreCacheKey)
       .maybeSingle()
 
     if (!cacheRow?.parsed_notes?.measures?.length) {
@@ -100,7 +110,7 @@ serve(async (req: Request) => {
         instrument: take.instrument ?? '',
         bpm,
       }),
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(90000),
     }).catch((e) => { console.warn('[generate-reference-audio] Modal call failed:', e?.message); return null })
 
     if (!modalRes || !modalRes.ok) {

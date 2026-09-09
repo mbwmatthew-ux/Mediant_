@@ -6766,6 +6766,48 @@ def analyze_async(body: dict) -> dict:
     return {"queued": True, "take_id": take_id}
 
 
+# ── Reference-audio endpoint ────────────────────────────────────────────────
+# Synchronous — pure CPU synthesis, no ML model, fast enough for a direct
+# request/response instead of the async .spawn()+webhook pattern the main
+# analysis pipeline needs. Gets its OWN Modal URL (see Gotchas: "Modal URL
+# has no path — root only"), separate from MODAL_WORKER_URL.
+
+@app.function(image=image, timeout=60, memory=2048)
+@modal.fastapi_endpoint(method="POST", docs=True)
+def generate_reference_audio_endpoint(body: dict) -> dict:
+    """
+    Renders an AI reference performance for a whole parsed score.
+    Accepts: score (the parsed-score dict, same shape as score_cache.parsed_notes
+    or the Modal worker's own score parse output), instrument (declared
+    instrument string), bpm (target tempo).
+    Returns: { audio_base64, timeline } or { error }.
+    """
+    score = body.get("score")
+    instrument = body.get("instrument", "")
+    bpm = body.get("bpm")
+
+    if not isinstance(score, dict) or not score.get("measures"):
+        return {"error": "score with at least one measure is required"}
+    try:
+        bpm_f = float(bpm)
+    except (TypeError, ValueError):
+        return {"error": "bpm must be a number"}
+    if not (20 <= bpm_f <= 300):
+        return {"error": "bpm must be between 20 and 300"}
+
+    try:
+        audio_bytes, timeline = generate_reference_audio(score, instrument, bpm_f)
+    except Exception as e:
+        print(f"[generate_reference_audio_endpoint] FAILED: {e}")
+        return {"error": f"Reference audio generation failed: {e}"}
+
+    import base64
+    return {
+        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+        "timeline": timeline,
+    }
+
+
 @app.local_entrypoint()
 def test_local():
     print("Mediant worker app loaded OK.")

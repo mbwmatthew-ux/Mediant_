@@ -901,7 +901,7 @@ def run_beat_tracking(wav_bytes: bytes, estimated_bpm: float | None = None) -> d
         y, sr = librosa.load(wav_path, sr=22050, mono=True)
         duration = librosa.get_duration(y=y, sr=sr)
 
-        start_bpm = estimated_bpm if estimated_bpm and 30 <= estimated_bpm <= 300 else 120.0
+        start_bpm = estimated_bpm if estimated_bpm and 20 <= estimated_bpm <= 300 else 120.0
 
         tempo, beat_frames = librosa.beat.beat_track(
             y=y, sr=sr,
@@ -5637,12 +5637,23 @@ def compare_and_coach_claude(
         return []
 
     # Dedup: one issue per (measure, type); posture/technique collapse to one each.
-    # Global passage-level facts (is_global=True — e.g. tempo-vs-marking,
-    # tempo-vs-declared, piece-level drift) are independent claims that can be
-    # simultaneously true of the same take, so they dedup per RULE instead: two
-    # global "timing" facts at the same measure survive as long as they come from
-    # different checks. Local per-measure measurements (placement/drift/durations)
-    # are still competing explanations of the SAME event and must collapse to one.
+    # tempo_vs_marking and tempo_vs_declared are independent claims that can be
+    # simultaneously true of the same take (marked tempo vs. declared practice
+    # tempo are different baselines), so both must be able to survive together
+    # at the same measure. tempo_vs_marking predates this branch and keeps its
+    # original (measure, type) key untouched — it still collapses with any
+    # other is_global "timing" fact at that measure exactly as it always did
+    # (e.g. the pre-existing "overall" tempo-drift flag). tempo_vs_declared is
+    # the new rule this branch introduced, and it alone gets a widened
+    # (measure, type, rule) key so it no longer collides with tempo_vs_marking.
+    # A single equality-based key can't make tempo_vs_marking collide with
+    # "overall" AND not collide with tempo_vs_declared while ALSO having
+    # tempo_vs_declared collide with "overall" (that would violate transitivity
+    # of key equality) — so tempo_vs_declared, being the newcomer, is the one
+    # that moves. Every other flag — other is_global facts like "overall",
+    # global intonation, global dynamics, and all local per-measure
+    # measurements — keeps the original (measure, type) key; those are still
+    # competing explanations of the SAME event and must collapse to one.
     seen_keys: set = set()
     deduped_issues: list[dict] = []
     # Prefer confirmed, then larger deviation, so the strongest survives a dedup.
@@ -5652,8 +5663,8 @@ def compare_and_coach_claude(
     for iss in sorted(canonical, key=lambda x: (not x["confirmed"], -x.get("_priority", 0), -(x["cents"] or 0))):
         if iss["type"] in ("posture", "technique"):
             key = iss["type"]
-        elif iss.get("global"):
-            key = (iss["measure"], iss["type"], iss.get("rule"))
+        elif iss.get("rule") == "tempo_vs_declared":
+            key = (iss["measure"], iss["type"], iss["rule"])
         else:
             key = (iss["measure"], iss["type"])
         if key in seen_keys:
@@ -6057,7 +6068,7 @@ def run_full_analysis(payload: dict) -> None:
     piece_title         = payload.get("piece_title", "this piece")
     composer            = payload.get("composer", "the composer")
     time_sig            = payload.get("time_sig", "4/4")
-    declared_bpm         = parse_marked_bpm(payload.get("declared_bpm"))
+    declared_bpm        = parse_marked_bpm(payload.get("declared_bpm"))
     start_measure       = int(payload.get("start_measure", 1))
     end_measure         = payload.get("end_measure")
     gemini_key          = payload.get("gemini_api_key")

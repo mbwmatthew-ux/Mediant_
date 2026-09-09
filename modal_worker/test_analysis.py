@@ -2379,6 +2379,64 @@ def test_marked_and_declared_tempo_flags_both_survive_dedup():
           len(td) == 1, str(flags))
 
 
+def test_overall_drift_and_marked_tempo_flag_still_dedup_to_one():
+    print("\n[61] a pre-existing pair — the piece-level 'overall' tempo-drift "
+          "flag and the 'tempo_vs_marking' flag — still collapse to ONE "
+          "survivor at the same measure. The dedup-widening fix that let "
+          "tempo_vs_marking/tempo_vs_declared coexist must not have widened "
+          "this unrelated pair's behavior too.")
+    # A real accelerando across a 16-measure passage: steady ~0.5s/beat at the
+    # start ramping down to ~0.28s/beat by the end. The opening is steady
+    # enough to anchor `overall`'s reference tempo, and the tail is >40%
+    # faster than that reference, so `overall` fires. The piece-wide fitted
+    # tempo also lands far above the marked 60 BPM, so `tempo_vs_marking`
+    # fires too — both anchored at measure 1.
+    n_measures = 16
+    score = _timed_score("3/4", 3, 1.0, 3, n_measures=n_measures)
+    score["tempo_bpm"] = 60.0
+    notes = [(m, n) for m in score["measures"] for n in m["notes"]]
+    total = len(notes)
+    evs = []
+    t = 0.0
+    for i, (m, note) in enumerate(notes):
+        frac = i / max(1, total - 1)
+        spb = 0.5 - 0.22 * frac
+        evs.append({"time_sec": t, "end_sec": t + spb,
+                    "pitches": [note["pitch"]], "confidence": 90,
+                    "cents_offset": 0, "cents_spread": 8})
+        t += spb
+    end_measure = score["measures"][-1]["number"]
+    al = w.dtw_align_to_score(evs, score, 1, 3, end_measure=end_measure)
+    acc = {}
+    for e in al:
+        m, tt = e["measure"], e["time_sec"]
+        r = acc.setdefault(m, {"start": tt, "end": tt})
+        r["start"], r["end"] = min(r["start"], tt), max(r["end"], tt)
+    items = sorted(acc.items())
+    spm = 3 * 0.5
+    ranges = []
+    for i, (m, r) in enumerate(items):
+        nxt = items[i + 1] if i + 1 < len(items) else None
+        end = (nxt[1]["start"] if nxt[0] == m + 1 else min(nxt[1]["start"], r["start"] + spm)) \
+            if nxt else max(r["end"] + spm / 3, r["start"] + spm)
+        ranges.append({"measure": m, "start": r["start"], "end": max(end, r["start"] + 0.25)})
+    flags = w.compare_and_coach_claude(
+        score=score, aligned=al, alignment_ranges=ranges, tempo={"bpm": 120},
+        piece_title="Test", composer="X", instrument="clarinet",
+        gemini_assessment=dict(EMPTY_GEMINI), anthropic_api_key="k",
+        beats_per_measure=3, start_measure=1, end_measure=end_measure,
+        dtw_verified=True,
+    )
+    ov = [f for f in flags if f.get("rule") == "overall"]
+    tm = [f for f in flags if f.get("rule") == "tempo_vs_marking"]
+    check("this fixture produced a survivor from the overall/tempo_vs_marking "
+          "pair at all (fixture sanity check)",
+          len(ov) + len(tm) >= 1, str(flags))
+    check("overall + tempo_vs_marking still collapse to exactly one survivor, "
+          "unchanged by the narrowed dedup widening",
+          len(ov) + len(tm) == 1, str(flags))
+
+
 def test_crescendo_that_never_arrives_is_flagged():
     print("\n[57] a crescendo must actually get louder")
     wedges = [{"kind": "cresc", "start_measure": 3, "end_measure": 6}]
@@ -2463,6 +2521,7 @@ def main():
               test_tempo_vs_declared_reports_fact_not_fault,
               test_declared_bpm_flows_into_compare_and_coach_claude,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
+              test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged):
         try:
             t()

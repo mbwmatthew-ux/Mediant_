@@ -1266,7 +1266,7 @@ serve(async (req: Request) => {
       part ?? '',
     )
     const safeAudioFeatures = audioFeatures && typeof audioFeatures === 'object' ? audioFeatures : null
-    const safeTempo = Math.max(0, parseInt(String(tempo ?? 0), 10) || 0)
+    const safeTempo = Math.max(0, parseInt(String(tempo ?? 0), 10) || 0) || safeDeclaredBpm || 0
     const measureTimeline = buildMeasureTimeline({
       scoreFacts: safeScoreFacts,
       audioFeatures: safeAudioFeatures,

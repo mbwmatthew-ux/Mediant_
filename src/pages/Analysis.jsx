@@ -1441,6 +1441,7 @@ const videoRef    = useRef(null)
               instrument:     activeThread?.instrument,
               songId:         activeSongId ?? null,
               notes:          noteDraft.trim() || undefined,
+              declaredBpm:    take?.declared_bpm ?? undefined,
             }),
           }
         )

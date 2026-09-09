@@ -28,6 +28,24 @@ _Nothing active._
 
 ## Needs Review
 
+- [ ] **AI reference audio feature — deploy order + two deferred gaps.** Built on
+  branch `worktree-reference-audio` via subagent-driven-development (spec +
+  plan in `docs/superpowers/specs/` and `docs/superpowers/plans/`, both dated
+  2026-09-08). Before merging/deploying: apply
+  `supabase/migrations/20260908020000_create_reference_audio.sql` BEFORE
+  redeploying `generate-reference-audio` — it queries the new `takes` columns
+  unconditionally. The new Modal endpoint (`generate_reference_audio_endpoint`)
+  gets its own distinct URL — capture it from the deploy output/dashboard and
+  set it as the `MODAL_REFERENCE_AUDIO_URL` Supabase secret, since
+  `MODAL_WORKER_URL` won't reach it. Deferred (not blocking, parked during
+  final review, need a follow-up pass): range selection is confined to page 1
+  of multi-page scores; a take with zero flags and no exact Gemini position
+  data only exposes one selectable measure in the drag-range fallback. See
+  CHANGELOG.md's 2026-09-08 entry for the full list of what the final review
+  caught and fixed (three Critical cross-task bugs: multi-page score-cache
+  key, written-vs-sounding pitch transposition, stale audio across take
+  switches).
+
 - [ ] **Declared BPM feature — deploy order + deferred UI polish.** Built on branch
   `worktree-declared-bpm` via subagent-driven-development (spec + plan in
   `docs/superpowers/specs/` and `docs/superpowers/plans/`, both dated 2026-09-08).

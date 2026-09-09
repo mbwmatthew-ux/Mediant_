@@ -1,5 +1,69 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-08 — AI reference audio: hear how a piece (or a selected range) is supposed to sound
+
+Students can generate and play an AI-synthesized reference recording of
+their piece — correct notes/rhythm/timing, at their declared practice
+tempo, adjustable client-side without a server round-trip — and drag-select
+a measure range on the sheet-music image to isolate and hear just that
+section, to compare directly against their own recording.
+
+A new synchronous Modal endpoint (`generate_reference_audio_endpoint`, its
+own distinct URL — see Gotchas "Modal URL has no path") builds MIDI from
+the same note-list data the analysis pipeline already parses, renders it
+via `pretty_midi`'s FluidSynth wrapper against the `fluid-soundfont-gm`
+General MIDI soundfont, and returns audio + a per-measure time mapping. A
+new edge function (`generate-reference-audio`) orchestrates lazy
+generation, caching (once per take, forever after) via a new
+`reference-audio` storage bucket and three new `takes` columns. The
+frontend adds `useReferenceAudio` (playback/tempo hook) and reuses the
+existing sheet-music overlay's per-measure position data for drag-to-select
+range handles — no new geometry system.
+
+Built via subagent-driven-development against
+`docs/superpowers/specs/2026-09-08-reference-audio-design.md` and
+`docs/superpowers/plans/2026-09-08-reference-audio.md`. Two genuine bugs in
+the plan's own provided code were found and fixed during per-task review
+(a rounding-precision/test-tolerance mismatch on 6/8-time-signature timing,
+and a broken `setTimeout`-based pointer-listener "cleanup" that would have
+made the drag handles non-functional — see the session note for detail).
+The final whole-branch review then caught three Critical, cross-task-boundary
+bugs no single task's scoped review could have seen:
+- The edge function's `score_cache` lookup used `take.score_path` directly,
+  but for multi-page scores the cache key is an *opaque* `|`-joined key
+  built in `analyze-performance` — silently, permanently missing cache (and
+  failing generation) for the spec's own named dominant case (multi-photo
+  uploads). New Gotchas entry: "a citation that's almost the whole logic
+  reads as more authoritative than one that's obviously partial."
+- Reference audio played at *written* pitch with no call to the existing
+  `transpose_for_instrument` — a clarinet reference played 2 semitones
+  sharp of what the student is meant to compare it against. Fixed to
+  transpose to sounding pitch, matching what CREPE (and the student's own
+  ear) actually hears.
+- `useReferenceAudio` had no cleanup tied to `takeId` changing, and
+  `Analysis.jsx` never remounts across take switches — so switching takes
+  and pressing Play played the *previous* take's cached audio.
+
+Also fixed in the same pass: a drag-coordinate-frame bug adjacent to the
+listener-lifecycle fix (measured against the wrapper instead of the
+letterboxed `scoreImgBox`), no self-heal if a cached audio file's storage
+object is deleted, a too-short cold-start timeout on the new (never-warm)
+Modal endpoint, and no cap on how large a score's audio payload can get.
+
+**Known, deliberately deferred gaps** (documented, not silently dropped):
+range selection is confined to page 1 of multi-page scores (inherits an
+existing limitation in the marker system this feature reuses); a take with
+zero flags and no exact Gemini position data only exposes one selectable
+measure in the drag-range fallback. Both flagged for a follow-up pass.
+
+**Deploy order matters** (manual, cannot be automated from the repo):
+apply `supabase/migrations/20260908020000_create_reference_audio.sql`
+before redeploying `generate-reference-audio` — it queries the new `takes`
+columns unconditionally. The new Modal endpoint gets its own distinct URL
+(not `MODAL_WORKER_URL`) — capture it from the deploy output and set it as
+the `MODAL_REFERENCE_AUDIO_URL` Supabase secret before the edge function can
+work at all.
+
 ## 2026-09-08 — Declared BPM: required tempo on every submission, wired into timing analysis
 
 Every recording submission now requires the student to declare the tempo

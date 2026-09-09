@@ -2270,6 +2270,31 @@ def test_tempo_vs_marking_reports_fact_not_fault():
           str(w.parse_marked_bpm("Allegro")))
 
 
+def test_tempo_vs_declared_reports_fact_not_fault():
+    print("\n[58] played tempo is compared to what the student declared they'd play")
+    check("15% faster is reported",
+          (w.check_tempo_vs_declared(92.0, 80.0) or {}).get("direction") == "faster")
+    check("the percentage is real",
+          abs((w.check_tempo_vs_declared(92.0, 80.0) or {})["pct"] - 15.0) < 0.6,
+          str(w.check_tempo_vs_declared(92.0, 80.0)))
+    check("slower is reported too",
+          (w.check_tempo_vs_declared(60.0, 80.0) or {}).get("direction") == "slower")
+    # Inside tolerance is not a finding — musicians are not metronomes.
+    check("a close tempo is silent", w.check_tempo_vs_declared(84.0, 80.0) is None,
+          str(w.check_tempo_vs_declared(84.0, 80.0)))
+    # No declared tempo means nothing to compare against.
+    check("no declared tempo means no finding", w.check_tempo_vs_declared(84.0, None) is None)
+    check("zero declared tempo is rejected", w.check_tempo_vs_declared(84.0, 0.0) is None)
+    check("no fitted tempo means no finding", w.check_tempo_vs_declared(None, 80.0) is None)
+    # declared_bpm arrives as a plain JSON number (int or float), not a marking
+    # string — confirm parse_marked_bpm's numeric branch handles that shape, since
+    # the worker reuses parse_marked_bpm to validate declared_bpm (see Task 3).
+    check("parse_marked_bpm accepts a bare int", w.parse_marked_bpm(72) == 72.0,
+          str(w.parse_marked_bpm(72)))
+    check("parse_marked_bpm rejects an out-of-range bare int",
+          w.parse_marked_bpm(400) is None, str(w.parse_marked_bpm(400)))
+
+
 def test_crescendo_that_never_arrives_is_flagged():
     print("\n[57] a crescendo must actually get louder")
     wedges = [{"kind": "cresc", "start_measure": 3, "end_measure": 6}]
@@ -2351,6 +2376,7 @@ def main():
               test_rest_violations_need_real_playing_not_decay,
               test_rest_violation_outranks_a_placement_finding_in_dedup,
               test_tempo_vs_marking_reports_fact_not_fault,
+              test_tempo_vs_declared_reports_fact_not_fault,
               test_crescendo_that_never_arrives_is_flagged):
         try:
             t()

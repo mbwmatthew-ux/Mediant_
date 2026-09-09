@@ -4038,6 +4038,34 @@ def check_tempo_vs_marking(fitted_bpm, marked_bpm) -> dict | None:
             "fitted": round(f, 1), "marked": round(m, 1)}
 
 
+_TEMPO_DECLARED_PCT = 15.0   # same tolerance as the marked-tempo check
+
+
+def check_tempo_vs_declared(fitted_bpm, declared_bpm) -> dict | None:
+    """
+    How the played tempo compares with what the student said they'd play.
+
+    Same posture as check_tempo_vs_marking: reported as fact, not fault. A student
+    who declared 80 and drifted to 95 made a tempo-stability observation available,
+    not a mistake against the score. This is deliberately independent of
+    check_tempo_vs_marking — both can fire on the same take (declared slower than
+    marked, then played faster than declared, is two true, non-contradictory facts).
+    """
+    try:
+        f = float(fitted_bpm or 0.0)
+        d = float(declared_bpm or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if f <= 0 or d <= 0:
+        return None
+    pct = (f - d) / d * 100.0
+    if abs(pct) < _TEMPO_DECLARED_PCT:
+        return None
+    return {"pct": round(abs(pct), 1),
+            "direction": "faster" if pct > 0 else "slower",
+            "fitted": round(f, 1), "declared": round(d, 1)}
+
+
 _REST_ONSET_GRACE   = 0.15   # s after the rest starts before an onset counts
 _REST_MIN_CONF      = 65     # same bar as the wrong-note detector
 _REST_MAX_SPREAD    = 40     # cents; a sliding reading is not a held note

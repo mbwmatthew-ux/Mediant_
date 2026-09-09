@@ -5637,6 +5637,12 @@ def compare_and_coach_claude(
         return []
 
     # Dedup: one issue per (measure, type); posture/technique collapse to one each.
+    # Global passage-level facts (is_global=True — e.g. tempo-vs-marking,
+    # tempo-vs-declared, piece-level drift) are independent claims that can be
+    # simultaneously true of the same take, so they dedup per RULE instead: two
+    # global "timing" facts at the same measure survive as long as they come from
+    # different checks. Local per-measure measurements (placement/drift/durations)
+    # are still competing explanations of the SAME event and must collapse to one.
     seen_keys: set = set()
     deduped_issues: list[dict] = []
     # Prefer confirmed, then larger deviation, so the strongest survives a dedup.
@@ -5646,6 +5652,8 @@ def compare_and_coach_claude(
     for iss in sorted(canonical, key=lambda x: (not x["confirmed"], -x.get("_priority", 0), -(x["cents"] or 0))):
         if iss["type"] in ("posture", "technique"):
             key = iss["type"]
+        elif iss.get("global"):
+            key = (iss["measure"], iss["type"], iss.get("rule"))
         else:
             key = (iss["measure"], iss["type"])
         if key in seen_keys:

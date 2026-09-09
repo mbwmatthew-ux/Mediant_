@@ -2335,6 +2335,50 @@ def test_declared_bpm_flows_into_compare_and_coach_claude():
           bool(td_with) and td_with[0].get("measured") is not None, str(td_with))
 
 
+def test_marked_and_declared_tempo_flags_both_survive_dedup():
+    print("\n[60] a marked-tempo divergence and a declared-tempo divergence "
+          "both survive the (measure, type) dedup on the same take")
+    # Both checks are global "timing" facts anchored at the same measure
+    # (measure_lo), so before the dedup fix only one of tempo_vs_marking /
+    # tempo_vs_declared could survive the (measure, type) key — whichever's
+    # _add call ran first silently ate the other. check_tempo_vs_declared's own
+    # docstring says both can legitimately fire on the same take (declared
+    # slower than marked, then played faster than declared is two true,
+    # non-contradictory facts) so both must appear in the output.
+    score = make_score()
+    score["tempo_bpm"] = 90.0  # real (120 BPM) is 33% faster than marked -> fires
+    played, evs = make_performance(score)
+    al = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    acc = {}
+    for e in al:
+        m, t = e["measure"], e["time_sec"]
+        r = acc.setdefault(m, {"start": t, "end": t})
+        r["start"], r["end"] = min(r["start"], t), max(r["end"], t)
+    items = sorted(acc.items())
+    spm = BEATS_PER_MEASURE * SEC_PER_BEAT
+    ranges = []
+    for i, (m, r) in enumerate(items):
+        nxt = items[i + 1] if i + 1 < len(items) else None
+        end = (nxt[1]["start"] if nxt[0] == m + 1 else min(nxt[1]["start"], r["start"] + spm)) \
+            if nxt else max(r["end"] + spm / 4, r["start"] + spm)
+        ranges.append({"measure": m, "start": r["start"], "end": max(end, r["start"] + 0.25)})
+
+    real_bpm = 60.0 / SEC_PER_BEAT
+    flags = w.compare_and_coach_claude(
+        score=score, aligned=al, alignment_ranges=ranges,
+        tempo={"bpm": real_bpm}, piece_title="Test", composer="X",
+        instrument="clarinet", gemini_assessment=dict(EMPTY_GEMINI),
+        anthropic_api_key="k", beats_per_measure=BEATS_PER_MEASURE,
+        start_measure=START, end_measure=END, dtw_verified=True,
+        declared_bpm=real_bpm * 1.3,  # real is 23% slower than declared -> fires
+    )
+    tm = [f for f in flags if f.get("rule") == "tempo_vs_marking"]
+    td = [f for f in flags if f.get("rule") == "tempo_vs_declared"]
+    check("the marked-tempo flag survives", len(tm) == 1, str(flags))
+    check("the declared-tempo flag ALSO survives (not eaten by dedup)",
+          len(td) == 1, str(flags))
+
+
 def test_crescendo_that_never_arrives_is_flagged():
     print("\n[57] a crescendo must actually get louder")
     wedges = [{"kind": "cresc", "start_measure": 3, "end_measure": 6}]
@@ -2418,6 +2462,7 @@ def main():
               test_tempo_vs_marking_reports_fact_not_fault,
               test_tempo_vs_declared_reports_fact_not_fault,
               test_declared_bpm_flows_into_compare_and_coach_claude,
+              test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_crescendo_that_never_arrives_is_flagged):
         try:
             t()

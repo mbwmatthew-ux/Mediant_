@@ -63,8 +63,17 @@ image = (
         # PDF → PNG rendering for Gemini (so PDF scores work the same as image scores)
         "pymupdf==1.24.11",
         # Reference-audio synthesis: builds MIDI from the parsed note list and
-        # renders it via the fluidsynth binary installed above.
+        # renders it via the fluidsynth binary installed above. pretty_midi's
+        # .fluidsynth() method does `import fluidsynth` internally — that's
+        # the separate pyFluidSynth package (ctypes bindings to libfluidsynth,
+        # which the apt `fluidsynth` package above provides as libfluidsynth3),
+        # not pretty_midi itself. Omitting it makes .fluidsynth() raise
+        # "fluidsynth() was called but pyfluidsynth is not installed." at
+        # runtime — confirmed against pretty_midi 0.2.10's actual source
+        # (pretty_midi/instrument.py's `try: import fluidsynth` guard) before
+        # this fix, not guessed.
         "pretty_midi==0.2.10",
+        "pyFluidSynth==1.3.3",
         # Utilities
         "fastapi[standard]",
         "requests==2.31.0",

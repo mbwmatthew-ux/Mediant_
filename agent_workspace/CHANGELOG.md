@@ -1,5 +1,31 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-10 — Investigated a fourth "wrong music" report; found no bug, found a flaw in how it was being checked
+
+After the score_cache and SDK-pin fixes, the user reported the music was
+still wrong. Manual pixel-position verification against a downloaded
+score photo appeared to confirm a real bug — the first note of measure
+12 rendering a full octave low. It wasn't real: the photo is measurably
+rotated, and a staff-line reference measured near the clef doesn't hold
+~150px further along the same row (drifts ~5-6px, more than half a
+staff-line's spacing). Caught by sampling the staff-line position at
+several x-offsets and finding they disagreed.
+
+Re-verified properly: added logging of the exact note data Claude
+reports, redeployed, regenerated, and checked that exact generation's
+audio (confirmed by checksum, not assumed) against a real pitch tracker
+(`librosa.pyin`, not hand-rolled FFT peak-picking). Every note matched
+Claude's reported data, correctly transposed, note for note. That same
+melodic shape also independently matches a separate Claude read of
+measure 20 from a month earlier — two independent reads agreeing is real
+evidence the reading is accurate.
+
+Net finding: the reference-audio pipeline is working correctly as of
+tonight's earlier fixes. No further code change made — kept the note-data
+logging since it's what made real verification possible instead of
+another round of guessing. See Gotchas: "a false 'octave bug' from an
+uncorrected rotated photo."
+
 ## 2026-09-10 — Reference audio now reads the whole piece fresh; fixed a silent SDK regression that was breaking score reads everywhere
 
 Built the real fix for 2026-09-09's partial-coverage bug: reference-audio

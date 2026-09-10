@@ -2652,15 +2652,32 @@ def upload_video_to_gemini(video_bytes: bytes, mime_type: str, api_key: str) -> 
         file_data = resp.json()["file"]
         file_id   = file_data["name"].split("/")[-1]
         state     = file_data.get("state", "PROCESSING")
+        print(f"[upload_video_to_gemini] uploaded, file_id={file_id} initial_state={state}")
         for attempt in range(20):
             if state == "ACTIVE":
                 break
             time.sleep(3)
-            poll  = client.get(f"https://generativelanguage.googleapis.com/v1beta/files/{file_id}?key={api_key}")
-            state = poll.json().get("state", "UNKNOWN")
-            print(f"[upload_video_to_gemini] poll {attempt+1}: state={state}")
+            poll = client.get(f"https://generativelanguage.googleapis.com/v1beta/files/{file_id}?key={api_key}")
+            # Logging added 2026-09-10 after a take failed with
+            # state=UNKNOWN: the old code never logged the poll response's
+            # HTTP status or its "error" field, so a genuine Gemini-side
+            # processing failure (state=FAILED, with a real reason in
+            # "error") was indistinguishable from "still processing" or
+            # from the poll request itself failing. A retry with identical
+            # inputs succeeded cleanly right after, so this looks like a
+            # transient Gemini-side hiccup rather than a bug on this side
+            # — but if it recurs, this is what will say why instead of
+            # forcing another blind retry-and-hope.
+            if not poll.is_success:
+                print(f"[upload_video_to_gemini] poll {attempt+1} HTTP {poll.status_code}: {poll.text[:300]}")
+            poll_json = poll.json()
+            state = poll_json.get("state", "UNKNOWN")
+            print(f"[upload_video_to_gemini] poll {attempt+1}: state={state} "
+                  f"error={poll_json.get('error')}")
         if state != "ACTIVE":
-            raise RuntimeError(f"Gemini file never became ACTIVE after 60s (final state: {state})")
+            raise RuntimeError(
+                f"Gemini file never became ACTIVE after 60s "
+                f"(final state: {state}, error: {poll_json.get('error')})")
         print(f"[upload_video_to_gemini] file ACTIVE: {file_data['uri']}")
         return file_data["uri"]
 

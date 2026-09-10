@@ -3471,6 +3471,16 @@ def generate_reference_audio(score: dict, instrument: str, bpm: float) -> tuple[
     midi = pretty_midi.PrettyMIDI(initial_tempo=safe_bpm)
     inst = pretty_midi.Instrument(program=gm_program_for_instrument(instrument))
     transpose_semitones = transpose_for_instrument(instrument) or 0
+    # Logging added 2026-09-10 while investigating a "wrong notes" report.
+    # Turned out to be a flaw in the manual verification method, not this
+    # code (a rotated source photo threw off a pixel-position pitch check) —
+    # a real pyin trace against the rendered audio matched this exact data,
+    # transposed correctly, note for note. Kept because it's what made that
+    # possible to confirm quickly: the alternative was re-deriving pitch
+    # from raw audio with no ground truth to check it against.
+    for ev in events[:6]:
+        print(f"[generate_reference_audio] note midi={ev['midi']} measure={ev.get('measure')} "
+              f"transpose={transpose_semitones} final_pitch={max(0, min(127, int(ev['midi']) + transpose_semitones))}")
     for ev in events:
         if ev["end_sec"] <= ev["start_sec"]:
             continue
@@ -6893,6 +6903,10 @@ def _generate_reference_audio(body: dict) -> dict:
         if not score.get("measures"):
             print(f"[_generate_reference_audio] fresh read empty/failed "
                   f"({score.get('error')}), trying fallback score")
+        elif score["measures"]:
+            first_m = score["measures"][0]
+            print(f"[_generate_reference_audio] first measure="
+                  f"{first_m.get('number')} raw_notes={first_m.get('notes')}")
 
     if not (isinstance(score, dict) and score.get("measures")):
         fallback = body.get("score")

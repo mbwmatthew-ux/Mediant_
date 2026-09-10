@@ -1,5 +1,46 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-10 — Reference audio now reads the whole piece fresh; fixed a silent SDK regression that was breaking score reads everywhere
+
+Built the real fix for 2026-09-09's partial-coverage bug: reference-audio
+no longer trusts the shared `score_cache` table at all on a cache miss.
+`generate_reference_audio_endpoint` now accepts `score_urls`, and a new
+`read_score_notes_for_reference_audio` downloads the take's own score
+page(s) fresh and reads them via Claude vision, hardcoding
+`start_measure=1` — never any take's own played range. `score_cache` is
+kept only as a fallback if the fresh read fails. Extracted the endpoint's
+real logic into a plain `_generate_reference_audio` function so it's
+actually unit-testable (Modal's decorators are mocked in the test
+harness, which had made every Modal endpoint in this file untestable
+directly until now).
+
+**The first live test of this fix looked identical to the original bug**
+— same 16-measure range, same audio. That was not the fix failing to
+help; it was the fix never running. `anthropic` was pinned `>=0.30.0`
+with no ceiling, and a routine image rebuild had silently resolved it to
+`1.4.0` — a major version whose `.messages.stream()` no longer accepts
+`temperature`, breaking `read_score_notes_claude` outright with zero
+code change on this repo's side. The fresh-read call crashed, was caught,
+and silently fell back to the exact same stale cached data — reproducing
+the bug byte-for-byte and looking exactly like nothing had changed. Found
+only by checking Modal's own function logs (`modal app logs mediant-worker
+--since 10m`), which is not a step that would occur to anyone comparing
+before/after JSON alone. **This broke vision-based score reading in the
+main analysis pipeline too**, not just reference-audio — any take hitting
+a cache miss on an image/PDF score had been silently failing to parse
+notes, for however long this had been live. Pinned
+`anthropic>=0.30.0,<1.0.0`, the same major-version-ceiling pattern this
+file already uses for torch/torchaudio/torchcrepe.
+
+Re-verified live against the real take that started this whole
+investigation: before both fixes, `measureRange {start:20, end:35}` (16
+measures, 27s); after, `measureRange {start:12, end:67}` (49 measures,
+94s) — starting exactly where the photographed page's printed intro rest
+ends. See Gotchas: "score_cache is shared per-image..." (updated with
+this fix) and "when a fix that should obviously change the output
+produces the exact same output, that is a reason to suspect the fix
+never ran."
+
 ## 2026-09-09 — Reference audio played the wrong section of the piece; root-caused to a shared, partial score cache
 
 User's second real test after the pyFluidSynth fix: "the reference isnt

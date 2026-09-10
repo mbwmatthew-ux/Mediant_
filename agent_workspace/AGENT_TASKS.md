@@ -28,32 +28,49 @@ _Nothing active._
 
 ## Needs Review
 
-- [ ] **AI reference audio feature — deployed live, two real bugs found from the
-  user's own first two tries and fixed same-day, needs a real browser smoke
-  test.** Merged to `main`, pushed to `origin`, fully deployed on 2026-09-09:
+- [ ] **AI reference audio feature — deployed live, three real bugs found from
+  the user's own first three tries and fixed, needs a real browser smoke
+  test.** Merged to `main`, pushed to `origin`, fully deployed 2026-09-09/10:
   migration applied, worker deployed, `MODAL_REFERENCE_AUDIO_URL` secret set,
   edge function deployed, missing CI step added to `deploy-edge-functions.yml`.
-  Bug 1 (first click): `pyFluidSynth` — the pip package `pretty_midi.fluidsynth()`
-  needs internally — was never in the image's `pip_install` list, so every
-  generation attempt threw `"fluidsynth() was called but pyfluidsynth is not
-  installed."` Fixed and verified with a real note (peak amplitude, 93%
-  nonzero samples). Bug 2 (second click, after Bug 1's fix): the generated
-  audio was real and musically correct but only covered measures 20-35 of a
-  58+-measure piece — `score_cache` is shared per-image and had inherited a
-  partial parse left over from an earlier, different take that only played
-  that range. Fixed reference-audio's own gap (it now surfaces the actual
-  covered measure range, "Covers m.X–Y", instead of implying full-piece
-  coverage) without touching the deeper vision-pipeline cause — see Backlog.
-  See CHANGELOG.md's 2026-09-09 entries and Gotchas: "An apt package and a
-  pip package with overlapping names are not the same dependency" / "`score_cache`
-  is shared per-image and can silently hold a PARTIAL parse, not the whole
-  piece." What's NOT verified yet, and needs a human in an actual browser:
-  the full authenticated flow (generate → play → cache hit on reload →
-  tempo change preserves pitch → switching takes doesn't play stale audio →
+  Bug 1: `pyFluidSynth` missing from `pip_install` — every generation threw
+  `"fluidsynth() was called but pyfluidsynth is not installed."` Fixed,
+  verified with real audio (peak amplitude, 93% nonzero samples). Bug 2: the
+  generated audio was real and musically correct but only covered measures
+  20-35 of a 58+-measure piece — `score_cache` is shared per-image and had
+  inherited a partial parse left over from an earlier, different take.
+  Rebuilt reference-audio to do its own always-fresh, full-page vision read
+  instead of trusting that shared cache at all. Bug 3, found while verifying
+  Bug 2's fix (the first re-test looked identical to the bug — that was the
+  fix silently crashing and falling back to the same stale data, not the fix
+  failing to help): `anthropic` was unpinned (`>=0.30.0`, no ceiling) and had
+  resolved to `1.4.0` on a routine rebuild, breaking `.messages.stream(temperature=...)`
+  outright — this broke vision-based score reading in the MAIN analysis
+  pipeline too, not just reference-audio, for however long it had been live.
+  Pinned `<1.0.0`. Re-verified live: before all three fixes, reference audio
+  covered m.20-35 (16 measures, 27s); after, m.12-67 (49 measures, 94s) —
+  starting exactly where the printed page's intro rest ends. See
+  CHANGELOG.md's 2026-09-09/10 entries and Gotchas: "An apt package and a pip
+  package with overlapping names are not the same dependency" / "`score_cache`
+  is shared per-image and can silently hold a PARTIAL parse" (updated with
+  the real fix) / "when a fix that should obviously change the output
+  produces the exact same output, that is a reason to suspect the fix never
+  ran." What's NOT verified yet, and needs a human in an actual browser: the
+  full authenticated flow (generate → play → cache hit on reload → tempo
+  change preserves pitch → switching takes doesn't play stale audio →
   drag-to-select works). Deferred (not blocking, parked during final review,
   need a follow-up pass): range selection confined to page 1 of multi-page
   scores; a take with zero flags and no exact Gemini position data only
   exposes one selectable measure in the drag-range fallback.
+
+- [ ] **Audit other unpinned dependencies in the Modal image for the same
+  silent-major-version-jump risk.** The `anthropic>=0.30.0,<1.0.0` fix
+  (2026-09-10) was needed because nothing bounded it — a routine rebuild
+  pulled in a breaking major version with zero code change on this repo's
+  side, and the failure was silent (caught, logged, fell back) rather than
+  loud. `torch`/`torchaudio`/`torchcrepe` already have major-version
+  ceilings for the same reason. Check the rest of the `pip_install` list
+  (`fastapi[standard]`, `requests`, `httpx`) for the same gap.
 
 - [ ] **Declared-BPM migration was silently un-applied in production for ~13
   hours — now fixed, but worth a sanity pass.** Discovered 2026-09-09 while

@@ -2386,6 +2386,153 @@ def test_generate_reference_audio_smoke():
           str(timeline[0].keys()))
 
 
+def test_fresh_score_read_always_anchors_at_measure_1():
+    print("\n[65] reference-audio's fresh score read never anchors on a take's own start_measure")
+    # 2026-09-09 incident: an earlier take's start_measure biased the vision
+    # read to only report the measures around that take's own played range,
+    # even though the prompt has a rule against exactly this. This function
+    # exists specifically to stop trusting the shared, possibly-partial
+    # score_cache — it must always pass 1, never whatever the caller's own
+    # take happened to play, regardless of what start_measure-shaped argument
+    # might tempt a future edit to thread through.
+    import types, json as _json
+    captured = {}
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            captured["prompt"] = next(
+                b["text"] for b in kw["messages"][0]["content"] if b.get("type") == "text")
+            return _FakeStream(_json.dumps({
+                "key_signature": "Bb major", "time_signature": "3/4", "tempo_marking": None,
+                "measures": [{"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}],
+            }))
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    class _FakeResp:
+        status_code = 200
+        content = b"\x89PNG fake page bytes"
+        headers = {"content-type": "image/png"}
+        def raise_for_status(self): pass
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): return _FakeResp()
+
+    _ac = sys.modules["anthropic"]
+    _httpx = sys.modules["httpx"]
+    _orig_ac, _orig_httpx = _ac.Anthropic, _httpx.Client
+    _ac.Anthropic = _FakeClient
+    _httpx.Client = _FakeHttpClient
+    try:
+        res = w.read_score_notes_for_reference_audio(
+            ["https://example.test/page1.png"], "Clarinet (B♭)", "fake-key")
+    finally:
+        _ac.Anthropic, _httpx.Client = _orig_ac, _orig_httpx
+
+    check("downloads and parses successfully", res.get("measures") and len(res["measures"]) == 1,
+          str(res))
+    check("prompt's measure-number example is always 1, never a take's own start_measure",
+          '"number": 1,' in captured.get("prompt", ""), captured.get("prompt", "")[:400])
+
+
+def test_reference_audio_endpoint_prefers_fresh_read_over_provided_score():
+    print("\n[66] generate_reference_audio_endpoint uses the fresh read, not a stale provided score, when both are given")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            return _FakeStream(_json.dumps({
+                "key_signature": None, "time_signature": "4/4", "tempo_marking": None,
+                "measures": [{"number": n, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}
+                             for n in range(1, 6)],
+            }))
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    class _FakeResp:
+        content = b"\x89PNG fake"
+        headers = {"content-type": "image/png"}
+        def raise_for_status(self): pass
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): return _FakeResp()
+
+    stale_score = {"measures": [{"number": 20, "notes": [{"pitch": "Bb4", "beat": 1.0, "duration_beats": 1.0}]}]}
+
+    _ac = sys.modules["anthropic"]
+    _httpx = sys.modules["httpx"]
+    _orig_ac, _orig_httpx = _ac.Anthropic, _httpx.Client
+    _ac.Anthropic = _FakeClient
+    _httpx.Client = _FakeHttpClient
+    try:
+        res = w._generate_reference_audio({
+            "score_urls": ["https://example.test/p1.png"],
+            "score": stale_score,
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+        })
+    finally:
+        _ac.Anthropic, _httpx.Client = _orig_ac, _orig_httpx
+
+    check("returns audio, not an error", "audio_base64" in res, str(res))
+    check("timeline reflects the FRESH 5-measure read, not the stale 1-measure fallback",
+          len(res.get("timeline", [])) == 5, str(res.get("timeline")))
+
+
+def test_reference_audio_endpoint_falls_back_when_fresh_read_fails():
+    print("\n[67] generate_reference_audio_endpoint falls back to a provided score if the fresh read fails")
+    class _FailingHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): raise RuntimeError("network down")
+
+    fallback_score = {"measures": [{"number": 20, "notes": [{"pitch": "Bb4", "beat": 1.0, "duration_beats": 1.0}]}]}
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _httpx.Client = _FailingHttpClient
+    try:
+        res = w._generate_reference_audio({
+            "score_urls": ["https://example.test/unreachable.png"],
+            "score": fallback_score,
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+        })
+    finally:
+        _httpx.Client = _orig_httpx
+
+    check("falls back to the provided score instead of erroring", "audio_base64" in res, str(res))
+    check("timeline reflects the fallback score's one measure",
+          len(res.get("timeline", [])) == 1, str(res.get("timeline")))
+
+
 def test_declared_bpm_flows_into_compare_and_coach_claude():
     print("\n[59] declared_bpm reaches compare_and_coach_claude and produces a flag")
     score = make_score()
@@ -2615,6 +2762,9 @@ def main():
               test_measure_audio_timeline_covers_every_measure,
               test_notes_to_timed_events_uses_quarter_length_conversion,
               test_generate_reference_audio_smoke,
+              test_fresh_score_read_always_anchors_at_measure_1,
+              test_reference_audio_endpoint_prefers_fresh_read_over_provided_score,
+              test_reference_audio_endpoint_falls_back_when_fresh_read_fails,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged):

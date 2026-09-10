@@ -79,7 +79,17 @@ image = (
         "requests==2.31.0",
         "httpx==0.27.0",
         # AI SDKs (used in async full-pipeline)
-        "anthropic>=0.30.0",
+        # Major-version ceiling only, same reasoning as the torch/torchaudio/
+        # torchcrepe pins above: an unpinned "anthropic>=0.30.0" silently
+        # resolved to 1.4.0 on a routine rebuild and broke
+        # read_score_notes_claude's `client.messages.stream(temperature=0, ...)`
+        # call outright — "Messages.stream() got an unexpected keyword
+        # argument 'temperature'" — with no code change on this side at all.
+        # Confirmed live (2026-09-10) via Modal function logs, not guessed.
+        # Every vision-based score read on a cache miss (main pipeline AND
+        # reference-audio) silently failed and fell back to whatever stale
+        # data existed, for however long this had been deployed.
+        "anthropic>=0.30.0,<1.0.0",
     )
 )
 
@@ -3462,6 +3472,57 @@ def generate_reference_audio(score: dict, instrument: str, bpm: float) -> tuple[
     return buf.getvalue(), timeline
 
 
+def read_score_notes_for_reference_audio(score_urls: list[str], instrument: str, anthropic_api_key: str) -> dict:
+    """
+    Downloads a take's score page(s) fresh and reads them via Claude vision,
+    always anchored at measure 1 — deliberately NOT whatever measure any
+    take happened to start playing at.
+
+    Exists because trusting the shared score_cache table for "the whole
+    piece" is unsound: score_cache is keyed by the uploaded image's content
+    hash and shared by every take that reuses that exact photo, so it can
+    hold a partial parse left over from whichever take first populated it.
+    Confirmed live (2026-09-09): a 58-measure clarinet part was cached as
+    just 16 measures (20-35) because an earlier take had only played that
+    range — Claude's vision read apparently anchored on that take's own
+    start_measure despite read_score_notes_claude's prompt explicitly
+    warning against exactly this (rule #5: "Do NOT start counting from the
+    student's starting measure"). Rather than try to detect an incomplete
+    cache (no reliable signal generalizes — a score can legitimately start
+    after a real multi-measure rest), reference-audio does its own
+    independent, always-fresh, always-unbiased read instead of reusing
+    score_cache at all.
+
+    Returns the same shape read_score_notes_claude/parse_score_document
+    return: a dict with "measures" (possibly empty) and optionally "error".
+    Never raises — a download or parse failure comes back as an empty/error
+    result so the caller can fall back rather than crash.
+    """
+    import httpx
+    pages: list[tuple[bytes, str]] = []
+    with httpx.Client(timeout=90) as client:
+        for u in score_urls:
+            if not u:
+                continue
+            try:
+                resp = client.get(u, follow_redirects=True)
+                resp.raise_for_status()
+                pages.append((resp.content, page_mime_from_response(resp.headers.get("content-type"), "")))
+            except Exception as e:
+                print(f"[read_score_notes_for_reference_audio] failed to download page: {e}")
+    if not pages:
+        return {"measures": [], "error": "could not download any score pages"}
+
+    kind = sniff_score_kind(pages[0][0], pages[0][1], score_urls[0] if score_urls else "")
+    if kind in ("xml", "mxl"):
+        return parse_score_document(pages[0][0], 1, instrument)
+    if kind == "visual":
+        if not anthropic_api_key:
+            return {"measures": [], "error": "vision reading not configured"}
+        return read_score_notes_claude(pages, 1, instrument, "4/4", anthropic_api_key)
+    return {"measures": [], "error": f"unsupported score kind: {kind}"}
+
+
 def anchor_and_align_py(
     score: dict,
     events: list[dict],
@@ -6782,19 +6843,44 @@ def analyze_async(body: dict) -> dict:
 # analysis pipeline needs. Gets its OWN Modal URL (see Gotchas: "Modal URL
 # has no path — root only"), separate from MODAL_WORKER_URL.
 
-@app.function(image=image, timeout=60, memory=2048)
-@modal.fastapi_endpoint(method="POST", docs=True)
-def generate_reference_audio_endpoint(body: dict) -> dict:
+def _generate_reference_audio(body: dict) -> dict:
     """
-    Renders an AI reference performance for a whole parsed score.
-    Accepts: score (the parsed-score dict, same shape as score_cache.parsed_notes
-    or the Modal worker's own score parse output), instrument (declared
-    instrument string), bpm (target tempo).
+    Plain, undecorated implementation — Modal's decorators (@app.function,
+    @modal.fastapi_endpoint) are blanket-mocked in the local test harness,
+    which turns a decorated function into an unrelated MagicMock and makes
+    it untestable directly. generate_reference_audio_endpoint below is a
+    thin wrapper so this real logic stays testable; deployment behavior is
+    unchanged (same body in, same dict out).
+
+    Accepts: instrument (declared instrument string), bpm (target tempo),
+    and EITHER:
+      - score_urls (preferred): signed URL(s) for the take's own score
+        page(s). Triggers a fresh, unbiased vision read (see
+        read_score_notes_for_reference_audio) rather than trusting the
+        shared, possibly-partial score_cache. Needs anthropic_api_key for
+        image/PDF scores.
+      - score (fallback / legacy): a pre-parsed score dict, same shape as
+        score_cache.parsed_notes. Used directly if score_urls is absent,
+        or as a fallback if the fresh read from score_urls fails/returns
+        nothing (better a possibly-partial result than a hard failure).
     Returns: { audio_base64, timeline } or { error }.
     """
-    score = body.get("score")
     instrument = body.get("instrument", "")
     bpm = body.get("bpm")
+
+    score = None
+    score_urls = body.get("score_urls")
+    if isinstance(score_urls, list) and score_urls:
+        score = read_score_notes_for_reference_audio(
+            score_urls, instrument, body.get("anthropic_api_key"))
+        if not score.get("measures"):
+            print(f"[_generate_reference_audio] fresh read empty/failed "
+                  f"({score.get('error')}), trying fallback score")
+
+    if not (isinstance(score, dict) and score.get("measures")):
+        fallback = body.get("score")
+        if isinstance(fallback, dict) and fallback.get("measures"):
+            score = fallback
 
     if not isinstance(score, dict) or not score.get("measures"):
         return {"error": "score with at least one measure is required"}
@@ -6810,7 +6896,7 @@ def generate_reference_audio_endpoint(body: dict) -> dict:
     try:
         audio_bytes, timeline = generate_reference_audio(score, instrument, bpm_f)
     except Exception as e:
-        print(f"[generate_reference_audio_endpoint] FAILED: {e}")
+        print(f"[_generate_reference_audio] FAILED: {e}")
         return {"error": f"Reference audio generation failed: {e}"}
 
     import base64
@@ -6818,6 +6904,13 @@ def generate_reference_audio_endpoint(body: dict) -> dict:
         "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
         "timeline": timeline,
     }
+
+
+@app.function(image=image, timeout=120, memory=2048)
+@modal.fastapi_endpoint(method="POST", docs=True)
+def generate_reference_audio_endpoint(body: dict) -> dict:
+    """Renders an AI reference performance for a whole score. See _generate_reference_audio."""
+    return _generate_reference_audio(body)
 
 
 @app.local_entrypoint()

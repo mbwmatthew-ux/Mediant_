@@ -84,28 +84,46 @@ serve(async (req: Request) => {
       })
     }
 
-    // Cache miss: read the already-parsed score (same cache analyze-performance
-    // reads — no fresh vision read here, see this task's edge-case note).
-    // score_cache.score_path is not always a plain storage path — for scores
-    // with multiple uploaded pages, analyze-performance/index.ts keys the row
-    // by a `|`-joined path list instead of the single score_path column, so
-    // the lookup must reconstruct the same key.
+    // Cache miss: do a FRESH, dedicated vision read of the take's own score
+    // page(s) — NOT a reuse of score_cache. score_cache is shared per-image
+    // content-hash across every take that reuses that exact photo, and can
+    // hold a partial parse left over from whichever take first populated it
+    // (confirmed live 2026-09-09: a 58-measure part was cached as just 16
+    // measures because an earlier take had only played that range, and the
+    // vision read apparently anchored on that take's own start measure
+    // despite the reader prompt's explicit rule against exactly that — see
+    // Gotchas: "score_cache is shared per-image and can silently hold a
+    // PARTIAL parse, not the whole piece"). The worker's fresh-read path
+    // always anchors at measure 1, never any take's own start measure.
+    //
+    // score_cache is still queried, but only as a FALLBACK the worker uses
+    // if the fresh read fails (network hiccup, vision call error) — a
+    // possibly-partial result beats a hard failure. Not used as the primary
+    // source, so its own possible incompleteness no longer matters here.
     const paths = Array.isArray(take.score_paths)
       ? take.score_paths.filter((p: unknown): p is string => typeof p === 'string')
-      : []
-    const scoreCacheKey = paths.length > 1 ? paths.join('|') : take.score_path
+      : (take.score_path ? [take.score_path] : [])
 
+    const signedScorePages = await Promise.all(
+      paths.map((p: string) =>
+        admin.storage.from('sheet-music').createSignedUrl(p, 7200)
+          .then(r => r.data?.signedUrl ?? null)
+          .catch(() => null)
+      )
+    )
+    const scoreUrls = signedScorePages.every(Boolean) ? signedScorePages as string[] : []
+    if (!scoreUrls.length) {
+      return new Response(JSON.stringify({ error: 'Could not access the sheet music for this take' }), {
+        status: 500, headers: jsonHeaders,
+      })
+    }
+
+    const scoreCacheKey = paths.length > 1 ? paths.join('|') : take.score_path
     const { data: cacheRow } = await admin
       .from('score_cache')
       .select('parsed_notes')
       .eq('score_path', scoreCacheKey)
       .maybeSingle()
-
-    if (!cacheRow?.parsed_notes?.measures?.length) {
-      return new Response(JSON.stringify({
-        error: "Sheet music hasn't been analyzed yet — try again after the next analysis run",
-      }), { status: 400, headers: jsonHeaders })
-    }
 
     const bpm = Number(take.declared_bpm)
     if (!Number.isFinite(bpm) || bpm < 20 || bpm > 300) {
@@ -121,15 +139,19 @@ serve(async (req: Request) => {
       })
     }
 
+    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+
     const modalRes = await fetch(modalUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        score: cacheRow.parsed_notes,
+        score_urls: scoreUrls,
+        score: cacheRow?.parsed_notes ?? null,
         instrument: take.instrument ?? '',
         bpm,
+        anthropic_api_key: anthropicKey,
       }),
-      signal: AbortSignal.timeout(90000),
+      signal: AbortSignal.timeout(140000),
     }).catch((e) => { console.warn('[generate-reference-audio] Modal call failed:', e?.message); return null })
 
     if (!modalRes || !modalRes.ok) {

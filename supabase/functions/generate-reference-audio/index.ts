@@ -151,7 +151,11 @@ serve(async (req: Request) => {
         bpm,
         anthropic_api_key: anthropicKey,
       }),
-      signal: AbortSignal.timeout(140000),
+      // A dense page now splits into several row-crop images before Claude
+      // sees them (see split_page_into_rows in the worker) — more images
+      // means more vision-model latency, so this needs real headroom over
+      // the Modal function's own 280s timeout.
+      signal: AbortSignal.timeout(300000),
     }).catch((e) => { console.warn('[generate-reference-audio] Modal call failed:', e?.message); return null })
 
     if (!modalRes || !modalRes.ok) {

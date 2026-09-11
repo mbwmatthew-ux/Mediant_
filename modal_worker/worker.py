@@ -7121,7 +7121,7 @@ def _generate_reference_audio(body: dict) -> dict:
     }
 
 
-@app.function(image=image, timeout=120, memory=2048)
+@app.function(image=image, timeout=280, memory=2048)
 @modal.fastapi_endpoint(method="POST", docs=True)
 def generate_reference_audio_endpoint(body: dict) -> dict:
     """Renders an AI reference performance for a whole score. See _generate_reference_audio."""

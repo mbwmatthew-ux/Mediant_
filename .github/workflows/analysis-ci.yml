@@ -16,9 +16,11 @@ jobs:
           python-version: '3.11'
 
       # The suites stub every heavy import, so they need numpy plus pyflakes
-      # (test [0] shells out to it for a whole-module static check).
+      # (test [0] shells out to it for a whole-module static check). Pillow
+      # is real (not stubbed) so the page-row-splitting tests exercise the
+      # actual image processing, not just its fallback path.
       - name: Install test dependencies
-        run: pip install 'numpy>=1.24,<2.0' pyflakes
+        run: pip install 'numpy>=1.24,<2.0' pyflakes 'Pillow>=10.0,<11.0'
 
       - name: Worker unit checks
         run: python3 modal_worker/test_analysis.py

@@ -62,6 +62,11 @@ image = (
         "music21==9.1.0",
         # PDF → PNG rendering for Gemini (so PDF scores work the same as image scores)
         "pymupdf==1.24.11",
+        # Splitting a dense photographed score page into per-system row
+        # crops before sending it to Claude vision (see split_page_into_rows)
+        # — pinned explicitly rather than left as an implicit transitive
+        # dependency, the exact class of gap that silently broke anthropic.
+        "Pillow>=10.0,<11.0",
         # Reference-audio synthesis: builds MIDI from the parsed note list and
         # renders it via the fluidsynth binary installed above. pretty_midi's
         # .fluidsynth() method does `import fluidsynth` internally — that's
@@ -3113,6 +3118,148 @@ Each issue object may ALSO include "measure_end" (int) and "time_end" ("M:SS") w
     raise RuntimeError(f"All Gemini models failed. Last error: {last_error}")
 
 
+def _otsu_threshold(values) -> float:
+    """
+    Minimal 1D Otsu threshold: picks the cut point that best separates a
+    bimodal distribution into two classes by maximizing between-class
+    variance. Used to separate "content rows" from "gap rows" by local
+    contrast without a hand-tuned constant that would need re-tuning per
+    photo's lighting and exposure (a fixed constant is exactly what failed
+    here first — see split_page_into_rows).
+    """
+    import numpy as np
+    vmax = float(values.max())
+    if vmax <= 0:
+        return 0.0
+    hist, bin_edges = np.histogram(values, bins=256, range=(0, vmax))
+    hist = hist.astype(np.float64)
+    total = hist.sum()
+    sum_all = float(np.sum(hist * np.arange(256)))
+    sum_bg = 0.0
+    weight_bg = 0.0
+    best_var = 0.0
+    best_bin = 0
+    for i in range(256):
+        weight_bg += hist[i]
+        if weight_bg == 0:
+            continue
+        weight_fg = total - weight_bg
+        if weight_fg == 0:
+            break
+        sum_bg += i * hist[i]
+        mean_bg = sum_bg / weight_bg
+        mean_fg = (sum_all - sum_bg) / weight_fg
+        between_var = weight_bg * weight_fg * (mean_bg - mean_fg) ** 2
+        if between_var > best_var:
+            best_var = between_var
+            best_bin = i
+    return float(bin_edges[best_bin])
+
+
+def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
+    """
+    Split a photographed/scanned sheet-music PAGE into per-system (per-row)
+    image crops, encoded as PNG bytes, in top-to-bottom order.
+
+    Exists because sending a whole dense, multi-system page as one image to
+    Claude produced an unreliable transcription — measures repeating in
+    exact mirror-image patterns across independent reads (m.12 and m.15 of
+    one real page came back as exact reverses of each other; m.13 and m.16
+    came back byte-for-byte identical), and the SAME measure numbered
+    differently between separate calls on the identical photo. Confirmed
+    live 2026-09-10 across three independent vision reads of one page.
+    Splitting into row crops gives each system — and therefore each
+    measure — much more of the model's effective visual attention than one
+    call covering ~9 systems of dense sixteenth-note passages at once.
+
+    Detection sums dark-pixel count across the FULL WIDTH of each pixel
+    row, not a narrow x-slice — a narrow slice is exactly what produced a
+    real measurement error earlier the same night (photographed pages are
+    rarely perfectly axis-aligned; a full-width profile is naturally
+    robust to a few degrees of rotation, since it doesn't depend on one
+    x-position agreeing with another). Rows above a density threshold are
+    "ink" (staff lines, noteheads, text); contiguous ink bands separated by
+    a tall-enough gap are treated as separate systems. Implausibly short
+    bands (a title line, a lone dynamic marking) merge into their nearest
+    neighbour rather than becoming a near-empty crop of their own.
+
+    Returns [page_bytes] — i.e. a no-op — whenever fewer than two systems
+    are confidently found, or the image can't be decoded at all. This
+    keeps the whole feature strictly additive: every caller's existing
+    behaviour when this returns a single-element list is unchanged from
+    before this function existed.
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+        import io
+
+        img = Image.open(io.BytesIO(page_bytes)).convert("L")
+        arr = np.array(img).astype(np.float64)
+        h, w = arr.shape
+
+        # Row-wise LOCAL CONTRAST (standard deviation), not absolute darkness.
+        # A photographed page's "blank" background is rarely uniform white —
+        # uneven lighting, shadow, and paper tone put real background pixels
+        # well below a naive fixed brightness cutoff, which made an earlier
+        # version of this function classify almost the entire page as "ink"
+        # (confirmed on a real photo: median row darkness-count was ~99% of
+        # the row width even in visibly blank gaps). Content rows mix black
+        # ink and light background within the SAME row, so their std is
+        # high; blank gap rows are close to uniform, so their std is low —
+        # robust to the overall lighting/exposure of a given photo.
+        row_std = arr.std(axis=1)
+        threshold = _otsu_threshold(row_std)
+        row_is_ink = row_std > threshold
+
+        min_gap = max(4, h // 200)
+        bands: list[tuple[int, int]] = []
+        band_start = None
+        gap_run = 0
+        for y in range(h):
+            if row_is_ink[y]:
+                if band_start is None:
+                    band_start = y
+                gap_run = 0
+            else:
+                if band_start is not None:
+                    gap_run += 1
+                    if gap_run >= min_gap:
+                        bands.append((band_start, y - gap_run + 1))
+                        band_start = None
+                        gap_run = 0
+        if band_start is not None:
+            bands.append((band_start, h))
+
+        if bands:
+            median_height = sorted(b[1] - b[0] for b in bands)[len(bands) // 2]
+            merged: list[tuple[int, int]] = []
+            for start, end in bands:
+                if merged and (end - start) < median_height * 0.4:
+                    prev_start, _ = merged[-1]
+                    merged[-1] = (prev_start, end)
+                else:
+                    merged.append((start, end))
+            bands = merged
+
+        if len(bands) < 2:
+            return [page_bytes]
+
+        pad = max(6, int((h / len(bands)) * 0.15))
+        crops = []
+        for start, end in bands:
+            y0 = max(0, start - pad)
+            y1 = min(h, end + pad)
+            crop = Image.open(io.BytesIO(page_bytes)).convert("RGB").crop((0, y0, w, y1))
+            buf = io.BytesIO()
+            crop.save(buf, format="PNG")
+            crops.append(buf.getvalue())
+        return crops
+    except Exception as e:
+        print(f"[split_page_into_rows] failed, sending whole page unsplit: {e}")
+        return [page_bytes]
+
+
 def read_score_notes_claude(
     pages: list[tuple[bytes, str]],
     start_measure: int, instrument: str, time_sig: str,
@@ -3126,20 +3273,57 @@ def read_score_notes_claude(
     # path already worked and is unchanged. What was broken is several separate
     # files (the usual case: phone photos of each page), where only the first was
     # ever sent.
+    #
+    # Each IMAGE page is further split into per-system row crops (see
+    # split_page_into_rows) before being sent — a dense, photographed page
+    # sent whole was producing an unreliable read (see that function's
+    # docstring). page_strip_counts tracks how many images each original
+    # page turned into, so the prompt can tell the model which images share
+    # a page number when that count is more than 1.
     vision_parts: list = []
+    page_strip_counts: list[int] = []
     for pg_bytes, pg_mime in pages:
-        b64 = base64.b64encode(pg_bytes).decode()
         if pg_mime == "application/pdf":
+            b64 = base64.b64encode(pg_bytes).decode()
             vision_parts.append({"type": "document", "source": {
                 "type": "base64", "media_type": "application/pdf", "data": b64}})
+            page_strip_counts.append(1)
         elif pg_mime in CLAUDE_IMAGE_TYPES:
-            vision_parts.append({"type": "image", "source": {
-                "type": "base64", "media_type": pg_mime, "data": b64}})
+            row_crops = split_page_into_rows(pg_bytes)
+            page_strip_counts.append(len(row_crops))
+            for crop_bytes in row_crops:
+                b64 = base64.b64encode(crop_bytes).decode()
+                vision_parts.append({"type": "image", "source": {
+                    "type": "base64", "media_type": pg_mime, "data": b64}})
         else:
             print(f"[read_score_notes_claude] skipping unsupported mime: {pg_mime}")
+            page_strip_counts.append(0)
     if not vision_parts:
         return {"key_signature": None, "time_signature": None,
                 "tempo_marking": None, "measures": []}
+
+    strip_note = ""
+    if any(c > 1 for c in page_strip_counts):
+        ranges = []
+        idx = 1
+        for pg_num, count in enumerate(page_strip_counts, start=1):
+            if count == 0:
+                continue
+            if count == 1:
+                ranges.append(f"image {idx} is page {pg_num}")
+            else:
+                ranges.append(f"images {idx}-{idx + count - 1} are all horizontal strips of page {pg_num}, top to bottom")
+            idx += count
+        strip_note = (
+            "\n\nSOME PAGES ARE SPLIT INTO STRIPS: to make dense systems easier to "
+            "read accurately, one or more pages above have been cut into horizontal "
+            "strips instead of sent as one image. " + "; ".join(ranges) + ". Strips "
+            "of the SAME page are NOT separate pages — give every measure from those "
+            "strips the SAME \"pg\" number, and continue measure numbering across "
+            "strips exactly as you would within an unsplit page. Only advance \"pg\" "
+            "and reset your reading context at an ACTUAL boundary between two "
+            "different pages."
+        )
 
     prompt = f"""You are an expert music engraver reading sheet music for a {instrument} student.
 
@@ -3152,7 +3336,7 @@ MEASURE NUMBERING — THE MOST IMPORTANT PART OF THIS TASK. Get this wrong and e
 5. Do NOT start counting from the student's starting measure, and do not renumber to make the first measure you see come out as any particular value. Only if the page shows no printed numbers anywhere should you count barlines, and in that case the FIRST measure in the image is measure 1.
 
 MULTIPLE PAGES: You may be given several images. They are consecutive pages of ONE part, in order. Measure numbering runs continuously ACROSS them — the first measure of page 2 is NOT measure 1, it continues from where page 1 ended. Do not restart numbering on a new page. For every measure, also return "pg": the 1-based number of the page you read it from (the first image is page 1).
-
+{strip_note}
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
 Return every measure that CONTAINS AT LEAST ONE SOUNDED NOTE, in order. Omit measures that are entirely rest (including multirests) — but per the numbering rules above, they still consume their measure numbers. For each sounded note:
@@ -6904,9 +7088,9 @@ def _generate_reference_audio(body: dict) -> dict:
             print(f"[_generate_reference_audio] fresh read empty/failed "
                   f"({score.get('error')}), trying fallback score")
         elif score["measures"]:
-            first_m = score["measures"][0]
-            print(f"[_generate_reference_audio] first measure="
-                  f"{first_m.get('number')} raw_notes={first_m.get('notes')}")
+            for m in score["measures"][:6]:
+                pitches = [n.get("pitch") for n in m.get("notes", [])]
+                print(f"[_generate_reference_audio] measure={m.get('number')} pitches={pitches}")
 
     if not (isinstance(score, dict) and score.get("measures")):
         fallback = body.get("score")

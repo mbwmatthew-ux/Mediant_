@@ -1703,6 +1703,161 @@ def test_score_reader_sends_every_page():
     check("each measure records its page", pgs == [1, 2], str(pgs))
 
 
+def _make_synthetic_page(system_count=4, width=800, height=1000):
+    """A page with `system_count` fake staff systems, evenly spaced, for
+    testing row/system splitting without a real photo. Each system is 5
+    staff lines PLUS scattered notehead-like blobs filling its full height
+    — not just bare lines. A real photographed system has content (noteheads,
+    stems, beams) filling the space between and around its staff lines, so
+    there's no genuinely blank row inside it; 5 bare lines with nothing
+    between them would create fake internal gaps a real system doesn't have,
+    which the real detector (split_page_into_rows, keyed on row-wise
+    CONTRAST) would incorrectly split on."""
+    from PIL import Image, ImageDraw
+    import random
+    import io
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    band_h = 40
+    gap = (height - system_count * band_h) // (system_count + 1)
+    y = gap
+    band_ys = []
+    rng = random.Random(42)
+    for _ in range(system_count):
+        for line_i in range(5):
+            line_y = y + line_i * (band_h // 4)
+            draw.line([(40, line_y), (width - 40, line_y)], fill=0, width=2)
+        # Notehead-like blobs across the whole band height, not just on the
+        # lines themselves — fills the "gaps" between lines the way real
+        # noteheads, stems and beams do.
+        for x in range(50, width - 50, 12):
+            blob_y = y + rng.randint(-4, band_h + 4)
+            draw.ellipse([x, blob_y, x + 6, blob_y + 6], fill=0)
+        band_ys.append((y, y + band_h))
+        y += band_h + gap
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue(), band_ys
+
+
+def test_split_page_into_rows_finds_distinct_systems():
+    print("\n[68] page splitter finds each system as its own crop")
+    from PIL import Image
+    import io
+    page_bytes, band_ys = _make_synthetic_page(system_count=5)
+    crops = w.split_page_into_rows(page_bytes)
+    check("finds all 5 systems", len(crops) == 5, str(len(crops)))
+    for crop_bytes, (band_top, band_bottom) in zip(crops, band_ys):
+        crop_img = Image.open(io.BytesIO(crop_bytes))
+        # Each crop must contain its whole band (band height 40px) plus some
+        # padding, and must not be the full original page height.
+        check(f"crop for band at y={band_top} contains the band with padding",
+              crop_img.height >= 40 and crop_img.height < 1000,
+              f"crop height {crop_img.height}")
+
+
+def test_split_page_into_rows_falls_back_on_a_single_system():
+    print("\n[69] page splitter leaves a single-system page unsplit")
+    page_bytes, _ = _make_synthetic_page(system_count=1)
+    crops = w.split_page_into_rows(page_bytes)
+    check("returns the original page unsplit", crops == [page_bytes], str(len(crops)))
+
+
+def test_split_page_into_rows_falls_back_on_undecodable_bytes():
+    print("\n[70] page splitter degrades to a no-op on bytes it can't decode as an image")
+    garbage = b"\x89PNG-not-a-real-image"
+    crops = w.split_page_into_rows(garbage)
+    check("returns the original bytes unsplit, does not raise",
+          crops == [garbage], str(crops))
+
+
+def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
+    print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
+    import types, json as _json
+    captured = {}
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            captured["content"] = kw["messages"][0]["content"]
+            return _FakeStream(_json.dumps({
+                "key_signature": None, "time_signature": "4/4", "tempo_marking": None,
+                "measures": [{"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}],
+            }))
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    page_bytes, _ = _make_synthetic_page(system_count=4)
+    pages = [(page_bytes, "image/png")]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    blocks = captured.get("content") or []
+    n_media = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "image")
+    check("the one dense page becomes multiple image blocks", n_media == 4, f"{n_media} image block(s)")
+    prompt_text = " ".join(b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+    check("prompt explains the strips share one page number",
+          "SOME PAGES ARE SPLIT INTO STRIPS" in prompt_text and "images 1-4 are all horizontal strips of page 1" in prompt_text,
+          prompt_text[:600])
+
+
+def test_read_score_notes_claude_unsplit_page_has_no_strip_note():
+    print("\n[72] a page that doesn't split gets no strip note (existing single-page behaviour unchanged)")
+    import types, json as _json
+    captured = {}
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            captured["content"] = kw["messages"][0]["content"]
+            return _FakeStream(_json.dumps({
+                "key_signature": None, "time_signature": "4/4", "tempo_marking": None,
+                "measures": [{"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}],
+            }))
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    # Non-decodable bytes -> split_page_into_rows falls back to [page_bytes],
+    # exactly like the pre-existing test_score_reader_sends_every_page fixture.
+    pages = [(b"\x89PNG-page-one", "image/png")]
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    blocks = captured.get("content") or []
+    n_media = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "image")
+    check("single page produces one image block", n_media == 1, str(n_media))
+    prompt_text = " ".join(b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+    check("no strip note when nothing was split",
+          "SOME PAGES ARE SPLIT INTO STRIPS" not in prompt_text, prompt_text[:200])
+
+
 def test_coverage_declares_what_was_not_analysed():
     print("\n[44] coverage declares partial analysis instead of implying completeness")
     score_two_pages = {"measures": [{"number": n, "notes": [{"pitch": "C4"}]}
@@ -2743,6 +2898,11 @@ def main():
               test_flag_keys_are_stable_and_unique,
               test_evidence_reset_survives_container_reuse,
               test_score_reader_sends_every_page,
+              test_split_page_into_rows_finds_distinct_systems,
+              test_split_page_into_rows_falls_back_on_a_single_system,
+              test_split_page_into_rows_falls_back_on_undecodable_bytes,
+              test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
+              test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,
               test_coverage_pages_read_reflects_pages_covered_not_downloaded,
               test_score_pipeline_returns_derive_pages_read_from_helper,

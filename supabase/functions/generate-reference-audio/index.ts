@@ -90,14 +90,27 @@ serve(async (req: Request) => {
         return new Response(JSON.stringify({ status: 'processing' }), { headers: jsonHeaders })
       }
       console.warn('[generate-reference-audio] job for take', takeId, 'stuck for', ageMs, 'ms — self-healing to failed and restarting')
+      await admin.from('takes').update({
+        reference_audio_job_status: 'failed',
+        reference_audio_job_error: 'Reference audio generation timed out',
+      }).eq('id', takeId)
     }
 
     if (take.reference_audio_job_status === 'failed' && !take.reference_audio_path) {
-      // A prior attempt failed and nothing since has cleared it — report
-      // the failure rather than silently retrying forever on every poll.
-      // A fresh generate() call (not a poll) is expected to come from the
-      // UI's own retry action, which the frontend triggers by calling this
-      // same endpoint again — there is no separate "retry" endpoint.
+      // Report the failure once, then clear the job status — the next
+      // call (a poll that raced past this response, or the user clicking
+      // "Play reference" again later) starts a clean fresh attempt
+      // instead of getting stuck reporting the same stale failure
+      // forever. Without this clear, every future call would hit this
+      // same branch and never retry at all.
+      await admin.from('takes').update({
+        reference_audio_job_status: null,
+        reference_audio_job_error: null,
+      }).eq('id', takeId)
+      return new Response(JSON.stringify({
+        status: 'failed',
+        error: take.reference_audio_job_error || 'Reference audio generation failed',
+      }), { headers: jsonHeaders })
     }
 
     if (!take.score_path) {

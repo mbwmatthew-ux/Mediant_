@@ -20,6 +20,8 @@ function measureRangeFromTimeline(timeline: unknown): { start: number, end: numb
   return { start: Math.min(...nums), end: Math.max(...nums) }
 }
 
+const STUCK_JOB_MS = 5 * 60 * 1000 // matches job-status/index.ts's existing self-heal window
+
 serve(async (req: Request) => {
   const CORS = corsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -48,7 +50,7 @@ serve(async (req: Request) => {
     // like a take that doesn't exist. Same pattern as job-status/index.ts.
     const { data: take, error: takeErr } = await admin
       .from('takes')
-      .select('id, score_path, score_paths, instrument, declared_bpm, reference_audio_path, reference_audio_bpm, reference_audio_timeline')
+      .select('id, score_path, score_paths, instrument, declared_bpm, reference_audio_path, reference_audio_bpm, reference_audio_timeline, reference_audio_job_status, reference_audio_job_error, reference_audio_job_started_at')
       .eq('id', takeId)
       .eq('user_id', user.id)
       .single()
@@ -66,6 +68,7 @@ serve(async (req: Request) => {
         .createSignedUrl(take.reference_audio_path, 86400)
       if (!signErr && signed?.signedUrl) {
         return new Response(JSON.stringify({
+          status: 'done',
           audioUrl: signed.signedUrl,
           timeline: take.reference_audio_timeline ?? [],
           bpm: Number(take.reference_audio_bpm),
@@ -78,28 +81,43 @@ serve(async (req: Request) => {
       console.warn('[generate-reference-audio] cached reference audio could not be signed, regenerating:', signErr?.message)
     }
 
+    // A job is already in flight — report processing without re-dispatching,
+    // unless it's been stuck long enough to self-heal (mirrors
+    // job-status/index.ts's exact 5-minute stuck-job window).
+    if (take.reference_audio_job_status === 'processing' && take.reference_audio_job_started_at) {
+      const ageMs = Date.now() - new Date(take.reference_audio_job_started_at).getTime()
+      if (ageMs <= STUCK_JOB_MS) {
+        return new Response(JSON.stringify({ status: 'processing' }), { headers: jsonHeaders })
+      }
+      console.warn('[generate-reference-audio] job for take', takeId, 'stuck for', ageMs, 'ms — self-healing to failed and restarting')
+    }
+
+    if (take.reference_audio_job_status === 'failed' && !take.reference_audio_path) {
+      // A prior attempt failed and nothing since has cleared it — report
+      // the failure rather than silently retrying forever on every poll.
+      // A fresh generate() call (not a poll) is expected to come from the
+      // UI's own retry action, which the frontend triggers by calling this
+      // same endpoint again — there is no separate "retry" endpoint.
+    }
+
     if (!take.score_path) {
       return new Response(JSON.stringify({ error: 'This take has no sheet music to generate reference audio from' }), {
         status: 400, headers: jsonHeaders,
       })
     }
 
-    // Cache miss: do a FRESH, dedicated vision read of the take's own score
-    // page(s) — NOT a reuse of score_cache. score_cache is shared per-image
-    // content-hash across every take that reuses that exact photo, and can
-    // hold a partial parse left over from whichever take first populated it
-    // (confirmed live 2026-09-09: a 58-measure part was cached as just 16
-    // measures because an earlier take had only played that range, and the
-    // vision read apparently anchored on that take's own start measure
-    // despite the reader prompt's explicit rule against exactly that — see
-    // Gotchas: "score_cache is shared per-image and can silently hold a
-    // PARTIAL parse, not the whole piece"). The worker's fresh-read path
-    // always anchors at measure 1, never any take's own start measure.
+    // Start a fresh job: do a FRESH, dedicated vision read of the take's own
+    // score page(s) — NOT a reuse of score_cache. score_cache is shared
+    // per-image content-hash across every take that reuses that exact photo,
+    // and can hold a partial parse left over from whichever take first
+    // populated it (confirmed live 2026-09-09 — see Gotchas: "score_cache is
+    // shared per-image and can silently hold a PARTIAL parse, not the whole
+    // piece"). The worker's fresh-read path always anchors at measure 1,
+    // never any take's own start measure.
     //
     // score_cache is still queried, but only as a FALLBACK the worker uses
     // if the fresh read fails (network hiccup, vision call error) — a
-    // possibly-partial result beats a hard failure. Not used as the primary
-    // source, so its own possible incompleteness no longer matters here.
+    // possibly-partial result beats a hard failure.
     const paths = Array.isArray(take.score_paths)
       ? take.score_paths.filter((p: unknown): p is string => typeof p === 'string')
       : (take.score_path ? [take.score_path] : [])
@@ -140,70 +158,42 @@ serve(async (req: Request) => {
     }
 
     const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
+    const webhookSecret = Deno.env.get('MODAL_WEBHOOK_SECRET')
 
-    const modalRes = await fetch(modalUrl, {
+    await admin.from('takes').update({
+      reference_audio_job_status: 'processing',
+      reference_audio_job_started_at: new Date().toISOString(),
+      reference_audio_job_error: null,
+    }).eq('id', takeId)
+
+    const spawnRes = await fetch(modalUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        take_id: takeId,
+        webhook_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-reference-audio-webhook`,
+        webhook_secret: webhookSecret,
+        webhook_anon_key: Deno.env.get('SUPABASE_ANON_KEY'),
         score_urls: scoreUrls,
         score: cacheRow?.parsed_notes ?? null,
         instrument: take.instrument ?? '',
         bpm,
         anthropic_api_key: anthropicKey,
       }),
-      // A dense page now splits into several row-crop images before Claude
-      // sees them (see split_page_into_rows in the worker) — more images
-      // means more vision-model latency, so this needs real headroom over
-      // the Modal function's own 280s timeout.
-      signal: AbortSignal.timeout(300000),
-    }).catch((e) => { console.warn('[generate-reference-audio] Modal call failed:', e?.message); return null })
+      signal: AbortSignal.timeout(15000), // this call only kicks off a spawn — fast, not the slow vision call
+    }).catch((e) => { console.warn('[generate-reference-audio] spawn dispatch failed:', e?.message); return null })
 
-    if (!modalRes || !modalRes.ok) {
-      return new Response(JSON.stringify({ error: 'Reference audio generation failed' }), {
+    if (!spawnRes || !spawnRes.ok) {
+      await admin.from('takes').update({
+        reference_audio_job_status: 'failed',
+        reference_audio_job_error: 'Could not start reference audio generation',
+      }).eq('id', takeId)
+      return new Response(JSON.stringify({ status: 'failed', error: 'Could not start reference audio generation' }), {
         status: 502, headers: jsonHeaders,
       })
     }
 
-    const modalJson = await modalRes.json()
-    if (modalJson.error || !modalJson.audio_base64) {
-      return new Response(JSON.stringify({ error: modalJson.error ?? 'Reference audio generation failed' }), {
-        status: 502, headers: jsonHeaders,
-      })
-    }
-
-    const audioBytes = Uint8Array.from(atob(modalJson.audio_base64), (c) => c.charCodeAt(0))
-    const storagePath = `${user.id}/${takeId}.wav`
-
-    const { error: uploadErr } = await admin.storage
-      .from('reference-audio')
-      .upload(storagePath, audioBytes, { contentType: 'audio/wav', upsert: true })
-    if (uploadErr) {
-      return new Response(JSON.stringify({ error: `Failed to store reference audio: ${uploadErr.message}` }), {
-        status: 500, headers: jsonHeaders,
-      })
-    }
-
-    await admin.from('takes').update({
-      reference_audio_path: storagePath,
-      reference_audio_bpm: bpm,
-      reference_audio_timeline: modalJson.timeline ?? [],
-    }).eq('id', takeId)
-
-    const { data: signed, error: signErr } = await admin.storage
-      .from('reference-audio')
-      .createSignedUrl(storagePath, 86400)
-    if (signErr || !signed?.signedUrl) {
-      return new Response(JSON.stringify({ error: 'Reference audio generated but could not be signed for playback' }), {
-        status: 500, headers: jsonHeaders,
-      })
-    }
-
-    return new Response(JSON.stringify({
-      audioUrl: signed.signedUrl,
-      timeline: modalJson.timeline ?? [],
-      bpm,
-      measureRange: measureRangeFromTimeline(modalJson.timeline),
-    }), { headers: jsonHeaders })
+    return new Response(JSON.stringify({ status: 'processing' }), { headers: jsonHeaders })
 
   } catch (err) {
     return new Response(JSON.stringify({ error: (err as Error).message }), {

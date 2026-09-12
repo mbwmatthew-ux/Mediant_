@@ -2603,7 +2603,7 @@ def test_fresh_score_read_always_anchors_at_measure_1():
 
 
 def test_reference_audio_endpoint_prefers_fresh_read_over_provided_score():
-    print("\n[66] generate_reference_audio_endpoint uses the fresh read, not a stale provided score, when both are given")
+    print("\n[66] _generate_reference_audio uses the fresh read, not a stale provided score, when both are given")
     import types, json as _json
 
     class _FakeStream:
@@ -2660,7 +2660,7 @@ def test_reference_audio_endpoint_prefers_fresh_read_over_provided_score():
 
 
 def test_reference_audio_endpoint_falls_back_when_fresh_read_fails():
-    print("\n[67] generate_reference_audio_endpoint falls back to a provided score if the fresh read fails")
+    print("\n[67] _generate_reference_audio falls back to a provided score if the fresh read fails")
     class _FailingHttpClient:
         def __init__(self, **kw): pass
         def __enter__(self): return self

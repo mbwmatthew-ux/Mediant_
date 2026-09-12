@@ -7048,18 +7048,20 @@ def analyze_async(body: dict) -> dict:
     return {"queued": True, "take_id": take_id}
 
 
-# ── Reference-audio endpoint ────────────────────────────────────────────────
-# Synchronous — pure CPU synthesis, no ML model, fast enough for a direct
-# request/response instead of the async .spawn()+webhook pattern the main
-# analysis pipeline needs. Gets its OWN Modal URL (see Gotchas: "Modal URL
-# has no path — root only"), separate from MODAL_WORKER_URL.
+# ── Reference-audio endpoints ───────────────────────────────────────────────
+# Async — spawn + webhook, same pattern as run_full_analysis/analyze_async
+# above. Row-splitting for dense score pages (see split_page_into_rows)
+# made the underlying Claude vision call too slow for the old synchronous
+# request/response this section used to describe. Gets its OWN Modal URL
+# (see Gotchas: "Modal URL has no path — root only"), separate from
+# MODAL_WORKER_URL.
 
 def _generate_reference_audio(body: dict) -> dict:
     """
     Plain, undecorated implementation — Modal's decorators (@app.function,
     @modal.fastapi_endpoint) are blanket-mocked in the local test harness,
     which turns a decorated function into an unrelated MagicMock and makes
-    it untestable directly. generate_reference_audio_endpoint below is a
+    it untestable directly. generate_reference_audio_background below is a
     thin wrapper so this real logic stays testable; deployment behavior is
     unchanged (same body in, same dict out).
 

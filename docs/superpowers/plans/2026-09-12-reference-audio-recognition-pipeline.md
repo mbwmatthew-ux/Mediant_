@@ -25,8 +25,8 @@
 
 - **Modify `modal_worker/worker.py`** — all seven new functions, plus the `INSTRUMENT_WRITTEN_RANGE`/`POLYPHONIC_INSTRUMENTS` tables, plus the rewritten `read_score_notes_claude` orchestration. One file, matching this project's existing convention of keeping all worker logic in one file (already 7,361 lines — large, but splitting it is out of scope for this plan; not this plan's problem to solve).
 - **Modify `modal_worker/test_analysis.py`** — all new tests, following the existing single-file convention.
-- **Create `supabase/functions/score-quality-check/index.ts`** — new, thin edge function exposing the Day-1 quality gate to the frontend (Task 12).
-- **Modify `src/components/NewRecordingModal.jsx`** — upload-flow quality gate UI (Task 12).
+- **Create `supabase/functions/score-quality-check/index.ts`** — new, thin edge function exposing the Day-1 quality gate to the frontend (Task 13).
+- **Modify `src/components/NewRecordingModal.jsx`** — upload-flow quality gate UI (Task 13).
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Interfaces:**
 - Consumes: `_otsu_threshold(values) -> float` (existing, `modal_worker/worker.py:3121`).
-- Produces: `compute_row_readability(row_bytes: bytes) -> dict` returning `{"interline_px": float | None, "sharpness": float | None, "quality": "good" | "marginal" | "poor", "reasons": list[str]}`. Consumed by Task 2 (dewarp decision), Task 11 (orchestration), and Task 12 (frontend quality gate, via a new endpoint).
+- Produces: `compute_row_readability(row_bytes: bytes) -> dict` returning `{"interline_px": float | None, "sharpness": float | None, "quality": "good" | "marginal" | "poor", "reasons": list[str]}`. Consumed by Task 2 (dewarp decision), Task 11 (orchestration), and Task 13 (frontend quality gate, via a new endpoint).
 
 **Two independent signals, not one.** Interline spacing alone is insufficient: a high-resolution but badly out-of-focus photo can have perfectly detectable staff lines at a healthy 24px interline while every notehead, stem, flag, and accidental has smeared into mush. Resolution and sharpness fail independently, so both are measured, and the worse of the two verdicts wins.
 
@@ -1038,13 +1038,13 @@ git commit -m "feat(worker): add deterministic music validator (duration, writte
 
 ### Task 5: Ground-truth transcription (coordination task — not pure coding)
 
-**This task is different from every other task in this plan.** It does not produce code. It produces a data file — a verified-correct, measure-by-measure transcription of the real problem photo used throughout this investigation — that Task 13's live test depends on. It cannot be completed by a coding subagent guessing at the right answer; an attempt at exactly that (reading the photo directly, by eye) was already tried while writing the spec and abandoned as unreliable (see the spec's Testing section).
+**This task is different from every other task in this plan.** It does not produce code. It produces a data file — a verified-correct, measure-by-measure transcription of the real problem photo used throughout this investigation — that Task 14's live test depends on. It cannot be completed by a coding subagent guessing at the right answer; an attempt at exactly that (reading the photo directly, by eye) was already tried while writing the spec and abandoned as unreliable (see the spec's Testing section).
 
 **Files:**
 - Create: `modal_worker/testdata/procession_of_the_nobles_ground_truth.json`
 
 **Interfaces:**
-- Produces: a JSON file, one entry per measure, in the same shape `read_score_notes_claude` returns measures (`{"number": int, "notes": [{"pitch", "is_rest", "beat", "duration_beats"}, ...]}`), covering at minimum measures 12 through 30 of the real problem photo (the range already exercised throughout tonight's investigation). Consumed directly by Task 13 (the live ground-truth test) — nothing else in this plan reads this file.
+- Produces: a JSON file, one entry per measure, in the same shape `read_score_notes_claude` returns measures (`{"number": int, "notes": [{"pitch", "is_rest", "beat", "duration_beats"}, ...]}`), covering at minimum measures 12 through 30 of the real problem photo (the range already exercised throughout tonight's investigation). Consumed directly by Task 14 (the live ground-truth test) — nothing else in this plan reads this file.
 
 - [ ] **Step 1: Obtain verified ground truth, using the spec's stated priority order**
 
@@ -1101,7 +1101,7 @@ Follow the exact pattern already used tonight for the Audiveris spike (temporari
 
 - [ ] **Step 2: Run oemer against 5-10 real dewarped crops**
 
-Using the same real problem photo used throughout tonight's investigation (already in this plan's controller's context — the exact score page from take `34b08cfd-f533-4fe1-a588-5af04fe5ddc5`), run `split_page_into_rows` → `dewarp_row` on at least 2 rows covering measures 12-19, then run `oemer` on each dewarped row (or, if Task 3 is already merged, on 5-10 individual measure crops — either granularity is acceptable for this GO/NO-GO test).
+Using the same real problem photo used throughout tonight's investigation (already in this plan's controller's context — the exact score page from take `34b08cfd-f533-4fe1-a588-5af04fe5ddc5`), run `split_page_into_rows` → `dewarp_row` on at least 2 rows covering measures 12-19, then run `oemer` on each dewarped ROW. **Rows only — never individual measure crops.** The final architecture (Task 11) calls oemer per row precisely because a mid-system measure crop carries no clef, key, or time signature, and testing it on a granularity the product will never use would measure the wrong thing — most likely producing a falsely pessimistic NO-GO from wrong-clef guesses that the real pipeline would never provoke.
 
 - [ ] **Step 3: Compare oemer's output against Task 5's ground truth**
 
@@ -1549,7 +1549,7 @@ git commit -m "feat(worker): add confidence fusion across Claude, OMR, and valid
 **Interfaces:**
 - Consumes: none new (uses the `anthropic` client the same way `_read_score_notes_claude_once` already does).
 - Consumes: `validate_measure(...)` (Task 4) — used to RE-validate the resolved result.
-- Produces: `resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dict], instrument: str, time_sig: str, anthropic_api_key: str) -> dict` returning a single measure dict in the same normalized shape (`{"notes": [...]}`), plus `"unresolved": True` and `"issues": [...]` when resolution failed or its result still fails validation. Consumed by Task 11 (orchestration).
+- Produces: `resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dict], instrument: str, time_sig: str, anthropic_api_key: str, is_first_measure: bool = False, is_last_measure: bool = False) -> dict` returning a single measure dict in the same normalized shape (`{"notes": [...]}`), plus `"unresolved": True` and `"issues": [...]` when resolution failed or its result still fails validation. Consumed by Task 11 (orchestration).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1664,6 +1664,46 @@ def test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid
 
     check("a still-invalid resolution is flagged unresolved rather than accepted",
           result.get("unresolved") is True, str(result))
+
+
+def test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure():
+    print("\n[100] resolution does NOT mark a legitimately partial pickup measure unresolved")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # A correct one-beat pickup in 4/4 — partial BY DESIGN.
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "G4", "b": 4.0, "d": 1.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "G4", "is_rest": False, "beat": 4.0, "duration_beats": 1.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(
+            b"\x89PNG-fake-crop", candidates, "clarinet", "4/4", "k",
+            is_first_measure=True)
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a 1-beat pickup in 4/4 resolved correctly is NOT failed by revalidation "
+          "(forgetting to thread is_first_measure through would fail every pickup bar)",
+          not result.get("unresolved"), str(result))
 ```
 
 Register in `main()`'s tuple:
@@ -1673,6 +1713,7 @@ Register in `main()`'s tuple:
               test_resolve_measure_disagreement_sends_crop_and_candidates,
               test_resolve_measure_disagreement_marks_unresolved_on_failure,
               test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
+              test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -1685,7 +1726,9 @@ Expected: `AttributeError: module 'worker' has no attribute 'resolve_measure_dis
 ```python
 def resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dict],
                                   instrument: str, time_sig: str,
-                                  anthropic_api_key: str) -> dict:
+                                  anthropic_api_key: str,
+                                  is_first_measure: bool = False,
+                                  is_last_measure: bool = False) -> dict:
     """
     Closed-ended disagreement resolution for ONE low-confidence measure.
     [Revision 2 from the spec]: replaces the old approach of "just read
@@ -1707,6 +1750,14 @@ def resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dic
     returned marked `"unresolved": True` with its issues attached. The
     caller decides what to do with an unresolved measure; what it must
     NOT do is treat it as confidently correct.
+
+    is_first_measure / is_last_measure MUST be threaded through from the
+    caller to the revalidation below. A legitimate one-beat pickup in 4/4
+    is exempt from the duration-sum check in the main validation pass; if
+    revalidation here forgets that exemption, it re-measures the pickup
+    against a full 4 beats, fails it, and marks a CORRECTLY resolved
+    measure unresolved — turning the pickup bar of every disputed piece
+    into a permanent false alarm.
 
     Returns a measure dict {"notes": [...]} plus, when resolution
     failed, "unresolved": True and "issues": [...]. Never raises.
@@ -1771,8 +1822,12 @@ If matched_candidate is not null, "notes" may be empty — the matched candidate
 
         # Re-validate: a resolution that still fails deterministic checks
         # has not actually resolved anything, and must not be handed back
-        # as if it had.
-        recheck = validate_measure(resolved, instrument, time_sig)
+        # as if it had. The first/last flags are threaded through so a
+        # legitimately partial pickup or final bar isn't failed here for
+        # the very property that makes it correct.
+        recheck = validate_measure(resolved, instrument, time_sig,
+                                    is_first_measure=is_first_measure,
+                                    is_last_measure=is_last_measure)
         if not recheck["valid"]:
             return {**resolved, "unresolved": True, "issues": recheck["issues"]}
         return resolved
@@ -1846,7 +1901,7 @@ def _prepare_score_rows(pages: list[tuple[bytes, str]]) -> list[dict]:
                 # spec: flagged, not blocked) — but this print is the only
                 # record that a low-quality row was in play, for anyone
                 # debugging a bad transcription after the fact. The
-                # user-facing warning is a SEPARATE, earlier check (Task 12's
+                # user-facing warning is a SEPARATE, earlier check (Task 13's
                 # upload-time quality gate) — this log is for diagnostics,
                 # not the user.
                 print(f"[_prepare_score_rows] row {row_idx} quality={readability['quality']} "
@@ -1881,9 +1936,22 @@ Then update the JSON example at the end of the prompt so the model sees the fiel
 Finally, in the measure-normalization step (the existing list comprehension that builds `measures` with `"page": int(m.get("pg") or m.get("page") or 1)`), add a `row` field alongside `page`:
 
 ```python
+        def _raw_row(m: dict):
+            """The model's reported strip index, or None if it didn't give a
+            usable one. Deliberately NOT defaulted to 1 here — on a
+            multi-system page "the model didn't say" and "the model said
+            row 1" mean very different things, and only the orchestration
+            (which knows how many rows the page actually has) can decide
+            safely. Collapsing them here would destroy that distinction
+            before it reaches the code that needs it."""
+            try:
+                return int(m.get("row"))
+            except (TypeError, ValueError):
+                return None
+
         measures = [
             {**m, "page": int(m.get("pg") or m.get("page") or 1),
-             "row": int(m.get("row") or 1), "notes": [
+             "row": _raw_row(m), "notes": [
                 _norm_note(n) for n in m.get("notes", [])
             ]}
             for m in (parsed.get("measures") or [])
@@ -1891,7 +1959,20 @@ Finally, in the measure-normalization step (the existing list comprehension that
         ]
 ```
 
-`row` defaults to 1 whenever the model omits it, which is also exactly correct for unsplit pages and PDFs.
+Leave the value as whatever the model returned (or absent) — do NOT coerce a missing value to 1 here. Task 11's orchestration decides what a missing/garbled row means, and it can only do that correctly if it can still tell "the model didn't say" apart from "the model said 1" (on a 12-system page those mean very different things).
+
+**Also label each image inline**, which is what makes the model reliably able to report `row` at all. In the same loop that appends image blocks, insert a short text block immediately BEFORE each image:
+
+```python
+            for row_idx, row in enumerate(prepared_page["rows"], start=1):
+                vision_parts.append({"type": "text",
+                                     "text": f"PAGE {pg_num} — ROW {row_idx}"})
+                b64 = base64.b64encode(row["row_bytes"]).decode()
+                vision_parts.append({"type": "image", "source": {
+                    "type": "base64", "media_type": pg_mime, "data": b64}})
+```
+
+Asking the model to count strips itself and then recall that count per measure is exactly the kind of implicit bookkeeping vision models drop; labelling each image turns it into copying a value it can see directly next to the notation it's reading.
 
 - [ ] **Step 4: Rewrite `read_score_notes_claude`'s body**
 
@@ -1994,9 +2075,32 @@ def read_score_notes_claude(
     # whole redesign exists for) splits into 12 systems. Per-row grouping
     # is what lets the OMR + segmentation half of this pipeline run on
     # dense multi-system pages at all.
+    #
+    # Row provenance FAILS SAFE, never to row 1. On a 12-system page, a
+    # measure whose "row" the model omitted or garbled is not "probably
+    # row 1" — it is unknown, and silently calling it row 1 would compare
+    # it against a completely unrelated system's OMR output and image
+    # crops, manufacturing disagreements (or worse, false agreements) out
+    # of a bookkeeping gap. Unknown provenance instead means row=None:
+    # that measure keeps its Claude cross-validation and deterministic
+    # validation, and simply forgoes the row-scoped signals. Defaulting
+    # to 1 is only correct when the page genuinely has one row.
     measures_by_row: dict = {}
     for m in base_result["measures"]:
-        measures_by_row.setdefault((m.get("page", 1), m.get("row", 1)), []).append(m)
+        page_idx = m.get("page", 1)
+        rows_on_page = (len(prepared_pages[page_idx - 1]["rows"])
+                        if 0 <= page_idx - 1 < len(prepared_pages) else 0)
+        raw_row = m.get("row")
+        if rows_on_page <= 1:
+            row_key = 1
+        elif isinstance(raw_row, int) and 1 <= raw_row <= rows_on_page:
+            row_key = raw_row
+        else:
+            row_key = None   # provenance unavailable — no row-scoped fusion
+            print(f"[read_score_notes_claude] m.{m.get('number')} has no usable row "
+                  f"provenance (got {raw_row!r}, page has {rows_on_page} rows) — "
+                  f"skipping OMR/crop fusion for it rather than guessing row 1")
+        measures_by_row.setdefault((page_idx, row_key), []).append(m)
 
     # The GLOBALLY last measure of the whole score — only this one gets the
     # partial-measure exemption. Using "last of its page/row" instead would
@@ -2007,11 +2111,18 @@ def read_score_notes_claude(
     final_measures = []
     unresolved_count = 0
 
-    for (page_idx, row_idx), row_measures in sorted(measures_by_row.items()):
+    # row_key may be None (unknown provenance), which can't be compared to
+    # an int — sort those last rather than letting sorted() raise.
+    for (page_idx, row_idx), row_measures in sorted(
+            measures_by_row.items(),
+            key=lambda kv: (kv[0][0], float("inf") if kv[0][1] is None else kv[0][1])):
         row_measures.sort(key=lambda m: m["number"])
-        prepared_rows = (prepared_pages[page_idx - 1]["rows"]
-                         if 0 <= page_idx - 1 < len(prepared_pages) else [])
-        row = prepared_rows[row_idx - 1] if 0 <= row_idx - 1 < len(prepared_rows) else None
+        row = None
+        if row_idx is not None:
+            prepared_rows = (prepared_pages[page_idx - 1]["rows"]
+                             if 0 <= page_idx - 1 < len(prepared_pages) else [])
+            if 0 <= row_idx - 1 < len(prepared_rows):
+                row = prepared_rows[row_idx - 1]
 
         # --- OMR, at ROW level -------------------------------------------
         # oemer reads the whole dewarped ROW, never an isolated measure
@@ -2053,10 +2164,11 @@ def read_score_notes_claude(
                      else None)
 
         for i, measure in enumerate(row_measures):
+            is_first = measure["number"] == start_measure
+            is_last = measure["number"] == last_measure_number
             validation = validate_measure(
                 measure, instrument, resolved_time_sig,
-                is_first_measure=(measure["number"] == start_measure),
-                is_last_measure=(measure["number"] == last_measure_number),
+                is_first_measure=is_first, is_last_measure=is_last,
             )
             oemer_measure = omr_aligned[i] if omr_aligned is not None else None
             fusion = fuse_measure_confidence(
@@ -2075,7 +2187,8 @@ def read_score_notes_claude(
                     candidates = [measure] + ([oemer_measure] if oemer_measure else [])
                     resolved = resolve_measure_disagreement(
                         crop_for_resolution, candidates, instrument,
-                        resolved_time_sig, anthropic_api_key)
+                        resolved_time_sig, anthropic_api_key,
+                        is_first_measure=is_first, is_last_measure=is_last)
                     resolved["number"] = measure["number"]
                     resolved["page"] = measure.get("page", 1)
                     resolved["row"] = measure.get("row", 1)
@@ -2092,7 +2205,7 @@ def read_score_notes_claude(
             final_measures.append(measure)
 
     base_result["measures"] = sorted(final_measures, key=lambda m: m["number"])
-    # Surfaced so callers (and the Task 13 ground-truth test) can tell
+    # Surfaced so callers (and the Task 14 ground-truth test) can tell
     # "this measure is known-shaky" apart from "this measure was accepted
     # confidently" — the distinction the whole redesign turns on.
     base_result["unresolved_measure_count"] = unresolved_count
@@ -2127,7 +2240,168 @@ git commit -m "feat(worker): wire multi-signal pipeline into read_score_notes_cl
 
 ---
 
-### Task 12: Upload-flow quality gate UI
+### Task 12: Refuse to synthesize reference audio from an uncertain read
+
+**This is the task that converts the whole pipeline into an actual product guarantee.** Tasks 1-11 make uncertainty *visible* (`unresolved: True`, `unresolved_measure_count`). Nothing so far makes it *consequential*: `_generate_reference_audio` still walks the measure list and synthesizes whatever notes are in it, unresolved or not. Without this task, the backend now knows a measure may be wrong and plays it anyway — the original product bug, with better logging.
+
+**Files:**
+- Modify: `modal_worker/worker.py` — `_generate_reference_audio` (currently at line 7211-ish; verify with `grep -n "^def _generate_reference_audio" modal_worker/worker.py` before editing, it has moved during this session).
+- Test: `modal_worker/test_analysis.py`
+
+**Interfaces:**
+- Consumes: `read_score_notes_for_reference_audio(...)`'s result, which after Task 11 carries `unresolved_measure_count` (int) and per-measure `unresolved` flags.
+- Produces: `_generate_reference_audio` returning `{"error": "score_read_uncertain", "message": ..., "unresolved_measures": [...]}` instead of audio when any measure is unresolved. The existing `{"error": ...}` contract is unchanged in shape, so the webhook/edge-function/frontend error paths built earlier tonight already handle it — the user sees an error message rather than wrong music.
+
+**Design decision, deliberate:** refuse the WHOLE generation, rather than synthesizing the confident measures and skipping the uncertain ones. Partial audio sounds like a performance with holes in it, gives no indication which bars were dropped, and invites the user to trust the parts that played. "We couldn't read this reliably, try a clearer photo" is a worse-feeling but honest outcome, and it is the one that cannot silently teach a student wrong notes. Partial-audio-with-explicit-gaps is a reasonable future iteration; it is not the right default for the first version of a correctness fix.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `modal_worker/test_analysis.py`, after Task 10's last test:
+
+```python
+def test_generate_reference_audio_refuses_when_measures_are_unresolved():
+    print("\n[101] reference audio REFUSES to synthesize when any measure is unresolved")
+    called = {"synthesized": False}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+                {"number": 13, "unresolved": True, "issues": ["Claude and OMR disagree"],
+                 "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 1,
+        }
+
+    def _fake_synth(score, instrument, bpm):
+        called["synthesized"] = True
+        return b"RIFFfake", []
+
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _orig_synth = w.generate_reference_audio
+    w.read_score_notes_for_reference_audio = _fake_reader
+    w.generate_reference_audio = _fake_synth
+    try:
+        result = w._generate_reference_audio({
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "k",
+        })
+    finally:
+        w.read_score_notes_for_reference_audio = _orig_reader
+        w.generate_reference_audio = _orig_synth
+
+    check("returns an error instead of audio", result.get("error") == "score_read_uncertain", str(result))
+    check("NO audio was synthesized at all — the point is that questionable notes never reach the user",
+          called["synthesized"] is False, str(called))
+    check("names which measures were uncertain, so the error is actionable",
+          13 in (result.get("unresolved_measures") or []), str(result))
+    check("carries a human-readable message", bool(result.get("message")), str(result))
+
+
+def test_generate_reference_audio_proceeds_when_nothing_is_unresolved():
+    print("\n[102] reference audio still generates normally when every measure resolved confidently")
+    called = {"synthesized": False}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 0,
+        }
+
+    def _fake_synth(score, instrument, bpm):
+        called["synthesized"] = True
+        return b"RIFFfake", [{"measure": 12, "start_sec": 0.0, "end_sec": 1.8}]
+
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _orig_synth = w.generate_reference_audio
+    w.read_score_notes_for_reference_audio = _fake_reader
+    w.generate_reference_audio = _fake_synth
+    try:
+        result = w._generate_reference_audio({
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "k",
+        })
+    finally:
+        w.read_score_notes_for_reference_audio = _orig_reader
+        w.generate_reference_audio = _orig_synth
+
+    check("a fully-resolved read is not blocked", not result.get("error"), str(result))
+    check("audio was synthesized", called["synthesized"] is True, str(called))
+    check("returns base64 audio as before", bool(result.get("audio_base64")), str(result.keys()))
+```
+
+Register in `main()`'s tuple:
+
+```python
+              test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
+              test_generate_reference_audio_refuses_when_measures_are_unresolved,
+              test_generate_reference_audio_proceeds_when_nothing_is_unresolved,
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `python3 modal_worker/test_analysis.py 2>&1 | grep -B2 -A5 "\[101\]\|\[102\]"`
+Expected: `[101]` fails — the current code synthesizes regardless. (`[102]` may already pass; that is fine and expected, it is the regression guard for this change.)
+
+- [ ] **Step 3: Add the refusal gate**
+
+In `_generate_reference_audio`, insert immediately AFTER the existing max-measures check (`if len(score.get("measures", [])) > 500:` and its return) and BEFORE the `bpm` parsing block:
+
+```python
+    # Refuse to synthesize anything from a read the pipeline itself does
+    # not trust. read_score_notes_claude marks a measure "unresolved" when
+    # Claude's independent reads disagreed, an independent OMR read
+    # contradicted them, or the measure failed deterministic music
+    # validation AND targeted re-reading could not settle it (see
+    # resolve_measure_disagreement).
+    #
+    # Playing those notes anyway is the exact product failure this whole
+    # pipeline exists to end: a student hears confident, fluent, WRONG
+    # music and has no way to know which bars to distrust. An error they
+    # can act on ("take a clearer photo") is worse-feeling and far better
+    # than authoritative-sounding wrong notes. Whole-generation refusal
+    # rather than partial audio is deliberate — see this task's design
+    # note in the plan.
+    unresolved = [m.get("number") for m in score.get("measures", []) if m.get("unresolved")]
+    if unresolved or score.get("unresolved_measure_count"):
+        print(f"[_generate_reference_audio] refusing to synthesize — "
+              f"{len(unresolved)} unresolved measure(s): {unresolved[:20]}")
+        return {
+            "error": "score_read_uncertain",
+            "message": ("Some measures on this page could not be read reliably, so "
+                        "reference audio was not generated — it would likely play the "
+                        "wrong notes. Try a clearer, flatter photo of the page."),
+            "unresolved_measures": unresolved,
+        }
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `python3 modal_worker/test_analysis.py 2>&1 | tail -10`
+Expected: final line `NNN/NNN checks passed`.
+
+- [ ] **Step 5: Verify the error surfaces to the user, rather than looking like a crash**
+
+Trace the new error shape through the async chain built earlier in this project: `_generate_reference_audio` returns `{"error": ...}` → `_generate_reference_audio_background` posts `{"takeId", "error"}` to the webhook → `generate-reference-audio-webhook` writes `reference_audio_job_status='failed'` + `reference_audio_job_error` → the polling `generate-reference-audio` edge function returns `{status:'failed', error}` → `useReferenceAudio`'s poll loop throws with that message. Confirm by reading those files that the `message` field (not just the `error` code) is what reaches the user, and if only `error` propagates, set `error` to the human-readable sentence instead of the `score_read_uncertain` code — an end user must never be shown a raw error code.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add modal_worker/worker.py modal_worker/test_analysis.py
+git commit -m "feat(worker): refuse reference-audio synthesis when the score read is uncertain"
+```
+
+---
+
+### Task 13: Upload-flow quality gate UI
 
 **Files:**
 - Create: `supabase/functions/score-quality-check/index.ts`
@@ -2135,7 +2409,7 @@ git commit -m "feat(worker): wire multi-signal pipeline into read_score_notes_cl
 - Modify: `src/components/NewRecordingModal.jsx` (score-picking section, currently around lines 563-595 per this plan's research — verify current line numbers before editing, this file may have changed).
 
 **Interfaces:**
-- Produces: `POST score-quality-check {scoreUrl} -> {quality: "good"|"marginal"|"poor", interlinePx: number|null}`, called by the frontend right after a photo is picked, before upload.
+- Produces: `POST score-quality-check {scorePath} -> {quality: "good"|"marginal"|"poor", interlinePx: number|null}`, called by the frontend from inside `handleSubmit` AFTER the score files have uploaded to the `sheet-music` bucket and BEFORE the analysis/generation request is dispatched. It takes a storage `scorePath` (which only exists post-upload), not a raw file or URL — see Step 7 for the full flow and why there is exactly one.
 
 - [ ] **Step 1: Add a Modal endpoint**
 
@@ -2154,18 +2428,33 @@ def _check_score_quality(body: dict) -> dict:
     if not score_url:
         return {"error": "score_url is required"}
 
-    # This endpoint fetches a caller-supplied URL, so without a host
-    # restriction it is a server-side request forgery primitive: anyone
-    # who can reach it could use this worker to probe internal/cloud-
-    # metadata endpoints and read back whether they resolved. The only
-    # legitimate caller passes a signed Supabase storage URL, so require
-    # exactly that host.
-    allowed_host = (body.get("allowed_host") or "").strip().lower()
+    # This endpoint is a PUBLIC, unauthenticated Modal URL that fetches a
+    # caller-supplied URL, which makes it a server-side request forgery
+    # primitive unless the destination is constrained: anyone who finds
+    # the URL could otherwise point it at cloud-metadata services
+    # (169.254.169.254), internal hosts, or arbitrary third parties and
+    # learn from the response whether they resolved. Unlike this app's
+    # other Modal endpoints, it needs no API key to do real work, so
+    # "useless without your own credentials" does not protect it.
+    #
+    # The constraint MUST be server-controlled. An earlier draft of this
+    # plan took the expected host from the request body, which is
+    # self-defeating — an attacker simply sends a matching pair of
+    # score_url and expected-host values and the check passes. The
+    # allowlist below lives in this deployed function instead, where a
+    # caller cannot influence it.
     parsed_url = urlparse(score_url)
-    if parsed_url.scheme != "https" or not allowed_host or parsed_url.hostname != allowed_host:
-        return {"error": "score_url must be an https URL on the expected storage host"}
+    host = (parsed_url.hostname or "").lower()
+    if (parsed_url.scheme != "https"
+            or not (host == "supabase.co" or host.endswith(".supabase.co"))
+            or not parsed_url.path.startswith("/storage/v1/object/")):
+        print(f"[_check_score_quality] rejected non-storage URL host={host!r}")
+        return {"error": "score_url must be an https Supabase storage object URL"}
 
     try:
+        # follow_redirects=False matters as much as the allowlist: without
+        # it, an allowed host that 302s elsewhere would walk the fetch
+        # straight past the check above.
         with httpx.Client(timeout=30) as client:
             resp = client.get(score_url, follow_redirects=False)
             resp.raise_for_status()
@@ -2266,14 +2555,12 @@ serve(async (req: Request) => {
     const modalRes = await fetch(modalUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // allowed_host pins the worker's fetch to this project's own storage
-      // host — see _check_score_quality's SSRF note. Derived from
-      // SUPABASE_URL rather than hardcoded so it stays correct per
-      // environment.
-      body: JSON.stringify({
-        score_url: signed.signedUrl,
-        allowed_host: new URL(Deno.env.get('SUPABASE_URL')!).hostname,
-      }),
+      // Only the URL is sent. The worker enforces its own server-side
+      // allowlist on the destination (see _check_score_quality) — a host
+      // restriction supplied by the caller would be no restriction at
+      // all, since a direct caller of that public endpoint controls both
+      // halves of the comparison.
+      body: JSON.stringify({ score_url: signed.signedUrl }),
       signal: AbortSignal.timeout(20000),
     }).catch(() => null)
 
@@ -2337,7 +2624,7 @@ git commit -m "feat(ui): add interline-based photo quality gate to score upload"
 
 ---
 
-### Task 13: Ground-truth live test
+### Task 14: Ground-truth live test
 
 **Files:** none (verification task).
 
@@ -2365,13 +2652,13 @@ Note the asymmetry when judging: a measure that is wrong AND flagged unresolved 
 
 ---
 
-### Task 14: Deploy
+### Task 15: Deploy
 
 **Files:** none (deployment task).
 
 - [ ] **Step 1: Confirm the migration/secret/deploy ordering**
 
-No new database migration in this plan. Confirm `MODAL_SCORE_QUALITY_URL` (Task 12) is set before the edge function that reads it is deployed (already sequenced correctly in Task 12's own steps — this step is a final cross-check, not new work).
+No new database migration in this plan. Confirm `MODAL_SCORE_QUALITY_URL` (Task 13) is set before the edge function that reads it is deployed (already sequenced correctly in Task 13's own steps — this step is a final cross-check, not new work).
 
 - [ ] **Step 2: Redeploy the worker with the full pipeline**
 
@@ -2381,7 +2668,7 @@ modal deploy modal_worker/worker.py
 
 - [ ] **Step 3: Final end-to-end smoke test**
 
-Repeat Task 13's live test once more against the fully deployed (not dev/ephemeral) stack, to confirm nothing differs between the `modal run` dev environment used for testing and the real deployed app.
+Repeat Task 14's live test once more against the fully deployed (not dev/ephemeral) stack, to confirm nothing differs between the `modal run` dev environment used for testing and the real deployed app.
 
 - [ ] **Step 4: Update the project's own tracking docs**
 

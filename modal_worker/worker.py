@@ -7180,7 +7180,7 @@ def generate_reference_audio_background(payload: dict) -> None:
     _generate_reference_audio_background(payload)
 
 
-@app.function(image=image, timeout=30, min_containers=1)
+@app.function(image=image, timeout=30)
 @modal.fastapi_endpoint(method="POST", docs=True)
 def generate_reference_audio_async(body: dict) -> dict:
     """

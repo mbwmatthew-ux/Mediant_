@@ -7121,11 +7121,77 @@ def _generate_reference_audio(body: dict) -> dict:
     }
 
 
+def _generate_reference_audio_background(payload: dict) -> None:
+    """
+    Does the real reference-audio generation work, then POSTs the result to
+    a webhook instead of returning it. Plain, undecorated — same reason
+    _generate_reference_audio is plain: Modal's decorators (@app.function,
+    @modal.fastapi_endpoint) are blanket-mocked in the local test harness,
+    which turns a decorated function into an unrelated MagicMock and makes
+    it untestable directly. generate_reference_audio_background below is a
+    thin decorated wrapper that calls this.
+
+    Needed because a real accuracy fix (splitting a dense score page into
+    per-system row crops before vision reading, see split_page_into_rows)
+    made the underlying Claude call slow enough (multiple images instead
+    of one) to exceed Supabase Edge Functions' 150s wall-clock limit if
+    done synchronously.
+
+    payload needs everything _generate_reference_audio already needs
+    (instrument, bpm, score_urls or score, anthropic_api_key), plus
+    take_id and webhook_url (webhook_secret is optional but should always
+    be sent in practice, same as run_full_analysis's payload).
+    """
+    take_id     = payload.get("take_id")
+    webhook_url = payload.get("webhook_url")
+    if not take_id or not webhook_url:
+        print(f"[_generate_reference_audio_background] missing take_id or webhook_url, cannot report result: {payload.keys()}")
+        return
+
+    webhook_secret   = payload.get("webhook_secret")
+    webhook_anon_key = payload.get("webhook_anon_key")
+
+    try:
+        result = _generate_reference_audio(payload)
+    except Exception as e:
+        print(f"[_generate_reference_audio_background] FAILED for take {take_id}: {e}")
+        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": str(e)}, anon_key=webhook_anon_key)
+        return
+
+    if result.get("error"):
+        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": result["error"]}, anon_key=webhook_anon_key)
+        return
+
+    post_webhook(webhook_url, webhook_secret, {
+        "takeId":       take_id,
+        "audio_base64": result["audio_base64"],
+        "timeline":     result["timeline"],
+        "bpm":          payload.get("bpm"),
+    }, anon_key=webhook_anon_key)
+
+
 @app.function(image=image, timeout=280, memory=2048)
+def generate_reference_audio_background(payload: dict) -> None:
+    """Modal-deployable wrapper, invoked via .spawn(). See _generate_reference_audio_background."""
+    _generate_reference_audio_background(payload)
+
+
+@app.function(image=image, timeout=30, min_containers=1)
 @modal.fastapi_endpoint(method="POST", docs=True)
-def generate_reference_audio_endpoint(body: dict) -> dict:
-    """Renders an AI reference performance for a whole score. See _generate_reference_audio."""
-    return _generate_reference_audio(body)
+def generate_reference_audio_async(body: dict) -> dict:
+    """
+    Validates the request, spawns generate_reference_audio_background in
+    the background, returns immediately — mirrors analyze_async exactly.
+    Gets its OWN Modal URL (see Gotchas: "Modal URL has no path — root
+    only"), separate from every other endpoint in this app.
+    """
+    take_id     = body.get("take_id")
+    webhook_url = body.get("webhook_url")
+    if not take_id or not webhook_url:
+        return {"error": "take_id and webhook_url are required"}
+    generate_reference_audio_background.spawn(body)
+    print(f"[generate_reference_audio_async] spawned reference-audio generation for take {take_id}")
+    return {"queued": True, "take_id": take_id}
 
 
 @app.local_entrypoint()

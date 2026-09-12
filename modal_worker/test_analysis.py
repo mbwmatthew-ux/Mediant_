@@ -2688,6 +2688,111 @@ def test_reference_audio_endpoint_falls_back_when_fresh_read_fails():
           len(res.get("timeline", [])) == 1, str(res.get("timeline")))
 
 
+def test_reference_audio_background_posts_success_to_webhook():
+    print("\n[73] generate_reference_audio_background posts the audio result to the webhook, not a return value")
+    import types, json as _json
+    captured = {}
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            return _FakeStream(_json.dumps({
+                "key_signature": None, "time_signature": "4/4", "tempo_marking": None,
+                "measures": [{"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    class _FakeHttpResp:
+        content = b"\x89PNG fake"
+        headers = {"content-type": "image/png"}
+        def raise_for_status(self): pass
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): return _FakeHttpResp()
+        def post(self, url, **kw):
+            captured["webhook_url"] = url
+            captured["webhook_payload"] = kw.get("json")
+            captured["webhook_headers"] = kw.get("headers")
+            return types.SimpleNamespace(status_code=200, text="ok")
+
+    _ac = sys.modules["anthropic"]
+    _httpx = sys.modules["httpx"]
+    _orig_ac, _orig_httpx = _ac.Anthropic, _httpx.Client
+    _ac.Anthropic = _FakeAnthropicClient
+    _httpx.Client = _FakeHttpClient
+    try:
+        w._generate_reference_audio_background({
+            "take_id": "take-123",
+            "webhook_url": "https://example.test/webhook",
+            "webhook_secret": "shh",
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+        })
+    finally:
+        _ac.Anthropic, _httpx.Client = _orig_ac, _orig_httpx
+
+    check("posts to the exact webhook_url given", captured.get("webhook_url") == "https://example.test/webhook",
+          str(captured.get("webhook_url")))
+    check("includes the webhook secret header", captured.get("webhook_headers", {}).get("x-webhook-secret") == "shh",
+          str(captured.get("webhook_headers")))
+    payload = captured.get("webhook_payload") or {}
+    check("webhook payload carries takeId", payload.get("takeId") == "take-123", str(payload))
+    check("webhook payload carries audio_base64", "audio_base64" in payload, str(payload.keys()))
+    check("webhook payload carries a non-empty timeline", len(payload.get("timeline") or []) == 1, str(payload.get("timeline")))
+    check("webhook payload carries bpm", payload.get("bpm") == 100, str(payload.get("bpm")))
+    check("no error key on a successful generation", "error" not in payload, str(payload.keys()))
+
+
+def test_reference_audio_background_posts_failure_to_webhook():
+    print("\n[74] generate_reference_audio_background posts an error to the webhook when generation fails, never raises")
+    import types
+    captured = {}
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def post(self, url, **kw):
+            captured["webhook_payload"] = kw.get("json")
+            return types.SimpleNamespace(status_code=200, text="ok")
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _httpx.Client = _FakeHttpClient
+    try:
+        # No score_urls AND no fallback score -> _generate_reference_audio
+        # returns {"error": "score with at least one measure is required"}.
+        w._generate_reference_audio_background({
+            "take_id": "take-456",
+            "webhook_url": "https://example.test/webhook",
+            "webhook_secret": "shh",
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+        })
+    finally:
+        _httpx.Client = _orig_httpx
+
+    payload = captured.get("webhook_payload") or {}
+    check("webhook payload carries takeId even on failure", payload.get("takeId") == "take-456", str(payload))
+    check("webhook payload carries the error message",
+          payload.get("error") == "score with at least one measure is required", str(payload))
+    check("no audio_base64 key on a failed generation", "audio_base64" not in payload, str(payload.keys()))
+
+
 def test_declared_bpm_flows_into_compare_and_coach_claude():
     print("\n[59] declared_bpm reaches compare_and_coach_claude and produces a flag")
     score = make_score()
@@ -2925,6 +3030,8 @@ def main():
               test_fresh_score_read_always_anchors_at_measure_1,
               test_reference_audio_endpoint_prefers_fresh_read_over_provided_score,
               test_reference_audio_endpoint_falls_back_when_fresh_read_fails,
+              test_reference_audio_background_posts_success_to_webhook,
+              test_reference_audio_background_posts_failure_to_webhook,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged):

@@ -204,12 +204,18 @@ serve(async (req: Request) => {
       signal: AbortSignal.timeout(15000), // this call only kicks off a spawn — fast, not the slow vision call
     }).catch((e) => { console.warn('[generate-reference-audio] spawn dispatch failed:', e?.message); return null })
 
-    if (!spawnRes || !spawnRes.ok) {
+    let spawnJson: { error?: string } | null = null
+    if (spawnRes) {
+      try { spawnJson = await spawnRes.json() } catch { /* non-JSON body, treated as failure below */ }
+    }
+
+    if (!spawnRes || !spawnRes.ok || spawnJson?.error) {
+      const reason = spawnJson?.error || 'Could not start reference audio generation'
       await admin.from('takes').update({
         reference_audio_job_status: 'failed',
-        reference_audio_job_error: 'Could not start reference audio generation',
+        reference_audio_job_error: reason,
       }).eq('id', takeId)
-      return new Response(JSON.stringify({ status: 'failed', error: 'Could not start reference audio generation' }), {
+      return new Response(JSON.stringify({ status: 'failed', error: reason }), {
         status: 502, headers: jsonHeaders,
       })
     }

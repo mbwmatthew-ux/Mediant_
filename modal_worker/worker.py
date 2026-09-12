@@ -3260,7 +3260,35 @@ def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
         return [page_bytes]
 
 
-def read_score_notes_claude(
+def _compute_dynamic_wedges(measures: list[dict]) -> list[dict]:
+    """
+    Fold a run of consecutive measures that each carry the same single
+    "cresc"/"dim" marker into one span, the vision-reader equivalent of a
+    MusicXML DynamicWedge spanner. Factored out so it can run once against
+    a single read's measures, or again against a reconciled/merged measures
+    list (see read_score_notes_claude) without duplicating the logic.
+    """
+    wedges: list[dict] = []
+    _run_kind = _run_start = _run_end = None
+    for m in measures:
+        _kinds = {str(n.get("dynamic")).lower() for n in m.get("notes", [])
+                  if str(n.get("dynamic") or "").lower() in ("cresc", "dim")}
+        _kind = next(iter(_kinds)) if len(_kinds) == 1 else None
+        if _kind and _kind == _run_kind:
+            _run_end = m["number"]
+        else:
+            if _run_kind:
+                wedges.append({"kind": _run_kind, "start_measure": _run_start,
+                                "end_measure": _run_end})
+            _run_kind = _kind
+            _run_start = _run_end = m["number"] if _kind else None
+    if _run_kind:
+        wedges.append({"kind": _run_kind, "start_measure": _run_start,
+                        "end_measure": _run_end})
+    return wedges
+
+
+def _read_score_notes_claude_once(
     pages: list[tuple[bytes, str]],
     start_measure: int, instrument: str, time_sig: str,
     anthropic_api_key: str,
@@ -3453,26 +3481,7 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
                 n = (_prev + 1) if _prev is not None else start_measure
             m["number"] = n
             _prev = n
-        # Crescendo/diminuendo wedges: fold a run of consecutive measures that
-        # each carry the same single "cresc"/"dim" marker into one span, the
-        # vision-reader equivalent of a MusicXML DynamicWedge spanner.
-        wedges: list[dict] = []
-        _run_kind = _run_start = _run_end = None
-        for m in measures:
-            _kinds = {str(n.get("dynamic")).lower() for n in m.get("notes", [])
-                      if str(n.get("dynamic") or "").lower() in ("cresc", "dim")}
-            _kind = next(iter(_kinds)) if len(_kinds) == 1 else None
-            if _kind and _kind == _run_kind:
-                _run_end = m["number"]
-            else:
-                if _run_kind:
-                    wedges.append({"kind": _run_kind, "start_measure": _run_start,
-                                    "end_measure": _run_end})
-                _run_kind = _kind
-                _run_start = _run_end = m["number"] if _kind else None
-        if _run_kind:
-            wedges.append({"kind": _run_kind, "start_measure": _run_start,
-                            "end_measure": _run_end})
+        wedges = _compute_dynamic_wedges(measures)
         total_notes = sum(len(m["notes"]) for m in measures)
         if measures:
             _nums = [m["number"] for m in measures]
@@ -3510,6 +3519,138 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
         print(f"[read_score_notes_claude] error: {e}")
         return {"key_signature": None, "time_signature": None, "tempo_marking": None,
                 "measures": [], "error": f"{type(e).__name__}: {e}"}
+
+
+def _measure_fingerprint(m: dict) -> tuple:
+    """
+    Canonical, order-independent-in-formatting comparison key for a single
+    measure's musical content — used to tell whether two independent vision
+    reads of the SAME page actually agree on what a measure contains.
+
+    Deliberately excludes "dynamic"/"articulation": those are secondary
+    details a hallucinating read is less likely to invent consistently
+    wrong, and including them would make near-miss reads (right pitches,
+    slightly different marcato/accent guess) register as full disagreements,
+    triggering an expensive third read for no real accuracy gain.
+    """
+    notes = m.get("notes") or []
+    return tuple(
+        (n.get("pitch"), bool(n.get("is_rest")),
+         round(float(n.get("beat") or 0), 2), round(float(n.get("duration_beats") or 0), 2))
+        for n in notes
+    )
+
+
+def read_score_notes_claude(
+    pages: list[tuple[bytes, str]],
+    start_measure: int, instrument: str, time_sig: str,
+    anthropic_api_key: str,
+) -> dict:
+    """
+    Reads the score TWICE independently via _read_score_notes_claude_once and
+    reconciles the two reads measure-by-measure, instead of trusting a single
+    call.
+
+    Needed because Claude vision's mistakes on dense, photographed pages are
+    not random noise that averages out — they are CONSISTENT-LOOKING but
+    WRONG patterns (mirror-image measures, duplicated measures) that read as
+    confident, plausible transcription. A single read has no way to tell a
+    confident wrong answer from a confident right one. Two independent reads
+    of the identical images will themselves disagree wherever the underlying
+    photo is genuinely ambiguous to the model — that disagreement IS the
+    signal a single read can never produce.
+
+    Where the two reads agree measure-for-measure (by _measure_fingerprint),
+    that measure is high-confidence and used as-is. Where they disagree, a
+    THIRD independent read breaks the tie by majority vote (2 of 3) rather
+    than arbitrarily preferring the first read — an arbitrary preference
+    would silently throw away exactly the cases this function exists to
+    catch. The third read only runs when needed, so the common case (the two
+    reads already agree) costs 2x a single read, not 3x.
+
+    Signature and return shape are unchanged from the prior single-read
+    version — both call sites (read_score_notes_for_reference_audio, and the
+    main analysis pipeline's score-reading step) need no changes.
+    """
+    read_a = _read_score_notes_claude_once(pages, start_measure, instrument, time_sig, anthropic_api_key)
+    read_b = _read_score_notes_claude_once(pages, start_measure, instrument, time_sig, anthropic_api_key)
+
+    if read_a.get("error") and read_b.get("error"):
+        return read_a
+    if read_a.get("error"):
+        return read_b
+    if read_b.get("error"):
+        return read_a
+
+    by_number_a = {m["number"]: m for m in read_a.get("measures", [])}
+    by_number_b = {m["number"]: m for m in read_b.get("measures", [])}
+    all_numbers = sorted(set(by_number_a) | set(by_number_b))
+
+    disagreements = [
+        n for n in all_numbers
+        if _measure_fingerprint(by_number_a.get(n, {})) != _measure_fingerprint(by_number_b.get(n, {}))
+    ]
+
+    if not disagreements:
+        print(f"[read_score_notes_claude] two independent reads agree on all "
+              f"{len(all_numbers)} measures — using read 1")
+        return read_a
+
+    print(f"[read_score_notes_claude] two independent reads disagree on "
+          f"{len(disagreements)}/{len(all_numbers)} measures {disagreements[:20]}"
+          f"{'...' if len(disagreements) > 20 else ''} — running a third read to break ties")
+    read_c = _read_score_notes_claude_once(pages, start_measure, instrument, time_sig, anthropic_api_key)
+    by_number_c = {m["number"]: m for m in read_c.get("measures", [])} if not read_c.get("error") else {}
+
+    reconciled: list[dict] = []
+    still_disagree = 0
+    for n in all_numbers:
+        candidates = [by_number_a.get(n), by_number_b.get(n), by_number_c.get(n)]
+        candidates = [c for c in candidates if c is not None]
+        if not candidates:
+            continue
+        fingerprints = [_measure_fingerprint(c) for c in candidates]
+        counts: dict[tuple, int] = {}
+        for fp in fingerprints:
+            counts[fp] = counts.get(fp, 0) + 1
+        winning_fp = max(counts, key=lambda fp: counts[fp])
+        if counts[winning_fp] < 2:
+            still_disagree += 1
+        winner = next(c for c, fp in zip(candidates, fingerprints) if fp == winning_fp)
+        reconciled.append(winner)
+    reconciled.sort(key=lambda m: m["number"])
+
+    if still_disagree:
+        print(f"[read_score_notes_claude] {still_disagree} measure(s) had no "
+              f"2-of-3 majority even after a third read — kept read 1's version "
+              f"for those, lower confidence")
+
+    reads = [read_a, read_b, read_c]
+    result = {
+        "key_signature":  _majority_vote(r.get("key_signature") for r in reads),
+        "time_signature": _majority_vote(r.get("time_signature") for r in reads),
+        "tempo_marking":  _majority_vote(r.get("tempo_marking") for r in reads),
+        "source":         "claude_vision",
+        "measures":       reconciled,
+    }
+    result["tempo_bpm"] = parse_marked_bpm(result["tempo_marking"])
+    result["wedges"] = _compute_dynamic_wedges(reconciled)
+    return result
+
+
+def _majority_vote(values) -> object:
+    """2-of-3 (or 1-of-2, if the third read never ran) majority vote over a
+    small set of scalar values, falling back to the first non-None value if
+    every candidate is distinct. Used to reconcile whole-score metadata
+    fields (key/time signature, tempo marking) the same way individual
+    measures are reconciled by _measure_fingerprint agreement."""
+    values = [v for v in values if v is not None]
+    if not values:
+        return None
+    counts: dict = {}
+    for v in values:
+        counts[v] = counts.get(v, 0) + 1
+    return max(counts, key=lambda v: counts[v])
 
 
 def beats_per_measure_from_time_sig(time_sig: str | None) -> int:
@@ -7174,9 +7315,25 @@ def _generate_reference_audio_background(payload: dict) -> None:
     }, anon_key=webhook_anon_key)
 
 
-@app.function(image=image, timeout=280, memory=2048)
+@app.function(image=image, timeout=890, memory=2048)
 def generate_reference_audio_background(payload: dict) -> None:
-    """Modal-deployable wrapper, invoked via .spawn(). See _generate_reference_audio_background."""
+    """
+    Modal-deployable wrapper, invoked via .spawn(). See
+    _generate_reference_audio_background.
+
+    timeout=890 (was 280): read_score_notes_claude now reads the score 2-3x
+    (see that function's docstring) instead of once, to cross-validate
+    against vision hallucination. 280s was sized for one read; a live run
+    with the old value was killed mid-read by Modal's own timeout at 280s,
+    which orphans the job in 'processing' until the 5-minute self-heal
+    fires — silent to the caller, visible only in Modal's own logs. Sized
+    generously (3 reads worst case, each of which has itself taken over a
+    minute on a real dense multi-strip page, plus FluidSynth rendering)
+    rather than re-guessing a tighter number that risks the same failure
+    on a larger/denser score. Still comfortably under the frontend's
+    120-attempt/5s (600s) poll budget's remaining headroom after the fast
+    initial dispatch.
+    """
     _generate_reference_audio_background(payload)
 
 

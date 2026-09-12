@@ -75,13 +75,16 @@ export function useReferenceAudio(takeId) {
       }
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-reference-audio`
 
-      // Reference-audio generation now runs as a background job (a
-      // multi-image vision call, see split_page_into_rows, can take well
-      // over a minute) — poll the same endpoint until it reports done or
-      // failed, matching NewRecordingModal.jsx's existing poll pattern
-      // (5s interval, 120 attempts / 10 minutes).
+      // Reference-audio generation now runs as a background job. The score
+      // read cross-validates with 2-3 sequential vision calls (see
+      // read_score_notes_claude in worker.py) instead of 1, and the Modal
+      // background function's own timeout was raised to 890s to give that
+      // room — 120 attempts (10 minutes) could time out on a legitimately
+      // still-running generation before it ever got a chance to finish.
+      // 200 attempts (~16.7 minutes) stays comfortably above the backend's
+      // own 950s self-heal window (generate-reference-audio/index.ts).
       let body = null
-      for (let attempt = 0; attempt < 120; attempt++) {
+      for (let attempt = 0; attempt < 200; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 5000))
         if (takeIdRef.current !== myTakeId) return null
         try {

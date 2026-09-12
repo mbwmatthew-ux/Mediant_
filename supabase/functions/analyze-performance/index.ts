@@ -791,12 +791,17 @@ Return ONLY valid JSON (no markdown fences, no explanation text):
 
 Use exact pitches, beats, rests, and technique only when the evidence actually supports them. If structured score facts show a rest-heavy measure, do not invent missing played notes there. Never write vague feedback, and never hallucinate rests, notes, or markings that are not visible/audible.`
 
-  // Use confirmed-available models (v1beta only — v1 doesn't have these models)
+  // Use confirmed-available models (v1beta only — v1 doesn't have these models).
+  // Verified live 2026-09-12: gemini-2.0-flash, -2.0-flash-001, and
+  // -2.0-flash-lite are all fully retired (404 "no longer available") —
+  // Google's flash-tier models get deprecated on a much shorter cycle than
+  // this list assumed. gemini-flash-latest is a rolling alias Google keeps
+  // pointed at whatever the current flash model is, so it's included as a
+  // hedge against this exact staleness happening again silently.
   const candidates = [
     'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-001',
-    'gemini-2.0-flash-lite',
+    'gemini-flash-latest',
+    'gemini-3.6-flash',
   ]
   let genData: any = null
 

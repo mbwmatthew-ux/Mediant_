@@ -20,7 +20,16 @@ function measureRangeFromTimeline(timeline: unknown): { start: number, end: numb
   return { start: Math.min(...nums), end: Math.max(...nums) }
 }
 
-const STUCK_JOB_MS = 5 * 60 * 1000 // matches job-status/index.ts's existing self-heal window
+// Was 5 * 60 * 1000 (matching job-status/index.ts). Raised because
+// read_score_notes_claude now cross-validates with 2-3 sequential vision
+// reads instead of 1 (see that function's docstring in worker.py), and the
+// Modal background function's own timeout was raised to 890s to give that
+// room — a self-heal window shorter than the job it's watching fires on
+// every single legitimately-still-running generation, wastefully
+// redispatching a fresh (and equally slow) attempt before the first one
+// gets a chance to finish. Kept comfortably above 890s rather than equal
+// to it, so ordinary scheduling jitter doesn't trip it early.
+const STUCK_JOB_MS = 950 * 1000
 
 serve(async (req: Request) => {
   const CORS = corsHeaders(req)

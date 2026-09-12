@@ -9,6 +9,15 @@ import { supabase } from '../lib/supabase'
  */
 export function useReferenceAudio(takeId) {
   const audioRef = useRef(null)
+  // Always holds the latest takeId, read (not just captured at generate()
+  // call time) inside the poll loop below — lets an in-flight generate()
+  // notice it's been superseded by a takeId change and bail out instead
+  // of writing a stale take's audio/timeline into the new take's state.
+  // Synced via effect, not a direct render-body assignment, matching the
+  // same ref-sync pattern already used by Coach.jsx's takeRef (this
+  // project's lint config forbids writing ref.current during render).
+  const takeIdRef = useRef(takeId)
+  useEffect(() => { takeIdRef.current = takeId }, [takeId])
   const [timeline, setTimeline] = useState([])
   const [baselineBpm, setBaselineBpm] = useState(null)
   const [tempo, setTempoState] = useState(null)
@@ -54,6 +63,7 @@ export function useReferenceAudio(takeId) {
   const generate = useCallback(async () => {
     if (!takeId) return null
     if (audioRef.current?.src) return { timeline, bpm: baselineBpm, measureRange }
+    const myTakeId = takeId
     setIsLoading(true)
     setError('')
     try {
@@ -73,14 +83,20 @@ export function useReferenceAudio(takeId) {
       let body = null
       for (let attempt = 0; attempt < 120; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 5000))
-        const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ takeId }) })
-        const json = await resp.json()
-        if (!resp.ok && json.status !== 'failed') throw new Error(json.error || 'Failed to generate reference audio')
-        if (json.status === 'done') { body = json; break }
-        if (json.status === 'failed') throw new Error(json.error || 'Failed to generate reference audio')
-        // status === 'processing' -> keep polling
+        if (takeIdRef.current !== myTakeId) return null
+        try {
+          const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ takeId }) })
+          if (!resp.ok) continue
+          const json = await resp.json()
+          if (json.status === 'done') { body = json; break }
+          if (json.status === 'failed') throw new Error(json.error || 'Failed to generate reference audio')
+          // status === 'processing' -> keep polling
+        } catch (pollErr) {
+          if (pollErr.message && !pollErr.message.includes('Failed to fetch')) throw pollErr
+        }
       }
       if (!body) throw new Error('Reference audio is taking longer than expected. Please try again in a moment.')
+      if (takeIdRef.current !== myTakeId) return null
 
       if (!audioRef.current) audioRef.current = new Audio()
       audioRef.current.src = body.audioUrl

@@ -173,9 +173,16 @@ serve(async (req: Request) => {
     const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')
     const webhookSecret = Deno.env.get('MODAL_WEBHOOK_SECRET')
 
+    // Opaque token identifying THIS dispatch — threaded through to the
+    // worker and back via the webhook, so a late webhook from a job that
+    // was superseded by self-heal (see STUCK_JOB_MS above) can be told
+    // apart from the current attempt and ignored instead of corrupting
+    // its state. Reusing job_started_at avoids inventing a second id.
+    const jobToken = new Date().toISOString()
+
     await admin.from('takes').update({
       reference_audio_job_status: 'processing',
-      reference_audio_job_started_at: new Date().toISOString(),
+      reference_audio_job_started_at: jobToken,
       reference_audio_job_error: null,
     }).eq('id', takeId)
 
@@ -184,6 +191,7 @@ serve(async (req: Request) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         take_id: takeId,
+        job_token: jobToken,
         webhook_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-reference-audio-webhook`,
         webhook_secret: webhookSecret,
         webhook_anon_key: Deno.env.get('SUPABASE_ANON_KEY'),

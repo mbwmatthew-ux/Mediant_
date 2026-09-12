@@ -7150,16 +7150,17 @@ def _generate_reference_audio_background(payload: dict) -> None:
 
     webhook_secret   = payload.get("webhook_secret")
     webhook_anon_key = payload.get("webhook_anon_key")
+    job_token        = payload.get("job_token")
 
     try:
         result = _generate_reference_audio(payload)
     except Exception as e:
         print(f"[_generate_reference_audio_background] FAILED for take {take_id}: {e}")
-        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": str(e)}, anon_key=webhook_anon_key)
+        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": str(e), "jobToken": job_token}, anon_key=webhook_anon_key)
         return
 
     if result.get("error"):
-        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": result["error"]}, anon_key=webhook_anon_key)
+        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": result["error"], "jobToken": job_token}, anon_key=webhook_anon_key)
         return
 
     post_webhook(webhook_url, webhook_secret, {
@@ -7167,6 +7168,7 @@ def _generate_reference_audio_background(payload: dict) -> None:
         "audio_base64": result["audio_base64"],
         "timeline":     result["timeline"],
         "bpm":          payload.get("bpm"),
+        "jobToken":     job_token,
     }, anon_key=webhook_anon_key)
 
 

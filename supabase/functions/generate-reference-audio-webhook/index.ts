@@ -32,19 +32,29 @@ serve(async (req: Request) => {
     })
   }
 
-  const { takeId, error: jobError } = body as { takeId: string; error?: string }
+  const { takeId, error: jobError, jobToken } = body as { takeId: string; error?: string; jobToken?: string }
   if (!takeId) {
     return new Response(JSON.stringify({ error: 'takeId is required' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...CORS },
     })
   }
 
+  // Fences every write below against a job that's been superseded (e.g.
+  // by generate-reference-audio's stuck-job self-heal dispatching a fresh
+  // attempt) — a late webhook from the old job matches nothing and its
+  // update becomes a no-op instead of corrupting the newer attempt's
+  // state. Missing jobToken (an older/unexpected caller) skips fencing
+  // rather than blocking the write.
+  function fence(query: any) {
+    return jobToken ? query.eq('reference_audio_job_started_at', jobToken) : query
+  }
+
   if (jobError) {
     console.error('[generate-reference-audio-webhook] job failed for take', takeId, ':', jobError)
-    await admin.from('takes').update({
+    await fence(admin.from('takes').update({
       reference_audio_job_status: 'failed',
       reference_audio_job_error:  String(jobError),
-    }).eq('id', takeId)
+    }).eq('id', takeId))
     return new Response(JSON.stringify({ ok: true }), {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })
@@ -84,23 +94,23 @@ serve(async (req: Request) => {
     .upload(storagePath, audioBytes, { contentType: 'audio/wav', upsert: true })
   if (uploadErr) {
     console.error('[generate-reference-audio-webhook] storage upload failed:', uploadErr.message)
-    await admin.from('takes').update({
+    await fence(admin.from('takes').update({
       reference_audio_job_status: 'failed',
       reference_audio_job_error:  `Failed to store reference audio: ${uploadErr.message}`,
-    }).eq('id', takeId)
+    }).eq('id', takeId))
     return new Response(JSON.stringify({ ok: true }), {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })
   }
 
   console.log('[generate-reference-audio-webhook] writing result for take', takeId)
-  await admin.from('takes').update({
+  await fence(admin.from('takes').update({
     reference_audio_path:       storagePath,
     reference_audio_bpm:        bpm,
     reference_audio_timeline:   timeline ?? [],
     reference_audio_job_status: 'done',
     reference_audio_job_error:  null,
-  }).eq('id', takeId)
+  }).eq('id', takeId))
 
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'Content-Type': 'application/json', ...CORS },

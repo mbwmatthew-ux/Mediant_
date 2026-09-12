@@ -2741,6 +2741,7 @@ def test_reference_audio_background_posts_success_to_webhook():
             "instrument": "Clarinet (B♭)",
             "bpm": 100,
             "anthropic_api_key": "fake-key",
+            "job_token": "tok-abc",
         })
     finally:
         _ac.Anthropic, _httpx.Client = _orig_ac, _orig_httpx
@@ -2755,6 +2756,7 @@ def test_reference_audio_background_posts_success_to_webhook():
     check("webhook payload carries a non-empty timeline", len(payload.get("timeline") or []) == 1, str(payload.get("timeline")))
     check("webhook payload carries bpm", payload.get("bpm") == 100, str(payload.get("bpm")))
     check("no error key on a successful generation", "error" not in payload, str(payload.keys()))
+    check("webhook payload round-trips jobToken", payload.get("jobToken") == "tok-abc", str(payload.get("jobToken")))
 
 
 def test_reference_audio_background_posts_failure_to_webhook():
@@ -2782,6 +2784,7 @@ def test_reference_audio_background_posts_failure_to_webhook():
             "webhook_secret": "shh",
             "instrument": "Clarinet (B♭)",
             "bpm": 100,
+            "job_token": "tok-xyz",
         })
     finally:
         _httpx.Client = _orig_httpx
@@ -2791,6 +2794,7 @@ def test_reference_audio_background_posts_failure_to_webhook():
     check("webhook payload carries the error message",
           payload.get("error") == "score with at least one measure is required", str(payload))
     check("no audio_base64 key on a failed generation", "audio_base64" not in payload, str(payload.keys()))
+    check("webhook payload round-trips jobToken on failure", payload.get("jobToken") == "tok-xyz", str(payload.get("jobToken")))
 
 
 def test_declared_bpm_flows_into_compare_and_coach_claude():

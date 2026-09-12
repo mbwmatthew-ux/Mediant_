@@ -58,20 +58,29 @@ export function useReferenceAudio(takeId) {
     setError('')
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const resp = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-reference-audio`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ takeId }),
-        },
-      )
-      const body = await resp.json()
-      if (!resp.ok || body.error) throw new Error(body.error || 'Failed to generate reference audio')
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`,
+        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+      }
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-reference-audio`
+
+      // Reference-audio generation now runs as a background job (a
+      // multi-image vision call, see split_page_into_rows, can take well
+      // over a minute) — poll the same endpoint until it reports done or
+      // failed, matching NewRecordingModal.jsx's existing poll pattern
+      // (5s interval, 120 attempts / 10 minutes).
+      let body = null
+      for (let attempt = 0; attempt < 120; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 5000))
+        const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ takeId }) })
+        const json = await resp.json()
+        if (!resp.ok && json.status !== 'failed') throw new Error(json.error || 'Failed to generate reference audio')
+        if (json.status === 'done') { body = json; break }
+        if (json.status === 'failed') throw new Error(json.error || 'Failed to generate reference audio')
+        // status === 'processing' -> keep polling
+      }
+      if (!body) throw new Error('Reference audio is taking longer than expected. Please try again in a moment.')
 
       if (!audioRef.current) audioRef.current = new Audio()
       audioRef.current.src = body.audioUrl

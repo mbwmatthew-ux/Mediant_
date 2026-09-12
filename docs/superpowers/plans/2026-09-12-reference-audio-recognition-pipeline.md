@@ -38,29 +38,38 @@
 
 **Interfaces:**
 - Consumes: `_otsu_threshold(values) -> float` (existing, `modal_worker/worker.py:3121`).
-- Produces: `compute_row_readability(row_bytes: bytes) -> dict` returning `{"interline_px": float | None, "quality": "good" | "marginal" | "poor", "reasons": list[str]}`. Consumed by Task 2 (dewarp decision), Task 11 (orchestration), and Task 12 (frontend quality gate, via a new endpoint).
+- Produces: `compute_row_readability(row_bytes: bytes) -> dict` returning `{"interline_px": float | None, "sharpness": float | None, "quality": "good" | "marginal" | "poor", "reasons": list[str]}`. Consumed by Task 2 (dewarp decision), Task 11 (orchestration), and Task 12 (frontend quality gate, via a new endpoint).
+
+**Two independent signals, not one.** Interline spacing alone is insufficient: a high-resolution but badly out-of-focus photo can have perfectly detectable staff lines at a healthy 24px interline while every notehead, stem, flag, and accidental has smeared into mush. Resolution and sharpness fail independently, so both are measured, and the worse of the two verdicts wins.
 
 - [ ] **Step 1: Write the failing tests**
 
 Add to `modal_worker/test_analysis.py`, after `test_split_page_into_rows_falls_back_on_undecodable_bytes` (search for that exact function name):
 
 ```python
-def _make_synthetic_row(interline_px=20, width=800, height=140, blur=False):
+def _make_synthetic_row(interline_px=20, width=800, height=140, blur=0):
     """A single-system row crop with 5 staff lines at a known, controllable
-    interline spacing, for testing compute_row_readability's measurement
-    against a known-correct answer. `blur` applies a simple box blur to
-    simulate a soft/out-of-focus photo, for testing the 'poor' quality path
-    without needing a real bad photo."""
+    interline spacing, PLUS notehead blobs (real notation has symbols, not
+    just lines — and the sharpness metric needs edges to measure). `blur`
+    is a Gaussian radius in pixels; > 0 simulates an out-of-focus photo,
+    for testing the sharpness path independently of resolution."""
     from PIL import Image, ImageDraw, ImageFilter
+    import random
     import io
     img = Image.new("L", (width, height), color=250)
     draw = ImageDraw.Draw(img)
     top = height // 2 - int(interline_px * 2)
+    staff_h = interline_px * 4
     for line_i in range(5):
         y = top + line_i * interline_px
         draw.line([(20, y), (width - 20, y)], fill=0, width=2)
+    rng = random.Random(11)
+    blob_r = max(2, interline_px // 2)
+    for x in range(40, width - 40, max(8, interline_px)):
+        blob_y = top + rng.randint(0, max(1, staff_h))
+        draw.ellipse([x, blob_y, x + blob_r, blob_y + blob_r], fill=0)
     if blur:
-        img = img.filter(ImageFilter.GaussianBlur(radius=3))
+        img = img.filter(ImageFilter.GaussianBlur(radius=blur))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -92,26 +101,42 @@ def test_compute_row_readability_marginal_band():
           result["quality"] == "marginal", str(result))
 
 
+def test_compute_row_readability_flags_a_blurry_but_high_resolution_row():
+    print("\n[78] readability check flags a BLURRY row as poor even when its interline spacing is generous")
+    sharp = _make_synthetic_row(interline_px=24, blur=0)
+    blurry = _make_synthetic_row(interline_px=24, blur=4)
+    r_sharp = w.compute_row_readability(sharp)
+    r_blurry = w.compute_row_readability(blurry)
+    check("the sharp version is good", r_sharp["quality"] == "good", str(r_sharp))
+    check("the blurry version measures a LOWER sharpness than the sharp one",
+          (r_blurry["sharpness"] or 0) < (r_sharp["sharpness"] or 0),
+          f"sharp={r_sharp['sharpness']} blurry={r_blurry['sharpness']}")
+    check("the blurry version is NOT rated good, despite a healthy 24px interline "
+          "(resolution and focus fail independently)",
+          r_blurry["quality"] != "good", str(r_blurry))
+
+
 def test_compute_row_readability_handles_undecodable_bytes():
-    print("\n[78] readability check degrades to poor/unknown on bytes it can't decode, does not raise")
+    print("\n[79] readability check degrades to poor/unknown on bytes it can't decode, does not raise")
     result = w.compute_row_readability(b"\x89PNG-not-a-real-image")
     check("returns poor quality with no interline reading, does not raise",
           result["quality"] == "poor" and result["interline_px"] is None, str(result))
 ```
 
-Register all four in `main()`'s test tuple, directly after `test_split_page_into_rows_falls_back_on_undecodable_bytes,` (search for that exact line):
+Register all five in `main()`'s test tuple, directly after `test_split_page_into_rows_falls_back_on_undecodable_bytes,` (search for that exact line):
 
 ```python
               test_split_page_into_rows_falls_back_on_undecodable_bytes,
               test_compute_row_readability_measures_known_interline,
               test_compute_row_readability_flags_low_interline_as_poor,
               test_compute_row_readability_marginal_band,
+              test_compute_row_readability_flags_a_blurry_but_high_resolution_row,
               test_compute_row_readability_handles_undecodable_bytes,
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `python3 modal_worker/test_analysis.py 2>&1 | grep -B2 -A5 "\[75\]\|\[76\]\|\[77\]\|\[78\]"`
+Run: `python3 modal_worker/test_analysis.py 2>&1 | grep -B2 -A5 "\[75\]\|\[76\]\|\[77\]\|\[78\]\|\[79\]"`
 Expected: `AttributeError: module 'worker' has no attribute 'compute_row_readability'`.
 
 - [ ] **Step 3: Implement `compute_row_readability`**
@@ -128,12 +153,31 @@ Insert immediately before `def split_page_into_rows(page_bytes: bytes) -> list[b
 _INTERLINE_POOR_MAX = 11.0
 _INTERLINE_GOOD_MIN = 18.0
 
+# Sharpness is the mean absolute horizontal gradient across the staff
+# band, normalized to 0-255. A crisply printed staff has hard black/white
+# transitions at every line, notehead and stem edge; an out-of-focus photo
+# smears those into gradients an order of magnitude softer. These
+# thresholds are deliberately loose — this metric exists to catch
+# obviously-unusable mush, not to grade photography.
+_SHARPNESS_POOR_MAX = 6.0
+_SHARPNESS_GOOD_MIN = 14.0
+
 
 def compute_row_readability(row_bytes: bytes) -> dict:
     """
-    Measures the ACTUAL staff-line spacing (interline) of one row crop —
-    not a proxy like raw pixel dimensions — plus local contrast, and
-    returns a quality verdict.
+    Measures TWO independent quality signals for one row crop and returns
+    the worse of their verdicts:
+
+      * interline_px — the ACTUAL staff-line spacing, not a proxy like raw
+        pixel dimensions.
+      * sharpness — mean absolute horizontal gradient over the staff band,
+        i.e. how hard the ink/paper edges are.
+
+    Both are needed because they fail INDEPENDENTLY: a photo can be
+    high-resolution (generous interline) yet so out of focus that every
+    notehead, stem and accidental has smeared together, or perfectly
+    sharp yet shot from so far away that nothing is resolvable. Measuring
+    only one lets the other through.
 
     Exists because Audiveris's real, confirmed failure on the actual
     problem photo tonight was driven by interline spacing specifically
@@ -143,11 +187,11 @@ def compute_row_readability(row_bytes: bytes) -> dict:
     grain to find the 5 individual staff lines within ONE system crop
     rather than the gaps BETWEEN systems.
 
-    Returns {"interline_px": float|None, "quality": "good"|"marginal"|"poor",
-    "reasons": [...]}. Never raises — undecodable bytes or a crop where
-    fewer than 2 staff lines can be confidently found come back as
-    "poor" with interline_px=None, same no-op-on-failure convention as
-    split_page_into_rows.
+    Returns {"interline_px": float|None, "sharpness": float|None,
+    "quality": "good"|"marginal"|"poor", "reasons": [...]}. Never raises —
+    undecodable bytes or a crop where fewer than 2 staff lines can be
+    confidently found come back as "poor" with interline_px=None, same
+    no-op-on-failure convention as split_page_into_rows.
     """
     try:
         from PIL import Image
@@ -170,7 +214,7 @@ def compute_row_readability(row_bytes: bytes) -> dict:
         candidate_rows = np.where(row_ink_fraction > 0.6)[0]
 
         if len(candidate_rows) < 2:
-            return {"interline_px": None, "quality": "poor",
+            return {"interline_px": None, "sharpness": None, "quality": "poor",
                     "reasons": ["fewer than 2 staff-line candidates found"]}
 
         # Merge adjacent candidate pixel-rows into single line centers —
@@ -187,27 +231,56 @@ def compute_row_readability(row_bytes: bytes) -> dict:
         line_centers.append((run_start + prev) / 2)
 
         if len(line_centers) < 2:
-            return {"interline_px": None, "quality": "poor",
+            return {"interline_px": None, "sharpness": None, "quality": "poor",
                     "reasons": ["fewer than 2 distinct staff lines after merging"]}
 
         spacings = [b - a for a, b in zip(line_centers, line_centers[1:])]
         interline_px = float(np.median(spacings))
 
+        # Sharpness, measured over the STAFF BAND only — the blank padding
+        # above/below a row crop has no edges by definition, and including
+        # it would dilute the measurement by however much padding the crop
+        # happens to carry.
+        staff_top = int(max(0, line_centers[0] - interline_px))
+        staff_bottom = int(min(h, line_centers[-1] + interline_px))
+        band = arr[staff_top:staff_bottom, :]
+        sharpness = float(np.mean(np.abs(np.diff(band, axis=1)))) if band.size else 0.0
+
         reasons = []
+        verdicts = []
+
         if interline_px <= _INTERLINE_POOR_MAX:
-            quality = "poor"
+            verdicts.append("poor")
             reasons.append(f"interline {interline_px:.1f}px at or below the "
                             f"{_INTERLINE_POOR_MAX}px poor threshold")
         elif interline_px >= _INTERLINE_GOOD_MIN:
-            quality = "good"
+            verdicts.append("good")
         else:
-            quality = "marginal"
+            verdicts.append("marginal")
             reasons.append(f"interline {interline_px:.1f}px is between "
                             f"{_INTERLINE_POOR_MAX} and {_INTERLINE_GOOD_MIN}")
 
-        return {"interline_px": interline_px, "quality": quality, "reasons": reasons}
+        if sharpness <= _SHARPNESS_POOR_MAX:
+            verdicts.append("poor")
+            reasons.append(f"sharpness {sharpness:.1f} at or below the "
+                            f"{_SHARPNESS_POOR_MAX} poor threshold (photo looks out of focus)")
+        elif sharpness >= _SHARPNESS_GOOD_MIN:
+            verdicts.append("good")
+        else:
+            verdicts.append("marginal")
+            reasons.append(f"sharpness {sharpness:.1f} is between "
+                            f"{_SHARPNESS_POOR_MAX} and {_SHARPNESS_GOOD_MIN}")
+
+        # The WORSE of the two verdicts wins — a row is only as readable as
+        # its weakest independent signal.
+        quality = ("poor" if "poor" in verdicts
+                   else "marginal" if "marginal" in verdicts
+                   else "good")
+
+        return {"interline_px": interline_px, "sharpness": sharpness,
+                "quality": quality, "reasons": reasons}
     except Exception as e:
-        return {"interline_px": None, "quality": "poor",
+        return {"interline_px": None, "sharpness": None, "quality": "poor",
                 "reasons": [f"could not analyze image: {e}"]}
 ```
 
@@ -267,36 +340,63 @@ def _make_curved_row(width=800, height=160, amplitude=12):
     return buf.getvalue()
 
 
+def _measure_staff_curvature(row_bytes):
+    """Measures how far a row's topmost staff line deviates from straight,
+    in pixels — the actual quantity dewarp_row exists to reduce. Returns
+    the peak absolute deviation of the detected top-line y-position across
+    horizontal strips. A perfectly flat staff returns ~0.
+
+    This is the test's OWN independent measurement, deliberately not
+    reusing dewarp_row's internals — a test that measures success using
+    the same code path it's testing proves nothing."""
+    from PIL import Image
+    import numpy as np
+    import io
+    img = Image.open(io.BytesIO(row_bytes)).convert("L")
+    arr = np.array(img).astype(np.float64)
+    h, wd = arr.shape
+    is_ink = arr < 128
+    tops = []
+    n_strips = 10
+    strip_w = max(1, wd // n_strips)
+    for i in range(n_strips):
+        x0, x1 = i * strip_w, min(wd, (i + 1) * strip_w)
+        strip = is_ink[:, x0:x1]
+        rows_with_ink = np.where(strip.sum(axis=1) > (x1 - x0) * 0.5)[0]
+        if len(rows_with_ink):
+            tops.append(float(rows_with_ink[0]))
+    if len(tops) < 3:
+        return None
+    return float(np.max(np.abs(np.array(tops) - np.median(tops))))
+
+
 def test_dewarp_row_straightens_a_curved_staff():
-    print("\n[79] dewarp_row measurably straightens a known-curved synthetic row")
+    print("\n[80] dewarp_row measurably REDUCES staff curvature on a known-curved row")
     curved = _make_curved_row(amplitude=12)
-    flat = _make_synthetic_row(interline_px=20, width=800, height=160)
     dewarped = w.dewarp_row(curved)
-    # Compare readability before and after: the curved original should
-    # measure a noisier/less reliable interline than the corrected version,
-    # since dewarp_row's job is specifically to make compute_row_readability
-    # see a cleaner staff.
-    before = w.compute_row_readability(curved)
-    after = w.compute_row_readability(dewarped)
-    check("dewarp does not make the reading worse",
-          (after["interline_px"] or 0) > 0, str(after))
-    check("dewarped output is still a valid, decodable image",
-          len(dewarped) > 100, f"{len(dewarped)} bytes")
 
+    before = _measure_staff_curvature(curved)
+    after = _measure_staff_curvature(dewarped)
 
-def test_dewarp_row_is_a_noop_on_an_already_flat_row():
-    print("\n[80] dewarp_row leaves an already-flat row unchanged (no-op, not a harmful correction)")
-    flat = _make_synthetic_row(interline_px=20, width=800, height=160)
-    dewarped = w.dewarp_row(flat)
-    before = w.compute_row_readability(flat)["interline_px"]
-    after = w.compute_row_readability(dewarped)["interline_px"]
-    check("interline reading is essentially unchanged on flat input",
-          before is not None and after is not None and abs(before - after) < 2,
+    check("the synthetic input really is curved to begin with (fixture sanity check)",
+          before is not None and before >= 5, f"before={before}")
+    check("curvature is measurably reduced after dewarping — this is the actual "
+          "property dewarp_row exists to deliver, not merely 'output decodes'",
+          after is not None and after < before * 0.6,
           f"before={before} after={after}")
 
 
+def test_dewarp_row_is_a_noop_on_an_already_flat_row():
+    print("\n[81] dewarp_row leaves an already-flat row unchanged (no-op, not a harmful correction)")
+    flat = _make_synthetic_row(interline_px=20, width=800, height=160)
+    dewarped = w.dewarp_row(flat)
+    check("returns the input bytes unchanged (the curvature is below the "
+          "correction threshold, so no resampling happens at all)",
+          dewarped == flat, f"{len(dewarped)} bytes vs {len(flat)}")
+
+
 def test_dewarp_row_falls_back_on_undecodable_bytes():
-    print("\n[81] dewarp_row degrades to a no-op on bytes it can't decode, does not raise")
+    print("\n[82] dewarp_row degrades to a no-op on bytes it can't decode, does not raise")
     garbage = b"\x89PNG-not-a-real-image"
     result = w.dewarp_row(garbage)
     check("returns the original bytes unchanged, does not raise",
@@ -339,12 +439,25 @@ def dewarp_row(row_bytes: bytes) -> bytes:
     locally, per row, is this project's chosen scope cut versus full-page
     perspective correction (see the spec's Non-goals).
 
-    Algorithm: binarize, sample the row's local "ink center" in vertical
-    strips across the width, fit a quadratic to those centers, and shift
-    each column vertically by the fitted curve's deviation from the
-    center column. No-ops (returns input unchanged) if the fit's
-    curvature is negligible (row is already flat) or if the image can't
-    be decoded or too few strips produce a usable reading.
+    Algorithm: binarize, then in each vertical strip find the STAFF LINES
+    specifically — pixel-rows where ink spans most of that strip's width —
+    and take their centroid. Fit a quadratic to those per-strip staff
+    centers, then shift each column vertically by the fitted curve's
+    deviation from the center column.
+
+    Tracking staff lines rather than ALL ink is load-bearing: noteheads,
+    stems, beams, slurs, dynamics, and rehearsal marks are distributed
+    asymmetrically above and below the staff, so an all-ink centroid
+    wanders with the music's tessitura rather than with the page's
+    geometry — a passage sitting high on the staff would read as
+    "curvature" that isn't there, and dewarping would then actively
+    introduce distortion into a perfectly flat row. Staff lines are the
+    only feature in a system that is supposed to be straight and
+    horizontal, which is exactly what makes them the right reference.
+
+    No-ops (returns input unchanged) if the fit's curvature is negligible
+    (row is already flat), if the image can't be decoded, or if too few
+    strips produce a usable staff reading.
     """
     try:
         from PIL import Image
@@ -364,12 +477,15 @@ def dewarp_row(row_bytes: bytes) -> bytes:
         for i in range(n_strips):
             x0, x1 = i * strip_w, min(w, (i + 1) * strip_w)
             strip = is_ink[:, x0:x1]
-            row_weights = strip.sum(axis=1)
-            if row_weights.sum() < 5:
-                continue  # near-blank strip, not enough signal
-            y_center = float(np.average(np.arange(h), weights=row_weights))
+            strip_width = max(1, x1 - x0)
+            # Staff-line rows only: ink spanning most of this strip's
+            # width. A notehead or stem covers a few columns; a staff line
+            # covers essentially all of them.
+            line_rows = np.where(strip.sum(axis=1) / strip_width > 0.7)[0]
+            if len(line_rows) < 2:
+                continue  # no reliable staff reading in this strip
+            ys.append(float(np.mean(line_rows)))
             xs.append((x0 + x1) / 2)
-            ys.append(y_center)
 
         if len(xs) < n_strips // 2:
             return row_bytes  # too few reliable strips, don't guess
@@ -469,7 +585,7 @@ def _make_row_with_barlines(measure_count=4, width=800, height=140):
 
 
 def test_split_row_into_measures_finds_expected_barlines():
-    print("\n[82] measure splitter finds the expected number of measures in a synthetic row")
+    print("\n[83] measure splitter finds the expected number of measures in a synthetic row")
     row_bytes, true_boundaries = _make_row_with_barlines(measure_count=4)
     result = w.split_row_into_measures(row_bytes)
     check("finds 4 measures", len(result["measures"]) == 4, str(len(result["measures"])))
@@ -478,7 +594,7 @@ def test_split_row_into_measures_finds_expected_barlines():
 
 
 def test_split_row_into_measures_low_confidence_on_ambiguous_input():
-    print("\n[83] measure splitter reports low confidence rather than false certainty on a stem-only row (no real barlines)")
+    print("\n[84] measure splitter reports low confidence rather than false certainty on a stem-only row (no real barlines)")
     # A row with note stems but NO real full-height barlines — stems must
     # not be mistaken for barlines, and the function should say so via a
     # low confidence / single-measure result rather than false splits.
@@ -502,7 +618,7 @@ def test_split_row_into_measures_low_confidence_on_ambiguous_input():
 
 
 def test_split_row_into_measures_falls_back_on_undecodable_bytes():
-    print("\n[84] measure splitter degrades to a single low-confidence unit on bytes it can't decode")
+    print("\n[85] measure splitter degrades to a single low-confidence unit on bytes it can't decode")
     garbage = b"\x89PNG-not-a-real-image"
     result = w.split_row_into_measures(garbage)
     check("returns the original bytes as one measure, zero confidence, does not raise",
@@ -583,7 +699,16 @@ def split_row_into_measures(row_bytes: bytes) -> dict:
 
         candidate_cols = np.where(strong | weak)[0]
         if len(candidate_cols) == 0:
-            return {"measures": [row_bytes], "boundaries": [], "confidence": 1.0}
+            # Zero barline candidates is AMBIGUOUS, not confident: it means
+            # either this row genuinely holds one measure, or the detector
+            # failed completely on a multi-measure row. Those are
+            # indistinguishable from here, and reporting confidence 1.0
+            # would let a total detection failure masquerade as certainty —
+            # the caller would then trust per-measure crops that don't
+            # correspond to real measures. Report no confidence and let the
+            # caller fall back to row-level handling, which is correct in
+            # BOTH cases.
+            return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
 
         # Merge adjacent candidate columns into single barline positions —
         # a real barline has some pixel width from photo blur/line weight.
@@ -604,7 +729,10 @@ def split_row_into_measures(row_bytes: bytes) -> dict:
         groups = [g for g in groups if margin < (g[0] + g[-1]) / 2 < w - margin]
 
         if not groups:
-            return {"measures": [row_bytes], "boundaries": [], "confidence": 1.0}
+            # Same ambiguity as the zero-candidates case above — every
+            # candidate was an edge artifact, so we learned nothing about
+            # where measures actually divide.
+            return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
 
         boundaries = [int((g[0] + g[-1]) / 2) for g in groups]
         strong_count = sum(1 for g in groups if any(col_density[x] > 0.90 for x in g))
@@ -659,7 +787,7 @@ Add to `modal_worker/test_analysis.py`, after Task 3's last test:
 
 ```python
 def test_validate_measure_duration_sum():
-    print("\n[85] validator catches a duration sum that doesn't match the time signature")
+    print("\n[86] validator catches a duration sum that doesn't match the time signature")
     good = {"number": 5, "notes": [
         {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
         {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
@@ -677,7 +805,7 @@ def test_validate_measure_duration_sum():
 
 
 def test_validate_measure_skips_duration_check_on_pickup_and_final_measures():
-    print("\n[86] validator does not flag a legitimately partial first/last measure")
+    print("\n[87] validator does not flag a legitimately partial first/last measure")
     partial = {"number": 1, "notes": [
         {"pitch": "C4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
     ]}
@@ -688,7 +816,7 @@ def test_validate_measure_skips_duration_check_on_pickup_and_final_measures():
 
 
 def test_validate_measure_written_pitch_range():
-    print("\n[87] validator catches a pitch outside the instrument's WRITTEN range, before any transposition")
+    print("\n[88] validator catches a pitch outside the instrument's WRITTEN range, before any transposition")
     too_low = {"number": 5, "notes": [
         {"pitch": "C0", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
     ]}
@@ -703,7 +831,7 @@ def test_validate_measure_written_pitch_range():
 
 
 def test_validate_measure_unexpected_polyphony():
-    print("\n[88] validator catches two simultaneous notes on a monophonic instrument")
+    print("\n[89] validator catches two simultaneous notes on a monophonic instrument")
     polyphonic = {"number": 5, "notes": [
         {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
         {"pitch": "E4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
@@ -716,7 +844,7 @@ def test_validate_measure_unexpected_polyphony():
 
 
 def test_validate_measure_polyphony_allowed_for_piano():
-    print("\n[89] validator allows simultaneous notes for a naturally polyphonic instrument")
+    print("\n[90] validator allows simultaneous notes for a naturally polyphonic instrument")
     chord = {"number": 5, "notes": [
         {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
         {"pitch": "E4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
@@ -728,7 +856,7 @@ def test_validate_measure_polyphony_allowed_for_piano():
 
 
 def test_validate_measure_unknown_instrument_skips_range_check_gracefully():
-    print("\n[90] validator does not penalize an instrument with no tabulated range data")
+    print("\n[91] validator does not penalize an instrument with no tabulated range data")
     measure = {"number": 5, "notes": [
         {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
     ]}
@@ -828,6 +956,14 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
     `valid` result as sufficient justification for high confidence
     anywhere in the pipeline — see fuse_measure_confidence.
 
+    is_first_measure / is_last_measure exempt a measure from the
+    duration-sum check, because a pickup (anacrusis) and a final measure
+    are both legitimately partial. These mean first/last **of the whole
+    piece**, NOT of a page or system — every system's last measure is an
+    ordinary interior measure of the piece and must still be validated.
+    Callers computing these from a per-page or per-row slice would
+    silently exempt most of the score.
+
     Expects `measure["notes"]` entries in the SAME shape
     read_score_notes_claude already normalizes to (pitch, is_rest, beat,
     duration_beats), with duration_beats in NOTATED BEAT units (matching
@@ -839,8 +975,21 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
     """
     notes = measure.get("notes") or []
     issues: list[str] = []
+    is_polyphonic_instrument = bool(_instrument_lookup(POLYPHONIC_INSTRUMENTS, instrument))
 
-    if not is_first_measure and not is_last_measure:
+    # Duration-sum validation is MONOPHONIC-ONLY. Summing every note's
+    # duration assumes the notes are sequential; on a polyphonic
+    # instrument they may be simultaneous, so a single perfectly valid
+    # 3-beat triad in 3/4 sums to 9 beats and would be flagged as
+    # "impossible" by a naive sum. Proper polyphonic checking needs
+    # voice-aware accounting (per-voice duration totals, or temporal
+    # coverage of the measure) — real work, deliberately out of scope for
+    # this iteration's budget. Skipping the check for polyphonic
+    # instruments is the honest option: it forfeits a signal rather than
+    # emitting a false one, and forfeiting a signal is safe here because
+    # `valid` is never treated as evidence of correctness anyway (see this
+    # function's asymmetry note above).
+    if not is_first_measure and not is_last_measure and not is_polyphonic_instrument:
         total_beats = sum(float(n.get("duration_beats") or 0) for n in notes)
         expected = beats_per_measure_from_time_sig(time_sig)
         if abs(total_beats - expected) > 0.05:
@@ -858,7 +1007,6 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
                 issues.append(f"pitch {n['pitch']} (MIDI {midi}) is outside the "
                                f"instrument's written range [{lo}, {hi}]")
 
-    is_polyphonic_instrument = bool(_instrument_lookup(POLYPHONIC_INSTRUMENTS, instrument))
     if not is_polyphonic_instrument:
         by_beat: dict[float, int] = {}
         for n in notes:
@@ -984,7 +1132,7 @@ Append the decision, with the evidence from Steps 2-3, to this plan's execution 
 
 **Interfaces:**
 - Consumes: `parse_score_document(score_bytes, start_measure, instrument) -> dict` (existing, line 1213), `quarter_lengths_per_beat(time_sig) -> float` (existing, line 3666), `find_exported_musicxml(output_dir) -> str | None` (existing, line 1222 — reusable as-is, oemer's `.musicxml` output matches the same discovery pattern).
-- Produces: `read_score_notes_oemer(crop_bytes: bytes, time_sig: str) -> dict` returning the same `ScoreResult` shape every other reader returns, with `duration_beats` ALREADY converted to notated-beat units. Consumed by Task 8/9/11.
+- Produces: `read_score_notes_oemer(crop_bytes: bytes, time_sig: str) -> dict` returning the same `ScoreResult` shape every other reader returns, with `duration_beats` ALREADY converted to notated-beat units. Consumed by Task 11 (orchestration), which calls it **once per system ROW** — never on an isolated measure crop, since a mid-system measure crop carries no clef/key/time signature and would force the OMR engine to guess them (the documented Audiveris wrong-clef failure mode).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -992,7 +1140,7 @@ Add to `modal_worker/test_analysis.py`, after Task 4's last test:
 
 ```python
 def test_read_score_notes_oemer_parses_subprocess_output():
-    print("\n[91] oemer reader shells out and parses the resulting MusicXML, converting duration units")
+    print("\n[92] oemer reader shells out and parses the resulting MusicXML, converting duration units")
     import types, subprocess as _subprocess
 
     fake_musicxml = b"""<?xml version="1.0"?>
@@ -1038,7 +1186,7 @@ def test_read_score_notes_oemer_parses_subprocess_output():
 
 
 def test_read_score_notes_oemer_handles_subprocess_failure():
-    print("\n[92] oemer reader returns an error shape (not a raise) when the subprocess fails")
+    print("\n[93] oemer reader returns an error shape (not a raise) when the subprocess fails")
     import subprocess as _subprocess
     _orig_run = _subprocess.run
     def _fake_run(cmd, **kw):
@@ -1075,11 +1223,21 @@ Insert near `convert_visual_score_to_musicxml` (after it, before `assign_events_
 def read_score_notes_oemer(crop_bytes: bytes, time_sig: str) -> dict:
     """
     Shells out to the oemer CLI (a real, MIT-licensed OMR engine) on one
-    image crop — a measure crop or a row crop, whichever the caller has
-    available — and parses the resulting MusicXML with the already-
-    existing parse_score_document. Mirrors convert_visual_score_to_musicxml's
+    image crop and parses the resulting MusicXML with the already-existing
+    parse_score_document. Mirrors convert_visual_score_to_musicxml's
     (Audiveris) structure closely; oemer's CLI shape is `oemer <img> -o <dir>`,
     producing a `.musicxml` file discoverable the same way.
+
+    **Callers must pass a full SYSTEM ROW, not an isolated measure crop.**
+    A measure crop taken from the middle of a system contains no clef, no
+    key signature, and no time signature, so an OMR engine reading it has
+    to guess them — and a wrong-clef guess makes every pitch in that
+    measure wrong. That is exactly how Audiveris failed on this project's
+    real photo, so feeding an OMR engine clef-less crops would rebuild a
+    known failure on purpose. Printed notation restates the clef and key
+    at the start of every system, so a row crop always carries the context
+    a measure crop lacks. (The function itself does not enforce this —
+    it cannot tell what it was handed — which is why it is stated here.)
 
     CRITICAL UNIT CONVERSION: parse_score_document/parse_musicxml reports
     duration_beats as a quarterLength (music21's convention), but every
@@ -1170,14 +1328,14 @@ Add to `modal_worker/test_analysis.py`, after Task 7's last test (or Task 4's la
 
 ```python
 def test_align_claude_to_measure_crops_matches_on_equal_count():
-    print("\n[93] alignment succeeds when Claude's measure count matches the crop count")
+    print("\n[94] alignment succeeds when Claude's measure count matches the crop count")
     claude_measures = [{"number": 12, "notes": []}, {"number": 13, "notes": []}, {"number": 14, "notes": []}]
     result = w.align_claude_to_measure_crops(claude_measures, crop_count=3)
     check("returns the measures unchanged, in order", result == claude_measures, str(result))
 
 
 def test_align_claude_to_measure_crops_refuses_on_count_mismatch():
-    print("\n[94] alignment refuses (returns None) rather than guess when counts disagree")
+    print("\n[95] alignment refuses (returns None) rather than guess when counts disagree")
     claude_measures = [{"number": 12, "notes": []}, {"number": 13, "notes": []}]
     result = w.align_claude_to_measure_crops(claude_measures, crop_count=3)
     check("returns None on a count mismatch rather than forcing a positional guess",
@@ -1241,7 +1399,7 @@ git commit -m "feat(worker): add positional Claude/oemer measure alignment"
 
 **Interfaces:**
 - Consumes: `_measure_fingerprint(m: dict) -> tuple` (existing, line 3524), `validate_measure` (Task 4).
-- Produces: `fuse_measure_confidence(claude_agree: bool, claude_measure: dict, oemer_measure: dict | None, validation: dict) -> dict` returning `{"confidence": "high" | "medium" | "low", "needs_resolution": bool, "reasons": list[str]}`. Consumed by Task 11 (orchestration).
+- Produces: `fuse_measure_confidence(claude_agreement: str, claude_measure: dict, oemer_measure: dict | None, validation: dict) -> dict` returning `{"confidence": "high" | "medium" | "low", "needs_resolution": bool, "reasons": list[str]}`. `claude_agreement` is one of `"agree"` / `"disagree"` / `"unavailable"` — **three states, deliberately not a boolean** (see the function's own docstring: collapsing `"unavailable"` into `"agree"` would grant a single uncorroborated read the same confidence as two matching independent reads). Consumed by Task 11 (orchestration).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1249,33 +1407,47 @@ Add to `modal_worker/test_analysis.py`, after Task 8's last test:
 
 ```python
 def test_fuse_measure_confidence_verdict_table():
-    print("\n[95] confidence fusion follows the spec's verdict table exactly, one case per row")
+    print("\n[96] confidence fusion follows the spec's verdict table exactly, one case per row")
     claude_m = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
     oemer_match = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
     oemer_mismatch = {"number": 12, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
     valid = {"valid": True, "issues": []}
     invalid = {"valid": False, "issues": ["duration sum wrong"]}
 
-    r1 = w.fuse_measure_confidence(claude_agree=True, claude_measure=claude_m, oemer_measure=oemer_match, validation=invalid)
+    r1 = w.fuse_measure_confidence("agree", claude_m, oemer_match, invalid)
     check("invalid validator verdict ALWAYS needs resolution, even with Claude+OMR agreement",
           r1["needs_resolution"], str(r1))
 
-    r2 = w.fuse_measure_confidence(claude_agree=True, claude_measure=claude_m, oemer_measure=oemer_match, validation=valid)
+    r2 = w.fuse_measure_confidence("agree", claude_m, oemer_match, valid)
     check("Claude agree + OMR match + valid = high confidence, no resolution needed",
           r2["confidence"] == "high" and not r2["needs_resolution"], str(r2))
 
-    r3 = w.fuse_measure_confidence(claude_agree=True, claude_measure=claude_m, oemer_measure=None, validation=valid)
-    check("Claude agree + OMR unavailable + valid = accept, medium-high, no resolution",
-          not r3["needs_resolution"], str(r3))
+    r3 = w.fuse_measure_confidence("agree", claude_m, None, valid)
+    check("Claude agree + OMR unavailable + valid = accept, medium, no resolution",
+          r3["confidence"] == "medium" and not r3["needs_resolution"], str(r3))
 
-    r4 = w.fuse_measure_confidence(claude_agree=True, claude_measure=claude_m, oemer_measure=oemer_mismatch, validation=valid)
+    r4 = w.fuse_measure_confidence("agree", claude_m, oemer_mismatch, valid)
     check("Claude agree + OMR MISMATCH needs resolution even though Claude agrees with itself "
           "(this is the 'consistent wrong answer' case cross-validation alone cannot catch)",
           r4["needs_resolution"], str(r4))
 
-    r5 = w.fuse_measure_confidence(claude_agree=False, claude_measure=claude_m, oemer_measure=oemer_match, validation=valid)
+    r5 = w.fuse_measure_confidence("disagree", claude_m, oemer_match, valid)
     check("Claude disagreement (with itself) always needs resolution regardless of OMR",
           r5["needs_resolution"], str(r5))
+
+    r6 = w.fuse_measure_confidence("unavailable", claude_m, None, valid)
+    check("a SINGLE Claude read with no OMR corroboration is NOT accepted — one observation "
+          "is not agreement, and must not inherit two-matching-reads confidence",
+          r6["needs_resolution"], str(r6))
+
+    r7 = w.fuse_measure_confidence("unavailable", claude_m, oemer_match, valid)
+    check("a single Claude read DOES become acceptable when an independent OMR read matches it "
+          "(two genuinely independent sources agreeing is real corroboration)",
+          not r7["needs_resolution"] and r7["confidence"] == "medium", str(r7))
+
+    r8 = w.fuse_measure_confidence("unavailable", claude_m, oemer_mismatch, valid)
+    check("a single Claude read contradicted by OMR needs resolution",
+          r8["needs_resolution"], str(r8))
 ```
 
 Register in `main()`'s tuple:
@@ -1293,29 +1465,50 @@ Expected: `AttributeError: module 'worker' has no attribute 'fuse_measure_confid
 - [ ] **Step 3: Implement**
 
 ```python
-def fuse_measure_confidence(claude_agree: bool, claude_measure: dict,
+def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
                              oemer_measure: dict | None, validation: dict) -> dict:
     """
-    Combines Claude's own agreement/disagreement state (already computed
-    by read_score_notes_claude's existing cross-validation),
-    the OMR candidate for this SAME measure (already positionally
-    aligned by align_claude_to_measure_crops — None if alignment wasn't
-    possible or oemer is unavailable/NO-GO), and validate_measure's
-    verdict, into one fusion outcome.
+    Combines three signals into one fusion outcome for a single measure.
+
+    claude_agreement is a THREE-state value, not a boolean:
+      * "agree"       — 2+ independent Claude reads produced identical content
+      * "disagree"    — independent Claude reads contradicted each other
+      * "unavailable" — only ONE Claude read succeeded, so there was no
+                        cross-validation at all
+
+    The three-state distinction is load-bearing. A boolean collapses
+    "unavailable" into "agree", which would silently grant a lone,
+    uncorroborated observation the same confidence as two independent
+    reads that matched. One observation is not agreement — it is an
+    absence of evidence either way, and it only becomes acceptable when
+    some OTHER independent source (OMR) corroborates it.
 
     [Revision 2 from the spec] validate_measure's `invalid` is checked
     FIRST and always wins — a measure that fails deterministic checks is
     never rescued by Claude/OMR agreement. Its `valid` verdict is never,
-    on its own, sufficient for high confidence; every acceptance path
-    below also requires claude_agree=True.
+    on its own, sufficient for confidence; every acceptance path below
+    also requires positive corroboration from at least two independent
+    observations.
     """
     if not validation.get("valid", True):
         return {"confidence": "low", "needs_resolution": True,
                 "reasons": ["validator invalid: " + "; ".join(validation.get("issues", []))]}
 
-    if not claude_agree:
+    if claude_agreement == "disagree":
         return {"confidence": "low", "needs_resolution": True,
                 "reasons": ["Claude's own independent reads disagreed on this measure"]}
+
+    if claude_agreement == "unavailable":
+        if oemer_measure is None:
+            return {"confidence": "low", "needs_resolution": True,
+                    "reasons": ["only one Claude read succeeded and no OMR reading is "
+                                "available — the measure has exactly one uncorroborated "
+                                "observation behind it"]}
+        if _measure_fingerprint(claude_measure) == _measure_fingerprint(oemer_measure):
+            return {"confidence": "medium", "needs_resolution": False,
+                    "reasons": ["one Claude read, independently corroborated by OMR"]}
+        return {"confidence": "low", "needs_resolution": True,
+                "reasons": ["one Claude read, contradicted by OMR"]}
 
     if oemer_measure is None:
         return {"confidence": "medium", "needs_resolution": False,
@@ -1355,7 +1548,8 @@ git commit -m "feat(worker): add confidence fusion across Claude, OMR, and valid
 
 **Interfaces:**
 - Consumes: none new (uses the `anthropic` client the same way `_read_score_notes_claude_once` already does).
-- Produces: `resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dict], instrument: str, anthropic_api_key: str) -> dict` returning a single measure dict in the same normalized shape (`{"notes": [...]}`). Consumed by Task 11 (orchestration).
+- Consumes: `validate_measure(...)` (Task 4) — used to RE-validate the resolved result.
+- Produces: `resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dict], instrument: str, time_sig: str, anthropic_api_key: str) -> dict` returning a single measure dict in the same normalized shape (`{"notes": [...]}`), plus `"unresolved": True` and `"issues": [...]` when resolution failed or its result still fails validation. Consumed by Task 11 (orchestration).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1363,7 +1557,7 @@ Add to `modal_worker/test_analysis.py`, after Task 9's last test:
 
 ```python
 def test_resolve_measure_disagreement_sends_crop_and_candidates():
-    print("\n[96] targeted disagreement resolution sends the measure crop and candidate list, not an open re-read")
+    print("\n[97] targeted disagreement resolution sends the measure crop and candidate list, not an open re-read")
     import types, json as _json
     captured = {}
 
@@ -1394,7 +1588,7 @@ def test_resolve_measure_disagreement_sends_crop_and_candidates():
     _orig = _ac.Anthropic
     _ac.Anthropic = _FakeAnthropicClient
     try:
-        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "k")
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
     finally:
         _ac.Anthropic = _orig
 
@@ -1407,6 +1601,69 @@ def test_resolve_measure_disagreement_sends_crop_and_candidates():
           "candidate" in prompt_text.lower(), prompt_text[:400])
     check("returns a normalized measure with notes",
           result.get("notes") and result["notes"][0]["pitch"] == "C4", str(result))
+    check("a resolution that passes revalidation is NOT marked unresolved",
+          not result.get("unresolved"), str(result))
+
+
+def test_resolve_measure_disagreement_marks_unresolved_on_failure():
+    print("\n[98] resolution marks a measure unresolved rather than silently returning candidate 1 when the call fails")
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    class _ExplodingClient:
+        def __init__(self, **kw):
+            raise RuntimeError("simulated API failure")
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _ExplodingClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("the measure is explicitly flagged unresolved, NOT returned as if it were fine "
+          "(failing open here is what produces confident-wrong audio)",
+          result.get("unresolved") is True, str(result))
+    check("the reason is carried with it", result.get("issues"), str(result))
+
+
+def test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid():
+    print("\n[99] resolution marks a measure unresolved when the resolved answer STILL fails validation")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # Transcribes a measure that is still impossible in 3/4 (5 beats).
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "C4", "b": 1.0, "d": 5.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a still-invalid resolution is flagged unresolved rather than accepted",
+          result.get("unresolved") is True, str(result))
 ```
 
 Register in `main()`'s tuple:
@@ -1414,6 +1671,8 @@ Register in `main()`'s tuple:
 ```python
               test_fuse_measure_confidence_verdict_table,
               test_resolve_measure_disagreement_sends_crop_and_candidates,
+              test_resolve_measure_disagreement_marks_unresolved_on_failure,
+              test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -1425,7 +1684,8 @@ Expected: `AttributeError: module 'worker' has no attribute 'resolve_measure_dis
 
 ```python
 def resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dict],
-                                  instrument: str, anthropic_api_key: str) -> dict:
+                                  instrument: str, time_sig: str,
+                                  anthropic_api_key: str) -> dict:
     """
     Closed-ended disagreement resolution for ONE low-confidence measure.
     [Revision 2 from the spec]: replaces the old approach of "just read
@@ -1436,11 +1696,20 @@ def resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dic
     for the model to keep generating a plausible-but-wrong pattern, since
     there's no multi-measure context left to pattern-match against.
 
-    Returns a single measure dict: {"notes": [...]} in the same
-    normalized shape read_score_notes_claude's measures use. Never
-    raises — a parse/API failure returns the first candidate unchanged,
-    since a low-confidence-but-present answer beats losing the measure
-    entirely.
+    NEVER FAILS OPEN. Every measure reaching this function is here
+    because something was already wrong with it — the validator called it
+    impossible, or two independent recognizers disagreed. Silently
+    returning the first candidate on an API/parse failure would hand back
+    exactly the kind of unverified answer that produces confident-wrong
+    audio, which is the single failure mode this whole pipeline exists to
+    eliminate. So: the resolved result is RE-VALIDATED, and if it still
+    doesn't hold up (or the call failed outright), the measure is
+    returned marked `"unresolved": True` with its issues attached. The
+    caller decides what to do with an unresolved measure; what it must
+    NOT do is treat it as confidently correct.
+
+    Returns a measure dict {"notes": [...]} plus, when resolution
+    failed, "unresolved": True and "issues": [...]. Never raises.
     """
     import base64, json as _json, anthropic as ac
 
@@ -1480,25 +1749,37 @@ If matched_candidate is not null, "notes" may be empty — the matched candidate
         raw = msg.content[0].text
         parsed = extract_json_object(raw) or {}
 
+        resolved = None
         matched = parsed.get("matched_candidate")
         if isinstance(matched, int) and 1 <= matched <= len(candidates):
-            return candidates[matched - 1]
+            resolved = candidates[matched - 1]
+        else:
+            notes = parsed.get("notes")
+            if isinstance(notes, list) and notes:
+                def _norm_note(n: dict) -> dict:
+                    return {
+                        "pitch": n.get("pitch") or n.get("p"),
+                        "is_rest": bool(n.get("is_rest") or n.get("r") or False),
+                        "beat": n.get("beat") if n.get("beat") is not None else n.get("b"),
+                        "duration_beats": n.get("duration_beats") if n.get("duration_beats") is not None else n.get("d"),
+                    }
+                resolved = {"notes": [_norm_note(n) for n in notes]}
 
-        notes = parsed.get("notes")
-        if isinstance(notes, list) and notes:
-            def _norm_note(n: dict) -> dict:
-                return {
-                    "pitch": n.get("pitch") or n.get("p"),
-                    "is_rest": bool(n.get("is_rest") or n.get("r") or False),
-                    "beat": n.get("beat") if n.get("beat") is not None else n.get("b"),
-                    "duration_beats": n.get("duration_beats") if n.get("duration_beats") is not None else n.get("d"),
-                }
-            return {"notes": [_norm_note(n) for n in notes]}
+        if resolved is None:
+            return {**candidates[0], "unresolved": True,
+                    "issues": ["resolution produced neither a candidate match nor a transcription"]}
 
-        return candidates[0]
+        # Re-validate: a resolution that still fails deterministic checks
+        # has not actually resolved anything, and must not be handed back
+        # as if it had.
+        recheck = validate_measure(resolved, instrument, time_sig)
+        if not recheck["valid"]:
+            return {**resolved, "unresolved": True, "issues": recheck["issues"]}
+        return resolved
     except Exception as e:
-        print(f"[resolve_measure_disagreement] failed, keeping first candidate: {e}")
-        return candidates[0]
+        print(f"[resolve_measure_disagreement] failed: {e}")
+        return {**candidates[0], "unresolved": True,
+                "issues": [f"resolution call failed: {e}"]}
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -1581,6 +1862,37 @@ def _prepare_score_rows(pages: list[tuple[bytes, str]]) -> list[dict]:
 
 Change its signature from `(pages: list[tuple[bytes, str]], ...)` to also accept the prepared structure, replacing its internal `split_page_into_rows` call with the already-dewarped rows from `_prepare_score_rows`. Locate the existing loop (currently starting `for pg_bytes, pg_mime in pages:` — verify this is still the exact loop structure) and replace the body's image branch (`elif pg_mime in CLAUDE_IMAGE_TYPES:` through the inner `for crop_bytes in row_crops:` block) so it iterates `prepared_page["rows"]` and uses each `row["row_bytes"]` directly instead of calling `split_page_into_rows` itself. Add a new parameter `prepared_pages: list[dict]` and use it in place of the raw `pages` loop; keep `pages` as a parameter only for the PDF branch (PDFs still pass through as full documents, unaffected by row-level preparation).
 
+- [ ] **Step 3b: Have the prompt return a per-measure ROW index — the key to multi-row fusion**
+
+**Why this step exists (do not skip it):** every measure needs to be traceable back to the specific row crop it came from. Without that, a page of N systems gives no way to know which of the N prepared rows a given measure belongs to, and the entire OMR/segmentation half of this pipeline can only run on single-row pages — which the real target input is not (the actual problem photo splits into **12** rows). The existing prompt already asks for `"pg"`; this adds the same idea one level finer.
+
+In `_read_score_notes_claude_once`'s prompt, find the `MULTIPLE PAGES:` paragraph (it currently ends with: `For every measure, also return "pg": the 1-based number of the page you read it from (the first image is page 1).`) and append to that paragraph:
+
+```
+Also return "row" for every measure: the 1-based index of the STRIP (within its page) that you read that measure from, counting strips top to bottom. If a page was not split into strips, every measure on it has "row": 1.
+```
+
+Then update the JSON example at the end of the prompt so the model sees the field in context — change the `"measures"` example line to:
+
+```
+  "measures": [{"number": {start_measure}, "pg": 1, "row": 1, "notes": [{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}, {"r": true, "b": 2.5, "d": 1.5}]}]
+```
+
+Finally, in the measure-normalization step (the existing list comprehension that builds `measures` with `"page": int(m.get("pg") or m.get("page") or 1)`), add a `row` field alongside `page`:
+
+```python
+        measures = [
+            {**m, "page": int(m.get("pg") or m.get("page") or 1),
+             "row": int(m.get("row") or 1), "notes": [
+                _norm_note(n) for n in m.get("notes", [])
+            ]}
+            for m in (parsed.get("measures") or [])
+            if isinstance(m.get("notes"), list)
+        ]
+```
+
+`row` defaults to 1 whenever the model omits it, which is also exactly correct for unsplit pages and PDFs.
+
 - [ ] **Step 4: Rewrite `read_score_notes_claude`'s body**
 
 Replace the whole function body (keep the same signature: `(pages, start_measure, instrument, time_sig, anthropic_api_key) -> dict`):
@@ -1611,19 +1923,24 @@ def read_score_notes_claude(
     read_a = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
     read_b = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
 
+    # claude_agreement maps measure number -> "agree" | "disagree" |
+    # "unavailable". Three states, never a boolean — see
+    # fuse_measure_confidence's docstring for why collapsing
+    # "unavailable" into "agree" is a correctness bug, not a shortcut.
     if read_a.get("error") and read_b.get("error"):
         return read_a
     if read_a.get("error"):
         base_result = read_b
-        # Only one read succeeded — there is no cross-validation signal
-        # to compute. Every measure that made it into base_result is the
-        # best (only) data available, so it defaults to "agreed" via
-        # claude_agreement.get(number, True) below, rather than being
-        # penalized for a read that never got a chance to happen.
-        claude_agreement = {}
+        # Only ONE read succeeded. There is no cross-validation signal at
+        # all here — not agreement, not disagreement, just a single
+        # uncorroborated observation per measure. Marking these
+        # "unavailable" (rather than defaulting them to "agree") is what
+        # stops a half-failed read from inheriting the confidence of two
+        # matching reads.
+        claude_agreement = {m["number"]: "unavailable" for m in read_b.get("measures", [])}
     elif read_b.get("error"):
         base_result = read_a
-        claude_agreement = {}
+        claude_agreement = {m["number"]: "unavailable" for m in read_a.get("measures", [])}
     else:
         by_number_a = {m["number"]: m for m in read_a.get("measures", [])}
         by_number_b = {m["number"]: m for m in read_b.get("measures", [])}
@@ -1634,7 +1951,7 @@ def read_score_notes_claude(
         ]
         if not disagreements:
             base_result = read_a
-            claude_agreement = {n: True for n in all_numbers}
+            claude_agreement = {n: "agree" for n in all_numbers}
         else:
             print(f"[read_score_notes_claude] two independent reads disagree on "
                   f"{len(disagreements)}/{len(all_numbers)} measures — running a third read")
@@ -1650,7 +1967,9 @@ def read_score_notes_claude(
                 for fp in fingerprints:
                     counts[fp] = counts.get(fp, 0) + 1
                 winning_fp = max(counts, key=lambda fp: counts[fp])
-                claude_agreement[n] = counts[winning_fp] >= 2
+                claude_agreement[n] = ("agree" if counts[winning_fp] >= 2
+                                       else "unavailable" if len(candidates) < 2
+                                       else "disagree")
                 winner = next(c for c, fp in zip(candidates, fingerprints) if fp == winning_fp)
                 reconciled.append(winner)
             reconciled.sort(key=lambda m: m["number"])
@@ -1669,61 +1988,117 @@ def read_score_notes_claude(
         return base_result
 
     resolved_time_sig = base_result.get("time_signature") or time_sig
-    measures_by_page: dict = {}
+
+    # Group by (page, row) — NOT by page. Grouping by page alone can only
+    # fuse single-system pages, and the real target input (the photo this
+    # whole redesign exists for) splits into 12 systems. Per-row grouping
+    # is what lets the OMR + segmentation half of this pipeline run on
+    # dense multi-system pages at all.
+    measures_by_row: dict = {}
     for m in base_result["measures"]:
-        measures_by_page.setdefault(m.get("page", 1), []).append(m)
+        measures_by_row.setdefault((m.get("page", 1), m.get("row", 1)), []).append(m)
+
+    # The GLOBALLY last measure of the whole score — only this one gets the
+    # partial-measure exemption. Using "last of its page/row" instead would
+    # exempt every system's final measure from duration validation, which
+    # is most of the interior of the piece.
+    last_measure_number = max(m["number"] for m in base_result["measures"])
 
     final_measures = []
-    for page_idx, page_measures in measures_by_page.items():
-        prepared_rows = prepared_pages[page_idx - 1]["rows"] if page_idx - 1 < len(prepared_pages) else []
-        # This pipeline associates Claude's per-page measures with that
-        # page's rows only when there's exactly one row for the page (the
-        # common case for reference-audio's own single-system-per-photo
-        # inputs) — a page with multiple rows needs its measures further
-        # split per row, which read_score_notes_claude's existing prompt-
-        # level page/strip tracking does not expose at this granularity.
-        # Falling back to "no OMR fusion for this page's measures, keep
-        # Claude's cross-validated result as-is" is a safe, explicit
-        # degradation, not a silent gap.
-        if len(prepared_rows) != 1:
-            final_measures.extend(page_measures)
-            continue
+    unresolved_count = 0
 
-        row = prepared_rows[0]
-        segmentation = row["segmentation"]
-        aligned = None
+    for (page_idx, row_idx), row_measures in sorted(measures_by_row.items()):
+        row_measures.sort(key=lambda m: m["number"])
+        prepared_rows = (prepared_pages[page_idx - 1]["rows"]
+                         if 0 <= page_idx - 1 < len(prepared_pages) else [])
+        row = prepared_rows[row_idx - 1] if 0 <= row_idx - 1 < len(prepared_rows) else None
+
+        # --- OMR, at ROW level -------------------------------------------
+        # oemer reads the whole dewarped ROW, never an isolated measure
+        # crop. A measure crop from the middle of a system contains no
+        # clef, key signature, or time signature, so an OMR engine reading
+        # one has to GUESS them — and a wrong-clef guess makes every pitch
+        # in that measure wrong. Wrong-clef inference is precisely how
+        # Audiveris failed on this project's real photo, so handing an OMR
+        # engine clef-less crops would be reintroducing a known failure by
+        # construction. Printed notation repeats the clef and key at the
+        # start of every system, so a ROW always carries the context a
+        # measure crop lacks.
+        oemer_row_measures: list[dict] = []
+        if row is not None:
+            oemer_result = read_score_notes_oemer(row["row_bytes"], resolved_time_sig)
+            if not oemer_result.get("error"):
+                oemer_row_measures = oemer_result.get("measures", [])
+
+        # oemer's measures align to Claude's by POSITION within the row,
+        # and only when both found the same number of measures. A count
+        # mismatch means at least one of them mis-segmented the row, and a
+        # forced positional match would then compare measure N against
+        # measure N+1 for the rest of the row — manufacturing false
+        # disagreements far worse than simply having no OMR signal.
+        omr_aligned = (oemer_row_measures
+                       if len(oemer_row_measures) == len(row_measures) else None)
+        if oemer_row_measures and omr_aligned is None:
+            print(f"[read_score_notes_claude] page {page_idx} row {row_idx}: oemer found "
+                  f"{len(oemer_row_measures)} measures vs Claude's {len(row_measures)} — "
+                  f"declining to fuse this row rather than risk an off-by-one alignment")
+
+        # --- Measure crops, for dispute resolution only -------------------
+        segmentation = row["segmentation"] if row else {"measures": [], "confidence": 0.0}
+        crops = None
         if segmentation["confidence"] >= 0.6:
-            aligned = align_claude_to_measure_crops(page_measures, len(segmentation["measures"]))
+            crops = (segmentation["measures"]
+                     if align_claude_to_measure_crops(
+                         row_measures, len(segmentation["measures"])) is not None
+                     else None)
 
-        for i, measure in enumerate(page_measures):
-            # claude_agreement is populated for every measure number when a
-            # third read ran (see above); when reads agreed on the first
-            # try, or only one read succeeded, every surviving measure
-            # defaults to "agreed" (True) since that's the best signal
-            # available in those cases.
-            claude_agree_flag = claude_agreement.get(measure["number"], True)
+        for i, measure in enumerate(row_measures):
             validation = validate_measure(
                 measure, instrument, resolved_time_sig,
                 is_first_measure=(measure["number"] == start_measure),
-                is_last_measure=(i == len(page_measures) - 1),
+                is_last_measure=(measure["number"] == last_measure_number),
             )
-            oemer_measure = None
-            if aligned is not None and i < len(segmentation["measures"]):
-                oemer_result = read_score_notes_oemer(segmentation["measures"][i], resolved_time_sig)
-                if not oemer_result.get("error") and oemer_result.get("measures"):
-                    oemer_measure = oemer_result["measures"][0]
+            oemer_measure = omr_aligned[i] if omr_aligned is not None else None
+            fusion = fuse_measure_confidence(
+                claude_agreement.get(measure["number"], "unavailable"),
+                measure, oemer_measure, validation)
 
-            fusion = fuse_measure_confidence(claude_agree_flag, measure, oemer_measure, validation)
-            if fusion["needs_resolution"] and aligned is not None and i < len(segmentation["measures"]):
-                candidates = [measure] + ([oemer_measure] if oemer_measure else [])
-                measure = resolve_measure_disagreement(
-                    segmentation["measures"][i], candidates, instrument, anthropic_api_key)
-                measure["number"] = page_measures[i]["number"]
-                measure["page"] = page_measures[i].get("page", 1)
+            if fusion["needs_resolution"]:
+                # Resolve against the tightest image available: this
+                # measure's own crop when segmentation was trustworthy,
+                # otherwise the whole row. Tight crops are exactly where a
+                # closed-ended candidate comparison belongs — the model has
+                # no neighbouring measures left to pattern-match against.
+                crop_for_resolution = (crops[i] if crops is not None and i < len(crops)
+                                       else (row["row_bytes"] if row else None))
+                if crop_for_resolution is not None:
+                    candidates = [measure] + ([oemer_measure] if oemer_measure else [])
+                    resolved = resolve_measure_disagreement(
+                        crop_for_resolution, candidates, instrument,
+                        resolved_time_sig, anthropic_api_key)
+                    resolved["number"] = measure["number"]
+                    resolved["page"] = measure.get("page", 1)
+                    resolved["row"] = measure.get("row", 1)
+                    measure = resolved
+                else:
+                    measure = {**measure, "unresolved": True,
+                               "issues": fusion["reasons"]}
+
+            if measure.get("unresolved"):
+                unresolved_count += 1
+                print(f"[read_score_notes_claude] m.{measure['number']} UNRESOLVED: "
+                      f"{measure.get('issues')}")
 
             final_measures.append(measure)
 
     base_result["measures"] = sorted(final_measures, key=lambda m: m["number"])
+    # Surfaced so callers (and the Task 13 ground-truth test) can tell
+    # "this measure is known-shaky" apart from "this measure was accepted
+    # confidently" — the distinction the whole redesign turns on.
+    base_result["unresolved_measure_count"] = unresolved_count
+    if unresolved_count:
+        print(f"[read_score_notes_claude] {unresolved_count} measure(s) could not be "
+              f"resolved confidently out of {len(final_measures)}")
     return base_result
 ```
 
@@ -1773,12 +2148,26 @@ def _check_score_quality(body: dict) -> dict:
     _prefixed function in this file is — see generate_reference_audio_endpoint's
     original docstring for the full explanation."""
     import httpx
+    from urllib.parse import urlparse
+
     score_url = body.get("score_url")
     if not score_url:
         return {"error": "score_url is required"}
+
+    # This endpoint fetches a caller-supplied URL, so without a host
+    # restriction it is a server-side request forgery primitive: anyone
+    # who can reach it could use this worker to probe internal/cloud-
+    # metadata endpoints and read back whether they resolved. The only
+    # legitimate caller passes a signed Supabase storage URL, so require
+    # exactly that host.
+    allowed_host = (body.get("allowed_host") or "").strip().lower()
+    parsed_url = urlparse(score_url)
+    if parsed_url.scheme != "https" or not allowed_host or parsed_url.hostname != allowed_host:
+        return {"error": "score_url must be an https URL on the expected storage host"}
+
     try:
         with httpx.Client(timeout=30) as client:
-            resp = client.get(score_url, follow_redirects=True)
+            resp = client.get(score_url, follow_redirects=False)
             resp.raise_for_status()
             image_bytes = resp.content
     except Exception as e:
@@ -1787,12 +2176,23 @@ def _check_score_quality(body: dict) -> dict:
     rows = split_page_into_rows(image_bytes)
     if not rows:
         return {"quality": "poor", "interline_px": None}
-    # Use the row with the best reading — a page usually has several
-    # systems, and one blurry corner shouldn't fail the whole photo if
-    # most of it is legible.
+
     results = [compute_row_readability(r) for r in rows]
-    best = max(results, key=lambda r: r["interline_px"] or 0)
-    return {"quality": best["quality"], "interline_px": best["interline_px"]}
+
+    # Aggregate by the WORST row, not the best. Reference audio is
+    # generated from the WHOLE page — one unreadable system means wrong
+    # notes for that whole section, and picking the best row would let a
+    # single sharp system vouch for a page whose other eleven are mush.
+    # The user needs to know the page has a problem, not that some of it
+    # happens to be fine.
+    qualities = [r["quality"] for r in results]
+    overall = ("poor" if "poor" in qualities
+               else "marginal" if "marginal" in qualities
+               else "good")
+    worst = min(results, key=lambda r: r["interline_px"] or 0)
+    return {"quality": overall, "interline_px": worst["interline_px"],
+            "rows_checked": len(results),
+            "poor_rows": sum(1 for q in qualities if q == "poor")}
 
 
 @app.function(image=image, timeout=30)
@@ -1866,7 +2266,14 @@ serve(async (req: Request) => {
     const modalRes = await fetch(modalUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ score_url: signed.signedUrl }),
+      // allowed_host pins the worker's fetch to this project's own storage
+      // host — see _check_score_quality's SSRF note. Derived from
+      // SUPABASE_URL rather than hardcoded so it stays correct per
+      // environment.
+      body: JSON.stringify({
+        score_url: signed.signedUrl,
+        allowed_host: new URL(Deno.env.get('SUPABASE_URL')!).hostname,
+      }),
       signal: AbortSignal.timeout(20000),
     }).catch(() => null)
 
@@ -1907,11 +2314,15 @@ Add a `Deploy score-quality-check` step to `.github/workflows/deploy-edge-functi
 
 - [ ] **Step 7: Wire the frontend**
 
-Modify `src/components/NewRecordingModal.jsx`'s score-picking section. Locate the current `pickScore` function and the score file list rendering (search for `scoreFiles` state and the surrounding JSX — verify current structure before editing, this plan's earlier research is not a substitute for reading the live file). Add:
+Modify `src/components/NewRecordingModal.jsx`'s score-picking section. Locate the current `pickScore` function and the score file list rendering (search for `scoreFiles` state and the surrounding JSX — verify current structure before editing, this plan's earlier research is not a substitute for reading the live file).
 
-1. A thumbnail preview for each picked score file (an `<img>` using `URL.createObjectURL(file)`, revoked on removal/unmount to avoid a memory leak).
-2. After a file is picked, call the new `score-quality-check` edge function (upload the file to a temp path first, or — simpler, avoiding a throwaway storage write — extract the image dimensions/bytes client-side and skip the round trip for now if time is short on Day 3; calling the real backend check is the correct behavior but the plan's controller should make a pragmatic call here if Day 3 is running short, given quality-gate UI is explicitly a smaller priority than the recognition pipeline itself per the spec).
-3. Replace the existing generic hint line ("A clear photo lets Mediant pin issues to specific measures on your score.") with specific guidance, and show a non-blocking warning banner when quality comes back `"poor"`: "This photo may be too low-resolution to read accurately. Try retaking it flatter, with better lighting, or using your phone's scan mode."
+**The flow is exactly this — one architecture, no alternatives.** The score files already upload to the `sheet-music` bucket inside `handleSubmit` (the existing code path; this plan does not move that). The quality check runs **immediately after those uploads succeed and before the analysis/generation request is dispatched**, using the `scorePath` values the upload just produced. This is the only option that matches the edge function written in Step 4, which takes a `scorePath` and signs it — there is no throwaway temp upload and no client-only dimension check. (An earlier draft of this plan offered those as alternatives; that was a plan defect. Two materially different architectures presented as interchangeable is not a decision an implementer should be making mid-task.)
+
+Concretely:
+
+1. **Thumbnail preview at pick time** (no network): for each picked score file, render an `<img>` whose `src` comes from `URL.createObjectURL(file)`, and call `URL.revokeObjectURL` when that file is removed and on unmount, so the object URLs don't leak. This alone is most of the value — it is the first time the user actually sees the photo they just chose.
+2. **Quality check after upload, before dispatch**, inside `handleSubmit`: once the score `scorePath`s exist, `POST` each to `score-quality-check`. If any returns `quality: "poor"`, do not silently continue and do not hard-block — surface the warning (item 3) and let the user choose to proceed anyway or go back and replace the photo. A check that errors or returns `"unknown"` proceeds silently: a broken quality check must never prevent an upload.
+3. **Copy**: replace the existing generic hint line ("A clear photo lets Mediant pin issues to specific measures on your score.") with specific, actionable guidance — lay the page flat, fill the frame with just the music, avoid glare and shadow, and prefer a phone scanning app if available. On a `"poor"` result, show a non-blocking warning: "This photo may be too low-resolution or blurry to read accurately, so the reference audio could come out wrong. Try retaking it flatter and closer, or use your phone's scan mode."
 
 - [ ] **Step 8: Manual browser verification**
 
@@ -1934,18 +2345,23 @@ git commit -m "feat(ui): add interline-based photo quality gate to score upload"
 
 Using Task 5's ground truth and the same take/photo used throughout tonight's investigation (take `34b08cfd-f533-4fe1-a588-5af04fe5ddc5`'s score, or a fresh take pointed at the same image), trigger reference-audio generation end to end (requires Anthropic credits to be restored — confirm with the user before this step if they haven't already said credits are back).
 
-- [ ] **Step 2: Compute and report the five acceptance metrics from the spec**
+- [ ] **Step 2: Compute and report the acceptance metrics from the spec**
 
 Compare the pipeline's output measures against Task 5's ground truth, measure by measure, and report:
 - Exact pitch accuracy
 - Exact duration accuracy
 - Missing/extra-note rate
 - Measure-perfect accuracy
-- **Confidently-accepted-incorrect-measure count** (measures fusion marked `needs_resolution: False` that are wrong against ground truth) — report this number explicitly and prominently; per the spec, this is the single most important number in the whole test.
+- **Confidently-accepted-incorrect-measure count** — measures the pipeline did NOT mark `unresolved` (i.e. fusion accepted them, `needs_resolution: False`) that are nonetheless wrong against ground truth. Report this explicitly and prominently; per the spec, it is the single most important number in the whole test.
+- Unresolved-measure count (`unresolved_measure_count` on the result) — reported alongside, as context for the number above, NOT as a failure in itself. A measure the pipeline openly flagged as uncertain is the system working correctly; the whole point of the redesign is to convert silent wrongness into visible uncertainty.
+
+Also verify the multi-row path actually ran, rather than assuming it did: the real photo splits into ~12 systems, so the logs should show per-row activity across many rows. If `_prepare_score_rows` reports one row, or OMR fusion is skipped on every row, the pipeline silently degraded to the old Claude-only behavior and the metrics above are measuring the wrong thing.
 
 - [ ] **Step 3: Judge success against the spec's actual bar**
 
-Per the spec: a nonzero confidently-accepted-incorrect-measure count means the core problem is not solved, regardless of how good the other four metrics look. If this number is nonzero, do not report the pipeline as working — report the specific measures involved and treat it as a bug to investigate (systematic-debugging), not a metric to round away.
+Per the spec: a nonzero confidently-accepted-incorrect-measure count means the core problem is not solved, regardless of how good the other metrics look. If this number is nonzero, do not report the pipeline as working — report the specific measures involved and treat it as a bug to investigate (systematic-debugging), not a metric to round away.
+
+Note the asymmetry when judging: a measure that is wrong AND flagged unresolved is a partial success (the system knew it didn't know). A measure that is wrong and confidently accepted is the original bug, still present.
 
 ---
 

@@ -2454,6 +2454,52 @@ def test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure():
           not result.get("unresolved"), str(result))
 
 
+def test_resolve_measure_disagreement_matched_candidate_returns_a_copy():
+    print("\n[103] a matched-candidate resolution returns that candidate's content, not a live reference into the input list")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # The model picks candidate 2 by number rather than transcribing fresh.
+            return _FakeStream(_json.dumps({"matched_candidate": 2, "notes": []}))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+        {"notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a matched candidate number returns that candidate's content",
+          result.get("notes") and result["notes"][0]["pitch"] == "D4", str(result))
+    check("a matched candidate that passes revalidation is NOT marked unresolved",
+          not result.get("unresolved"), str(result))
+    check("the returned dict is a COPY, not the same object as the caller's candidate "
+          "(mutating the result must not mutate the caller's input list)",
+          result is not candidates[1], str(result))
+
+    result["mutated"] = True
+    check("mutating the returned dict does not leak into the caller's candidates list",
+          "mutated" not in candidates[1], str(candidates[1]))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3721,6 +3767,7 @@ def main():
               test_resolve_measure_disagreement_marks_unresolved_on_failure,
               test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
               test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
+              test_resolve_measure_disagreement_matched_candidate_returns_a_copy,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,

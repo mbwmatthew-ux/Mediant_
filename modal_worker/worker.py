@@ -4753,7 +4753,11 @@ def resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dic
     Returns a measure dict {"notes": [...]} plus, when resolution
     failed, "unresolved": True and "issues": [...]. Never raises.
     """
-    import base64, json as _json, anthropic as ac
+    import base64, anthropic as ac
+
+    if not candidates:
+        return {"notes": [], "unresolved": True,
+                "issues": ["resolve_measure_disagreement called with no candidates"]}
 
     b64 = base64.b64encode(measure_crop_bytes).decode()
     candidates_text = "\n".join(
@@ -4793,8 +4797,14 @@ If matched_candidate is not null, "notes" may be empty — the matched candidate
 
         resolved = None
         matched = parsed.get("matched_candidate")
-        if isinstance(matched, int) and 1 <= matched <= len(candidates):
-            resolved = candidates[matched - 1]
+        if isinstance(matched, int) and not isinstance(matched, bool) and 1 <= matched <= len(candidates):
+            # Copy — this must not be a live reference into the caller's
+            # candidates list. The caller (Task 11) overwrites number/page/
+            # row on the returned dict, and a shared reference would mutate
+            # the caller's own input in place. A copy also guarantees any
+            # stale "unresolved"/"issues" key a candidate happened to carry
+            # doesn't leak through a *successful* match unmasked.
+            resolved = {**candidates[matched - 1]}
         else:
             notes = parsed.get("notes")
             if isinstance(notes, list) and notes:

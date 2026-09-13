@@ -1771,6 +1771,143 @@ def test_split_page_into_rows_falls_back_on_undecodable_bytes():
           crops == [garbage], str(crops))
 
 
+def _make_synthetic_row(interline_px=20, width=800, height=140, blur=0):
+    """A single-system row crop with 5 staff lines at a known, controllable
+    interline spacing, PLUS notehead blobs (real notation has symbols, not
+    just lines — and the sharpness metric needs edges to measure). `blur`
+    is a Gaussian radius in pixels; > 0 simulates an out-of-focus photo,
+    for testing the sharpness path independently of resolution."""
+    from PIL import Image, ImageDraw, ImageFilter
+    import random
+    import io
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    top = height // 2 - int(interline_px * 2)
+    staff_h = interline_px * 4
+    for line_i in range(5):
+        y = top + line_i * interline_px
+        draw.line([(20, y), (width - 20, y)], fill=0, width=2)
+    rng = random.Random(11)
+    blob_r = max(2, interline_px // 2)
+    for x in range(40, width - 40, max(8, interline_px)):
+        blob_y = top + rng.randint(0, max(1, staff_h))
+        draw.ellipse([x, blob_y, x + blob_r, blob_y + blob_r], fill=0)
+    if blur:
+        img = img.filter(ImageFilter.GaussianBlur(radius=blur))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_compute_row_readability_measures_known_interline():
+    print("\n[75] readability check measures a known interline spacing correctly and rates it good")
+    row_bytes = _make_synthetic_row(interline_px=24)
+    result = w.compute_row_readability(row_bytes)
+    check("interline is exactly the true 24px spacing",
+          result["interline_px"] is not None and abs(result["interline_px"] - 24) <= 1,
+          str(result["interline_px"]))
+    check("quality is good at 24px", result["quality"] == "good", str(result))
+
+
+def test_compute_row_readability_flags_low_interline_as_poor():
+    print("\n[76] readability check flags a real bad case (8px, matching the actual Audiveris-rejected photo) as poor")
+    row_bytes = _make_synthetic_row(interline_px=8, width=400, height=80)
+    result = w.compute_row_readability(row_bytes)
+    check("quality is poor at 8px (this is the exact measured value from the real problem photo)",
+          result["quality"] == "poor", str(result))
+
+
+def test_compute_row_readability_marginal_band():
+    print("\n[77] readability check has a marginal band between good and poor")
+    row_bytes = _make_synthetic_row(interline_px=14)
+    result = w.compute_row_readability(row_bytes)
+    check("14px lands in marginal, not good and not poor",
+          result["quality"] == "marginal", str(result))
+
+
+def test_compute_row_readability_flags_a_blurry_but_high_resolution_row():
+    print("\n[78] readability check flags a BLURRY row as not-good even when its interline spacing is generous")
+    sharp = _make_synthetic_row(interline_px=24, blur=0)
+    # blur=2 is deliberately mild: strong enough to measurably soften the
+    # line edges, but not so strong that staff-line detection itself fails
+    # (measured: blur=4 on this fixture wipes out the periodic signal
+    # entirely, which would make this test pass for the wrong reason —
+    # "no lines found" rather than "found lines, but they're blurry").
+    blurry = _make_synthetic_row(interline_px=24, blur=2)
+    r_sharp = w.compute_row_readability(sharp)
+    r_blurry = w.compute_row_readability(blurry)
+    check("the sharp version is good", r_sharp["quality"] == "good", str(r_sharp))
+    check("the blurry version still measured an interline (the sharpness path is what's "
+          "being exercised here, not a detection failure)",
+          r_blurry["interline_px"] is not None, str(r_blurry))
+    check("the blurry version measures a LOWER sharpness than the sharp one",
+          (r_blurry["sharpness"] or 0) < (r_sharp["sharpness"] or 0),
+          f"sharp={r_sharp['sharpness']} blurry={r_blurry['sharpness']}")
+    check("the blurry version is NOT rated good, despite a healthy 24px interline "
+          "(resolution and focus fail independently)",
+          r_blurry["quality"] != "good", str(r_blurry))
+
+
+def test_compute_row_readability_handles_undecodable_bytes():
+    print("\n[79] readability check degrades to poor/unknown on bytes it can't decode, does not raise")
+    result = w.compute_row_readability(b"\x89PNG-not-a-real-image")
+    check("returns poor quality with no interline reading, does not raise",
+          result["quality"] == "poor" and result["interline_px"] is None, str(result))
+
+
+def test_compute_row_readability_on_the_real_problem_photo():
+    print("\n[80] readability check rates a crop from the real Audiveris-rejected photo as not good")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+    result = w.compute_row_readability(row_bytes)
+    check("a real photo row known to be ~8px interline is not rated good",
+          result["quality"] != "good", str(result))
+    check("does not raise and returns a well-formed result",
+          result["quality"] in ("good", "marginal", "poor"), str(result))
+
+
+def test_binarize_ink_handles_the_degenerate_otsu_case():
+    print("\n[81] _binarize_ink correctly finds ink on both a clean two-valued image and a real photo row")
+    from PIL import Image, ImageDraw
+    import numpy as np
+
+    # A two-valued image (ink=0, background=250) is exactly the case where
+    # _otsu_threshold's raw return value (the winning bin's LEFT edge, which
+    # is 0.0 when the winning bin is bin 0) makes `arr < threshold` select
+    # nothing. Confirmed by measurement: raw otsu on this kind of image is
+    # 0.0, giving an ink count of 0 without the degenerate-case guard.
+    img = Image.new("L", (100, 40), color=250)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([10, 10, 89, 29], fill=0)
+    arr = np.array(img).astype(np.float64)
+    raw_otsu = w._otsu_threshold(arr.flatten())
+    check("raw _otsu_threshold IS the degenerate 0.0 on this fixture (confirms the guard is needed)",
+          raw_otsu == 0.0, str(raw_otsu))
+    is_ink, threshold = w._binarize_ink(arr)
+    expected_ink = 80 * 20
+    check("binarize_ink finds the drawn rectangle as ink, unlike raw otsu",
+          is_ink.sum() == expected_ink, f"{is_ink.sum()} != {expected_ink}")
+    check("binarize_ink's threshold is above the image minimum (the fallback fired)",
+          threshold > arr.min(), str(threshold))
+
+    # A real photographed row is NOT degenerate (continuous histogram), so
+    # the fallback must not distort its ordinary Otsu result.
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+    from io import BytesIO
+    real_img = Image.open(BytesIO(row_bytes)).convert("L")
+    real_arr = np.array(real_img).astype(np.float64)
+    real_is_ink, real_threshold = w._binarize_ink(real_arr)
+    check("real photo row's threshold lands in a plausible photographic range",
+          50 < real_threshold < 200, str(real_threshold))
+    check("real photo row has some ink but is not almost-entirely ink",
+          0 < real_is_ink.mean() < 0.6, str(real_is_ink.mean()))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3010,6 +3147,13 @@ def main():
               test_split_page_into_rows_finds_distinct_systems,
               test_split_page_into_rows_falls_back_on_a_single_system,
               test_split_page_into_rows_falls_back_on_undecodable_bytes,
+              test_compute_row_readability_measures_known_interline,
+              test_compute_row_readability_flags_low_interline_as_poor,
+              test_compute_row_readability_marginal_band,
+              test_compute_row_readability_flags_a_blurry_but_high_resolution_row,
+              test_compute_row_readability_handles_undecodable_bytes,
+              test_compute_row_readability_on_the_real_problem_photo,
+              test_binarize_ink_handles_the_degenerate_otsu_case,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,

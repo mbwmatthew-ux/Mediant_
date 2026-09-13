@@ -3156,6 +3156,286 @@ def _otsu_threshold(values) -> float:
     return float(bin_edges[best_bin])
 
 
+def _binarize_ink(arr):
+    """
+    Shared ink/background split for row-image analysis, built on
+    _otsu_threshold. Exists because that threshold, used directly as
+    `arr < threshold`, is broken on exactly the kind of image
+    compute_row_readability's own synthetic tests use: _otsu_threshold
+    returns the LEFT EDGE of its winning histogram bin, and on a clean
+    two-valued image (background ~250, ink ~0) the winning bin is bin 0,
+    whose left edge is 0.0 — so `arr < 0.0` matches nothing. Measured: a
+    synthetic two-valued row image (ink=0, background=250) returns a raw
+    threshold of 0.0 and an ink count of 0 without this guard. Real
+    photographed rows are unaffected — their histograms are continuous,
+    not two-valued (measured threshold ~118-129 across the real problem
+    photo's 12 rows) — so the guard only fires on the degenerate
+    near-binary case.
+
+    Do NOT change _otsu_threshold itself: split_page_into_rows depends on
+    its current return value (it thresholds row-wise STD, where a
+    threshold of 0 is harmless there).
+
+    Returns (is_ink: bool ndarray, threshold_used: float).
+    """
+    threshold = _otsu_threshold(arr.flatten())
+    if threshold <= arr.min():
+        # Degenerate: the winning bin's left edge fell at or below the
+        # darkest pixel in the image. Fall back to the midpoint between
+        # the dark and light clusters.
+        threshold = (float(arr.min()) + float(arr.max())) / 2.0
+    return arr < threshold, threshold
+
+
+# Interline thresholds, calibrated against real evidence, not guesses:
+# Audiveris's own algorithm rejected the real problem photo at a measured
+# 8px interline as unreliable, and states it wants roughly 300 DPI /
+# ~20px interline. 8px is therefore a real, confirmed "poor" data point;
+# 18px is a hair under Audiveris's own stated "good" target, kept as the
+# floor since nothing in the real photo's own readable rows came close
+# enough to justify moving it.
+_INTERLINE_POOR_MAX = 11.0
+_INTERLINE_GOOD_MIN = 18.0
+
+# Autocorrelation search bounds and confidence bars for _estimate_interline_px
+# (see that function for the algorithm). Below this lag, adjacent-row
+# anti-aliasing/JPEG smoothing produces autocorrelation "rebounds" that look
+# periodic but aren't — measured on every one of the real problem photo's
+# 12 rows, an unguarded argmax-in-window search converges on lag 4
+# regardless of whether the row has real staff lines.
+_INTERLINE_MIN_LAG = 4
+# No interline of interest exceeds this; bounding the search avoids
+# autocorrelation's edge-of-window noise (few overlapping samples remain at
+# high lag) being mistaken for periodicity — measured: unbounded, the real
+# photo's rows with NO detectable staff lines returned lag 40-59 with
+# NEGATIVE correlation, i.e. noise, not signal.
+_INTERLINE_MAX_LAG = 40
+# The autocorrelation must rebound by at least this much off its running
+# trough to count as a genuine period rather than numeric noise riding on
+# an otherwise-monotonic decay — measured: a real row with no periodicity
+# wobbles by ~0.01 around a near-flat plateau; every genuine periodic hit
+# measured below rebounds by 0.3+.
+_INTERLINE_MIN_PROMINENCE = 0.05
+# The rebound peak itself must reach this normalized-autocorrelation value.
+# Rows with no real staff-line periodicity still occasionally rebound near
+# the edge of the search window, but only up to ~0.23 (measured on the real
+# photo's row 0); genuine hits measured 0.62-0.87 across both the real
+# photo's rows 4-8 and every synthetic fixture.
+_INTERLINE_MIN_CONFIDENCE = 0.3
+
+# Sharpness here means literal line-edge THINNESS — 1 / (mean width, in
+# pixel-rows, of the contiguous ink-density runs that make up each detected
+# staff line) — deliberately NOT a raw gradient magnitude. A raw mean
+# |horizontal gradient| over the staff band was tried first and rejected:
+# measured, it scored WORSE at higher resolution (1.67 at a 24px interline
+# vs 4.26 at 8px) because edge density per pixel rises as an image shrinks
+# — backwards from what "sharpness" should mean, and it would have made a
+# lower-resolution photo look sharper than a higher-resolution one of the
+# same page. Line-edge width in raw pixel-rows does not have that problem:
+# measured on the synthetic fixture, an unblurred staff line measures the
+# same 2.0px width (a 0.500 thinness score) whether interline is 8px or
+# 32px; only actual blur widens it (measured at interline=24: blur radius 0
+# -> 2.0px width -> 0.500; radius 2 -> 4.0px -> 0.250; radius 3 -> 6.0px ->
+# 0.167).
+_SHARPNESS_GOOD_MIN = 0.4
+_SHARPNESS_POOR_MAX = 0.2
+
+
+def _estimate_interline_px(row_ink_fraction):
+    """
+    Estimate staff-line spacing from a per-pixel-row ink-fraction profile
+    via autocorrelation: a genuine periodic signal (repeating staff lines)
+    makes the profile's autocorrelation dip then REBOUND at a lag equal to
+    the true spacing; blur, sensor noise, and non-periodic content
+    (scattered noteheads with no resolvable lines at all) make it decay
+    smoothly with no rebound.
+
+    Picking the FIRST rebound — not the global max within the search
+    window — matters: on real photographed rows, the global max in-window
+    is trivially the smallest lag tried, because anti-aliasing/JPEG
+    smoothing makes immediately-adjacent pixel-rows correlate strongly
+    whether or not real periodicity exists underneath. Requiring both a
+    minimum trough-to-peak rebound (_INTERLINE_MIN_PROMINENCE) and a
+    minimum absolute correlation at the peak (_INTERLINE_MIN_CONFIDENCE)
+    is what separates the real photo's 5 readable rows (correlation
+    0.62-0.87) from its 7 unreadable ones (correlation <=0.23, when they
+    rebound at all).
+
+    Returns (interline_px: float|None, confidence: float|None) —
+    confidence is the normalized autocorrelation value at the accepted
+    lag, carried only for diagnostics.
+    """
+    import numpy as np
+    n = len(row_ink_fraction)
+    max_lag = min(_INTERLINE_MAX_LAG, n // 2)
+    if max_lag <= _INTERLINE_MIN_LAG:
+        return None, None
+    profile = row_ink_fraction - row_ink_fraction.mean()
+    if not np.any(profile):
+        return None, None
+    ac = np.correlate(profile, profile, mode="full")[n - 1:]
+    if ac[0] <= 0:
+        return None, None
+    ac = ac / ac[0]
+    trough = ac[0]
+    lag = 1
+    while lag <= max_lag:
+        if ac[lag] < trough:
+            trough = ac[lag]
+        elif ac[lag] - trough >= _INTERLINE_MIN_PROMINENCE:
+            # Found a rebound off the running trough — walk forward to
+            # the top of it.
+            peak_lag = lag
+            while peak_lag + 1 <= max_lag and ac[peak_lag + 1] >= ac[peak_lag]:
+                peak_lag += 1
+            if peak_lag >= _INTERLINE_MIN_LAG and ac[peak_lag] >= _INTERLINE_MIN_CONFIDENCE:
+                return float(peak_lag), float(ac[peak_lag])
+            # Rebound too close to the origin (aliasing) or too weak to
+            # trust as real periodicity — keep scanning past it.
+            trough = ac[peak_lag]
+            lag = peak_lag
+        lag += 1
+    return None, None
+
+
+def _measure_line_thinness(row_ink_fraction):
+    """
+    Measures how THIN the detected staff lines are, in pixel-rows, as the
+    resolution-independent focus proxy explained in the _SHARPNESS_GOOD_MIN
+    comment above. The bar that separates "line" rows from "background/
+    notehead" rows is adaptive — the midpoint between the profile's
+    median (background plus scattered-notehead baseline) and its max (the
+    line peaks) — rather than a fixed constant, because that baseline
+    shifts with how notation-dense the row is; a fixed bar tuned against
+    the real photo's rows was, in an earlier pass, too strict to find any
+    lines on the same photo's own curved, unevenly-lit rows.
+
+    Returns the mean run width in pixel-rows, or None if the profile is
+    too flat to find any run at all.
+    """
+    import numpy as np
+    baseline = float(np.median(row_ink_fraction))
+    peak = float(row_ink_fraction.max())
+    if peak <= baseline:
+        return None
+    bar = baseline + 0.5 * (peak - baseline)
+    widths = []
+    run = 0
+    for v in row_ink_fraction:
+        if v > bar:
+            run += 1
+        else:
+            if run > 0:
+                widths.append(run)
+            run = 0
+    if run > 0:
+        widths.append(run)
+    if not widths:
+        return None
+    return float(np.mean(widths))
+
+
+def compute_row_readability(row_bytes: bytes) -> dict:
+    """
+    Measures TWO independent quality signals for one row crop and returns
+    the worse of their verdicts:
+
+      * interline_px — the ACTUAL staff-line spacing, measured via
+        autocorrelation of the row's per-pixel-row ink-fraction profile
+        (see _estimate_interline_px), not a proxy like raw pixel
+        dimensions.
+      * sharpness — how THIN the detected staff lines are, in pixel-rows
+        (see _measure_line_thinness / _SHARPNESS_GOOD_MIN), i.e. how hard
+        the ink/paper edges are, measured in a way that does not get
+        confused by image resolution.
+
+    Both are needed because they fail INDEPENDENTLY: a photo can be
+    high-resolution (generous interline) yet so out of focus that every
+    notehead, stem and accidental has smeared together, or perfectly sharp
+    yet shot from so far away that nothing is resolvable. Measuring only
+    one lets the other through.
+
+    Exists because Audiveris's real, confirmed failure on the actual
+    problem photo was driven by interline spacing specifically (measured
+    8px against Audiveris's own stated ~20px target), not a generic
+    "low resolution" guess. Reuses the row-wise contrast/Otsu technique
+    split_page_into_rows already established (via the shared
+    _binarize_ink helper), applied at finer grain to find the periodic
+    structure of the 5 individual staff lines within ONE system crop
+    rather than the gaps BETWEEN systems.
+
+    Returns {"interline_px": float|None, "sharpness": float|None,
+    "quality": "good"|"marginal"|"poor", "reasons": [...]}. Never raises —
+    undecodable bytes, an empty image, or a crop where no periodic
+    staff-line spacing can be confidently found come back as "poor" with
+    interline_px=None, same no-op-on-failure convention as
+    split_page_into_rows.
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+        import io
+
+        img = Image.open(io.BytesIO(row_bytes)).convert("L")
+        arr = np.array(img).astype(np.float64)
+        h, w = arr.shape
+        if h == 0 or w == 0:
+            return {"interline_px": None, "sharpness": None, "quality": "poor",
+                    "reasons": ["empty image"]}
+
+        is_ink, _threshold = _binarize_ink(arr)
+        row_ink_fraction = is_ink.sum(axis=1) / w
+
+        interline_px, _confidence = _estimate_interline_px(row_ink_fraction)
+        if interline_px is None:
+            return {"interline_px": None, "sharpness": None, "quality": "poor",
+                    "reasons": ["no periodic staff-line spacing detected"]}
+
+        line_width = _measure_line_thinness(row_ink_fraction)
+        sharpness = (1.0 / line_width) if line_width else None
+
+        reasons = []
+        verdicts = []
+
+        if interline_px <= _INTERLINE_POOR_MAX:
+            verdicts.append("poor")
+            reasons.append(f"interline {interline_px:.1f}px at or below the "
+                            f"{_INTERLINE_POOR_MAX}px poor threshold")
+        elif interline_px >= _INTERLINE_GOOD_MIN:
+            verdicts.append("good")
+        else:
+            verdicts.append("marginal")
+            reasons.append(f"interline {interline_px:.1f}px is between "
+                            f"{_INTERLINE_POOR_MAX} and {_INTERLINE_GOOD_MIN}")
+
+        if sharpness is None:
+            verdicts.append("poor")
+            reasons.append("could not measure staff-line sharpness")
+        elif sharpness <= _SHARPNESS_POOR_MAX:
+            verdicts.append("poor")
+            reasons.append(f"sharpness {sharpness:.3f} at or below the "
+                            f"{_SHARPNESS_POOR_MAX} poor threshold (photo looks out of focus)")
+        elif sharpness >= _SHARPNESS_GOOD_MIN:
+            verdicts.append("good")
+        else:
+            verdicts.append("marginal")
+            reasons.append(f"sharpness {sharpness:.3f} is between "
+                            f"{_SHARPNESS_POOR_MAX} and {_SHARPNESS_GOOD_MIN}")
+
+        # The WORSE of the two verdicts wins — a row is only as readable
+        # as its weakest independent signal.
+        quality = ("poor" if "poor" in verdicts
+                   else "marginal" if "marginal" in verdicts
+                   else "good")
+
+        return {"interline_px": interline_px, "sharpness": sharpness,
+                "quality": quality, "reasons": reasons}
+    except Exception as e:
+        print(f"[compute_row_readability] could not analyze image, reporting poor: {e}")
+        return {"interline_px": None, "sharpness": None, "quality": "poor",
+                "reasons": [f"could not analyze image: {e}"]}
+
+
 def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
     """
     Split a photographed/scanned sheet-music PAGE into per-system (per-row)

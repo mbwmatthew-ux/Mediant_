@@ -8156,6 +8156,33 @@ def _generate_reference_audio(body: dict) -> dict:
         return {"error": "score with at least one measure is required"}
     if len(score.get("measures", [])) > 500:
         return {"error": "score has too many measures for reference-audio generation (max 500)"}
+
+    # Refuse to synthesize anything from a read the pipeline itself does
+    # not trust. read_score_notes_claude marks a measure "unresolved" when
+    # Claude's independent reads disagreed, an independent OMR read
+    # contradicted them, or the measure failed deterministic music
+    # validation AND targeted re-reading could not settle it (see
+    # resolve_measure_disagreement).
+    #
+    # Playing those notes anyway is the exact product failure this whole
+    # pipeline exists to end: a student hears confident, fluent, WRONG
+    # music and has no way to know which bars to distrust. An error they
+    # can act on ("take a clearer photo") is worse-feeling and far better
+    # than authoritative-sounding wrong notes. Whole-generation refusal
+    # rather than partial audio is deliberate — see this task's design
+    # note in the plan.
+    unresolved = [m.get("number") for m in score.get("measures", []) if m.get("unresolved")]
+    if unresolved or score.get("unresolved_measure_count"):
+        print(f"[_generate_reference_audio] refusing to synthesize — "
+              f"{len(unresolved)} unresolved measure(s): {unresolved[:20]}")
+        return {
+            "error": "score_read_uncertain",
+            "message": ("Some measures on this page could not be read reliably, so "
+                        "reference audio was not generated — it would likely play the "
+                        "wrong notes. Try a clearer, flatter photo of the page."),
+            "unresolved_measures": unresolved,
+        }
+
     try:
         bpm_f = float(bpm)
     except (TypeError, ValueError):
@@ -8215,7 +8242,17 @@ def _generate_reference_audio_background(payload: dict) -> None:
         return
 
     if result.get("error"):
-        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": result["error"], "jobToken": job_token}, anon_key=webhook_anon_key)
+        # Some error paths (e.g. the score_read_uncertain refusal gate in
+        # _generate_reference_audio) carry a machine-readable "error" code
+        # alongside a human-readable "message" meant for the end user. The
+        # webhook -> takes.reference_audio_job_error -> polling response ->
+        # useReferenceAudio chain surfaces this "error" field verbatim in
+        # the UI, so prefer the human-readable message when one exists —
+        # otherwise a user would be shown a raw code like
+        # "score_read_uncertain" instead of an explanation. Paths without a
+        # "message" (e.g. "bpm must be a number") are already human-readable
+        # and fall through unchanged.
+        post_webhook(webhook_url, webhook_secret, {"takeId": take_id, "error": result.get("message") or result["error"], "jobToken": job_token}, anon_key=webhook_anon_key)
         return
 
     post_webhook(webhook_url, webhook_secret, {

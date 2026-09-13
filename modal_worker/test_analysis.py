@@ -2500,6 +2500,85 @@ def test_resolve_measure_disagreement_matched_candidate_returns_a_copy():
           "mutated" not in candidates[1], str(candidates[1]))
 
 
+def test_generate_reference_audio_refuses_when_measures_are_unresolved():
+    print("\n[104] reference audio REFUSES to synthesize when any measure is unresolved")
+    called = {"synthesized": False}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+                {"number": 13, "unresolved": True, "issues": ["Claude and OMR disagree"],
+                 "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 1,
+        }
+
+    def _fake_synth(score, instrument, bpm):
+        called["synthesized"] = True
+        return b"RIFFfake", []
+
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _orig_synth = w.generate_reference_audio
+    w.read_score_notes_for_reference_audio = _fake_reader
+    w.generate_reference_audio = _fake_synth
+    try:
+        result = w._generate_reference_audio({
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "k",
+        })
+    finally:
+        w.read_score_notes_for_reference_audio = _orig_reader
+        w.generate_reference_audio = _orig_synth
+
+    check("returns an error instead of audio", result.get("error") == "score_read_uncertain", str(result))
+    check("NO audio was synthesized at all — the point is that questionable notes never reach the user",
+          called["synthesized"] is False, str(called))
+    check("names which measures were uncertain, so the error is actionable",
+          13 in (result.get("unresolved_measures") or []), str(result))
+    check("carries a human-readable message", bool(result.get("message")), str(result))
+
+
+def test_generate_reference_audio_proceeds_when_nothing_is_unresolved():
+    print("\n[105] reference audio still generates normally when every measure resolved confidently")
+    called = {"synthesized": False}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 0,
+        }
+
+    def _fake_synth(score, instrument, bpm):
+        called["synthesized"] = True
+        return b"RIFFfake", [{"measure": 12, "start_sec": 0.0, "end_sec": 1.8}]
+
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _orig_synth = w.generate_reference_audio
+    w.read_score_notes_for_reference_audio = _fake_reader
+    w.generate_reference_audio = _fake_synth
+    try:
+        result = w._generate_reference_audio({
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "k",
+        })
+    finally:
+        w.read_score_notes_for_reference_audio = _orig_reader
+        w.generate_reference_audio = _orig_synth
+
+    check("a fully-resolved read is not blocked", not result.get("error"), str(result))
+    check("audio was synthesized", called["synthesized"] is True, str(called))
+    check("returns base64 audio as before", bool(result.get("audio_base64")), str(result.keys()))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3526,6 +3605,55 @@ def test_reference_audio_background_posts_failure_to_webhook():
     check("webhook payload round-trips jobToken on failure", payload.get("jobToken") == "tok-xyz", str(payload.get("jobToken")))
 
 
+def test_reference_audio_background_posts_human_readable_message_for_uncertain_reads():
+    print("\n[106] the background webhook posts the human-readable message, not the raw score_read_uncertain code, "
+          "so the end user never sees a bare error code")
+    import types
+    captured = {}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 1, "unresolved": True, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 1,
+        }
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def post(self, url, **kw):
+            captured["webhook_payload"] = kw.get("json")
+            return types.SimpleNamespace(status_code=200, text="ok")
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _httpx.Client = _FakeHttpClient
+    w.read_score_notes_for_reference_audio = _fake_reader
+    try:
+        w._generate_reference_audio_background({
+            "take_id": "take-789",
+            "webhook_url": "https://example.test/webhook",
+            "webhook_secret": "shh",
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+            "job_token": "tok-def",
+        })
+    finally:
+        _httpx.Client = _orig_httpx
+        w.read_score_notes_for_reference_audio = _orig_reader
+
+    payload = captured.get("webhook_payload") or {}
+    check("webhook payload's error field is the human-readable sentence, not the bare code",
+          payload.get("error") != "score_read_uncertain" and "clearer" in (payload.get("error") or ""),
+          str(payload))
+
+
 def test_declared_bpm_flows_into_compare_and_coach_claude():
     print("\n[59] declared_bpm reaches compare_and_coach_claude and produces a flag")
     score = make_score()
@@ -3768,6 +3896,8 @@ def main():
               test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
               test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
               test_resolve_measure_disagreement_matched_candidate_returns_a_copy,
+              test_generate_reference_audio_refuses_when_measures_are_unresolved,
+              test_generate_reference_audio_proceeds_when_nothing_is_unresolved,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,
@@ -3794,6 +3924,7 @@ def main():
               test_reference_audio_endpoint_falls_back_when_fresh_read_fails,
               test_reference_audio_background_posts_success_to_webhook,
               test_reference_audio_background_posts_failure_to_webhook,
+              test_reference_audio_background_posts_human_readable_message_for_uncertain_reads,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged):

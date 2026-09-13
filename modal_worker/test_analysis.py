@@ -2362,6 +2362,54 @@ def test_validate_measure_polyphony_allowed_for_piano():
           result["valid"], str(result))
 
 
+def test_validate_measure_limited_polyphony_string_double_stop_is_valid():
+    print("\n[114] a legitimate bowed-string double stop is valid on BOTH checks "
+          "(D3, Owner Decisions 2026-09-13: two 4-beat notes at beat 1 in 4/4 "
+          "used to fail 'duration sum 8.00 exceeds 4' AND 'unexpected polyphony' "
+          "before this fix — the measured evidence D3 records)")
+    double_stop = {"number": 5, "notes": [
+        {"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+        {"pitch": "A4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+    ]}
+    for instrument in ("violin", "viola", "cello", "violoncello", "double bass",
+                        "contrabass", "string bass", "upright bass", "fiddle"):
+        result = w.validate_measure(double_stop, instrument, "4/4")
+        check(f"{instrument} double stop (4+4 beats at one onset) is valid",
+              result["valid"], str(result))
+
+
+def test_validate_measure_limited_polyphony_does_not_exempt_bass_clarinet_or_bass_trombone():
+    print("\n[115] 'bass clarinet' and 'bass trombone' are NOT swept into the bowed-string "
+          "limited-polyphony exemption by a bare 'bass' substring match — the naming trap "
+          "D3 explicitly calls out, since _instrument_lookup does substring matching")
+    simultaneous = {"number": 5, "notes": [
+        {"pitch": "C3", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "E3", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    for instrument in ("bass clarinet", "bass trombone"):
+        result = w.validate_measure(simultaneous, instrument, "3/4")
+        check(f"{instrument} still flags simultaneous notes as unexpected polyphony",
+              not result["valid"], str(result))
+        check(f"{instrument}'s issue mentions polyphony (still strictly monophonic)",
+              any("polypho" in i.lower() for i in result["issues"]), str(result))
+
+
+def test_validate_measure_limited_polyphony_new_onset_overshoot_still_invalid():
+    print("\n[116] a string measure with an invented note at a NEW onset still overshoots and "
+          "is still invalid — proving the per-onset duration sum preserves the overshoot "
+          "signal rather than forfeiting it entirely like a fully polyphonic instrument would")
+    invented_extra_note = {"number": 5, "notes": [
+        {"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+        {"pitch": "A4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+        {"pitch": "G4", "is_rest": False, "beat": 4.5, "duration_beats": 0.5},
+    ]}
+    result = w.validate_measure(invented_extra_note, "violin", "4/4")
+    check("a double stop plus an invented note at a new onset overshoots 4/4 and is invalid",
+          not result["valid"], str(result))
+    check("the issue mentions duration",
+          any("duration" in i.lower() for i in result["issues"]), str(result))
+
+
 def test_validate_measure_unknown_instrument_skips_range_check_gracefully():
     print("\n[95] validator does not penalize an instrument with no tabulated range data")
     measure = {"number": 5, "notes": [
@@ -2721,6 +2769,51 @@ def test_resolve_measure_disagreement_matched_candidate_returns_a_copy():
     result["mutated"] = True
     check("mutating the returned dict does not leak into the caller's candidates list",
           "mutated" not in candidates[1], str(candidates[1]))
+
+
+def test_resolve_measure_disagreement_accepts_a_correctly_resolved_string_double_stop():
+    print("\n[117] a correctly-resolved violin double stop is NOT marked unresolved "
+          "(Task 10: resolve_measure_disagreement re-validates its own answer through "
+          "validate_measure, so it inherits the D3 limited-polyphony fix automatically — "
+          "this test locks that in, since an unresolved measure is the exact signal that "
+          "refuses reference-audio generation for the whole score)")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # A correct double stop: two 4-beat notes sounding together at
+            # beat 1 in 4/4 — 4 beats total, not 8, under the per-onset sum.
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "D4", "b": 1.0, "d": 4.0}, {"p": "A4", "b": 1.0, "d": 4.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(
+            b"\x89PNG-fake-crop", candidates, "violin", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a correctly-resolved string double stop is NOT flagged unresolved",
+          not result.get("unresolved"), str(result))
+    check("both notes of the double stop are present in the resolved measure",
+          result.get("notes") and len(result["notes"]) == 2, str(result))
 
 
 def test_generate_reference_audio_refuses_when_measures_are_unresolved():
@@ -4110,6 +4203,9 @@ def main():
               test_validate_measure_written_pitch_range,
               test_validate_measure_unexpected_polyphony,
               test_validate_measure_polyphony_allowed_for_piano,
+              test_validate_measure_limited_polyphony_string_double_stop_is_valid,
+              test_validate_measure_limited_polyphony_does_not_exempt_bass_clarinet_or_bass_trombone,
+              test_validate_measure_limited_polyphony_new_onset_overshoot_still_invalid,
               test_validate_measure_unknown_instrument_skips_range_check_gracefully,
               test_align_claude_to_measure_crops_matches_on_equal_count,
               test_align_claude_to_measure_crops_refuses_on_count_mismatch,
@@ -4123,6 +4219,7 @@ def main():
               test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
               test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
               test_resolve_measure_disagreement_matched_candidate_returns_a_copy,
+              test_resolve_measure_disagreement_accepts_a_correctly_resolved_string_double_stop,
               test_generate_reference_audio_refuses_when_measures_are_unresolved,
               test_generate_reference_audio_proceeds_when_nothing_is_unresolved,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,

@@ -4587,6 +4587,35 @@ POLYPHONIC_INSTRUMENTS = {
     "electric guitar", "bass guitar", "harp", "ukulele", "mandolin", "banjo",
 }
 
+# Bowed strings: LIMITED polyphony, not the free-for-all of POLYPHONIC_
+# INSTRUMENTS above. A double stop (two notes at one onset) and,
+# occasionally, a rolled triple/quadruple stop are idiomatic; anything
+# beyond that is not. Owner Decisions D3 — see docs/superpowers/plans/
+# 2026-09-12-reference-audio-recognition-pipeline.md.
+#
+# Distinct from POLYPHONIC_INSTRUMENTS in how BOTH validate_measure
+# checks apply to them (see _validate_measure_impl below):
+#   - the simultaneous-notes check is skipped entirely, same as fully
+#     polyphonic instruments (a double stop is not "unexpected"), but
+#   - the duration-sum check is NOT skipped — it runs on the sum of the
+#     LONGEST duration per distinct onset (beat), not a plain sum of
+#     every note. Two 4-beat notes in a 4-beat double stop then sum to
+#     4 (correct), while an invented note at a NEW onset still overshoots
+#     and is still caught. A plain sum, or skipping the check outright
+#     like POLYPHONIC_INSTRUMENTS, would either false-flag every
+#     legitimate double stop or forfeit the overshoot signal entirely.
+#
+# NAMING TRAP: do NOT add a bare "bass" key here — _instrument_lookup
+# does substring matching (`k in key`), and a bare "bass" would match
+# "bass clarinet" and "bass trombone", wrongly exempting them from the
+# strictly-monophonic checks above. Use full names only.
+LIMITED_POLYPHONY_INSTRUMENTS = {
+    "violin", "fiddle",
+    "viola",
+    "cello", "violoncello",
+    "double bass", "contrabass", "string bass", "upright bass",
+}
+
 
 def _instrument_lookup(table: dict, instrument: str):
     """Same normalized-string, longest-substring-match lookup convention
@@ -4659,22 +4688,47 @@ def _validate_measure_impl(measure: dict, instrument: str, time_sig: str,
                             is_first_measure: bool, is_last_measure: bool) -> dict:
     notes = measure.get("notes") or []
     issues: list[str] = []
-    is_polyphonic_instrument = bool(_instrument_lookup(POLYPHONIC_INSTRUMENTS, instrument))
+    is_fully_polyphonic_instrument = bool(_instrument_lookup(POLYPHONIC_INSTRUMENTS, instrument))
+    is_limited_polyphony_instrument = bool(_instrument_lookup(LIMITED_POLYPHONY_INSTRUMENTS, instrument))
 
-    # Duration-sum validation is MONOPHONIC-ONLY. Summing every note's
-    # duration assumes the notes are sequential; on a polyphonic
-    # instrument they may be simultaneous, so a single perfectly valid
-    # 3-beat triad in 3/4 sums to 9 beats and would be flagged as
-    # "impossible" by a naive sum. Proper polyphonic checking needs
-    # voice-aware accounting (per-voice duration totals, or temporal
-    # coverage of the measure) — real work, deliberately out of scope for
-    # this iteration's budget. Skipping the check for polyphonic
-    # instruments is the honest option: it forfeits a signal rather than
-    # emitting a false one, and forfeiting a signal is safe here because
-    # `valid` is never treated as evidence of correctness anyway (see this
-    # function's asymmetry note above).
-    if not is_first_measure and not is_last_measure and not is_polyphonic_instrument:
-        total_beats = sum(float(n.get("duration_beats") or 0) for n in notes)
+    # Duration-sum validation is MONOPHONIC-ONLY for a plain sum. Summing
+    # every note's duration assumes the notes are sequential; on a fully
+    # polyphonic instrument they may be simultaneous at arbitrary offsets,
+    # so a single perfectly valid 3-beat triad in 3/4 sums to 9 beats and
+    # would be flagged as "impossible" by a naive sum. Proper voice-aware
+    # accounting for fully polyphonic instruments is real work, deliberately
+    # out of scope for this iteration's budget — skipping the check for
+    # them is the honest option: it forfeits a signal rather than emitting
+    # a false one, and forfeiting a signal is safe here because `valid` is
+    # never treated as evidence of correctness anyway (see this function's
+    # asymmetry note above).
+    #
+    # Bowed strings (LIMITED_POLYPHONY_INSTRUMENTS) get a middle path
+    # instead of being lumped into either bucket: their polyphony is
+    # constrained to shared onsets (double/triple stops), not arbitrary
+    # overlap, so the duration sum is taken per distinct onset — the
+    # LONGEST duration_beats among notes sharing a beat, summed across
+    # beats — rather than skipped outright (D3, Owner Decisions
+    # 2026-09-13). A double stop (two 4-beat notes at beat 1 in 4/4) then
+    # measures 4 beats, correctly, while an invented note at a NEW onset
+    # still overshoots and is still caught — the signal survives instead
+    # of being forfeited. Strictly monophonic instruments keep the
+    # existing plain sum below unchanged: with exactly one note per
+    # onset, per-onset-max-then-sum and a plain sum are the same number,
+    # so there is nothing to gain from routing them through the new path,
+    # and keeping the two paths separate keeps this diff minimal and the
+    # unchanged path visibly unchanged.
+    if not is_first_measure and not is_last_measure and not is_fully_polyphonic_instrument:
+        if is_limited_polyphony_instrument:
+            longest_per_onset: dict[float, float] = {}
+            for n in notes:
+                b = round(float(n.get("beat") or 0), 2)
+                d = float(n.get("duration_beats") or 0)
+                if d > longest_per_onset.get(b, 0.0):
+                    longest_per_onset[b] = d
+            total_beats = sum(longest_per_onset.values())
+        else:
+            total_beats = sum(float(n.get("duration_beats") or 0) for n in notes)
         expected = beats_per_measure_from_time_sig(time_sig)
         # ONE-SIDED by design: only flag OVERSHOOT (total_beats > expected).
         # The score-reading prompt (worker.py's read-score-notes prompt)
@@ -4712,7 +4766,7 @@ def _validate_measure_impl(measure: dict, instrument: str, time_sig: str,
                 issues.append(f"pitch {n['pitch']} (MIDI {midi}) is outside the "
                                f"instrument's written range [{lo}, {hi}]")
 
-    if not is_polyphonic_instrument:
+    if not is_fully_polyphonic_instrument and not is_limited_polyphony_instrument:
         by_beat: dict[float, int] = {}
         for n in notes:
             if n.get("is_rest") or not n.get("pitch"):

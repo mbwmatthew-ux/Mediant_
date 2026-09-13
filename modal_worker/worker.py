@@ -5109,6 +5109,19 @@ _LAST_DROPPED_UNCONFIRMED: list = []
 # _LAST_DROPPED_UNCONFIRMED above.
 _LAST_EVIDENCE: dict = {}
 
+# Measure numbers the score reader marked `unresolved` (owner decision D1) as
+# of the most recent compare_and_coach_claude call — the set score-dependent
+# findings were suppressed for. compare_and_coach_claude's return type is
+# `list[dict]` (the flags) and stays that way, so this out-of-band channel is
+# how a caller finds out WHICH measures were skipped and why, same pattern as
+# _LAST_DROPPED_UNCONFIRMED / _LAST_EVIDENCE above. Set unconditionally at the
+# very top of the function, before any of its early returns, so it always
+# reflects the current call even when that call produces zero flags.
+# assess_quality does NOT read this — it derives the same set independently
+# from `score`, so coverage reporting works even on a call that never reaches
+# compare_and_coach_claude at all.
+_LAST_SKIPPED_UNRESOLVED_MEASURES: list = []
+
 
 def _note_transposition_debug(msg: str) -> None:
     global _LAST_TRANSPOSE_DEBUG
@@ -6090,12 +6103,37 @@ def compare_and_coach_claude(
     global _LAST_EVIDENCE
     _LAST_EVIDENCE = {}
 
+    # D1: measures the score reader could not read reliably. Computed here —
+    # the earliest point in the function — and published to the module-level
+    # channel immediately, before any of the early returns below can fire, so
+    # the caller learns which measures were unresolved even on a call that
+    # produces no flags at all. `flatten_score_notes` (DTW's note input) is
+    # deliberately NOT filtered on this set: the student still played those
+    # bars, and dropping them from DTW's input would stretch the remaining
+    # notes across audio that still contains them, corrupting alignment of
+    # the trusted measures too. Suppression happens below, at flag emission.
+    global _LAST_SKIPPED_UNRESOLVED_MEASURES
+    unresolved_measures: set[int] = {
+        int(m["number"]) for m in score.get("measures", [])
+        if m.get("unresolved") and m.get("number") is not None
+    }
+    _LAST_SKIPPED_UNRESOLVED_MEASURES = sorted(unresolved_measures)
+
     import anthropic as ac, re
     CLAUDE_MODEL = "claude-sonnet-4-6"
     allowed_types = {
         "intonation", "timing", "rhythm", "articulation", "dynamics",
         "voicing", "phrasing", "tone", "error", "posture", "technique",
     }
+    # D1's owner-decided split of `allowed_types` (== TYPE_LABEL's keys,
+    # below): these three are audio/video-only observations that do not
+    # depend on the transcription being correct, so they are never
+    # suppressed for an unresolved measure. Everything else compares the
+    # performance against the transcription and IS suppressed — including
+    # "voicing", which the owner's split did not name explicitly; treated as
+    # score-dependent here, fail-safe, since it compares notes against the
+    # score exactly like "error"/"intonation" do.
+    NON_SCORE_DEPENDENT_TYPES = {"tone", "posture", "technique"}
     # Unfretted strings require tighter intonation; flag at 8¢ instead of 10¢
     is_string = any(x in instrument.lower() for x in ("violin", "viola", "cello", "double bass"))
     cents_flag_threshold = 8 if is_string else 10
@@ -7468,6 +7506,36 @@ def compare_and_coach_claude(
         print(f"[compare_and_coach_claude] dropped {len(_dropped)} unconfirmed "
               f"(hedged) issue(s) — only reporting confirmed findings: "
               f"{[(d.get('measure'), d.get('type')) for d in _dropped[:8]]}")
+
+    # D1: suppress score-dependent findings for measures the score reader
+    # could not read reliably. Filtered HERE, before the coaching call below,
+    # so Claude never writes prose about a measure the system never actually
+    # read — dropping only at flag assembly would still burn the tokens and
+    # still risk the model referring to the unresolved measure in a
+    # neighboring issue's advice. A merged issue's full range (measure through
+    # measure_end) is checked, not just its start: a multi-measure span is one
+    # claim about several bars, and if any of them is unresolved the claim
+    # is not trustworthy as stated, so the whole flag is dropped rather than
+    # silently truncated to the bars we do trust.
+    if unresolved_measures and deduped_issues:
+        _kept, _score_dep_skipped = [], []
+        for iss in deduped_issues:
+            m_lo = iss["measure"]
+            m_hi = iss.get("measure_end") or m_lo
+            touches_unresolved = any(
+                m in unresolved_measures for m in range(m_lo, m_hi + 1)
+            )
+            if touches_unresolved and iss["type"] not in NON_SCORE_DEPENDENT_TYPES:
+                _score_dep_skipped.append(iss)
+            else:
+                _kept.append(iss)
+        if _score_dep_skipped:
+            print(f"[compare_and_coach_claude] suppressed {len(_score_dep_skipped)} "
+                  f"score-dependent issue(s) touching unresolved measure(s) "
+                  f"{sorted(unresolved_measures)}: "
+                  f"{[(s['measure'], s['type']) for s in _score_dep_skipped]}")
+        deduped_issues = _kept
+
     if not deduped_issues:
         return []
 
@@ -7731,6 +7799,34 @@ def assess_quality(
             f"This score contains a repeat at {where}. Repeats are not expanded yet, "
             f"so if you played it, measure numbers after that point may be offset.")
 
+    # D1: the score reader marks a measure `unresolved` when it could not read it
+    # reliably (independent reads disagreed, or it failed deterministic music
+    # validation, and a targeted re-read still couldn't settle it). Derived
+    # independently from `score` here — NOT read from compare_and_coach_claude's
+    # module-level channel — so this caveat is correct even on a call path that
+    # never reaches compare_and_coach_claude at all. The main pipeline does not
+    # refuse on this (reference audio does; that is separate and unchanged): the
+    # student still gets every trustworthy measure's feedback, but is told
+    # explicitly which measures were skipped and why, rather than silently
+    # receiving thinner feedback.
+    unresolved_measures = sorted({
+        int(m["number"]) for m in score.get("measures", [])
+        if m.get("unresolved") and m.get("number") is not None
+    })
+    if unresolved_measures:
+        if len(unresolved_measures) == 1:
+            where, subj, obj = f"measure {unresolved_measures[0]}", "it", "it"
+        else:
+            where = "measures " + ", ".join(str(n) for n in unresolved_measures)
+            subj, obj = "they", "them"
+        caveats.append(
+            f"The score reader could not reliably read {where} — independent reads "
+            f"of the page disagreed, or {subj} failed a music-notation check, and a "
+            f"closer look still couldn't settle {obj}. Note, rhythm, timing, "
+            f"intonation, articulation, dynamics, and phrasing feedback for "
+            f"{where} was skipped rather than risk telling you something wrong "
+            f"about notes we never actually read.")
+
     quality = {
         "trust": "high" if not reasons else "medium",
         "canProceed": True,
@@ -7740,6 +7836,7 @@ def assess_quality(
             "pages_analysed": pages_read,
             "pages_total": pages_total,
             "listening_pages_analysed": listening_pages_read,
+            "unresolved_measures": unresolved_measures,
             "caveats": caveats,
         },
     }

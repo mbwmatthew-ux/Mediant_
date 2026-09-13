@@ -2816,6 +2816,96 @@ def test_resolve_measure_disagreement_accepts_a_correctly_resolved_string_double
           result.get("notes") and len(result["notes"]) == 2, str(result))
 
 
+def test_unresolved_measure_suppresses_score_dependent_findings_but_not_audio_only():
+    print("\n[118] D1: an unresolved measure suppresses its score-dependent findings "
+          "(intonation) but a trusted measure's identical finding still fires, and a "
+          "non-score-dependent finding (tone) on the SAME unresolved measure still "
+          "fires — proving suppression is targeted by measure AND by type, not global")
+    score = make_score()
+    for m in score["measures"]:
+        if m["number"] == 25:
+            m["unresolved"] = True
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Same technique as test_loop_always_plays_the_flagged_measure: a large
+    # cents_offset on the DTW-matched events at a measure drives a per-measure
+    # "intonation" finding (score-dependent — it names a note read off the score).
+    # Measures 20 and 25 are deliberately non-adjacent: two adjacent same-
+    # direction intonation issues merge into one continuous span (see the
+    # "genuinely CONTINUOUS issues" merge above dedup), which would fuse the
+    # trusted measure's flag onto the unresolved one and make suppression of
+    # the merged span correctly (and unhelpfully, for this test) take the
+    # trusted measure down with it.
+    for e in aligned:
+        if e["measure"] in (20, 25):
+            e["cents_offset"] = 33
+
+    gem = dict(EMPTY_GEMINI)
+    # tone_issues is audio-only — Gemini's listening judgment, not a comparison
+    # against the transcription — so D1 says this must survive even on an
+    # unresolved measure. No "time" field: compare_and_coach_claude normally
+    # derives the measure from Gemini's TIMESTAMP via the beat grid (its
+    # printed measure number is treated as unreliable), so omitting time is
+    # what makes it fall back to the raw "measure" field given here — the
+    # only way to pin this fixture's issue to measure 25 deterministically.
+    gem["tone_issues"] = [{"measure": 25, "description": "thin, unsupported tone"}]
+
+    flags = run_pipeline(score, aligned, gemini=gem)
+
+    inton25 = [f for f in flags if f["measure"] == 25 and f["type"] == "intonation"]
+    inton20 = [f for f in flags if f["measure"] == 20 and f["type"] == "intonation"]
+    tone25 = [f for f in flags if f["measure"] == 25 and f["type"] == "tone"]
+
+    check("score-dependent (intonation) finding on the UNRESOLVED measure is suppressed",
+          len(inton25) == 0, str(flags))
+    check("the identical finding type on a TRUSTED measure still fires — "
+          "suppression is targeted, not global",
+          len(inton20) == 1, str(flags))
+    check("a non-score-dependent (tone) finding on the SAME unresolved measure still fires",
+          len(tone25) == 1, str(flags))
+
+
+def test_assess_quality_declares_unresolved_measures():
+    print("\n[119] D1: assess_quality's coverage caveat names the unresolved measure "
+          "and coverage['unresolved_measures'] carries it for the frontend")
+    score = {"measures": [
+        {"number": n, "notes": [{"pitch": "C4"}]} for n in range(1, 6)
+    ]}
+    score["measures"][2]["unresolved"] = True  # measure 3
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+
+    q = w.assess_quality(score, evs, aligned, ranges,
+                         pages_read=1, pages_total=1,
+                         has_repeats=False, first_repeat_measure=None)
+    txt = " ".join(q["coverage"]["caveats"]).lower()
+    check("a caveat is produced naming the unresolved measure", "measure 3" in txt, txt[:160])
+    check("the caveat explains score-dependent feedback was skipped there",
+          "skipped" in txt, txt[:160])
+    check("coverage['unresolved_measures'] carries the measure number",
+          q["coverage"]["unresolved_measures"] == [3], str(q["coverage"]["unresolved_measures"]))
+
+
+def test_assess_quality_is_inert_on_a_fully_resolved_score():
+    print("\n[120] D1 regression guard: a score with no unresolved measures produces "
+          "no new caveat and an empty unresolved_measures list")
+    score = {"measures": [
+        {"number": n, "notes": [{"pitch": "C4"}]} for n in range(1, 6)
+    ]}
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+
+    q = w.assess_quality(score, evs, aligned, ranges,
+                         pages_read=1, pages_total=1,
+                         has_repeats=False, first_repeat_measure=None)
+    check("no caveats on a fully-resolved score (D1 is inert on healthy scores)",
+          q["coverage"]["caveats"] == [], str(q["coverage"]["caveats"]))
+    check("unresolved_measures is empty on a fully-resolved score",
+          q["coverage"]["unresolved_measures"] == [], str(q["coverage"]["unresolved_measures"]))
+
+
 def test_generate_reference_audio_refuses_when_measures_are_unresolved():
     print("\n[104] reference audio REFUSES to synthesize when any measure is unresolved")
     called = {"synthesized": False}
@@ -4220,6 +4310,9 @@ def main():
               test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
               test_resolve_measure_disagreement_matched_candidate_returns_a_copy,
               test_resolve_measure_disagreement_accepts_a_correctly_resolved_string_double_stop,
+              test_unresolved_measure_suppresses_score_dependent_findings_but_not_audio_only,
+              test_assess_quality_declares_unresolved_measures,
+              test_assess_quality_is_inert_on_a_fully_resolved_score,
               test_generate_reference_audio_refuses_when_measures_are_unresolved,
               test_generate_reference_audio_proceeds_when_nothing_is_unresolved,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,

@@ -1,5 +1,96 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-11/12 — Fixed the real "wrong music" bug (vision hallucination on dense pages), converted reference-audio to async, fixed 8 issues found in final review, deployed
+
+### The real bug
+
+Two more rounds of user pushback after 2026-09-10's "no bug found"
+("it does not resemble any part of the song whatsoever", then "it sounds
+like a clarinet and its playing real notes, just not the notes on the
+sheet music at all, completely wrong") led to a rotation-corrected,
+`librosa.pyin`-verified re-check that confirmed a real bug this time:
+Claude's vision reads of the same dense, small-print photographed page
+were genuinely inconsistent between separate calls, and showed a
+hallucination signature — measures several bars apart coming back as
+exact mirror images of each other, and adjacent measures byte-for-byte
+identical (a plausible repeating pattern, not an accurate transcription).
+
+### Fix: split pages into row crops before vision reading
+
+`modal_worker/worker.py`: new `split_page_into_rows(page_bytes)` splits a
+photographed page into per-system row crops using row-wise standard
+deviation (local contrast), Otsu-adaptive thresholded, before handing
+each row to Claude as a separate image — instead of one whole dense page.
+A first attempt using a fixed brightness threshold (`< 200`) failed on
+the real photo because the background wasn't uniformly near-white
+(lighting/shadow); switched to contrast-based detection, which cleanly
+separated content rows (~30-70 std) from gaps (~5-15 std). Applied to the
+SHARED `read_score_notes_claude` function, so the main analysis pipeline
+gets the same accuracy fix, not just reference-audio. Verified against
+the real problematic photo: 12 clean, correctly-bounded row crops.
+
+### Fix exposed a platform limit → async conversion
+
+The row-split vision call (multiple images instead of one) is slow
+enough to exceed Supabase Edge Functions' hard 150s wall-clock execution
+limit when reference-audio generation called it synchronously. Converted
+`generate-reference-audio` from sync request/response to async
+spawn+webhook+poll, mirroring the main pipeline's proven
+`analyze_async`/`analysis-webhook`/`job-status` pattern:
+- New `takes` columns: `reference_audio_job_status`/`_job_error`/`_job_started_at`
+- Worker: deleted the old synchronous `generate_reference_audio_endpoint`;
+  added `generate_reference_audio_async` (thin, spawns and returns
+  immediately) + `generate_reference_audio_background` (`.spawn()`-invoked,
+  does the real work, POSTs to a webhook instead of returning)
+- New edge function `generate-reference-audio-webhook` receives the
+  worker's result and writes the DB
+- `generate-reference-audio` edge function rewritten idempotent/pollable:
+  cache-hit / in-flight (5-min stuck-job self-heal) / fresh-dispatch
+- `useReferenceAudio.js`'s `generate()`: single fetch → poll loop (120
+  attempts, 5s interval, mirrors `NewRecordingModal.jsx`'s existing pattern)
+
+Full spec + plan + subagent-driven-development execution:
+`docs/superpowers/{specs,plans}/2026-09-11-reference-audio-async.md`.
+
+### Final whole-branch review found 8 issues — all fixed before merge
+
+1 Critical: the `generate-reference-audio` edge function's `failed`-status
+branch was an empty block that fell through to silently redispatching a
+fresh paid Modal vision call on every 5-second poll, forever — the user
+watched "Generating…" for the full 10-minute window and never saw the
+real error. 3 Important: (a) webhook writes had no job fencing, so a late
+webhook from a job superseded by the stuck-job self-heal could corrupt a
+newer attempt's state — this exact race was hit live during the
+deployment's own smoke test (see below); fixed by threading a
+`job_token`/`jobToken` (the dispatch's own `job_started_at` timestamp)
+through worker → webhook, fencing every DB write on it; (b) the frontend
+poll loop had no per-attempt fault tolerance (one transient response
+aborted the whole 10-minute wait) — fixed to mirror
+`NewRecordingModal.jsx`'s tolerant pattern; (c) the poll loop wasn't
+cancelled on a `takeId` change — could write one take's audio/timeline
+into a different take's UI state after navigating away mid-generation.
+4 Minor: self-heal logged "failing" but never wrote it; stale comments
+naming the deleted sync endpoint; an unjustified always-on Modal
+container copied from a different endpoint; dispatch only checked HTTP
+status, not response body, for a spawn error.
+
+### Deployed and live-verified
+
+Migration applied, worker deployed, `MODAL_REFERENCE_AUDIO_URL` secret
+(same name, new URL), both edge functions deployed, CI gap fixed
+(`generate-reference-audio-webhook` added to `deploy-edge-functions.yml`).
+Live smoke test against production hit a genuine Modal infra preemption
+~70s into the first attempt — the 5-minute stuck-job self-heal correctly
+detected it and auto-restarted a fresh attempt, which completed cleanly
+(real signed audio URL, bpm=108 matching declared tempo, measureRange
+{12,68}, 50-measure timeline). Cache-hit reload confirmed instant (~1s).
+After the fix round: targeted live verification of the Critical fix by
+simulating a real failure — confirmed the error surfaces correctly on
+the first poll (not swallowed into another silent redispatch), the DB
+state clears, and a subsequent call genuinely restarts generation rather
+than looping on the same stale failure or getting permanently stuck.
+Merged to `main`.
+
 ## 2026-09-10 — Investigated a fourth "wrong music" report; found no bug, found a flaw in how it was being checked
 
 After the score_cache and SDK-pin fixes, the user reported the music was

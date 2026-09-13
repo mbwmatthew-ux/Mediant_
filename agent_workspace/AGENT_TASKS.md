@@ -2,7 +2,7 @@
 
 AFTER EVERY CHANGE, WHEN APPROPRIATE, MAKE SURE TO UPDATE THIS FILE
 
-Last updated: 2026-06-30 (evening)
+Last updated: 2026-09-12
 
 ---
 
@@ -62,6 +62,47 @@ _Nothing active._
   need a follow-up pass): range selection confined to page 1 of multi-page
   scores; a take with zero flags and no exact Gemini position data only
   exposes one selectable measure in the drag-range fallback.
+
+  **Update 2026-09-11/12 — Bug 4 found and fixed (genuinely wrong notes,
+  not a range problem) + async conversion, merged to `main` and deployed.**
+  User reported the reference audio "sounds like a clarinet and its playing
+  real notes, just not the notes on the sheet music at all, completely
+  wrong" — after two rounds of my own verification being wrong in both
+  directions (first a false "no bug" from an uncorrected rotated-photo
+  pixel measurement, then confirming a real bug via a rotation-corrected
+  check against `librosa.pyin`), root-caused to Claude's vision reads of
+  dense, small-print photographed pages being genuinely inconsistent
+  between calls and showing a hallucination signature (measures several
+  bars apart coming back as exact mirror images, adjacent measures
+  byte-for-byte identical). Fixed by splitting each page into per-system
+  row crops (`split_page_into_rows`, Otsu-adaptive row-contrast detection)
+  before the vision call — applied to the SHARED `read_score_notes_claude`
+  function, so the main analysis pipeline benefits too, not just
+  reference-audio. That fix made the vision call slow enough (multiple
+  images instead of one) to exceed Supabase Edge Functions' hard 150s
+  wall-clock limit, which required converting reference-audio generation
+  from synchronous request/response to async spawn+webhook+poll (mirroring
+  the main pipeline's existing `analyze_async`/`analysis-webhook`/
+  `job-status` pattern). Spec, plan, and implementation done via
+  subagent-driven-development (docs/superpowers/{specs,plans}/2026-09-11-reference-audio-async.md).
+  Final whole-branch review (opus) found 8 issues before merge — 1
+  Critical (a worker-side failure silently redispatched a fresh paid
+  Modal vision call on every 5s poll instead of surfacing the real error,
+  for the full 10-minute window), 3 Important (a webhook race where a
+  late webhook from a job superseded by self-heal could corrupt a newer
+  attempt's state — this exact race was hit live during the deploy's own
+  smoke test; no per-attempt fault tolerance in the frontend poll loop;
+  the poll loop wasn't cancelled on a `takeId` change, so navigating
+  between takes mid-generation could write one take's audio into
+  another's UI state), 4 Minor. All fixed, re-reviewed clean, deployed,
+  and the Critical fix was live-verified against production (simulated a
+  real failure, confirmed the error surfaces correctly and retry actually
+  works afterward instead of looping or getting stuck). Merged to `main`.
+  Still not done: the literal-browser click-through above (tempo change,
+  drag-to-select, switching takes) — the async chain itself (dispatch →
+  processing → self-heal recovery → done, plus instant cache-hit) IS now
+  live-verified end-to-end against production, just not through the
+  actual UI.
 
 - [ ] **Audit other unpinned dependencies in the Modal image for the same
   silent-major-version-jump risk.** The `anthropic>=0.30.0,<1.0.0` fix

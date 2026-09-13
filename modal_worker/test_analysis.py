@@ -1771,6 +1771,1220 @@ def test_split_page_into_rows_falls_back_on_undecodable_bytes():
           crops == [garbage], str(crops))
 
 
+def _make_synthetic_row(interline_px=20, width=800, height=140, blur=0):
+    """A single-system row crop with 5 staff lines at a known, controllable
+    interline spacing, PLUS notehead blobs (real notation has symbols, not
+    just lines — and the sharpness metric needs edges to measure). `blur`
+    is a Gaussian radius in pixels; > 0 simulates an out-of-focus photo,
+    for testing the sharpness path independently of resolution."""
+    from PIL import Image, ImageDraw, ImageFilter
+    import random
+    import io
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    top = height // 2 - int(interline_px * 2)
+    staff_h = interline_px * 4
+    for line_i in range(5):
+        y = top + line_i * interline_px
+        draw.line([(20, y), (width - 20, y)], fill=0, width=2)
+    rng = random.Random(11)
+    blob_r = max(2, interline_px // 2)
+    for x in range(40, width - 40, max(8, interline_px)):
+        blob_y = top + rng.randint(0, max(1, staff_h))
+        draw.ellipse([x, blob_y, x + blob_r, blob_y + blob_r], fill=0)
+    if blur:
+        img = img.filter(ImageFilter.GaussianBlur(radius=blur))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_compute_row_readability_measures_known_interline():
+    print("\n[75] readability check measures a known interline spacing correctly and rates it good")
+    row_bytes = _make_synthetic_row(interline_px=24)
+    result = w.compute_row_readability(row_bytes)
+    check("interline is exactly the true 24px spacing",
+          result["interline_px"] is not None and abs(result["interline_px"] - 24) <= 1,
+          str(result["interline_px"]))
+    check("quality is good at 24px", result["quality"] == "good", str(result))
+
+
+def test_compute_row_readability_flags_low_interline_as_poor():
+    print("\n[76] readability check flags a real bad case (8px, matching the actual Audiveris-rejected photo) as poor")
+    row_bytes = _make_synthetic_row(interline_px=8, width=400, height=80)
+    result = w.compute_row_readability(row_bytes)
+    check("quality is poor at 8px (this is the exact measured value from the real problem photo)",
+          result["quality"] == "poor", str(result))
+
+
+def test_compute_row_readability_marginal_band():
+    print("\n[77] readability check has a marginal band between good and poor")
+    row_bytes = _make_synthetic_row(interline_px=14)
+    result = w.compute_row_readability(row_bytes)
+    check("14px lands in marginal, not good and not poor",
+          result["quality"] == "marginal", str(result))
+
+
+def test_compute_row_readability_flags_a_blurry_but_high_resolution_row():
+    print("\n[78] readability check flags a BLURRY row as not-good even when its interline spacing is generous")
+    sharp = _make_synthetic_row(interline_px=24, blur=0)
+    # blur=2 is deliberately mild: strong enough to measurably soften the
+    # line edges, but not so strong that staff-line detection itself fails
+    # (measured: blur=4 on this fixture wipes out the periodic signal
+    # entirely, which would make this test pass for the wrong reason —
+    # "no lines found" rather than "found lines, but they're blurry").
+    blurry = _make_synthetic_row(interline_px=24, blur=2)
+    r_sharp = w.compute_row_readability(sharp)
+    r_blurry = w.compute_row_readability(blurry)
+    check("the sharp version is good", r_sharp["quality"] == "good", str(r_sharp))
+    check("the blurry version still measured an interline (the sharpness path is what's "
+          "being exercised here, not a detection failure)",
+          r_blurry["interline_px"] is not None, str(r_blurry))
+    check("the blurry version measures a LOWER sharpness than the sharp one",
+          (r_blurry["sharpness"] or 0) < (r_sharp["sharpness"] or 0),
+          f"sharp={r_sharp['sharpness']} blurry={r_blurry['sharpness']}")
+    check("the blurry version is NOT rated good, despite a healthy 24px interline "
+          "(resolution and focus fail independently)",
+          r_blurry["quality"] != "good", str(r_blurry))
+
+
+def test_compute_row_readability_rates_a_high_interline_row_as_good():
+    print("\n[108] readability check rates a clean, HIGH-interline row as good, not poor "
+          "(I2 in the branch review: _INTERLINE_MAX_LAG was a hard 40px ceiling that "
+          "rejected any row whose true interline exceeded it, regardless of how clean the "
+          "photo actually was — a 600-DPI scan or a tight single-system phone shot can "
+          "easily land above 40px)")
+    for interline in (42, 48, 60):
+        row_bytes = _make_synthetic_row(interline_px=interline, width=1200, height=interline * 8)
+        result = w.compute_row_readability(row_bytes)
+        check(f"interline={interline}px is measured correctly, not lost to the search ceiling",
+              result["interline_px"] is not None and abs(result["interline_px"] - interline) <= 1,
+              str(result))
+        check(f"interline={interline}px is rated good on an otherwise-clean sharp row",
+              result["quality"] == "good", str(result))
+
+
+def test_compute_row_readability_handles_undecodable_bytes():
+    print("\n[79] readability check degrades to poor/unknown on bytes it can't decode, does not raise")
+    result = w.compute_row_readability(b"\x89PNG-not-a-real-image")
+    check("returns poor quality with no interline reading, does not raise",
+          result["quality"] == "poor" and result["interline_px"] is None, str(result))
+
+
+def test_compute_row_readability_on_the_real_problem_photo():
+    print("\n[80] readability check rates a crop from the real Audiveris-rejected photo as not good")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+    result = w.compute_row_readability(row_bytes)
+    check("a real photo row known to be ~8px interline is not rated good",
+          result["quality"] != "good", str(result))
+    check("does not raise and returns a well-formed result",
+          result["quality"] in ("good", "marginal", "poor"), str(result))
+
+
+def test_binarize_ink_handles_the_degenerate_otsu_case():
+    print("\n[81] _binarize_ink correctly finds ink on both a clean two-valued image and a real photo row")
+    from PIL import Image, ImageDraw
+    import numpy as np
+
+    # A two-valued image (ink=0, background=250) is exactly the case where
+    # _otsu_threshold's raw return value (the winning bin's LEFT edge, which
+    # is 0.0 when the winning bin is bin 0) makes `arr < threshold` select
+    # nothing. Confirmed by measurement: raw otsu on this kind of image is
+    # 0.0, giving an ink count of 0 without the degenerate-case guard.
+    img = Image.new("L", (100, 40), color=250)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([10, 10, 89, 29], fill=0)
+    arr = np.array(img).astype(np.float64)
+    raw_otsu = w._otsu_threshold(arr.flatten())
+    check("raw _otsu_threshold IS the degenerate 0.0 on this fixture (confirms the guard is needed)",
+          raw_otsu == 0.0, str(raw_otsu))
+    is_ink, threshold = w._binarize_ink(arr)
+    expected_ink = 80 * 20
+    check("binarize_ink finds the drawn rectangle as ink, unlike raw otsu",
+          is_ink.sum() == expected_ink, f"{is_ink.sum()} != {expected_ink}")
+    check("binarize_ink's threshold is above the image minimum (the fallback fired)",
+          threshold > arr.min(), str(threshold))
+
+    # A real photographed row is NOT degenerate (continuous histogram), so
+    # the fallback must not distort its ordinary Otsu result.
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+    from io import BytesIO
+    real_img = Image.open(BytesIO(row_bytes)).convert("L")
+    real_arr = np.array(real_img).astype(np.float64)
+    real_is_ink, real_threshold = w._binarize_ink(real_arr)
+    check("real photo row's threshold lands in a plausible photographic range",
+          50 < real_threshold < 200, str(real_threshold))
+    check("real photo row has some ink but is not almost-entirely ink",
+          0 < real_is_ink.mean() < 0.6, str(real_is_ink.mean()))
+
+
+def _make_curved_row(width=800, height=160, amplitude=12):
+    """A row with 5 staff lines that follow a parabolic curve across the
+    width (simulating page warp), for testing dewarp_row against a case
+    with a KNOWN correction. amplitude is the peak vertical deviation in
+    pixels between the curve's center and its edges."""
+    from PIL import Image, ImageDraw
+    import io
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    base_top = height // 2 - 40
+    for line_i in range(5):
+        base_y = base_top + line_i * 20
+        prev_point = None
+        for x in range(20, width - 20):
+            # Parabola peaking at the center, matching a page curving
+            # toward the camera in the middle.
+            t = (x - width / 2) / (width / 2)
+            y = base_y - amplitude * (1 - t * t)
+            point = (x, int(y))
+            if prev_point:
+                draw.line([prev_point, point], fill=0, width=2)
+            prev_point = point
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _measure_staff_curvature(row_bytes):
+    """Measures how far a row's topmost staff line deviates from straight,
+    in pixels — the actual quantity dewarp_row exists to reduce. Returns
+    the peak absolute deviation of the detected top-line y-position across
+    horizontal strips. A perfectly flat staff returns ~0.
+
+    This is the test's OWN independent measurement, deliberately not
+    reusing dewarp_row's internals — a test that measures success using
+    the same code path it's testing proves nothing."""
+    from PIL import Image
+    import numpy as np
+    import io
+    img = Image.open(io.BytesIO(row_bytes)).convert("L")
+    arr = np.array(img).astype(np.float64)
+    h, wd = arr.shape
+    is_ink = arr < 128
+    tops = []
+    n_strips = 10
+    strip_w = max(1, wd // n_strips)
+    for i in range(n_strips):
+        x0, x1 = i * strip_w, min(wd, (i + 1) * strip_w)
+        strip = is_ink[:, x0:x1]
+        rows_with_ink = np.where(strip.sum(axis=1) > (x1 - x0) * 0.5)[0]
+        if len(rows_with_ink):
+            tops.append(float(rows_with_ink[0]))
+    if len(tops) < 3:
+        return None
+    return float(np.max(np.abs(np.array(tops) - np.median(tops))))
+
+
+def _measure_staff_curvature_via_staff_lines(row_bytes, n_strips=12):
+    """A SECOND, independent curvature measurement, specifically for the
+    real problem photo (I1 in the branch review): _measure_staff_curvature
+    above uses a fixed arr<128 threshold and counts ANY ink (not just staff
+    lines) as the "top" of each strip. On the real photo that is
+    contaminated by non-staff content sitting above the staff in a couple
+    of strips (measured: strips of "top" position [38,37,37,36,28,20,36,40]
+    — the 28/20 outliers are not the staff at all), which mostly cancels
+    out any real curvature signal instead of revealing it (measured
+    before=16.5, after=17.0 on that flawed measurement — i.e. it looks flat
+    either way, proving nothing about dewarp_row's actual effect).
+
+    This measures the same quantity dewarp_row itself targets — the
+    topmost STAFF-LINE row per vertical strip, found via the shared
+    _binarize_ink helper (a generic, independently-tested binarization
+    primitive used throughout this file, not internal to dewarp_row) plus
+    the "ink spans >70% of the strip's width" staff-line test — then fits
+    a degree-2 polynomial and reports peak deviation from the fitted curve
+    at the center column. This is NOT dewarp_row's own curve-fitting code
+    path; it is an independent measurement using the same domain fact
+    (staff lines, not arbitrary ink, are what indicates page curvature).
+
+    Returns None if fewer than 3 strips produce a usable staff reading.
+    """
+    from PIL import Image
+    import numpy as np
+    import io
+    img = Image.open(io.BytesIO(row_bytes)).convert("L")
+    arr = np.array(img).astype(np.float64)
+    h, wd = arr.shape
+    is_ink, _ = w._binarize_ink(arr)
+    strip_w = max(1, wd // n_strips)
+    xs, ys = [], []
+    for i in range(n_strips):
+        x0, x1 = i * strip_w, min(wd, (i + 1) * strip_w)
+        strip = is_ink[:, x0:x1]
+        strip_width = max(1, x1 - x0)
+        line_rows = np.where(strip.sum(axis=1) / strip_width > 0.7)[0]
+        if len(line_rows) < 2:
+            continue
+        xs.append((x0 + x1) / 2)
+        ys.append(float(line_rows[0]))
+    if len(xs) < 3:
+        return None
+    coeffs = np.polyfit(xs, ys, deg=2)
+    curve = np.poly1d(coeffs)
+    center_x = wd / 2
+    curve_values = curve(np.arange(wd))
+    return float(np.max(np.abs(curve_values - curve(center_x))))
+
+
+def test_dewarp_row_straightens_a_curved_staff():
+    print("\n[82] dewarp_row measurably REDUCES staff curvature on a known-curved row")
+    # amplitude=10, not the brief's originally-suggested 12: measured, at
+    # amplitude>=12 the curve gets steep enough near the crop's left/right
+    # edges that _measure_staff_curvature's OWN per-strip topmost-row
+    # detector (which requires ink spanning >50% of a strip's width in a
+    # single row) stops finding a usable row there at all, so those edge
+    # strips silently drop out of its "tops" sample. That makes the
+    # independent measurement tool UNDERESTIMATE the true injected
+    # curvature, non-monotonically (measured before-values by amplitude:
+    # 10->6.0, 12->3.5, 20->4.0, 24->1.0) — a larger injected warp can
+    # paradoxically measure as flatter once it outpaces this test-only
+    # detector's resolution. amplitude=10 is gentle enough that all 10
+    # strips resolve cleanly (measured before=6.0, comfortably over this
+    # test's own >=5 sanity bar) while still being real, correctable
+    # curvature (measured after=1.0). dewarp_row's own implementation is
+    # unaffected by this — its correction is verified directly below and
+    # separately on the real photo row in [85].
+    curved = _make_curved_row(amplitude=10)
+    dewarped = w.dewarp_row(curved)
+
+    before = _measure_staff_curvature(curved)
+    after = _measure_staff_curvature(dewarped)
+
+    check("the synthetic input really is curved to begin with (fixture sanity check)",
+          before is not None and before >= 5, f"before={before}")
+    check("curvature is measurably reduced after dewarping — this is the actual "
+          "property dewarp_row exists to deliver, not merely 'output decodes'",
+          after is not None and after < before * 0.6,
+          f"before={before} after={after}")
+
+
+def test_dewarp_row_is_a_noop_on_an_already_flat_row():
+    print("\n[83] dewarp_row leaves an already-flat row unchanged (no-op, not a harmful correction)")
+    flat = _make_synthetic_row(interline_px=20, width=800, height=160)
+    dewarped = w.dewarp_row(flat)
+    check("returns the input bytes unchanged (the curvature is below the "
+          "correction threshold, so no resampling happens at all)",
+          dewarped == flat, f"{len(dewarped)} bytes vs {len(flat)}")
+
+
+def test_dewarp_row_falls_back_on_undecodable_bytes():
+    print("\n[84] dewarp_row degrades to a no-op on bytes it can't decode, does not raise")
+    garbage = b"\x89PNG-not-a-real-image"
+    result = w.dewarp_row(garbage)
+    check("returns the original bytes unchanged, does not raise",
+          result == garbage, str(result))
+
+
+def test_dewarp_row_on_the_real_problem_photo():
+    print("\n[85] dewarp_row does not raise or worsen curvature on a crop from the real problem photo")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+
+    dewarped = w.dewarp_row(row_bytes)
+    check("returns decodable bytes without raising", len(dewarped) > 0, str(len(dewarped)))
+
+    from PIL import Image
+    import io
+    try:
+        Image.open(io.BytesIO(dewarped)).convert("L")
+        decodes = True
+    except Exception as e:
+        decodes = False
+        print(f"    decode error: {e}")
+    check("output decodes as an image", decodes, str(decodes))
+
+    # _measure_staff_curvature relies on a fixed arr < 128 binarization and
+    # a fixed 10-strip grid, tuned for the synthetic fixtures above — it may
+    # find fewer than 3 usable strips on a real, unevenly-lit photo crop and
+    # return None. That's an expected outcome here, not a failure: this test
+    # only requires that dewarping never makes a REAL measurement worse.
+    before = _measure_staff_curvature(row_bytes)
+    after = _measure_staff_curvature(dewarped)
+    if before is None or after is None:
+        check("curvature measurement unavailable on this real crop for at least "
+              "one side, which is expected on real-photo lighting — not a failure",
+              True, f"before={before} after={after}")
+    else:
+        check("dewarping does not INCREASE measured curvature on the real photo row",
+              after <= before + 1.0, f"before={before} after={after}")
+
+    # The check above alone is satisfied by a pure no-op (dewarp_row exists
+    # to REDUCE curvature, not merely avoid worsening it — I1 in the branch
+    # review). _measure_staff_curvature's all-ink measurement doesn't
+    # reliably show that on this specific photo (see
+    # _measure_staff_curvature_via_staff_lines's docstring for why: it's
+    # contaminated by non-staff ink and reads before=16.5/after=17.0,
+    # flat either way). Measuring the topmost STAFF LINE specifically
+    # (matching what dewarp_row itself targets, per its own docstring on
+    # why staff lines and not all ink are the right reference) does show
+    # the real, confirmed curvature and its correction.
+    strict_before = _measure_staff_curvature_via_staff_lines(row_bytes)
+    strict_after = _measure_staff_curvature_via_staff_lines(dewarped)
+    check("a staff-line-specific measurement finds real curvature in the "
+          "input row to begin with (fixture/measurement sanity check)",
+          strict_before is not None and strict_before >= 5,
+          f"strict_before={strict_before}")
+    check("dewarping MEASURABLY REDUCES staff curvature on the real problem "
+          "photo — the function's entire purpose, not just 'did not raise'",
+          strict_after is not None and strict_before is not None
+          and strict_after < strict_before * 0.5,
+          f"strict_before={strict_before} strict_after={strict_after}")
+
+
+def _make_row_with_barlines(measure_count=4, width=800, height=140):
+    """A row with `measure_count` measures separated by full-height
+    vertical barlines, each measure containing notehead-like blobs (not
+    just staff lines) so a barline (spans the WHOLE crop height) is
+    visually distinguishable from a stem (spans only part of it)."""
+    from PIL import Image, ImageDraw
+    import random
+    import io
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    top = height // 2 - 40
+    for line_i in range(5):
+        y = top + line_i * 20
+        draw.line([(10, y), (width - 10, y)], fill=0, width=2)
+    rng = random.Random(7)
+    measure_w = (width - 20) // measure_count
+    boundaries = []
+    for m in range(measure_count):
+        x0 = 10 + m * measure_w
+        x1 = x0 + measure_w
+        if m > 0:
+            draw.line([(x0, top - 5), (x0, top + 85)], fill=0, width=3)
+            boundaries.append(x0)
+        for x in range(x0 + 15, x1 - 10, 12):
+            blob_y = top + rng.randint(-5, 85)
+            draw.ellipse([x, blob_y, x + 6, blob_y + 6], fill=0)
+        # A stem: a short vertical mark that does NOT span the barline's
+        # full height — must not be mistaken for a barline.
+        stem_x = x0 + measure_w // 2
+        draw.line([(stem_x, top + 20), (stem_x, top + 45)], fill=0, width=2)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue(), boundaries
+
+
+def test_split_row_into_measures_finds_expected_barlines():
+    print("\n[86] measure splitter finds the expected number of measures in a synthetic row")
+    row_bytes, true_boundaries = _make_row_with_barlines(measure_count=4)
+    result = w.split_row_into_measures(row_bytes)
+    check("finds 4 measures", len(result["measures"]) == 4, str(len(result["measures"])))
+    check("confidence is reasonably high for a clean synthetic row",
+          result["confidence"] >= 0.6, str(result["confidence"]))
+
+
+def test_split_row_into_measures_low_confidence_on_ambiguous_input():
+    print("\n[87] measure splitter reports low confidence rather than false certainty on a stem-only row (no real barlines)")
+    # A row with note stems but NO real full-height barlines — stems must
+    # not be mistaken for barlines, and the function should say so via a
+    # low confidence / single-measure result rather than false splits.
+    from PIL import Image, ImageDraw
+    import io
+    img = Image.new("L", (800, 140), color=250)
+    draw = ImageDraw.Draw(img)
+    top = 30
+    for line_i in range(5):
+        y = top + line_i * 20
+        draw.line([(10, y), (790, y)], fill=0, width=2)
+    for x in range(30, 770, 40):
+        draw.line([(x, top + 20), (x, top + 45)], fill=0, width=2)  # stems only
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    row_bytes = buf.getvalue()
+    result = w.split_row_into_measures(row_bytes)
+    check("does not confidently report many measures from stems alone",
+          result["confidence"] < 0.6 or len(result["measures"]) <= 1,
+          f"measures={len(result['measures'])} confidence={result['confidence']}")
+
+
+def test_split_row_into_measures_falls_back_on_undecodable_bytes():
+    print("\n[88] measure splitter degrades to a single low-confidence unit on bytes it can't decode")
+    garbage = b"\x89PNG-not-a-real-image"
+    result = w.split_row_into_measures(garbage)
+    check("returns the original bytes as one measure, zero confidence, does not raise",
+          result["measures"] == [garbage] and result["confidence"] == 0.0, str(result))
+
+
+def test_split_row_into_measures_on_the_real_problem_photo():
+    print("\n[89] measure splitter does not raise on a crop from the real problem photo and returns a self-consistent result")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+
+    from PIL import Image
+    import io
+    raw_w = Image.open(io.BytesIO(row_bytes)).convert("L").size[0]
+
+    for label, bytes_in, width in (
+        ("raw crop", row_bytes, raw_w),
+        ("dewarped", w.dewarp_row(row_bytes), raw_w),
+    ):
+        result = w.split_row_into_measures(bytes_in)
+        print(f"    [{label}] confidence={result['confidence']} "
+              f"measures={len(result['measures'])} boundaries={result['boundaries']}")
+        check(f"({label}) does not raise and returns decodable crops",
+              all(len(m) > 0 for m in result["measures"]), str(len(result["measures"])))
+        check(f"({label}) boundaries are strictly increasing",
+              all(result["boundaries"][i] < result["boundaries"][i + 1]
+                  for i in range(len(result["boundaries"]) - 1)),
+              str(result["boundaries"]))
+        check(f"({label}) boundaries lie within the image width",
+              all(0 <= b <= width for b in result["boundaries"]),
+              f"boundaries={result['boundaries']} width={width}")
+        check(f"({label}) measures count is boundaries count + 1",
+              len(result["measures"]) == len(result["boundaries"]) + 1,
+              f"measures={len(result['measures'])} boundaries={len(result['boundaries'])}")
+        for m in result["measures"]:
+            try:
+                Image.open(io.BytesIO(m)).convert("L")
+                decodes = True
+            except Exception as e:
+                decodes = False
+                print(f"    decode error: {e}")
+            check(f"({label}) each measure crop decodes as an image", decodes, str(decodes))
+
+
+def test_validate_measure_duration_sum():
+    print("\n[90] validator catches a duration sum that OVERSHOOTS the time signature")
+    # I3 (branch review): the duration-sum check is ONE-SIDED — only
+    # overshoot is flagged. This test used to assert that an UNDERSHOOT
+    # (2 of 3 beats present, no other note/rest) was invalid; that is no
+    # longer correct on purpose (see test_validate_measure_duration_sum_
+    # undershoot_is_not_flagged below, and validate_measure's inline
+    # comment) — the score-reading prompt instructs Claude to omit
+    # sub-beat rests, so an undershoot measure is the prompt's own
+    # EXPECTED shape, not evidence of a misread. This test now covers the
+    # signal that survives: an OVERSHOOT, which has no such legitimate
+    # explanation and still catches invented/duplicated notes.
+    good = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+    ]}
+    bad = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+        {"pitch": "F4", "is_rest": False, "beat": 4.0, "duration_beats": 1.0},
+    ]}
+    result_good = w.validate_measure(good, "clarinet", "3/4")
+    result_bad = w.validate_measure(bad, "clarinet", "3/4")
+    check("a correct 3/4 measure (3 beats) is valid", result_good["valid"], str(result_good))
+    check("an overlong 3/4 measure (4 beats) is invalid", not result_bad["valid"], str(result_bad))
+    check("the issue mentions duration", any("duration" in i.lower() for i in result_bad["issues"]), str(result_bad))
+
+
+def test_validate_measure_duration_sum_undershoot_is_not_flagged():
+    print("\n[107] validator does NOT flag an undershoot duration sum — the score-reading prompt "
+          "deliberately omits sub-beat rests, so a short bar is the expected shape, not a misread "
+          "(I3 in the branch review: the two-sided check contradicted the prompt's own contract)")
+    # A textbook 4/4 bar as Claude would actually report it: quarter,
+    # (eighth rest omitted per the prompt's own instruction to skip
+    # sub-beat rests), eighth, half -> 1 + 0.5 + 2 = 3.5 of 4 beats.
+    short_by_a_sub_beat_rest = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 1.5, "duration_beats": 0.5},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 2.0},
+    ]}
+    overlong = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+        {"pitch": "F4", "is_rest": False, "beat": 4.0, "duration_beats": 1.5},
+    ]}
+    result_short = w.validate_measure(short_by_a_sub_beat_rest, "clarinet", "4/4")
+    result_over = w.validate_measure(overlong, "clarinet", "4/4")
+    check("a bar short by a sub-beat rest (3.5 of 4 beats) is VALID, not flagged",
+          result_short["valid"], str(result_short))
+    check("an overlong bar (4.5 of 4 beats) is still INVALID",
+          not result_over["valid"], str(result_over))
+
+
+def test_validate_measure_skips_duration_check_on_pickup_and_final_measures():
+    print("\n[91] validator does not flag a legitimately partial first/last measure")
+    partial = {"number": 1, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+    ]}
+    result_first = w.validate_measure(partial, "clarinet", "3/4", is_first_measure=True)
+    result_last = w.validate_measure(partial, "clarinet", "3/4", is_last_measure=True)
+    check("a partial pickup measure is not flagged for duration", result_first["valid"], str(result_first))
+    check("a partial final measure is not flagged for duration", result_last["valid"], str(result_last))
+
+
+def test_validate_measure_written_pitch_range():
+    print("\n[92] validator catches a pitch outside the instrument's WRITTEN range, before any transposition")
+    too_low = {"number": 5, "notes": [
+        {"pitch": "C0", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    ok = {"number": 5, "notes": [
+        {"pitch": "G5", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result_bad = w.validate_measure(too_low, "clarinet (b♭)", "3/4")
+    result_ok = w.validate_measure(ok, "clarinet (b♭)", "3/4")
+    check("C0 is well outside a clarinet's written range", not result_bad["valid"], str(result_bad))
+    check("the issue mentions range", any("range" in i.lower() for i in result_bad["issues"]), str(result_bad))
+    check("G5 is a normal clarinet written pitch", result_ok["valid"], str(result_ok))
+
+
+def test_validate_measure_unexpected_polyphony():
+    print("\n[93] validator catches two simultaneous notes on a monophonic instrument")
+    polyphonic = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "E4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result = w.validate_measure(polyphonic, "clarinet", "3/4")
+    check("two notes at the same beat on a monophonic instrument is invalid",
+          not result["valid"], str(result))
+    check("the issue mentions polyphony/voice",
+          any("voice" in i.lower() or "polypho" in i.lower() for i in result["issues"]), str(result))
+
+
+def test_validate_measure_polyphony_allowed_for_piano():
+    print("\n[94] validator allows simultaneous notes for a naturally polyphonic instrument")
+    chord = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "E4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "G4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result = w.validate_measure(chord, "piano", "3/4")
+    check("a three-note chord on piano is not flagged as invalid polyphony",
+          result["valid"], str(result))
+
+
+def test_validate_measure_limited_polyphony_string_double_stop_is_valid():
+    print("\n[114] a legitimate bowed-string double stop is valid on BOTH checks "
+          "(D3, Owner Decisions 2026-09-13: two 4-beat notes at beat 1 in 4/4 "
+          "used to fail 'duration sum 8.00 exceeds 4' AND 'unexpected polyphony' "
+          "before this fix — the measured evidence D3 records)")
+    double_stop = {"number": 5, "notes": [
+        {"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+        {"pitch": "A4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+    ]}
+    for instrument in ("violin", "viola", "cello", "violoncello", "double bass",
+                        "contrabass", "string bass", "upright bass", "fiddle"):
+        result = w.validate_measure(double_stop, instrument, "4/4")
+        check(f"{instrument} double stop (4+4 beats at one onset) is valid",
+              result["valid"], str(result))
+
+
+def test_validate_measure_limited_polyphony_does_not_exempt_bass_clarinet_or_bass_trombone():
+    print("\n[115] 'bass clarinet' and 'bass trombone' are NOT swept into the bowed-string "
+          "limited-polyphony exemption by a bare 'bass' substring match — the naming trap "
+          "D3 explicitly calls out, since _instrument_lookup does substring matching")
+    simultaneous = {"number": 5, "notes": [
+        {"pitch": "C3", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "E3", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    for instrument in ("bass clarinet", "bass trombone"):
+        result = w.validate_measure(simultaneous, instrument, "3/4")
+        check(f"{instrument} still flags simultaneous notes as unexpected polyphony",
+              not result["valid"], str(result))
+        check(f"{instrument}'s issue mentions polyphony (still strictly monophonic)",
+              any("polypho" in i.lower() for i in result["issues"]), str(result))
+
+
+def test_validate_measure_limited_polyphony_new_onset_overshoot_still_invalid():
+    print("\n[116] a string measure with an invented note at a NEW onset still overshoots and "
+          "is still invalid — proving the per-onset duration sum preserves the overshoot "
+          "signal rather than forfeiting it entirely like a fully polyphonic instrument would")
+    invented_extra_note = {"number": 5, "notes": [
+        {"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+        {"pitch": "A4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0},
+        {"pitch": "G4", "is_rest": False, "beat": 4.5, "duration_beats": 0.5},
+    ]}
+    result = w.validate_measure(invented_extra_note, "violin", "4/4")
+    check("a double stop plus an invented note at a new onset overshoots 4/4 and is invalid",
+          not result["valid"], str(result))
+    check("the issue mentions duration",
+          any("duration" in i.lower() for i in result["issues"]), str(result))
+
+
+def test_validate_measure_unknown_instrument_skips_range_check_gracefully():
+    print("\n[95] validator does not penalize an instrument with no tabulated range data")
+    measure = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result = w.validate_measure(measure, "kazoo", "3/4")
+    check("an untabulated instrument is not flagged for range (no data is not evidence of a problem)",
+          result["valid"], str(result))
+
+
+def test_validate_measure_degrades_to_invalid_on_a_malformed_note():
+    print("\n[109] validator degrades to invalid rather than raising on a malformed note "
+          "(I6 in the branch review: every sibling function in this file wraps its body "
+          "and degrades on failure; validate_measure raising unguarded would take down a "
+          "whole Task 11 per-measure loop over one bad upstream field)")
+    malformed = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": "half"},
+    ]}
+    try:
+        result = w.validate_measure(malformed, "clarinet", "4/4")
+        raised = False
+    except Exception as e:
+        result = None
+        raised = True
+    check("does not raise on a malformed duration_beats field", not raised, str(result))
+    check("fails CLOSED to invalid, per the asymmetry rule — not valid, which would be "
+          "the same fail-open mistake one step further",
+          result is not None and result["valid"] is False, str(result))
+    check("the issue explains a validation failure occurred",
+          result is not None and result["issues"], str(result))
+
+
+def test_align_claude_to_measure_crops_matches_on_equal_count():
+    print("\n[96] alignment succeeds when Claude's measure count matches the crop count")
+    claude_measures = [{"number": 12, "notes": []}, {"number": 13, "notes": []}, {"number": 14, "notes": []}]
+    result = w.align_claude_to_measure_crops(claude_measures, crop_count=3)
+    check("returns the measures unchanged, in order", result == claude_measures, str(result))
+
+
+def test_align_claude_to_measure_crops_refuses_on_count_mismatch():
+    print("\n[97] alignment refuses (returns None) rather than guess when counts disagree")
+    claude_measures = [{"number": 12, "notes": []}, {"number": 13, "notes": []}]
+    result = w.align_claude_to_measure_crops(claude_measures, crop_count=3)
+    check("returns None on a count mismatch rather than forcing a positional guess",
+          result is None, str(result))
+
+
+def test_fuse_measure_confidence_verdict_table():
+    print("\n[98] confidence fusion follows the spec's verdict table exactly, one case per row")
+    claude_m = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    oemer_match = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    oemer_mismatch = {"number": 12, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    valid = {"valid": True, "issues": []}
+    invalid = {"valid": False, "issues": ["duration sum wrong"]}
+
+    r1 = w.fuse_measure_confidence("agree", claude_m, oemer_match, invalid)
+    check("invalid validator verdict ALWAYS needs resolution, even with Claude+OMR agreement",
+          r1["needs_resolution"], str(r1))
+
+    r2 = w.fuse_measure_confidence("agree", claude_m, oemer_match, valid)
+    check("Claude agree + OMR match + valid = high confidence, no resolution needed",
+          r2["confidence"] == "high" and not r2["needs_resolution"], str(r2))
+
+    r3 = w.fuse_measure_confidence("agree", claude_m, None, valid)
+    check("Claude agree + OMR unavailable + valid = accept, medium, no resolution",
+          r3["confidence"] == "medium" and not r3["needs_resolution"], str(r3))
+
+    r4 = w.fuse_measure_confidence("agree", claude_m, oemer_mismatch, valid)
+    check("Claude agree + OMR MISMATCH needs resolution even though Claude agrees with itself "
+          "(this is the 'consistent wrong answer' case cross-validation alone cannot catch)",
+          r4["needs_resolution"], str(r4))
+
+    r5 = w.fuse_measure_confidence("disagree", claude_m, oemer_match, valid)
+    check("Claude disagreement (with itself) always needs resolution regardless of OMR",
+          r5["needs_resolution"], str(r5))
+
+    r6 = w.fuse_measure_confidence("unavailable", claude_m, None, valid)
+    check("a SINGLE Claude read with no OMR corroboration is NOT accepted — one observation "
+          "is not agreement, and must not inherit two-matching-reads confidence",
+          r6["needs_resolution"], str(r6))
+
+    r7 = w.fuse_measure_confidence("unavailable", claude_m, oemer_match, valid)
+    check("a single Claude read DOES become acceptable when an independent OMR read matches it "
+          "(two genuinely independent sources agreeing is real corroboration)",
+          not r7["needs_resolution"] and r7["confidence"] == "medium", str(r7))
+
+    r8 = w.fuse_measure_confidence("unavailable", claude_m, oemer_mismatch, valid)
+    check("a single Claude read contradicted by OMR needs resolution",
+          r8["needs_resolution"], str(r8))
+
+
+def test_fuse_measure_confidence_cross_source_pitch_spelling_i4():
+    print("\n[110] cross-source fusion treats Claude's 'Bb4' and OMR's music21 'B-4' as the SAME "
+          "note (I4) — comparing raw spelling instead of MIDI value made every flat note in every "
+          "flat key read as an OMR disagreement, dragging otherwise-correct clarinet measures down "
+          "to low confidence")
+    valid = {"valid": True, "issues": []}
+    claude_m = {"number": 12, "notes": [{"pitch": "Bb4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]}
+    oemer_m = {"number": 12, "notes": [{"pitch": "B-4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]}
+
+    r = w.fuse_measure_confidence("agree", claude_m, oemer_m, valid)
+    check("Claude's scientific-notation flat and music21's '-'-flat spelling fuse as a match "
+          "(high confidence, no resolution needed) once pitch is compared as MIDI rather than as text",
+          r["confidence"] == "high" and not r["needs_resolution"], str(r))
+
+
+def test_fuse_measure_confidence_cross_source_compound_time_duration_i4():
+    print("\n[111] cross-source fusion converts OMR's quarterLength duration into notated beats "
+          "before comparing, using the ACTUAL time signature (I4) — comparing the raw numbers made "
+          "every note in 6/8, 2/2 and 3/8 look like a duration disagreement")
+    valid = {"valid": True, "issues": []}
+    # Same pitch and beat on both sides; only the duration units differ. One notated
+    # beat in 6/8 is a dotted quarter = 1.5 quarterLengths (quarter_lengths_per_beat("6/8")).
+    claude_m = {"number": 20, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]}
+    oemer_m = {"number": 20, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 1.5}]}
+
+    r_correct = w.fuse_measure_confidence("agree", claude_m, oemer_m, valid, time_sig="6/8")
+    check("1 notated beat (Claude) matches 1.5 quarterLengths (OMR) once divided by the correct "
+          "6/8 quarter_lengths_per_beat — this is the SAME note, not a duration disagreement",
+          r_correct["confidence"] == "high" and not r_correct["needs_resolution"], str(r_correct))
+
+    # Negative control: passing the WRONG time signature must NOT coincidentally still match —
+    # this proves the match came from the unit conversion actually running, not from some other
+    # accident of the fixture (e.g. loose rounding).
+    r_wrong_sig = w.fuse_measure_confidence("agree", claude_m, oemer_m, valid, time_sig="4/4")
+    check("the same pair does NOT match under the wrong time signature (4/4's quarter_lengths_per_beat "
+          "of 1.0 leaves OMR's duration unconverted, so it stays 1.5 against Claude's 1.0) — proof the "
+          "match above is real unit normalization, not coincidence",
+          r_wrong_sig["needs_resolution"] and r_wrong_sig["confidence"] != "high", str(r_wrong_sig))
+
+
+def test_fuse_measure_confidence_missing_valid_key_fails_closed_i5():
+    print("\n[112] a validation dict with no 'valid' key at all is treated as NOT valid (I5) — "
+          "defaulting a missing verdict to True was the fail-open error one step further than "
+          "defaulting an explicit-but-wrong verdict to True")
+    claude_m = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    oemer_match = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    validation_missing_key = {"issues": []}  # no "valid" key at all
+
+    r = w.fuse_measure_confidence("agree", claude_m, oemer_match, validation_missing_key)
+    check("a validation dict missing 'valid' entirely needs resolution, exactly like an explicit "
+          "valid=False — an absent verdict must never be read as a passing one",
+          r["needs_resolution"] and r["confidence"] != "high", str(r))
+
+
+def test_fuse_measure_confidence_two_empty_measures_never_fuse_high_i5():
+    print("\n[113] two note-less measures — an empty Claude read and an empty OMR read — must NEVER "
+          "fuse to high confidence (I5) — that was the only path on the branch that produced a false "
+          "'high' verdict: a measure with no notes at all, which would synthesize as silence in the "
+          "student's reference audio while still reporting maximum confidence")
+    valid = {"valid": True, "issues": []}
+    claude_empty = {"number": 12, "notes": []}
+    oemer_empty = {"number": 12, "notes": []}
+
+    r = w.fuse_measure_confidence("agree", claude_empty, oemer_empty, valid)
+    check("an empty OMR reading against an empty Claude reading is treated as OMR being UNAVAILABLE, "
+          "not as a match — so this fuses to medium (Claude-agrees-with-itself, OMR unavailable), "
+          "never to high",
+          r["confidence"] != "high", str(r))
+    check("...and specifically lands on the same outcome as OMR being None outright, confirming an "
+          "empty note-less measure is normalized to 'unavailable' rather than kept as a comparable "
+          "empty value",
+          r == w.fuse_measure_confidence("agree", claude_empty, None, valid), str(r))
+
+
+def test_resolve_measure_disagreement_sends_crop_and_candidates():
+    print("\n[99] targeted disagreement resolution sends the measure crop and candidate list, not an open re-read")
+    import types, json as _json
+    captured = {}
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            captured["content"] = kw["messages"][0]["content"]
+            return _FakeStream(_json.dumps({
+                "notes": [{"p": "C4", "b": 1.0, "d": 3.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+        {"notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    blocks = captured.get("content") or []
+    n_images = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "image")
+    check("sends exactly one image (the tight measure crop, not a full page/row)",
+          n_images == 1, f"{n_images} image block(s)")
+    prompt_text = " ".join(b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+    check("prompt is closed-ended (mentions candidates), not an open re-transcription request",
+          "candidate" in prompt_text.lower(), prompt_text[:400])
+    check("returns a normalized measure with notes",
+          result.get("notes") and result["notes"][0]["pitch"] == "C4", str(result))
+    check("a resolution that passes revalidation is NOT marked unresolved",
+          not result.get("unresolved"), str(result))
+
+
+def test_resolve_measure_disagreement_marks_unresolved_on_failure():
+    print("\n[100] resolution marks a measure unresolved rather than silently returning candidate 1 when the call fails")
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    class _ExplodingClient:
+        def __init__(self, **kw):
+            raise RuntimeError("simulated API failure")
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _ExplodingClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("the measure is explicitly flagged unresolved, NOT returned as if it were fine "
+          "(failing open here is what produces confident-wrong audio)",
+          result.get("unresolved") is True, str(result))
+    check("the reason is carried with it", result.get("issues"), str(result))
+
+
+def test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid():
+    print("\n[101] resolution marks a measure unresolved when the resolved answer STILL fails validation")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # Transcribes a measure that is still impossible in 3/4 (5 beats).
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "C4", "b": 1.0, "d": 5.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a still-invalid resolution is flagged unresolved rather than accepted",
+          result.get("unresolved") is True, str(result))
+
+
+def test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure():
+    print("\n[102] resolution does NOT mark a legitimately partial pickup measure unresolved")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # A correct one-beat pickup in 4/4 — partial BY DESIGN.
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "G4", "b": 4.0, "d": 1.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "G4", "is_rest": False, "beat": 4.0, "duration_beats": 1.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(
+            b"\x89PNG-fake-crop", candidates, "clarinet", "4/4", "k",
+            is_first_measure=True)
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a 1-beat pickup in 4/4 resolved correctly is NOT failed by revalidation "
+          "(forgetting to thread is_first_measure through would fail every pickup bar)",
+          not result.get("unresolved"), str(result))
+
+
+def test_resolve_measure_disagreement_matched_candidate_returns_a_copy():
+    print("\n[103] a matched-candidate resolution returns that candidate's content, not a live reference into the input list")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # The model picks candidate 2 by number rather than transcribing fresh.
+            return _FakeStream(_json.dumps({"matched_candidate": 2, "notes": []}))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+        {"notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a matched candidate number returns that candidate's content",
+          result.get("notes") and result["notes"][0]["pitch"] == "D4", str(result))
+    check("a matched candidate that passes revalidation is NOT marked unresolved",
+          not result.get("unresolved"), str(result))
+    check("the returned dict is a COPY, not the same object as the caller's candidate "
+          "(mutating the result must not mutate the caller's input list)",
+          result is not candidates[1], str(result))
+
+    result["mutated"] = True
+    check("mutating the returned dict does not leak into the caller's candidates list",
+          "mutated" not in candidates[1], str(candidates[1]))
+
+
+def test_resolve_measure_disagreement_accepts_a_correctly_resolved_string_double_stop():
+    print("\n[117] a correctly-resolved violin double stop is NOT marked unresolved "
+          "(Task 10: resolve_measure_disagreement re-validates its own answer through "
+          "validate_measure, so it inherits the D3 limited-polyphony fix automatically — "
+          "this test locks that in, since an unresolved measure is the exact signal that "
+          "refuses reference-audio generation for the whole score)")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # A correct double stop: two 4-beat notes sounding together at
+            # beat 1 in 4/4 — 4 beats total, not 8, under the per-onset sum.
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "D4", "b": 1.0, "d": 4.0}, {"p": "A4", "b": 1.0, "d": 4.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(
+            b"\x89PNG-fake-crop", candidates, "violin", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a correctly-resolved string double stop is NOT flagged unresolved",
+          not result.get("unresolved"), str(result))
+    check("both notes of the double stop are present in the resolved measure",
+          result.get("notes") and len(result["notes"]) == 2, str(result))
+
+
+def test_unresolved_measure_suppresses_score_dependent_findings_but_not_audio_only():
+    print("\n[118] D1: an unresolved measure suppresses its score-dependent findings "
+          "(intonation) but a trusted measure's identical finding still fires, and a "
+          "non-score-dependent finding (tone) on the SAME unresolved measure still "
+          "fires — proving suppression is targeted by measure AND by type, not global")
+    score = make_score()
+    for m in score["measures"]:
+        if m["number"] == 25:
+            m["unresolved"] = True
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Same technique as test_loop_always_plays_the_flagged_measure: a large
+    # cents_offset on the DTW-matched events at a measure drives a per-measure
+    # "intonation" finding (score-dependent — it names a note read off the score).
+    # Measures 20 and 25 are deliberately non-adjacent: two adjacent same-
+    # direction intonation issues merge into one continuous span (see the
+    # "genuinely CONTINUOUS issues" merge above dedup), which would fuse the
+    # trusted measure's flag onto the unresolved one and make suppression of
+    # the merged span correctly (and unhelpfully, for this test) take the
+    # trusted measure down with it.
+    for e in aligned:
+        if e["measure"] in (20, 25):
+            e["cents_offset"] = 33
+
+    gem = dict(EMPTY_GEMINI)
+    # tone_issues is audio-only — Gemini's listening judgment, not a comparison
+    # against the transcription — so D1 says this must survive even on an
+    # unresolved measure. No "time" field: compare_and_coach_claude normally
+    # derives the measure from Gemini's TIMESTAMP via the beat grid (its
+    # printed measure number is treated as unreliable), so omitting time is
+    # what makes it fall back to the raw "measure" field given here — the
+    # only way to pin this fixture's issue to measure 25 deterministically.
+    gem["tone_issues"] = [{"measure": 25, "description": "thin, unsupported tone"}]
+
+    flags = run_pipeline(score, aligned, gemini=gem)
+
+    inton25 = [f for f in flags if f["measure"] == 25 and f["type"] == "intonation"]
+    inton20 = [f for f in flags if f["measure"] == 20 and f["type"] == "intonation"]
+    tone25 = [f for f in flags if f["measure"] == 25 and f["type"] == "tone"]
+
+    check("score-dependent (intonation) finding on the UNRESOLVED measure is suppressed",
+          len(inton25) == 0, str(flags))
+    check("the identical finding type on a TRUSTED measure still fires — "
+          "suppression is targeted, not global",
+          len(inton20) == 1, str(flags))
+    check("a non-score-dependent (tone) finding on the SAME unresolved measure still fires",
+          len(tone25) == 1, str(flags))
+
+
+def test_assess_quality_declares_unresolved_measures():
+    print("\n[119] D1: assess_quality's coverage caveat names the unresolved measure "
+          "and coverage['unresolved_measures'] carries it for the frontend")
+    score = {"measures": [
+        {"number": n, "notes": [{"pitch": "C4"}]} for n in range(1, 6)
+    ]}
+    score["measures"][2]["unresolved"] = True  # measure 3
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+
+    q = w.assess_quality(score, evs, aligned, ranges,
+                         pages_read=1, pages_total=1,
+                         has_repeats=False, first_repeat_measure=None)
+    txt = " ".join(q["coverage"]["caveats"]).lower()
+    check("a caveat is produced naming the unresolved measure", "measure 3" in txt, txt[:160])
+    check("the caveat explains score-dependent feedback was skipped there",
+          "skipped" in txt, txt[:160])
+    check("coverage['unresolved_measures'] carries the measure number",
+          q["coverage"]["unresolved_measures"] == [3], str(q["coverage"]["unresolved_measures"]))
+
+
+def test_assess_quality_is_inert_on_a_fully_resolved_score():
+    print("\n[120] D1 regression guard: a score with no unresolved measures produces "
+          "no new caveat and an empty unresolved_measures list")
+    score = {"measures": [
+        {"number": n, "notes": [{"pitch": "C4"}]} for n in range(1, 6)
+    ]}
+    evs = [{"time_sec": i * 0.5} for i in range(12)]
+    aligned = [{"measure": 1 + i // 3, "time_sec": i * 0.5} for i in range(12)]
+    ranges = [{"measure": m, "start": 0.0, "end": 1.0} for m in range(1, 5)]
+
+    q = w.assess_quality(score, evs, aligned, ranges,
+                         pages_read=1, pages_total=1,
+                         has_repeats=False, first_repeat_measure=None)
+    check("no caveats on a fully-resolved score (D1 is inert on healthy scores)",
+          q["coverage"]["caveats"] == [], str(q["coverage"]["caveats"]))
+    check("unresolved_measures is empty on a fully-resolved score",
+          q["coverage"]["unresolved_measures"] == [], str(q["coverage"]["unresolved_measures"]))
+
+
+def test_generate_reference_audio_refuses_when_measures_are_unresolved():
+    print("\n[104] reference audio REFUSES to synthesize when any measure is unresolved")
+    called = {"synthesized": False}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+                {"number": 13, "unresolved": True, "issues": ["Claude and OMR disagree"],
+                 "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 1,
+        }
+
+    def _fake_synth(score, instrument, bpm):
+        called["synthesized"] = True
+        return b"RIFFfake", []
+
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _orig_synth = w.generate_reference_audio
+    w.read_score_notes_for_reference_audio = _fake_reader
+    w.generate_reference_audio = _fake_synth
+    try:
+        result = w._generate_reference_audio({
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "k",
+        })
+    finally:
+        w.read_score_notes_for_reference_audio = _orig_reader
+        w.generate_reference_audio = _orig_synth
+
+    check("returns an error instead of audio", result.get("error") == "score_read_uncertain", str(result))
+    check("NO audio was synthesized at all — the point is that questionable notes never reach the user",
+          called["synthesized"] is False, str(called))
+    check("names which measures were uncertain, so the error is actionable",
+          13 in (result.get("unresolved_measures") or []), str(result))
+    check("carries a human-readable message", bool(result.get("message")), str(result))
+
+
+def test_generate_reference_audio_proceeds_when_nothing_is_unresolved():
+    print("\n[105] reference audio still generates normally when every measure resolved confidently")
+    called = {"synthesized": False}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 0,
+        }
+
+    def _fake_synth(score, instrument, bpm):
+        called["synthesized"] = True
+        return b"RIFFfake", [{"measure": 12, "start_sec": 0.0, "end_sec": 1.8}]
+
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _orig_synth = w.generate_reference_audio
+    w.read_score_notes_for_reference_audio = _fake_reader
+    w.generate_reference_audio = _fake_synth
+    try:
+        result = w._generate_reference_audio({
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "k",
+        })
+    finally:
+        w.read_score_notes_for_reference_audio = _orig_reader
+        w.generate_reference_audio = _orig_synth
+
+    check("a fully-resolved read is not blocked", not result.get("error"), str(result))
+    check("audio was synthesized", called["synthesized"] is True, str(called))
+    check("returns base64 audio as before", bool(result.get("audio_base64")), str(result.keys()))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -2797,6 +4011,55 @@ def test_reference_audio_background_posts_failure_to_webhook():
     check("webhook payload round-trips jobToken on failure", payload.get("jobToken") == "tok-xyz", str(payload.get("jobToken")))
 
 
+def test_reference_audio_background_posts_human_readable_message_for_uncertain_reads():
+    print("\n[106] the background webhook posts the human-readable message, not the raw score_read_uncertain code, "
+          "so the end user never sees a bare error code")
+    import types
+    captured = {}
+
+    def _fake_reader(score_urls, instrument, key):
+        return {
+            "time_signature": "3/4",
+            "measures": [
+                {"number": 1, "unresolved": True, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+            ],
+            "unresolved_measure_count": 1,
+        }
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def post(self, url, **kw):
+            captured["webhook_payload"] = kw.get("json")
+            return types.SimpleNamespace(status_code=200, text="ok")
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _orig_reader = w.read_score_notes_for_reference_audio
+    _httpx.Client = _FakeHttpClient
+    w.read_score_notes_for_reference_audio = _fake_reader
+    try:
+        w._generate_reference_audio_background({
+            "take_id": "take-789",
+            "webhook_url": "https://example.test/webhook",
+            "webhook_secret": "shh",
+            "score_urls": ["https://example.test/p1.png"],
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+            "job_token": "tok-def",
+        })
+    finally:
+        _httpx.Client = _orig_httpx
+        w.read_score_notes_for_reference_audio = _orig_reader
+
+    payload = captured.get("webhook_payload") or {}
+    check("webhook payload's error field is the human-readable sentence, not the bare code",
+          payload.get("error") != "score_read_uncertain" and "clearer" in (payload.get("error") or ""),
+          str(payload))
+
+
 def test_declared_bpm_flows_into_compare_and_coach_claude():
     print("\n[59] declared_bpm reaches compare_and_coach_claude and produces a flag")
     score = make_score()
@@ -2966,6 +4229,98 @@ def test_crescendo_that_never_arrives_is_flagged():
           w.analyze_wedges(evs([-20, -22, -24, -26, -28, -30, -32, -34]), dim) == [])
 
 
+def test_global_tempo_findings_survive_an_unrelated_unresolved_measure():
+    print("\n[121] D1 fix (review finding 1): whole-take tempo facts (rule=overall / "
+          "tempo_vs_marking) are type='timing' like per-measure rhythm findings, but "
+          "they compare CREPE-fitted tempo against the score's marking text, never "
+          "against the note transcription — D1 says tempo stability is audio-only and "
+          "must be unaffected by an unresolved measure elsewhere in the piece. Keying "
+          "suppression on `type` alone used to kill ALL tempo coaching off one "
+          "unrelated unresolved bar; this locks in the `rule`-based carve-out")
+    # Same accelerando fixture as test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
+    # with one measure (8, unrelated to tempo) marked unresolved.
+    n_measures = 16
+    score = _timed_score("3/4", 3, 1.0, 3, n_measures=n_measures)
+    score["tempo_bpm"] = 60.0
+    for m in score["measures"]:
+        if m["number"] == 8:
+            m["unresolved"] = True
+    notes = [(m, n) for m in score["measures"] for n in m["notes"]]
+    total = len(notes)
+    evs = []
+    t = 0.0
+    for i, (m, note) in enumerate(notes):
+        frac = i / max(1, total - 1)
+        spb = 0.5 - 0.22 * frac
+        evs.append({"time_sec": t, "end_sec": t + spb,
+                    "pitches": [note["pitch"]], "confidence": 90,
+                    "cents_offset": 0, "cents_spread": 8})
+        t += spb
+    end_measure = score["measures"][-1]["number"]
+    al = w.dtw_align_to_score(evs, score, 1, 3, end_measure=end_measure)
+    acc = {}
+    for e in al:
+        m, tt = e["measure"], e["time_sec"]
+        r = acc.setdefault(m, {"start": tt, "end": tt})
+        r["start"], r["end"] = min(r["start"], tt), max(r["end"], tt)
+    items = sorted(acc.items())
+    spm = 3 * 0.5
+    ranges = []
+    for i, (m, r) in enumerate(items):
+        nxt = items[i + 1] if i + 1 < len(items) else None
+        end = (nxt[1]["start"] if nxt[0] == m + 1 else min(nxt[1]["start"], r["start"] + spm)) \
+            if nxt else max(r["end"] + spm / 3, r["start"] + spm)
+        ranges.append({"measure": m, "start": r["start"], "end": max(end, r["start"] + 0.25)})
+    flags = w.compare_and_coach_claude(
+        score=score, aligned=al, alignment_ranges=ranges, tempo={"bpm": 120},
+        piece_title="Test", composer="X", instrument="clarinet",
+        gemini_assessment=dict(EMPTY_GEMINI), anthropic_api_key="k",
+        beats_per_measure=3, start_measure=1, end_measure=end_measure,
+        dtw_verified=True,
+    )
+    ov = [f for f in flags if f.get("rule") == "overall"]
+    tm = [f for f in flags if f.get("rule") == "tempo_vs_marking"]
+    check("a whole-take tempo fact (overall / tempo_vs_marking) survives an "
+          "unrelated unresolved measure elsewhere in the piece",
+          len(ov) + len(tm) >= 1, str(flags))
+    check("ALL flags are not wiped out by the one unrelated unresolved measure "
+          "(the bug the reviewer's probe caught: 'ALL flags: []')",
+          len(flags) >= 1, str(flags))
+
+
+def test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it():
+    print("\n[122] D1 fix (review finding 2): suppression now runs BEFORE the "
+          "continuous-issue merge, so an unresolved measure in the middle of a run "
+          "of consecutive same-direction findings breaks the merge chain there and "
+          "the two trusted sides re-form into their own smaller spans, instead of "
+          "the whole merged run being deleted")
+    score = make_score()
+    for m in score["measures"]:
+        if m["number"] == 24:
+            m["unresolved"] = True
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Five CONSECUTIVE measures, same direction — would merge into one m.22-26
+    # span if none were unresolved (see test_spans_merge for the base behavior).
+    for e in aligned:
+        if e["measure"] in (22, 23, 24, 25, 26):
+            e["cents_offset"] = 33
+    flags = run_pipeline(score, aligned)
+
+    inton = sorted(
+        (f["measure"], f.get("measure_end") or f["measure"])
+        for f in flags if f["type"] == "intonation"
+    )
+    check("suppression trims the run into TWO spans, not zero flags",
+          len(inton) == 2, str(inton))
+    check("the trusted measures BEFORE the unresolved one form their own span (22-23)",
+          (22, 23) in inton, str(inton))
+    check("the trusted measures AFTER the unresolved one form their own span (25-26)",
+          (25, 26) in inton, str(inton))
+    check("the unresolved measure (24) itself is not the start or end of any surviving span",
+          all(24 not in (lo, hi) for lo, hi in inton), str(inton))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -3010,6 +4365,48 @@ def main():
               test_split_page_into_rows_finds_distinct_systems,
               test_split_page_into_rows_falls_back_on_a_single_system,
               test_split_page_into_rows_falls_back_on_undecodable_bytes,
+              test_compute_row_readability_measures_known_interline,
+              test_compute_row_readability_flags_low_interline_as_poor,
+              test_compute_row_readability_marginal_band,
+              test_compute_row_readability_flags_a_blurry_but_high_resolution_row,
+              test_compute_row_readability_handles_undecodable_bytes,
+              test_compute_row_readability_on_the_real_problem_photo,
+              test_binarize_ink_handles_the_degenerate_otsu_case,
+              test_dewarp_row_straightens_a_curved_staff,
+              test_dewarp_row_is_a_noop_on_an_already_flat_row,
+              test_dewarp_row_falls_back_on_undecodable_bytes,
+              test_dewarp_row_on_the_real_problem_photo,
+              test_split_row_into_measures_finds_expected_barlines,
+              test_split_row_into_measures_low_confidence_on_ambiguous_input,
+              test_split_row_into_measures_falls_back_on_undecodable_bytes,
+              test_split_row_into_measures_on_the_real_problem_photo,
+              test_validate_measure_duration_sum,
+              test_validate_measure_skips_duration_check_on_pickup_and_final_measures,
+              test_validate_measure_written_pitch_range,
+              test_validate_measure_unexpected_polyphony,
+              test_validate_measure_polyphony_allowed_for_piano,
+              test_validate_measure_limited_polyphony_string_double_stop_is_valid,
+              test_validate_measure_limited_polyphony_does_not_exempt_bass_clarinet_or_bass_trombone,
+              test_validate_measure_limited_polyphony_new_onset_overshoot_still_invalid,
+              test_validate_measure_unknown_instrument_skips_range_check_gracefully,
+              test_align_claude_to_measure_crops_matches_on_equal_count,
+              test_align_claude_to_measure_crops_refuses_on_count_mismatch,
+              test_fuse_measure_confidence_verdict_table,
+              test_fuse_measure_confidence_cross_source_pitch_spelling_i4,
+              test_fuse_measure_confidence_cross_source_compound_time_duration_i4,
+              test_fuse_measure_confidence_missing_valid_key_fails_closed_i5,
+              test_fuse_measure_confidence_two_empty_measures_never_fuse_high_i5,
+              test_resolve_measure_disagreement_sends_crop_and_candidates,
+              test_resolve_measure_disagreement_marks_unresolved_on_failure,
+              test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
+              test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
+              test_resolve_measure_disagreement_matched_candidate_returns_a_copy,
+              test_resolve_measure_disagreement_accepts_a_correctly_resolved_string_double_stop,
+              test_unresolved_measure_suppresses_score_dependent_findings_but_not_audio_only,
+              test_assess_quality_declares_unresolved_measures,
+              test_assess_quality_is_inert_on_a_fully_resolved_score,
+              test_generate_reference_audio_refuses_when_measures_are_unresolved,
+              test_generate_reference_audio_proceeds_when_nothing_is_unresolved,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,
@@ -3036,9 +4433,12 @@ def main():
               test_reference_audio_endpoint_falls_back_when_fresh_read_fails,
               test_reference_audio_background_posts_success_to_webhook,
               test_reference_audio_background_posts_failure_to_webhook,
+              test_reference_audio_background_posts_human_readable_message_for_uncertain_reads,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
-              test_crescendo_that_never_arrives_is_flagged):
+              test_crescendo_that_never_arrives_is_flagged,
+              test_global_tempo_findings_survive_an_unrelated_unresolved_measure,
+              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

@@ -21,6 +21,110 @@
 
 ---
 
+## Owner Decisions — 2026-09-13
+
+These were decided by the project owner after the first eight tasks landed and
+the whole-branch review reported. They override anything earlier in this plan
+or in the spec that conflicts with them.
+
+### D1. Main analysis is confidence-aware, not globally blocked
+
+`read_score_notes_claude` is the shared reader for BOTH reference audio and the
+main analysis pipeline. Reference audio refuses outright on an uncertain read
+(D2); the main analysis must NOT.
+
+- Per-measure `unresolved` is **preserved through the downstream analysis
+  pipeline**, not dropped at the reader boundary.
+- An unresolved measure must **not** produce score-dependent output: no
+  note/rhythm/pitch flags derived from the transcription, and no
+  measure-specific coaching about it.
+- Everything else continues normally: trusted measures are analyzed as usual,
+  and analysis that does not depend on the uncertain transcription (tempo
+  stability, overall dynamics, audio-only measurements) is unaffected.
+- The student should be told which measures were skipped and why, rather than
+  silently receiving thinner feedback.
+
+Rationale: a whole-take refusal would throw away correct analysis of every
+trustworthy measure because of one bad bar. The failure being prevented is
+*confident wrong feedback*, not *reduced coverage*.
+
+### D2. Reference audio stays strict (unchanged)
+
+If a measure is still `unresolved` after fusion and targeted resolution, the
+reference audio for that score is **not** generated. The user is asked for a
+clearer photo. Partial synthesis is explicitly rejected for v1 — see Task 12's
+existing design note. This is the behaviour already implemented; D1 does not
+relax it.
+
+### D3. Instrument polyphony is a three-way classification, not a boolean
+
+The current `POLYPHONIC_INSTRUMENTS` boolean forces strings into the
+"monophonic" bucket, so a legitimate double stop is flagged invalid, which
+under D2 refuses reference audio for the entire piece. Split into three
+categories:
+
+- **Strictly monophonic** — winds and brass. One note at a time. Both the
+  polyphony check and the duration-sum check apply as they do today.
+- **Limited polyphony** — violin, viola, cello, double bass (double stops, and
+  occasional rolled triple/quadruple stops). The polyphony-invalid check does
+  **not** apply.
+- **Fully polyphonic** — keyboard, fretted, harp (the existing
+  `POLYPHONIC_INSTRUMENTS` membership). Unchanged: both checks skipped.
+
+**Load-bearing detail that a naive fix misses:** turning off only the polyphony
+check is NOT sufficient. The duration-sum check is one-sided (it flags
+overshoot, per finding I3), and two simultaneous 4-beat notes sum to 8 in 4/4 —
+so a double stop still fails on duration. Measured before this decision:
+
+```
+violin  {'valid': False, 'issues': [
+   'duration sum 8.00 beats exceeds the 4 beats expected for 4/4',
+   'unexpected polyphony for a monophonic instrument at beat(s) [1.0]']}
+```
+
+For limited-polyphony instruments the duration sum must therefore be computed
+over **distinct onsets** — group notes by `beat`, take the longest duration in
+each group, and sum those. A double stop then measures 4 beats in 4/4 (correct),
+while an invented extra note at a new onset still overshoots and is still
+caught. Strictly monophonic instruments keep today's plain sum (identical
+result, since they have one note per onset). Fully polyphonic instruments keep
+skipping the check entirely, since their voices overlap at arbitrary offsets
+rather than only at shared onsets.
+
+### D4. The oemer GO/NO-GO gate does not require Anthropic credits
+
+Correcting an error in earlier status reporting. Task 6 calls no Claude API. Its
+real dependencies are `dewarp_row` (landed), a Modal run, and — for the
+*comparison* only — Task 5's ground truth. Decompose it:
+
+- **Steps 1-2 are unblocked now**: install `oemer` in a throwaway Modal
+  function and run it against dewarped real rows. This settles the single
+  highest-risk unknown in the plan (whether `oemer` installs and runs at all on
+  a CPU-only image, given it declares `onnxruntime-gpu`), and needs neither
+  credits nor ground truth.
+- **Steps 3-4 remain blocked on Task 5**, because the GO bar is stated relative
+  to ground truth.
+
+Anthropic credits gate Claude calls and the final live pipeline test (Tasks 14
+and 15), not this experiment.
+
+### D5. Task 5 ground truth comes from the owner
+
+The cached `score_cache` parse must **not** be used, even as a candidate to
+correct. It covers m.20-35 rather than the required 12-30, and its content
+carries the hallucination signature this project exists to eliminate (every
+measure a clean alternating scale run; m.21/m.27 and m.26/m.29 near-duplicates).
+The owner will provide or verify a clean source for measures 12-30. No
+ground-truth-dependent test proceeds until then.
+
+### D6. Task 11 wiring is NOT to be implemented yet
+
+The orchestration stays unwritten until the D1/D3 changes above are reviewed and
+agreed. Tasks 4, 10 and the downstream analysis path are in scope; the wiring
+itself is not.
+
+---
+
 ## File Structure
 
 - **Modify `modal_worker/worker.py`** — all seven new functions, plus the `INSTRUMENT_WRITTEN_RANGE`/`POLYPHONIC_INSTRUMENTS` tables, plus the rewritten `read_score_notes_claude` orchestration. One file, matching this project's existing convention of keeping all worker logic in one file (already 7,361 lines — large, but splitting it is out of scope for this plan; not this plan's problem to solve).

@@ -2245,6 +2245,65 @@ def test_validate_measure_unknown_instrument_skips_range_check_gracefully():
           result["valid"], str(result))
 
 
+def test_align_claude_to_measure_crops_matches_on_equal_count():
+    print("\n[96] alignment succeeds when Claude's measure count matches the crop count")
+    claude_measures = [{"number": 12, "notes": []}, {"number": 13, "notes": []}, {"number": 14, "notes": []}]
+    result = w.align_claude_to_measure_crops(claude_measures, crop_count=3)
+    check("returns the measures unchanged, in order", result == claude_measures, str(result))
+
+
+def test_align_claude_to_measure_crops_refuses_on_count_mismatch():
+    print("\n[97] alignment refuses (returns None) rather than guess when counts disagree")
+    claude_measures = [{"number": 12, "notes": []}, {"number": 13, "notes": []}]
+    result = w.align_claude_to_measure_crops(claude_measures, crop_count=3)
+    check("returns None on a count mismatch rather than forcing a positional guess",
+          result is None, str(result))
+
+
+def test_fuse_measure_confidence_verdict_table():
+    print("\n[98] confidence fusion follows the spec's verdict table exactly, one case per row")
+    claude_m = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    oemer_match = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    oemer_mismatch = {"number": 12, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    valid = {"valid": True, "issues": []}
+    invalid = {"valid": False, "issues": ["duration sum wrong"]}
+
+    r1 = w.fuse_measure_confidence("agree", claude_m, oemer_match, invalid)
+    check("invalid validator verdict ALWAYS needs resolution, even with Claude+OMR agreement",
+          r1["needs_resolution"], str(r1))
+
+    r2 = w.fuse_measure_confidence("agree", claude_m, oemer_match, valid)
+    check("Claude agree + OMR match + valid = high confidence, no resolution needed",
+          r2["confidence"] == "high" and not r2["needs_resolution"], str(r2))
+
+    r3 = w.fuse_measure_confidence("agree", claude_m, None, valid)
+    check("Claude agree + OMR unavailable + valid = accept, medium, no resolution",
+          r3["confidence"] == "medium" and not r3["needs_resolution"], str(r3))
+
+    r4 = w.fuse_measure_confidence("agree", claude_m, oemer_mismatch, valid)
+    check("Claude agree + OMR MISMATCH needs resolution even though Claude agrees with itself "
+          "(this is the 'consistent wrong answer' case cross-validation alone cannot catch)",
+          r4["needs_resolution"], str(r4))
+
+    r5 = w.fuse_measure_confidence("disagree", claude_m, oemer_match, valid)
+    check("Claude disagreement (with itself) always needs resolution regardless of OMR",
+          r5["needs_resolution"], str(r5))
+
+    r6 = w.fuse_measure_confidence("unavailable", claude_m, None, valid)
+    check("a SINGLE Claude read with no OMR corroboration is NOT accepted — one observation "
+          "is not agreement, and must not inherit two-matching-reads confidence",
+          r6["needs_resolution"], str(r6))
+
+    r7 = w.fuse_measure_confidence("unavailable", claude_m, oemer_match, valid)
+    check("a single Claude read DOES become acceptable when an independent OMR read matches it "
+          "(two genuinely independent sources agreeing is real corroboration)",
+          not r7["needs_resolution"] and r7["confidence"] == "medium", str(r7))
+
+    r8 = w.fuse_measure_confidence("unavailable", claude_m, oemer_mismatch, valid)
+    check("a single Claude read contradicted by OMR needs resolution",
+          r8["needs_resolution"], str(r8))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3505,6 +3564,9 @@ def main():
               test_validate_measure_unexpected_polyphony,
               test_validate_measure_polyphony_allowed_for_piano,
               test_validate_measure_unknown_instrument_skips_range_check_gracefully,
+              test_align_claude_to_measure_crops_matches_on_equal_count,
+              test_align_claude_to_measure_crops_refuses_on_count_mismatch,
+              test_fuse_measure_confidence_verdict_table,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,

@@ -4634,6 +4634,85 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
     return {"valid": not issues, "issues": issues}
 
 
+def align_claude_to_measure_crops(claude_row_measures: list[dict], crop_count: int) -> list[dict] | None:
+    """
+    [Revision 2 from the spec] Positionally aligns Claude's measures for
+    ONE row (already ordered left-to-right by printed number) to that
+    row's measure-crop list from split_row_into_measures, by INDEX —
+    never by any measure number oemer itself might separately infer.
+
+    Returns None (alignment refused) if Claude's measure count for this
+    row doesn't match crop_count. This mismatch means either
+    segmentation or Claude's read is wrong for this row; forcing a
+    positional match anyway would silently mislabel every measure after
+    the first disagreement, which is worse than not aligning at all.
+    """
+    if len(claude_row_measures) != crop_count:
+        return None
+    return list(claude_row_measures)
+
+
+def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
+                             oemer_measure: dict | None, validation: dict) -> dict:
+    """
+    Combines three signals into one fusion outcome for a single measure.
+
+    claude_agreement is a THREE-state value, not a boolean:
+      * "agree"       — 2+ independent Claude reads produced identical content
+      * "disagree"    — independent Claude reads contradicted each other
+      * "unavailable" — only ONE Claude read succeeded, so there was no
+                        cross-validation at all
+
+    The three-state distinction is load-bearing. A boolean collapses
+    "unavailable" into "agree", which would silently grant a lone,
+    uncorroborated observation the same confidence as two independent
+    reads that matched. One observation is not agreement — it is an
+    absence of evidence either way, and it only becomes acceptable when
+    some OTHER independent source (OMR) corroborates it.
+
+    [Revision 2 from the spec] validate_measure's `invalid` is checked
+    FIRST and always wins — a measure that fails deterministic checks is
+    never rescued by Claude/OMR agreement. Its `valid` verdict is never,
+    on its own, sufficient for confidence; every acceptance path below
+    also requires positive corroboration from at least two independent
+    observations.
+    """
+    if not validation.get("valid", True):
+        return {"confidence": "low", "needs_resolution": True,
+                "reasons": ["validator invalid: " + "; ".join(validation.get("issues", []))]}
+
+    if claude_agreement == "disagree":
+        return {"confidence": "low", "needs_resolution": True,
+                "reasons": ["Claude's own independent reads disagreed on this measure"]}
+
+    if claude_agreement == "unavailable":
+        if oemer_measure is None:
+            return {"confidence": "low", "needs_resolution": True,
+                    "reasons": ["only one Claude read succeeded and no OMR reading is "
+                                "available — the measure has exactly one uncorroborated "
+                                "observation behind it"]}
+        if _measure_fingerprint(claude_measure) == _measure_fingerprint(oemer_measure):
+            return {"confidence": "medium", "needs_resolution": False,
+                    "reasons": ["one Claude read, independently corroborated by OMR"]}
+        return {"confidence": "low", "needs_resolution": True,
+                "reasons": ["one Claude read, contradicted by OMR"]}
+
+    if oemer_measure is None:
+        return {"confidence": "medium", "needs_resolution": False,
+                "reasons": ["Claude agrees with itself, OMR unavailable for this measure, "
+                            "validator passed"]}
+
+    oemer_matches = _measure_fingerprint(claude_measure) == _measure_fingerprint(oemer_measure)
+    if oemer_matches:
+        return {"confidence": "high", "needs_resolution": False,
+                "reasons": ["Claude agrees with itself, OMR independently matches, validator passed"]}
+
+    return {"confidence": "low", "needs_resolution": True,
+            "reasons": ["Claude agrees with itself but OMR independently disagrees — "
+                        "this is exactly the 'consistent wrong answer' case same-model "
+                        "cross-validation alone cannot catch"]}
+
+
 # Sounding pitch relative to WRITTEN pitch, in semitones. Keep in sync with
 # src/lib/instruments.js — the form sends these exact names.
 INSTRUMENT_TRANSPOSE = {

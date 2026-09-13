@@ -2304,6 +2304,156 @@ def test_fuse_measure_confidence_verdict_table():
           r8["needs_resolution"], str(r8))
 
 
+def test_resolve_measure_disagreement_sends_crop_and_candidates():
+    print("\n[99] targeted disagreement resolution sends the measure crop and candidate list, not an open re-read")
+    import types, json as _json
+    captured = {}
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            captured["content"] = kw["messages"][0]["content"]
+            return _FakeStream(_json.dumps({
+                "notes": [{"p": "C4", "b": 1.0, "d": 3.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+        {"notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    blocks = captured.get("content") or []
+    n_images = sum(1 for b in blocks if isinstance(b, dict) and b.get("type") == "image")
+    check("sends exactly one image (the tight measure crop, not a full page/row)",
+          n_images == 1, f"{n_images} image block(s)")
+    prompt_text = " ".join(b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+    check("prompt is closed-ended (mentions candidates), not an open re-transcription request",
+          "candidate" in prompt_text.lower(), prompt_text[:400])
+    check("returns a normalized measure with notes",
+          result.get("notes") and result["notes"][0]["pitch"] == "C4", str(result))
+    check("a resolution that passes revalidation is NOT marked unresolved",
+          not result.get("unresolved"), str(result))
+
+
+def test_resolve_measure_disagreement_marks_unresolved_on_failure():
+    print("\n[100] resolution marks a measure unresolved rather than silently returning candidate 1 when the call fails")
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    class _ExplodingClient:
+        def __init__(self, **kw):
+            raise RuntimeError("simulated API failure")
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _ExplodingClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("the measure is explicitly flagged unresolved, NOT returned as if it were fine "
+          "(failing open here is what produces confident-wrong audio)",
+          result.get("unresolved") is True, str(result))
+    check("the reason is carried with it", result.get("issues"), str(result))
+
+
+def test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid():
+    print("\n[101] resolution marks a measure unresolved when the resolved answer STILL fails validation")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # Transcribes a measure that is still impossible in 3/4 (5 beats).
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "C4", "b": 1.0, "d": 5.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a still-invalid resolution is flagged unresolved rather than accepted",
+          result.get("unresolved") is True, str(result))
+
+
+def test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure():
+    print("\n[102] resolution does NOT mark a legitimately partial pickup measure unresolved")
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            # A correct one-beat pickup in 4/4 — partial BY DESIGN.
+            return _FakeStream(_json.dumps({
+                "matched_candidate": None,
+                "notes": [{"p": "G4", "b": 4.0, "d": 1.0}],
+            }))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [{"notes": [{"pitch": "G4", "is_rest": False, "beat": 4.0, "duration_beats": 1.0}]}]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    try:
+        result = w.resolve_measure_disagreement(
+            b"\x89PNG-fake-crop", candidates, "clarinet", "4/4", "k",
+            is_first_measure=True)
+    finally:
+        _ac.Anthropic = _orig
+
+    check("a 1-beat pickup in 4/4 resolved correctly is NOT failed by revalidation "
+          "(forgetting to thread is_first_measure through would fail every pickup bar)",
+          not result.get("unresolved"), str(result))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3567,6 +3717,10 @@ def main():
               test_align_claude_to_measure_crops_matches_on_equal_count,
               test_align_claude_to_measure_crops_refuses_on_count_mismatch,
               test_fuse_measure_confidence_verdict_table,
+              test_resolve_measure_disagreement_sends_crop_and_candidates,
+              test_resolve_measure_disagreement_marks_unresolved_on_failure,
+              test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
+              test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,

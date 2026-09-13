@@ -4713,6 +4713,121 @@ def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
                         "cross-validation alone cannot catch"]}
 
 
+def resolve_measure_disagreement(measure_crop_bytes: bytes, candidates: list[dict],
+                                  instrument: str, time_sig: str,
+                                  anthropic_api_key: str,
+                                  is_first_measure: bool = False,
+                                  is_last_measure: bool = False) -> dict:
+    """
+    Closed-ended disagreement resolution for ONE low-confidence measure
+    (the measures fuse_measure_confidence marked needs_resolution=True).
+
+    [Revision 2 from the spec]: replaces the old approach of "just read
+    it again" (open-ended, on the whole row/page) with a strictly easier
+    task — a tight crop of just this one measure, plus the specific
+    candidates already produced, asking the model to pick a match or
+    transcribe only this small crop if none match. Structurally harder
+    for the model to keep generating a plausible-but-wrong pattern, since
+    there's no multi-measure context left to pattern-match against.
+
+    NEVER FAILS OPEN. Every measure reaching this function is here
+    because something was already wrong with it — the validator called it
+    impossible, or two independent recognizers disagreed. Silently
+    returning the first candidate on an API/parse failure would hand back
+    exactly the kind of unverified answer that produces confident-wrong
+    audio, which is the single failure mode this whole pipeline exists to
+    eliminate. So: the resolved result is RE-VALIDATED, and if it still
+    doesn't hold up (or the call failed outright), the measure is
+    returned marked `"unresolved": True` with its issues attached. The
+    caller decides what to do with an unresolved measure; what it must
+    NOT do is treat it as confidently correct.
+
+    is_first_measure / is_last_measure MUST be threaded through from the
+    caller to the revalidation below. A legitimate one-beat pickup in 4/4
+    is exempt from the duration-sum check in the main validation pass; if
+    revalidation here forgets that exemption, it re-measures the pickup
+    against a full 4 beats, fails it, and marks a CORRECTLY resolved
+    measure unresolved — turning the pickup bar of every disputed piece
+    into a permanent false alarm.
+
+    Returns a measure dict {"notes": [...]} plus, when resolution
+    failed, "unresolved": True and "issues": [...]. Never raises.
+    """
+    import base64, json as _json, anthropic as ac
+
+    b64 = base64.b64encode(measure_crop_bytes).decode()
+    candidates_text = "\n".join(
+        f"Candidate {i+1}: " + ", ".join(
+            f"{n.get('pitch') or 'rest'}@beat{n.get('beat')}for{n.get('duration_beats')}beats"
+            for n in c.get("notes", [])
+        )
+        for i, c in enumerate(candidates)
+    )
+    prompt = f"""You are an expert music engraver verifying a single measure for a {instrument} part.
+
+Here is one measure, cropped tightly from the printed page. Independent readings already produced these candidates:
+
+{candidates_text}
+
+Inspect the printed measure carefully. Which candidate number matches exactly what's printed? If none match exactly, transcribe ONLY this measure yourself.
+
+Return JSON only (no markdown):
+{{"matched_candidate": <candidate number, or null if none match>, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5}}]}}
+
+If matched_candidate is not null, "notes" may be empty — the matched candidate's own notes will be used."""
+
+    try:
+        client = ac.Anthropic(api_key=anthropic_api_key)
+        with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            temperature=0,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
+                {"type": "text", "text": prompt},
+            ]}],
+        ) as stream:
+            msg = stream.get_final_message()
+        raw = msg.content[0].text
+        parsed = extract_json_object(raw) or {}
+
+        resolved = None
+        matched = parsed.get("matched_candidate")
+        if isinstance(matched, int) and 1 <= matched <= len(candidates):
+            resolved = candidates[matched - 1]
+        else:
+            notes = parsed.get("notes")
+            if isinstance(notes, list) and notes:
+                def _norm_note(n: dict) -> dict:
+                    return {
+                        "pitch": n.get("pitch") or n.get("p"),
+                        "is_rest": bool(n.get("is_rest") or n.get("r") or False),
+                        "beat": n.get("beat") if n.get("beat") is not None else n.get("b"),
+                        "duration_beats": n.get("duration_beats") if n.get("duration_beats") is not None else n.get("d"),
+                    }
+                resolved = {"notes": [_norm_note(n) for n in notes]}
+
+        if resolved is None:
+            return {**candidates[0], "unresolved": True,
+                    "issues": ["resolution produced neither a candidate match nor a transcription"]}
+
+        # Re-validate: a resolution that still fails deterministic checks
+        # has not actually resolved anything, and must not be handed back
+        # as if it had. The first/last flags are threaded through so a
+        # legitimately partial pickup or final bar isn't failed here for
+        # the very property that makes it correct.
+        recheck = validate_measure(resolved, instrument, time_sig,
+                                    is_first_measure=is_first_measure,
+                                    is_last_measure=is_last_measure)
+        if not recheck["valid"]:
+            return {**resolved, "unresolved": True, "issues": recheck["issues"]}
+        return resolved
+    except Exception as e:
+        print(f"[resolve_measure_disagreement] failed: {e}")
+        return {**candidates[0], "unresolved": True,
+                "issues": [f"resolution call failed: {e}"]}
+
+
 # Sounding pitch relative to WRITTEN pitch, in semitones. Keep in sync with
 # src/lib/instruments.js — the form sends these exact names.
 INSTRUMENT_TRANSPOSE = {

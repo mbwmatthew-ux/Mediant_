@@ -2050,6 +2050,122 @@ def test_dewarp_row_on_the_real_problem_photo():
               after <= before + 1.0, f"before={before} after={after}")
 
 
+def _make_row_with_barlines(measure_count=4, width=800, height=140):
+    """A row with `measure_count` measures separated by full-height
+    vertical barlines, each measure containing notehead-like blobs (not
+    just staff lines) so a barline (spans the WHOLE crop height) is
+    visually distinguishable from a stem (spans only part of it)."""
+    from PIL import Image, ImageDraw
+    import random
+    import io
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    top = height // 2 - 40
+    for line_i in range(5):
+        y = top + line_i * 20
+        draw.line([(10, y), (width - 10, y)], fill=0, width=2)
+    rng = random.Random(7)
+    measure_w = (width - 20) // measure_count
+    boundaries = []
+    for m in range(measure_count):
+        x0 = 10 + m * measure_w
+        x1 = x0 + measure_w
+        if m > 0:
+            draw.line([(x0, top - 5), (x0, top + 85)], fill=0, width=3)
+            boundaries.append(x0)
+        for x in range(x0 + 15, x1 - 10, 12):
+            blob_y = top + rng.randint(-5, 85)
+            draw.ellipse([x, blob_y, x + 6, blob_y + 6], fill=0)
+        # A stem: a short vertical mark that does NOT span the barline's
+        # full height — must not be mistaken for a barline.
+        stem_x = x0 + measure_w // 2
+        draw.line([(stem_x, top + 20), (stem_x, top + 45)], fill=0, width=2)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue(), boundaries
+
+
+def test_split_row_into_measures_finds_expected_barlines():
+    print("\n[86] measure splitter finds the expected number of measures in a synthetic row")
+    row_bytes, true_boundaries = _make_row_with_barlines(measure_count=4)
+    result = w.split_row_into_measures(row_bytes)
+    check("finds 4 measures", len(result["measures"]) == 4, str(len(result["measures"])))
+    check("confidence is reasonably high for a clean synthetic row",
+          result["confidence"] >= 0.6, str(result["confidence"]))
+
+
+def test_split_row_into_measures_low_confidence_on_ambiguous_input():
+    print("\n[87] measure splitter reports low confidence rather than false certainty on a stem-only row (no real barlines)")
+    # A row with note stems but NO real full-height barlines — stems must
+    # not be mistaken for barlines, and the function should say so via a
+    # low confidence / single-measure result rather than false splits.
+    from PIL import Image, ImageDraw
+    import io
+    img = Image.new("L", (800, 140), color=250)
+    draw = ImageDraw.Draw(img)
+    top = 30
+    for line_i in range(5):
+        y = top + line_i * 20
+        draw.line([(10, y), (790, y)], fill=0, width=2)
+    for x in range(30, 770, 40):
+        draw.line([(x, top + 20), (x, top + 45)], fill=0, width=2)  # stems only
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    row_bytes = buf.getvalue()
+    result = w.split_row_into_measures(row_bytes)
+    check("does not confidently report many measures from stems alone",
+          result["confidence"] < 0.6 or len(result["measures"]) <= 1,
+          f"measures={len(result['measures'])} confidence={result['confidence']}")
+
+
+def test_split_row_into_measures_falls_back_on_undecodable_bytes():
+    print("\n[88] measure splitter degrades to a single low-confidence unit on bytes it can't decode")
+    garbage = b"\x89PNG-not-a-real-image"
+    result = w.split_row_into_measures(garbage)
+    check("returns the original bytes as one measure, zero confidence, does not raise",
+          result["measures"] == [garbage] and result["confidence"] == 0.0, str(result))
+
+
+def test_split_row_into_measures_on_the_real_problem_photo():
+    print("\n[89] measure splitter does not raise on a crop from the real problem photo and returns a self-consistent result")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+
+    from PIL import Image
+    import io
+    raw_w = Image.open(io.BytesIO(row_bytes)).convert("L").size[0]
+
+    for label, bytes_in, width in (
+        ("raw crop", row_bytes, raw_w),
+        ("dewarped", w.dewarp_row(row_bytes), raw_w),
+    ):
+        result = w.split_row_into_measures(bytes_in)
+        print(f"    [{label}] confidence={result['confidence']} "
+              f"measures={len(result['measures'])} boundaries={result['boundaries']}")
+        check(f"({label}) does not raise and returns decodable crops",
+              all(len(m) > 0 for m in result["measures"]), str(len(result["measures"])))
+        check(f"({label}) boundaries are strictly increasing",
+              all(result["boundaries"][i] < result["boundaries"][i + 1]
+                  for i in range(len(result["boundaries"]) - 1)),
+              str(result["boundaries"]))
+        check(f"({label}) boundaries lie within the image width",
+              all(0 <= b <= width for b in result["boundaries"]),
+              f"boundaries={result['boundaries']} width={width}")
+        check(f"({label}) measures count is boundaries count + 1",
+              len(result["measures"]) == len(result["boundaries"]) + 1,
+              f"measures={len(result['measures'])} boundaries={len(result['boundaries'])}")
+        for m in result["measures"]:
+            try:
+                Image.open(io.BytesIO(m)).convert("L")
+                decodes = True
+            except Exception as e:
+                decodes = False
+                print(f"    decode error: {e}")
+            check(f"({label}) each measure crop decodes as an image", decodes, str(decodes))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3300,6 +3416,10 @@ def main():
               test_dewarp_row_is_a_noop_on_an_already_flat_row,
               test_dewarp_row_falls_back_on_undecodable_bytes,
               test_dewarp_row_on_the_real_problem_photo,
+              test_split_row_into_measures_finds_expected_barlines,
+              test_split_row_into_measures_low_confidence_on_ambiguous_input,
+              test_split_row_into_measures_falls_back_on_undecodable_bytes,
+              test_split_row_into_measures_on_the_real_problem_photo,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,

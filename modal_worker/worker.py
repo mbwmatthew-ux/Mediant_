@@ -3537,6 +3537,147 @@ def dewarp_row(row_bytes: bytes) -> bytes:
         return row_bytes
 
 
+# A candidate barline column's ink must span at least this fraction of the
+# staff's own detected height (see split_row_into_measures) to count as a
+# barline candidate at all — a note stem covers only part of the staff.
+_BARLINE_WEAK_MIN = 0.70
+# Spanning at least this much of the staff height counts as a STRONG
+# barline candidate — i.e. close enough to the full staff that it's almost
+# certainly a genuine barline, not a stem, beam, or accidental that happens
+# to reach unusually high or low.
+_BARLINE_STRONG_MIN = 0.90
+
+
+def split_row_into_measures(row_bytes: bytes) -> dict:
+    """
+    Detects vertical barlines within an already-dewarped row crop and
+    returns per-measure crops in left-to-right order, plus a confidence
+    score for the segmentation itself.
+
+    Real notation has plenty of vertical-looking things that are NOT
+    ordinary barlines — stems, repeat marks, ending brackets, text. A stem
+    spans only part of the staff height; a real barline spans the full
+    STAFF height (all 5 lines). That height distinction is the primary
+    signal here — measured against the staff's OWN detected span, not the
+    crop's total height, since a real row crop carries padding above/below
+    the staff (see split_page_into_rows' own padding) that a barline does
+    not need to cross. Comparing against total crop height instead would
+    make a real barline register as spanning a smaller fraction than it
+    should, on every padded real-world crop.
+
+    Finding that staff span can't use a fixed row-ink-fraction bar (e.g.
+    "> 0.6 of the row is ink"): measured directly against this project's
+    real problem photo, a fixed 0.6 bar finds staff-line rows on only 5 of
+    its 12 rows — page curvature and uneven lighting mean a physical staff
+    line does not paint one clean, dense pixel-row across the full width.
+    Instead this reuses the ADAPTIVE bar _measure_line_thinness already
+    established (halfway between the row-ink-fraction profile's median and
+    its max, so the bar rides the row's own content density rather than an
+    assumed absolute level): measured on the real photo row, that adaptive
+    bar finds staff rows at y=[37,38,45,46,53,54,55,56,62,70] — a ~8px
+    interline, matching this same photo's independently-measured interline
+    elsewhere in this file — where the fixed 0.6 bar finds nothing at all.
+
+    Confidence is NOT assumed. Zero barline candidates (or every candidate
+    landing in the outer margins) is treated as AMBIGUOUS, not confident:
+    it means either the row genuinely holds one measure, or detection
+    failed completely on a multi-measure row, and those two cases are
+    indistinguishable from inside this function. Reporting confidence 1.0
+    in that case would let a total detection failure masquerade as
+    certainty, so both cases report confidence 0.0 instead and leave the
+    call site (see align_claude_to_measure_crops) to fall back to
+    row-level handling, which is correct either way.
+
+    Returns {"measures": [bytes, ...], "boundaries": [x_position, ...],
+    "confidence": float in [0,1]}. Never raises — undecodable bytes, or a
+    crop where the staff itself can't be found, come back as a single
+    unsplit crop (the row itself) with confidence 0.0, matching
+    split_page_into_rows' no-op-on-failure convention.
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+        import io
+
+        img = Image.open(io.BytesIO(row_bytes)).convert("L")
+        arr = np.array(img).astype(np.float64)
+        h, w = arr.shape
+
+        is_ink, _threshold = _binarize_ink(arr)
+
+        # Find the staff's own vertical span using the same adaptive-bar
+        # technique as _measure_line_thinness (see docstring above for why
+        # a fixed row-ink-fraction bar doesn't survive a real curved photo).
+        row_ink_fraction = is_ink.sum(axis=1) / w
+        baseline = float(np.median(row_ink_fraction))
+        peak = float(row_ink_fraction.max())
+        if peak <= baseline:
+            return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
+        bar = baseline + 0.5 * (peak - baseline)
+        staff_rows = np.where(row_ink_fraction > bar)[0]
+        if len(staff_rows) < 2:
+            return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
+        staff_top, staff_bottom = int(staff_rows[0]), int(staff_rows[-1])
+        staff_height = max(1, staff_bottom - staff_top)
+
+        col_density = is_ink[staff_top:staff_bottom + 1, :].sum(axis=0) / staff_height
+        strong = col_density > _BARLINE_STRONG_MIN
+        weak = (col_density > _BARLINE_WEAK_MIN) & ~strong
+
+        candidate_cols = np.where(strong | weak)[0]
+        if len(candidate_cols) == 0:
+            # Zero candidates: ambiguous, not confident — see docstring.
+            return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
+
+        # Merge adjacent candidate columns into single barline positions —
+        # a real barline has some pixel width from photo blur/line weight.
+        groups: list[list[int]] = []
+        current = [int(candidate_cols[0])]
+        for x in candidate_cols[1:]:
+            x = int(x)
+            if x - current[-1] <= 3:
+                current.append(x)
+            else:
+                groups.append(current)
+                current = [x]
+        groups.append(current)
+
+        # Drop groups sitting in the outer ~5% margins (the crop's own
+        # left/right border, or a clef/key-signature vertical stroke) — a
+        # real interior barline should not sit in the outer 5% of the width.
+        margin = max(5, int(w * 0.05))
+        groups = [g for g in groups if margin < (g[0] + g[-1]) / 2 < w - margin]
+
+        if not groups:
+            # Every candidate was an edge artifact — same ambiguity as the
+            # zero-candidates case above: we learned nothing about where
+            # measures actually divide.
+            return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
+
+        boundaries = [int((g[0] + g[-1]) / 2) for g in groups]
+        strong_count = sum(1 for g in groups if any(col_density[x] > _BARLINE_STRONG_MIN for x in g))
+        confidence = strong_count / len(groups)
+
+        crops = []
+        prev_x = 0
+        rgb_img = Image.open(io.BytesIO(row_bytes)).convert("RGB")
+        for bx in boundaries:
+            crop = rgb_img.crop((prev_x, 0, bx, h))
+            buf = io.BytesIO()
+            crop.save(buf, format="PNG")
+            crops.append(buf.getvalue())
+            prev_x = bx
+        crop = rgb_img.crop((prev_x, 0, w, h))
+        buf = io.BytesIO()
+        crop.save(buf, format="PNG")
+        crops.append(buf.getvalue())
+
+        return {"measures": crops, "boundaries": boundaries, "confidence": confidence}
+    except Exception as e:
+        print(f"[split_row_into_measures] failed, returning row unsplit: {e}")
+        return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
+
+
 def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
     """
     Split a photographed/scanned sheet-music PAGE into per-system (per-row)

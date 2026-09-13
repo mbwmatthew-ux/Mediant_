@@ -3588,6 +3588,19 @@ def split_row_into_measures(row_bytes: bytes) -> dict:
     call site (see align_claude_to_measure_crops) to fall back to
     row-level handling, which is correct either way.
 
+    Once there ARE candidates, confidence is the PRODUCT of two independent
+    signals (see inline comments at the computation): the strong/weak
+    candidate ratio (how many candidates are close to certainly a full
+    barline), and spacing regularity (real barlines in a row of fixed time
+    signature are roughly evenly spaced; a coefficient-of-variation measure
+    over the segment widths). Multiplying rather than averaging means a
+    segmentation with plenty of "strong" columns but wildly irregular
+    spacing — e.g. dense chords/beams in a real photo coincidentally
+    spanning most of an unusually short staff height, which triggered a
+    21-way over-split at strong_ratio=0.65 on a 33px-tall real staff before
+    this signal was added — still reports low confidence instead of
+    clearing the fallback gate on a wrong segmentation.
+
     Returns {"measures": [bytes, ...], "boundaries": [x_position, ...],
     "confidence": float in [0,1]}. Never raises — undecodable bytes, or a
     crop where the staff itself can't be found, come back as a single
@@ -3655,8 +3668,46 @@ def split_row_into_measures(row_bytes: bytes) -> dict:
             return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
 
         boundaries = [int((g[0] + g[-1]) / 2) for g in groups]
+
+        # Signal 1: how many candidates are STRONG (near-certainly a full
+        # barline) rather than merely weak/ambiguous.
         strong_count = sum(1 for g in groups if any(col_density[x] > _BARLINE_STRONG_MIN for x in g))
-        confidence = strong_count / len(groups)
+        strong_ratio = strong_count / len(groups)
+
+        # Signal 2 (spec-required, was missing): spacing REGULARITY. Real
+        # barlines in a row of fixed time signature are roughly evenly
+        # spaced; a run of candidate columns triggered by dense notation
+        # rather than real barlines is not. Measured as the coefficient of
+        # variation (std/mean) of the segment widths BETWEEN candidates —
+        # including the row's leading and trailing segments, per the spec's
+        # own wording, not just the interior gaps, since a candidate sitting
+        # implausibly close to another one (a 5px sliver next to a 241px
+        # span) is exactly the irregularity this signal must catch.
+        # Squashed via 1/(1+cv) rather than a linear "1 - cv" so one wild
+        # outlier segment can't drive the score negative or clip it to 0
+        # regardless of how irregular the rest of the row is.
+        segment_widths = np.array(
+            [boundaries[0]] + [b - a for a, b in zip(boundaries, boundaries[1:])] + [w - boundaries[-1]],
+            dtype=np.float64)
+        mean_width = float(segment_widths.mean())
+        cv = float(segment_widths.std()) / mean_width if mean_width > 0 else float("inf")
+        regularity = 1.0 / (1.0 + cv)
+
+        # Combined by MULTIPLICATION, not averaging: the spec lists these as
+        # two independent things confidence is "computed from," and a
+        # segmentation is only trustworthy if BOTH hold — a high strong-
+        # candidate ratio with wildly irregular spacing (or vice versa)
+        # must not average out to a middling score that still clears a
+        # fixed gate. Measured: the clean synthetic 4-measure row scores
+        # strong_ratio=1.0, regularity=0.98 -> confidence 0.98 (clears the
+        # 0.6 gate, as it should for genuinely regular measures). The real
+        # problem photo's 21-boundary, 5px-241px-wide over-segmentation
+        # scores strong_ratio=0.65, regularity=0.51 -> confidence 0.33
+        # (correctly below the gate) — averaging these two would have
+        # landed at 0.58, just barely under 0.6 by luck rather than by
+        # design, which is why multiplication and not an average was
+        # chosen here.
+        confidence = strong_ratio * regularity
 
         crops = []
         prev_x = 0

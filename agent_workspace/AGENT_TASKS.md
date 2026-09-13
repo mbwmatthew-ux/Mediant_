@@ -22,7 +22,46 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
-_Nothing active._
+- [ ] **Reference-audio recognition pipeline (multi-signal redesign) — branch
+  `reference-audio-recognition`, 11 commits, 493/493 checks green, NOT merged
+  and NOT deployed.** Spec and plan:
+  `docs/superpowers/specs/2026-09-12-reference-audio-recognition-pipeline.md`
+  and the matching file under `plans/`. Replaces same-model-only Claude
+  cross-validation (which can agree with itself while being wrong) with
+  independent signals plus deterministic validation.
+
+  **Landed (8 of 15 plan tasks):** `compute_row_readability` + shared
+  `_binarize_ink`; `dewarp_row`; `split_row_into_measures` with a confidence
+  score; `validate_measure` + `INSTRUMENT_WRITTEN_RANGE` /
+  `POLYPHONIC_INSTRUMENTS`; `align_claude_to_measure_crops`;
+  `fuse_measure_confidence` + `_cross_source_measure_match`;
+  `resolve_measure_disagreement`; and the refusal gate in
+  `_generate_reference_audio` that declines to synthesize from an uncertain
+  read rather than playing notes it does not trust.
+
+  **Blocked, not started (7 tasks), each on something outside the code:**
+  - Task 5 ground truth — needs a verified external source (owner checks a
+    candidate against the physical page, a clean published copy of the Bocook
+    arrangement, or a proper scan). The cached parse CANNOT serve: it covers
+    m.20-35 not 12-30, and its content is the hallucination signature itself
+    (every measure a clean alternating scale run, m.21/m.27 and m.26/m.29
+    near-duplicates).
+  - Task 6 `oemer` GO/NO-GO — needs a Modal run; oemer's stated dependency is
+    the GPU onnxruntime package and this image is CPU-only.
+  - Task 7 `read_score_notes_oemer` — gated on Task 6's verdict.
+  - Task 11 wiring — calls `read_score_notes_oemer`, so gated on Task 7. **This
+    is why none of the landed code is reachable from production yet.**
+  - Task 13 upload quality-gate UI — needs a Modal deploy + a Supabase secret.
+  - Tasks 14-15 live ground-truth test and deploy — need restored Anthropic
+    credits and Task 5.
+
+  **Two things for the owner to decide before wiring (from the branch review):**
+  `read_score_notes_claude` is also the MAIN ANALYSIS reader, so unresolved
+  measures would flow into flags and coaching where nothing checks them — wire
+  fusion at the reference-audio seam only, or add a matching gate there. And
+  `POLYPHONIC_INSTRUMENTS` excludes strings per the spec, so one violin double
+  stop would refuse reference audio for an entire piece under the all-or-nothing
+  gate.
 
 ---
 

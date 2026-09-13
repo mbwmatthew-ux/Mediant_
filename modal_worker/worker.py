@@ -4499,6 +4499,141 @@ def _safe_measure_int(val) -> int | None:
     except (TypeError, ValueError): return None
 
 
+# Written (NOT concert/sounding) pitch range per instrument, generously
+# bounded — this validator exists to catch GROSS errors (a two-octave
+# misread), not to police advanced/altissimo technique, so ranges lean
+# wide rather than tight. Keyed the same lowercase-name, longest-substring-
+# match convention as INSTRUMENT_TRANSPOSE (see _instrument_lookup below).
+# An instrument absent from this table is NOT flagged for range — missing
+# data is not evidence of a problem (see validate_measure's docstring).
+INSTRUMENT_WRITTEN_RANGE = {
+    "piccolo": (62, 96), "flute": (60, 98), "oboe": (58, 93),
+    "english horn": (58, 93), "cor anglais": (58, 93),
+    "bassoon": (34, 75), "contrabassoon": (34, 70),
+    "clarinet (b♭)": (40, 96), "clarinet (bb)": (40, 96), "bb clarinet": (40, 96),
+    "clarinet": (40, 96), "clarinet (a)": (40, 96), "a clarinet": (40, 96),
+    "clarinet (e♭)": (40, 96), "clarinet (eb)": (40, 96), "eb clarinet": (40, 96),
+    "bass clarinet": (40, 94),
+    "soprano saxophone": (58, 90), "alto saxophone": (58, 90),
+    "tenor saxophone": (58, 90), "baritone saxophone": (58, 90),
+    "alto sax": (58, 90), "tenor sax": (58, 90),
+    "recorder": (60, 86),
+    "trumpet (b♭)": (54, 86), "trumpet (bb)": (54, 86), "trumpet": (54, 86),
+    "trumpet (c)": (54, 86), "cornet (b♭)": (54, 86), "cornet": (54, 86),
+    "flugelhorn": (54, 86),
+    "french horn (f)": (41, 84), "french horn": (41, 84), "horn": (41, 84),
+    "trombone": (28, 70), "bass trombone": (24, 65),
+    "euphonium": (28, 77), "tuba": (26, 65),
+    "violin": (43, 100), "viola": (48, 88), "cello": (36, 84),
+    "double bass": (28, 79),
+}
+
+# Instruments where more than one note at the same beat is EXPECTED, not
+# suspicious — a short, explicit set, not derived from any transposition
+# table (INSTRUMENT_TRANSPOSE encodes transposition amounts, not
+# polyphony, and conflating the two was a real mistake caught during this
+# spec's own review).
+POLYPHONIC_INSTRUMENTS = {
+    "piano", "organ", "harpsichord", "guitar", "classical guitar",
+    "electric guitar", "bass guitar", "harp", "ukulele", "mandolin", "banjo",
+}
+
+
+def _instrument_lookup(table: dict, instrument: str):
+    """Same normalized-string, longest-substring-match lookup convention
+    as transpose_for_instrument (worker.py:3982), factored out so
+    INSTRUMENT_WRITTEN_RANGE and POLYPHONIC_INSTRUMENTS resolve instrument
+    strings identically to how INSTRUMENT_TRANSPOSE already does."""
+    key = (instrument or "").strip().lower()
+    if not key:
+        return None
+    if key in table:
+        return table[key] if isinstance(table, dict) else True
+    hits = [(len(k), (table[k] if isinstance(table, dict) else True))
+            for k in table if k in key]
+    return max(hits)[1] if hits else None
+
+
+def validate_measure(measure: dict, instrument: str, time_sig: str,
+                      is_first_measure: bool = False, is_last_measure: bool = False) -> dict:
+    """
+    Deterministic, model-independent checks on one measure's musical
+    plausibility. Returns {"valid": bool, "issues": [str, ...]}.
+
+    ASYMMETRIC BY DESIGN: `invalid` is strong evidence something is
+    wrong. `valid` is NOT evidence something is right — a measure can
+    have the correct note count, duration, range, and voice count while
+    every individual pitch is wrong (e.g. printed C-D-E-F misread as
+    C-D-F-G passes every check here). Never treat this function's
+    `valid` result as sufficient justification for high confidence
+    anywhere in the pipeline — see fuse_measure_confidence.
+
+    is_first_measure / is_last_measure exempt a measure from the
+    duration-sum check, because a pickup (anacrusis) and a final measure
+    are both legitimately partial. These mean first/last **of the whole
+    piece**, NOT of a page or system — every system's last measure is an
+    ordinary interior measure of the piece and must still be validated.
+    Callers computing these from a per-page or per-row slice would
+    silently exempt most of the score.
+
+    Expects `measure["notes"]` entries in the SAME shape
+    read_score_notes_claude already normalizes to (pitch, is_rest, beat,
+    duration_beats), with duration_beats in NOTATED BEAT units (matching
+    Claude's own prompt convention) — NOT quarterLengths. A caller
+    passing music21/oemer-sourced measures MUST convert duration_beats
+    via quarter_lengths_per_beat(time_sig) first (see
+    read_score_notes_oemer in Task 7), or this function's duration-sum
+    check will be wrong for any non-simple time signature.
+    """
+    notes = measure.get("notes") or []
+    issues: list[str] = []
+    is_polyphonic_instrument = bool(_instrument_lookup(POLYPHONIC_INSTRUMENTS, instrument))
+
+    # Duration-sum validation is MONOPHONIC-ONLY. Summing every note's
+    # duration assumes the notes are sequential; on a polyphonic
+    # instrument they may be simultaneous, so a single perfectly valid
+    # 3-beat triad in 3/4 sums to 9 beats and would be flagged as
+    # "impossible" by a naive sum. Proper polyphonic checking needs
+    # voice-aware accounting (per-voice duration totals, or temporal
+    # coverage of the measure) — real work, deliberately out of scope for
+    # this iteration's budget. Skipping the check for polyphonic
+    # instruments is the honest option: it forfeits a signal rather than
+    # emitting a false one, and forfeiting a signal is safe here because
+    # `valid` is never treated as evidence of correctness anyway (see this
+    # function's asymmetry note above).
+    if not is_first_measure and not is_last_measure and not is_polyphonic_instrument:
+        total_beats = sum(float(n.get("duration_beats") or 0) for n in notes)
+        expected = beats_per_measure_from_time_sig(time_sig)
+        if abs(total_beats - expected) > 0.05:
+            issues.append(f"duration sum {total_beats:.2f} beats does not match "
+                           f"{expected} beats expected for {time_sig}")
+
+    written_range = _instrument_lookup(INSTRUMENT_WRITTEN_RANGE, instrument)
+    if written_range:
+        lo, hi = written_range
+        for n in notes:
+            if n.get("is_rest") or not n.get("pitch"):
+                continue
+            midi = midi_from_name(n["pitch"])
+            if midi is not None and not (lo <= midi <= hi):
+                issues.append(f"pitch {n['pitch']} (MIDI {midi}) is outside the "
+                               f"instrument's written range [{lo}, {hi}]")
+
+    if not is_polyphonic_instrument:
+        by_beat: dict[float, int] = {}
+        for n in notes:
+            if n.get("is_rest") or not n.get("pitch"):
+                continue
+            b = round(float(n.get("beat") or 0), 2)
+            by_beat[b] = by_beat.get(b, 0) + 1
+        simultaneous = [b for b, count in by_beat.items() if count > 1]
+        if simultaneous:
+            issues.append(f"unexpected polyphony for a monophonic instrument at "
+                           f"beat(s) {simultaneous}")
+
+    return {"valid": not issues, "issues": issues}
+
+
 # Sounding pitch relative to WRITTEN pitch, in semitones. Keep in sync with
 # src/lib/instruments.js — the form sends these exact names.
 INSTRUMENT_TRANSPOSE = {

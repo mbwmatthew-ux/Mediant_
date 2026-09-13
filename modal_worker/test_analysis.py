@@ -2166,6 +2166,85 @@ def test_split_row_into_measures_on_the_real_problem_photo():
             check(f"({label}) each measure crop decodes as an image", decodes, str(decodes))
 
 
+def test_validate_measure_duration_sum():
+    print("\n[90] validator catches a duration sum that doesn't match the time signature")
+    good = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+    ]}
+    bad = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+    ]}
+    result_good = w.validate_measure(good, "clarinet", "3/4")
+    result_bad = w.validate_measure(bad, "clarinet", "3/4")
+    check("a correct 3/4 measure (3 beats) is valid", result_good["valid"], str(result_good))
+    check("a short 3/4 measure (2 beats) is invalid", not result_bad["valid"], str(result_bad))
+    check("the issue mentions duration", any("duration" in i.lower() for i in result_bad["issues"]), str(result_bad))
+
+
+def test_validate_measure_skips_duration_check_on_pickup_and_final_measures():
+    print("\n[91] validator does not flag a legitimately partial first/last measure")
+    partial = {"number": 1, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+    ]}
+    result_first = w.validate_measure(partial, "clarinet", "3/4", is_first_measure=True)
+    result_last = w.validate_measure(partial, "clarinet", "3/4", is_last_measure=True)
+    check("a partial pickup measure is not flagged for duration", result_first["valid"], str(result_first))
+    check("a partial final measure is not flagged for duration", result_last["valid"], str(result_last))
+
+
+def test_validate_measure_written_pitch_range():
+    print("\n[92] validator catches a pitch outside the instrument's WRITTEN range, before any transposition")
+    too_low = {"number": 5, "notes": [
+        {"pitch": "C0", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    ok = {"number": 5, "notes": [
+        {"pitch": "G5", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result_bad = w.validate_measure(too_low, "clarinet (b♭)", "3/4")
+    result_ok = w.validate_measure(ok, "clarinet (b♭)", "3/4")
+    check("C0 is well outside a clarinet's written range", not result_bad["valid"], str(result_bad))
+    check("the issue mentions range", any("range" in i.lower() for i in result_bad["issues"]), str(result_bad))
+    check("G5 is a normal clarinet written pitch", result_ok["valid"], str(result_ok))
+
+
+def test_validate_measure_unexpected_polyphony():
+    print("\n[93] validator catches two simultaneous notes on a monophonic instrument")
+    polyphonic = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "E4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result = w.validate_measure(polyphonic, "clarinet", "3/4")
+    check("two notes at the same beat on a monophonic instrument is invalid",
+          not result["valid"], str(result))
+    check("the issue mentions polyphony/voice",
+          any("voice" in i.lower() or "polypho" in i.lower() for i in result["issues"]), str(result))
+
+
+def test_validate_measure_polyphony_allowed_for_piano():
+    print("\n[94] validator allows simultaneous notes for a naturally polyphonic instrument")
+    chord = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "E4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+        {"pitch": "G4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result = w.validate_measure(chord, "piano", "3/4")
+    check("a three-note chord on piano is not flagged as invalid polyphony",
+          result["valid"], str(result))
+
+
+def test_validate_measure_unknown_instrument_skips_range_check_gracefully():
+    print("\n[95] validator does not penalize an instrument with no tabulated range data")
+    measure = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0},
+    ]}
+    result = w.validate_measure(measure, "kazoo", "3/4")
+    check("an untabulated instrument is not flagged for range (no data is not evidence of a problem)",
+          result["valid"], str(result))
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3420,6 +3499,12 @@ def main():
               test_split_row_into_measures_low_confidence_on_ambiguous_input,
               test_split_row_into_measures_falls_back_on_undecodable_bytes,
               test_split_row_into_measures_on_the_real_problem_photo,
+              test_validate_measure_duration_sum,
+              test_validate_measure_skips_duration_check_on_pickup_and_final_measures,
+              test_validate_measure_written_pitch_range,
+              test_validate_measure_unexpected_polyphony,
+              test_validate_measure_polyphony_allowed_for_piano,
+              test_validate_measure_unknown_instrument_skips_range_check_gracefully,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,

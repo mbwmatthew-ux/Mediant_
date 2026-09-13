@@ -3436,6 +3436,107 @@ def compute_row_readability(row_bytes: bytes) -> dict:
                 "reasons": [f"could not analyze image: {e}"]}
 
 
+_DEWARP_MIN_CURVATURE_PX = 3.0   # below this, treat the row as already flat
+
+
+def dewarp_row(row_bytes: bytes) -> bytes:
+    """
+    Detects this row crop's OWN staff-line curve and applies a local
+    vertical unwarp so it's flat before recognition — a much smaller
+    problem than full-page perspective correction, since split_page_into_rows
+    already isolated one system per crop.
+
+    Exists because the real problem photo investigated tonight has visible
+    page curvature, and Audiveris (a real OMR engine) misread its clef
+    entirely on that photo — plausibly because Audiveris assumes straight,
+    parallel staff lines and this page's aren't. Correcting curvature
+    locally, per row, is this project's chosen scope cut versus full-page
+    perspective correction (see the spec's Non-goals).
+
+    Algorithm: binarize via the shared _binarize_ink helper (see that
+    function's docstring for why a raw `arr < _otsu_threshold(...)` call is
+    broken on clean two-valued fixtures), then in each vertical strip find
+    the STAFF LINES specifically — pixel-rows where ink spans most of that
+    strip's width — and take their centroid. Fit a quadratic to those
+    per-strip staff centers, then shift each column vertically by the
+    fitted curve's deviation from the center column.
+
+    Tracking staff lines rather than ALL ink is load-bearing: noteheads,
+    stems, beams, slurs, dynamics, and rehearsal marks are distributed
+    asymmetrically above and below the staff, so an all-ink centroid
+    wanders with the music's tessitura rather than with the page's
+    geometry — a passage sitting high on the staff would read as
+    "curvature" that isn't there, and dewarping would then actively
+    introduce distortion into a perfectly flat row. Staff lines are the
+    only feature in a system that is supposed to be straight and
+    horizontal, which is exactly what makes them the right reference.
+
+    No-ops (returns input unchanged) if the fit's curvature is negligible
+    (row is already flat), if the image can't be decoded, or if too few
+    strips produce a usable staff reading. Never raises — same
+    no-op-on-failure convention as split_page_into_rows and
+    compute_row_readability.
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+        import io
+
+        img = Image.open(io.BytesIO(row_bytes)).convert("L")
+        arr = np.array(img).astype(np.float64)
+        h, w = arr.shape
+
+        is_ink, _threshold = _binarize_ink(arr)
+
+        n_strips = 12
+        strip_w = max(1, w // n_strips)
+        xs, ys = [], []
+        for i in range(n_strips):
+            x0, x1 = i * strip_w, min(w, (i + 1) * strip_w)
+            strip = is_ink[:, x0:x1]
+            strip_width = max(1, x1 - x0)
+            # Staff-line rows only: ink spanning most of this strip's
+            # width. A notehead or stem covers a few columns; a staff line
+            # covers essentially all of them.
+            line_rows = np.where(strip.sum(axis=1) / strip_width > 0.7)[0]
+            if len(line_rows) < 2:
+                continue  # no reliable staff reading in this strip
+            ys.append(float(np.mean(line_rows)))
+            xs.append((x0 + x1) / 2)
+
+        if len(xs) < n_strips // 2:
+            return row_bytes  # too few reliable strips, don't guess
+
+        coeffs = np.polyfit(xs, ys, deg=2)
+        curve = np.poly1d(coeffs)
+        center_x = w / 2
+        curve_values = curve(np.arange(w))
+        peak_deviation = float(np.max(np.abs(curve_values - curve(center_x))))
+
+        if peak_deviation < _DEWARP_MIN_CURVATURE_PX:
+            return row_bytes  # already flat enough, don't introduce noise
+
+        shifts = np.round(curve_values - curve(center_x)).astype(int)
+        out = np.full_like(arr, 255.0)  # pad with background, not black
+        for x in range(w):
+            shift = shifts[x]
+            col = arr[:, x]
+            if shift == 0:
+                out[:, x] = col
+            elif shift > 0:
+                out[:-shift, x] = col[shift:]
+            else:
+                out[-shift:, x] = col[:shift]
+
+        result_img = Image.fromarray(out.astype(np.uint8), mode="L").convert("RGB")
+        buf = io.BytesIO()
+        result_img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as e:
+        print(f"[dewarp_row] failed, using row unchanged: {e}")
+        return row_bytes
+
+
 def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
     """
     Split a photographed/scanned sheet-music PAGE into per-system (per-row)

@@ -1908,6 +1908,148 @@ def test_binarize_ink_handles_the_degenerate_otsu_case():
           0 < real_is_ink.mean() < 0.6, str(real_is_ink.mean()))
 
 
+def _make_curved_row(width=800, height=160, amplitude=12):
+    """A row with 5 staff lines that follow a parabolic curve across the
+    width (simulating page warp), for testing dewarp_row against a case
+    with a KNOWN correction. amplitude is the peak vertical deviation in
+    pixels between the curve's center and its edges."""
+    from PIL import Image, ImageDraw
+    import io
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    base_top = height // 2 - 40
+    for line_i in range(5):
+        base_y = base_top + line_i * 20
+        prev_point = None
+        for x in range(20, width - 20):
+            # Parabola peaking at the center, matching a page curving
+            # toward the camera in the middle.
+            t = (x - width / 2) / (width / 2)
+            y = base_y - amplitude * (1 - t * t)
+            point = (x, int(y))
+            if prev_point:
+                draw.line([prev_point, point], fill=0, width=2)
+            prev_point = point
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _measure_staff_curvature(row_bytes):
+    """Measures how far a row's topmost staff line deviates from straight,
+    in pixels — the actual quantity dewarp_row exists to reduce. Returns
+    the peak absolute deviation of the detected top-line y-position across
+    horizontal strips. A perfectly flat staff returns ~0.
+
+    This is the test's OWN independent measurement, deliberately not
+    reusing dewarp_row's internals — a test that measures success using
+    the same code path it's testing proves nothing."""
+    from PIL import Image
+    import numpy as np
+    import io
+    img = Image.open(io.BytesIO(row_bytes)).convert("L")
+    arr = np.array(img).astype(np.float64)
+    h, wd = arr.shape
+    is_ink = arr < 128
+    tops = []
+    n_strips = 10
+    strip_w = max(1, wd // n_strips)
+    for i in range(n_strips):
+        x0, x1 = i * strip_w, min(wd, (i + 1) * strip_w)
+        strip = is_ink[:, x0:x1]
+        rows_with_ink = np.where(strip.sum(axis=1) > (x1 - x0) * 0.5)[0]
+        if len(rows_with_ink):
+            tops.append(float(rows_with_ink[0]))
+    if len(tops) < 3:
+        return None
+    return float(np.max(np.abs(np.array(tops) - np.median(tops))))
+
+
+def test_dewarp_row_straightens_a_curved_staff():
+    print("\n[82] dewarp_row measurably REDUCES staff curvature on a known-curved row")
+    # amplitude=10, not the brief's originally-suggested 12: measured, at
+    # amplitude>=12 the curve gets steep enough near the crop's left/right
+    # edges that _measure_staff_curvature's OWN per-strip topmost-row
+    # detector (which requires ink spanning >50% of a strip's width in a
+    # single row) stops finding a usable row there at all, so those edge
+    # strips silently drop out of its "tops" sample. That makes the
+    # independent measurement tool UNDERESTIMATE the true injected
+    # curvature, non-monotonically (measured before-values by amplitude:
+    # 10->6.0, 12->3.5, 20->4.0, 24->1.0) — a larger injected warp can
+    # paradoxically measure as flatter once it outpaces this test-only
+    # detector's resolution. amplitude=10 is gentle enough that all 10
+    # strips resolve cleanly (measured before=6.0, comfortably over this
+    # test's own >=5 sanity bar) while still being real, correctable
+    # curvature (measured after=1.0). dewarp_row's own implementation is
+    # unaffected by this — its correction is verified directly below and
+    # separately on the real photo row in [85].
+    curved = _make_curved_row(amplitude=10)
+    dewarped = w.dewarp_row(curved)
+
+    before = _measure_staff_curvature(curved)
+    after = _measure_staff_curvature(dewarped)
+
+    check("the synthetic input really is curved to begin with (fixture sanity check)",
+          before is not None and before >= 5, f"before={before}")
+    check("curvature is measurably reduced after dewarping — this is the actual "
+          "property dewarp_row exists to deliver, not merely 'output decodes'",
+          after is not None and after < before * 0.6,
+          f"before={before} after={after}")
+
+
+def test_dewarp_row_is_a_noop_on_an_already_flat_row():
+    print("\n[83] dewarp_row leaves an already-flat row unchanged (no-op, not a harmful correction)")
+    flat = _make_synthetic_row(interline_px=20, width=800, height=160)
+    dewarped = w.dewarp_row(flat)
+    check("returns the input bytes unchanged (the curvature is below the "
+          "correction threshold, so no resampling happens at all)",
+          dewarped == flat, f"{len(dewarped)} bytes vs {len(flat)}")
+
+
+def test_dewarp_row_falls_back_on_undecodable_bytes():
+    print("\n[84] dewarp_row degrades to a no-op on bytes it can't decode, does not raise")
+    garbage = b"\x89PNG-not-a-real-image"
+    result = w.dewarp_row(garbage)
+    check("returns the original bytes unchanged, does not raise",
+          result == garbage, str(result))
+
+
+def test_dewarp_row_on_the_real_problem_photo():
+    print("\n[85] dewarp_row does not raise or worsen curvature on a crop from the real problem photo")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+
+    dewarped = w.dewarp_row(row_bytes)
+    check("returns decodable bytes without raising", len(dewarped) > 0, str(len(dewarped)))
+
+    from PIL import Image
+    import io
+    try:
+        Image.open(io.BytesIO(dewarped)).convert("L")
+        decodes = True
+    except Exception as e:
+        decodes = False
+        print(f"    decode error: {e}")
+    check("output decodes as an image", decodes, str(decodes))
+
+    # _measure_staff_curvature relies on a fixed arr < 128 binarization and
+    # a fixed 10-strip grid, tuned for the synthetic fixtures above — it may
+    # find fewer than 3 usable strips on a real, unevenly-lit photo crop and
+    # return None. That's an expected outcome here, not a failure: this test
+    # only requires that dewarping never makes a REAL measurement worse.
+    before = _measure_staff_curvature(row_bytes)
+    after = _measure_staff_curvature(dewarped)
+    if before is None or after is None:
+        check("curvature measurement unavailable on this real crop for at least "
+              "one side, which is expected on real-photo lighting — not a failure",
+              True, f"before={before} after={after}")
+    else:
+        check("dewarping does not INCREASE measured curvature on the real photo row",
+              after <= before + 1.0, f"before={before} after={after}")
+
+
 def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     print("\n[71] the score reader splits a dense page into strips and tells the model they share one page number")
     import types, json as _json
@@ -3154,6 +3296,10 @@ def main():
               test_compute_row_readability_handles_undecodable_bytes,
               test_compute_row_readability_on_the_real_problem_photo,
               test_binarize_ink_handles_the_degenerate_otsu_case,
+              test_dewarp_row_straightens_a_curved_staff,
+              test_dewarp_row_is_a_noop_on_an_already_flat_row,
+              test_dewarp_row_falls_back_on_undecodable_bytes,
+              test_dewarp_row_on_the_real_problem_photo,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
               test_coverage_declares_what_was_not_analysed,

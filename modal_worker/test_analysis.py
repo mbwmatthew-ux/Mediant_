@@ -2453,6 +2453,80 @@ def test_fuse_measure_confidence_verdict_table():
           r8["needs_resolution"], str(r8))
 
 
+def test_fuse_measure_confidence_cross_source_pitch_spelling_i4():
+    print("\n[110] cross-source fusion treats Claude's 'Bb4' and OMR's music21 'B-4' as the SAME "
+          "note (I4) — comparing raw spelling instead of MIDI value made every flat note in every "
+          "flat key read as an OMR disagreement, dragging otherwise-correct clarinet measures down "
+          "to low confidence")
+    valid = {"valid": True, "issues": []}
+    claude_m = {"number": 12, "notes": [{"pitch": "Bb4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]}
+    oemer_m = {"number": 12, "notes": [{"pitch": "B-4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]}
+
+    r = w.fuse_measure_confidence("agree", claude_m, oemer_m, valid)
+    check("Claude's scientific-notation flat and music21's '-'-flat spelling fuse as a match "
+          "(high confidence, no resolution needed) once pitch is compared as MIDI rather than as text",
+          r["confidence"] == "high" and not r["needs_resolution"], str(r))
+
+
+def test_fuse_measure_confidence_cross_source_compound_time_duration_i4():
+    print("\n[111] cross-source fusion converts OMR's quarterLength duration into notated beats "
+          "before comparing, using the ACTUAL time signature (I4) — comparing the raw numbers made "
+          "every note in 6/8, 2/2 and 3/8 look like a duration disagreement")
+    valid = {"valid": True, "issues": []}
+    # Same pitch and beat on both sides; only the duration units differ. One notated
+    # beat in 6/8 is a dotted quarter = 1.5 quarterLengths (quarter_lengths_per_beat("6/8")).
+    claude_m = {"number": 20, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]}
+    oemer_m = {"number": 20, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 1.5}]}
+
+    r_correct = w.fuse_measure_confidence("agree", claude_m, oemer_m, valid, time_sig="6/8")
+    check("1 notated beat (Claude) matches 1.5 quarterLengths (OMR) once divided by the correct "
+          "6/8 quarter_lengths_per_beat — this is the SAME note, not a duration disagreement",
+          r_correct["confidence"] == "high" and not r_correct["needs_resolution"], str(r_correct))
+
+    # Negative control: passing the WRONG time signature must NOT coincidentally still match —
+    # this proves the match came from the unit conversion actually running, not from some other
+    # accident of the fixture (e.g. loose rounding).
+    r_wrong_sig = w.fuse_measure_confidence("agree", claude_m, oemer_m, valid, time_sig="4/4")
+    check("the same pair does NOT match under the wrong time signature (4/4's quarter_lengths_per_beat "
+          "of 1.0 leaves OMR's duration unconverted, so it stays 1.5 against Claude's 1.0) — proof the "
+          "match above is real unit normalization, not coincidence",
+          r_wrong_sig["needs_resolution"] and r_wrong_sig["confidence"] != "high", str(r_wrong_sig))
+
+
+def test_fuse_measure_confidence_missing_valid_key_fails_closed_i5():
+    print("\n[112] a validation dict with no 'valid' key at all is treated as NOT valid (I5) — "
+          "defaulting a missing verdict to True was the fail-open error one step further than "
+          "defaulting an explicit-but-wrong verdict to True")
+    claude_m = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    oemer_match = {"number": 12, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]}
+    validation_missing_key = {"issues": []}  # no "valid" key at all
+
+    r = w.fuse_measure_confidence("agree", claude_m, oemer_match, validation_missing_key)
+    check("a validation dict missing 'valid' entirely needs resolution, exactly like an explicit "
+          "valid=False — an absent verdict must never be read as a passing one",
+          r["needs_resolution"] and r["confidence"] != "high", str(r))
+
+
+def test_fuse_measure_confidence_two_empty_measures_never_fuse_high_i5():
+    print("\n[113] two note-less measures — an empty Claude read and an empty OMR read — must NEVER "
+          "fuse to high confidence (I5) — that was the only path on the branch that produced a false "
+          "'high' verdict: a measure with no notes at all, which would synthesize as silence in the "
+          "student's reference audio while still reporting maximum confidence")
+    valid = {"valid": True, "issues": []}
+    claude_empty = {"number": 12, "notes": []}
+    oemer_empty = {"number": 12, "notes": []}
+
+    r = w.fuse_measure_confidence("agree", claude_empty, oemer_empty, valid)
+    check("an empty OMR reading against an empty Claude reading is treated as OMR being UNAVAILABLE, "
+          "not as a match — so this fuses to medium (Claude-agrees-with-itself, OMR unavailable), "
+          "never to high",
+          r["confidence"] != "high", str(r))
+    check("...and specifically lands on the same outcome as OMR being None outright, confirming an "
+          "empty note-less measure is normalized to 'unavailable' rather than kept as a comparable "
+          "empty value",
+          r == w.fuse_measure_confidence("agree", claude_empty, None, valid), str(r))
+
+
 def test_resolve_measure_disagreement_sends_crop_and_candidates():
     print("\n[99] targeted disagreement resolution sends the measure crop and candidate list, not an open re-read")
     import types, json as _json
@@ -4040,6 +4114,10 @@ def main():
               test_align_claude_to_measure_crops_matches_on_equal_count,
               test_align_claude_to_measure_crops_refuses_on_count_mismatch,
               test_fuse_measure_confidence_verdict_table,
+              test_fuse_measure_confidence_cross_source_pitch_spelling_i4,
+              test_fuse_measure_confidence_cross_source_compound_time_duration_i4,
+              test_fuse_measure_confidence_missing_valid_key_fails_closed_i5,
+              test_fuse_measure_confidence_two_empty_measures_never_fuse_high_i5,
               test_resolve_measure_disagreement_sends_crop_and_candidates,
               test_resolve_measure_disagreement_marks_unresolved_on_failure,
               test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,

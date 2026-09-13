@@ -7437,6 +7437,58 @@ def compare_and_coach_claude(
         deduped_issues.append(iss)
     deduped_issues.sort(key=lambda x: (x["measure"], x["type"]))
 
+    # D1: suppress score-dependent findings for measures the score reader
+    # could not read reliably. Filtered HERE — immediately after dedup and
+    # BEFORE the continuous-issue merge below — not after it. Every entry is
+    # still single-measure at this point (aside from findings that were
+    # already given an explicit multi-measure range at the source, e.g. a
+    # dynamics wedge or the tempo facts carved out below), so dropping the
+    # unresolved measure's own entry breaks a would-be merge chain right
+    # there: the merge step's adjacency rule (`iss["measure"] ==
+    # (prev.get("measure_end") or prev["measure"]) + 1`) then naturally
+    # re-forms the trusted measures on either side into their own smaller
+    # spans, instead of one unresolved bar inside a run taking the ENTIRE
+    # merged span down with it. This also still runs strictly before the
+    # coaching call further down, so Claude is never shown prose about an
+    # unresolved measure and never asked to write about it.
+    #
+    # Three rules are carved out by `rule`, not by `type`: "overall",
+    # "tempo_vs_marking", and "tempo_vs_declared" are all stamped
+    # type="timing" (rhythm/timing's usual bucket), but none of them compares
+    # against the note transcription — they compare CREPE-fitted tempo
+    # against the score's tempo MARKING TEXT or the student's DECLARED
+    # practice tempo. D1 says tempo stability is audio-only and must stay
+    # unaffected by an unresolved measure; keying suppression on `type` alone
+    # would conflate these piece-wide tempo facts with per-measure
+    # rhythm/timing findings that genuinely do depend on the transcription,
+    # and one unrelated unresolved bar would kill all tempo coaching for the
+    # entire take (these are emitted with a `measure_end` spanning the whole
+    # played range from the start, not from merging, so reordering around
+    # the merge step above does not fix this on its own — both fixes are
+    # needed).
+    TEMPO_RULES_NEVER_SUPPRESSED = {"overall", "tempo_vs_marking", "tempo_vs_declared"}
+    if unresolved_measures and deduped_issues:
+        _kept, _score_dep_skipped = [], []
+        for iss in deduped_issues:
+            if iss.get("rule") in TEMPO_RULES_NEVER_SUPPRESSED:
+                _kept.append(iss)
+                continue
+            m_lo = iss["measure"]
+            m_hi = iss.get("measure_end") or m_lo
+            touches_unresolved = any(
+                m in unresolved_measures for m in range(m_lo, m_hi + 1)
+            )
+            if touches_unresolved and iss["type"] not in NON_SCORE_DEPENDENT_TYPES:
+                _score_dep_skipped.append(iss)
+            else:
+                _kept.append(iss)
+        if _score_dep_skipped:
+            print(f"[compare_and_coach_claude] suppressed {len(_score_dep_skipped)} "
+                  f"score-dependent issue(s) touching unresolved measure(s) "
+                  f"{sorted(unresolved_measures)}: "
+                  f"{[(s['measure'], s['type']) for s in _score_dep_skipped]}")
+        deduped_issues = _kept
+
     # ── Merge genuinely CONTINUOUS issues into one multi-measure flag ──────────
     # An issue running through m.24-27 is one problem, not four; reporting it four
     # times buries the fact that it is sustained and makes the student fix it
@@ -7506,35 +7558,6 @@ def compare_and_coach_claude(
         print(f"[compare_and_coach_claude] dropped {len(_dropped)} unconfirmed "
               f"(hedged) issue(s) — only reporting confirmed findings: "
               f"{[(d.get('measure'), d.get('type')) for d in _dropped[:8]]}")
-
-    # D1: suppress score-dependent findings for measures the score reader
-    # could not read reliably. Filtered HERE, before the coaching call below,
-    # so Claude never writes prose about a measure the system never actually
-    # read — dropping only at flag assembly would still burn the tokens and
-    # still risk the model referring to the unresolved measure in a
-    # neighboring issue's advice. A merged issue's full range (measure through
-    # measure_end) is checked, not just its start: a multi-measure span is one
-    # claim about several bars, and if any of them is unresolved the claim
-    # is not trustworthy as stated, so the whole flag is dropped rather than
-    # silently truncated to the bars we do trust.
-    if unresolved_measures and deduped_issues:
-        _kept, _score_dep_skipped = [], []
-        for iss in deduped_issues:
-            m_lo = iss["measure"]
-            m_hi = iss.get("measure_end") or m_lo
-            touches_unresolved = any(
-                m in unresolved_measures for m in range(m_lo, m_hi + 1)
-            )
-            if touches_unresolved and iss["type"] not in NON_SCORE_DEPENDENT_TYPES:
-                _score_dep_skipped.append(iss)
-            else:
-                _kept.append(iss)
-        if _score_dep_skipped:
-            print(f"[compare_and_coach_claude] suppressed {len(_score_dep_skipped)} "
-                  f"score-dependent issue(s) touching unresolved measure(s) "
-                  f"{sorted(unresolved_measures)}: "
-                  f"{[(s['measure'], s['type']) for s in _score_dep_skipped]}")
-        deduped_issues = _kept
 
     if not deduped_issues:
         return []
@@ -7822,10 +7845,9 @@ def assess_quality(
         caveats.append(
             f"The score reader could not reliably read {where} — independent reads "
             f"of the page disagreed, or {subj} failed a music-notation check, and a "
-            f"closer look still couldn't settle {obj}. Note, rhythm, timing, "
-            f"intonation, articulation, dynamics, and phrasing feedback for "
-            f"{where} was skipped rather than risk telling you something wrong "
-            f"about notes we never actually read.")
+            f"closer look still couldn't settle {obj}. Feedback that depends on the "
+            f"notes being read correctly was skipped for {where}, rather than risk "
+            f"telling you something wrong about notes we never actually read.")
 
     quality = {
         "trust": "high" if not reasons else "medium",

@@ -4229,6 +4229,98 @@ def test_crescendo_that_never_arrives_is_flagged():
           w.analyze_wedges(evs([-20, -22, -24, -26, -28, -30, -32, -34]), dim) == [])
 
 
+def test_global_tempo_findings_survive_an_unrelated_unresolved_measure():
+    print("\n[121] D1 fix (review finding 1): whole-take tempo facts (rule=overall / "
+          "tempo_vs_marking) are type='timing' like per-measure rhythm findings, but "
+          "they compare CREPE-fitted tempo against the score's marking text, never "
+          "against the note transcription — D1 says tempo stability is audio-only and "
+          "must be unaffected by an unresolved measure elsewhere in the piece. Keying "
+          "suppression on `type` alone used to kill ALL tempo coaching off one "
+          "unrelated unresolved bar; this locks in the `rule`-based carve-out")
+    # Same accelerando fixture as test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
+    # with one measure (8, unrelated to tempo) marked unresolved.
+    n_measures = 16
+    score = _timed_score("3/4", 3, 1.0, 3, n_measures=n_measures)
+    score["tempo_bpm"] = 60.0
+    for m in score["measures"]:
+        if m["number"] == 8:
+            m["unresolved"] = True
+    notes = [(m, n) for m in score["measures"] for n in m["notes"]]
+    total = len(notes)
+    evs = []
+    t = 0.0
+    for i, (m, note) in enumerate(notes):
+        frac = i / max(1, total - 1)
+        spb = 0.5 - 0.22 * frac
+        evs.append({"time_sec": t, "end_sec": t + spb,
+                    "pitches": [note["pitch"]], "confidence": 90,
+                    "cents_offset": 0, "cents_spread": 8})
+        t += spb
+    end_measure = score["measures"][-1]["number"]
+    al = w.dtw_align_to_score(evs, score, 1, 3, end_measure=end_measure)
+    acc = {}
+    for e in al:
+        m, tt = e["measure"], e["time_sec"]
+        r = acc.setdefault(m, {"start": tt, "end": tt})
+        r["start"], r["end"] = min(r["start"], tt), max(r["end"], tt)
+    items = sorted(acc.items())
+    spm = 3 * 0.5
+    ranges = []
+    for i, (m, r) in enumerate(items):
+        nxt = items[i + 1] if i + 1 < len(items) else None
+        end = (nxt[1]["start"] if nxt[0] == m + 1 else min(nxt[1]["start"], r["start"] + spm)) \
+            if nxt else max(r["end"] + spm / 3, r["start"] + spm)
+        ranges.append({"measure": m, "start": r["start"], "end": max(end, r["start"] + 0.25)})
+    flags = w.compare_and_coach_claude(
+        score=score, aligned=al, alignment_ranges=ranges, tempo={"bpm": 120},
+        piece_title="Test", composer="X", instrument="clarinet",
+        gemini_assessment=dict(EMPTY_GEMINI), anthropic_api_key="k",
+        beats_per_measure=3, start_measure=1, end_measure=end_measure,
+        dtw_verified=True,
+    )
+    ov = [f for f in flags if f.get("rule") == "overall"]
+    tm = [f for f in flags if f.get("rule") == "tempo_vs_marking"]
+    check("a whole-take tempo fact (overall / tempo_vs_marking) survives an "
+          "unrelated unresolved measure elsewhere in the piece",
+          len(ov) + len(tm) >= 1, str(flags))
+    check("ALL flags are not wiped out by the one unrelated unresolved measure "
+          "(the bug the reviewer's probe caught: 'ALL flags: []')",
+          len(flags) >= 1, str(flags))
+
+
+def test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it():
+    print("\n[122] D1 fix (review finding 2): suppression now runs BEFORE the "
+          "continuous-issue merge, so an unresolved measure in the middle of a run "
+          "of consecutive same-direction findings breaks the merge chain there and "
+          "the two trusted sides re-form into their own smaller spans, instead of "
+          "the whole merged run being deleted")
+    score = make_score()
+    for m in score["measures"]:
+        if m["number"] == 24:
+            m["unresolved"] = True
+    played, evs = make_performance(score)
+    aligned = w.dtw_align_to_score(evs, score, START, BEATS_PER_MEASURE, end_measure=END)
+    # Five CONSECUTIVE measures, same direction — would merge into one m.22-26
+    # span if none were unresolved (see test_spans_merge for the base behavior).
+    for e in aligned:
+        if e["measure"] in (22, 23, 24, 25, 26):
+            e["cents_offset"] = 33
+    flags = run_pipeline(score, aligned)
+
+    inton = sorted(
+        (f["measure"], f.get("measure_end") or f["measure"])
+        for f in flags if f["type"] == "intonation"
+    )
+    check("suppression trims the run into TWO spans, not zero flags",
+          len(inton) == 2, str(inton))
+    check("the trusted measures BEFORE the unresolved one form their own span (22-23)",
+          (22, 23) in inton, str(inton))
+    check("the trusted measures AFTER the unresolved one form their own span (25-26)",
+          (25, 26) in inton, str(inton))
+    check("the unresolved measure (24) itself is not the start or end of any surviving span",
+          all(24 not in (lo, hi) for lo, hi in inton), str(inton))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -4344,7 +4436,9 @@ def main():
               test_reference_audio_background_posts_human_readable_message_for_uncertain_reads,
               test_marked_and_declared_tempo_flags_both_survive_dedup,
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
-              test_crescendo_that_never_arrives_is_flagged):
+              test_crescendo_that_never_arrives_is_flagged,
+              test_global_tempo_findings_survive_an_unrelated_unresolved_measure,
+              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

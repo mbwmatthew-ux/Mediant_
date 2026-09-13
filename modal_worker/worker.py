@@ -3204,11 +3204,27 @@ _INTERLINE_GOOD_MIN = 18.0
 # 12 rows, an unguarded argmax-in-window search converges on lag 4
 # regardless of whether the row has real staff lines.
 _INTERLINE_MIN_LAG = 4
-# No interline of interest exceeds this; bounding the search avoids
-# autocorrelation's edge-of-window noise (few overlapping samples remain at
-# high lag) being mistaken for periodicity — measured: unbounded, the real
-# photo's rows with NO detectable staff lines returned lag 40-59 with
-# NEGATIVE correlation, i.e. noise, not signal.
+# Floor for the search window; bounding it avoids autocorrelation's
+# edge-of-window noise (few overlapping samples remain at high lag) being
+# mistaken for periodicity — measured: unbounded, the real photo's rows
+# with NO detectable staff lines returned lag 40-59 with NEGATIVE
+# correlation, i.e. noise, not signal.
+#
+# 40 was validated ONLY against rows 80-260px tall (this project's own
+# problem photo) and was wrongly presented as a universal ceiling — it is
+# actually a hard rejection of any interline above 40px, full stop. A
+# clean 600-DPI scan, or a tightly-framed phone shot of a single system,
+# routinely exceeds 40px interline; those rows measured a genuine,
+# accurately-detectable periodicity (e.g. peak_lag=42/48/60, correlation
+# well above _INTERLINE_MIN_CONFIDENCE) that this constant discarded
+# before the confidence gate ever saw it, producing "poor: no periodic
+# staff-line spacing detected" for the best photos this function will
+# ever see. The ceiling now SCALES with row height (see
+# _estimate_interline_px) instead of being a fixed cap — the
+# min-confidence/min-prominence gates above are what actually reject
+# noise (they still do, at any lag), not this ceiling; the ceiling's job
+# is only to bound the search, not to declare an interline "too large to
+# be real".
 _INTERLINE_MAX_LAG = 40
 # The autocorrelation must rebound by at least this much off its running
 # trough to count as a genuine period rather than numeric noise riding on
@@ -3261,41 +3277,60 @@ def _estimate_interline_px(row_ink_fraction):
     0.62-0.87) from its 7 unreadable ones (correlation <=0.23, when they
     rebound at all).
 
-    Returns (interline_px: float|None, confidence: float|None) —
-    confidence is the normalized autocorrelation value at the accepted
-    lag, carried only for diagnostics.
+    Returns (interline_px: float|None, confidence: float|None, reason:
+    str|None) — confidence is the normalized autocorrelation value at the
+    accepted lag, carried only for diagnostics. reason is only populated
+    on a None result, and distinguishes two genuinely different failures
+    (see _INTERLINE_MAX_LAG's comment): "search window exhausted" means
+    the scan never found even a CANDIDATE rebound before running out of
+    window — the true period may simply be longer than what was searched,
+    which is not the same claim as "this row has no periodic structure at
+    all" (the "no periodicity found" case, where a candidate rebound WAS
+    found and rejected as too weak/aliased). Reporting both as identically
+    "no periodic staff-line spacing detected" told a best-possible,
+    high-interline scan the same false thing it told genuine noise.
     """
     import numpy as np
     n = len(row_ink_fraction)
-    max_lag = min(_INTERLINE_MAX_LAG, n // 2)
+    # The ceiling scales with the row's own height instead of being a
+    # fixed cap (see _INTERLINE_MAX_LAG's comment) — a tall row can have a
+    # genuinely large interline, and the min-confidence/min-prominence
+    # gates below, not this ceiling, are what reject noise at any lag.
+    max_lag = min(max(_INTERLINE_MAX_LAG, n // 5), n // 2)
     if max_lag <= _INTERLINE_MIN_LAG:
-        return None, None
+        return None, None, "row too short to search for periodicity"
     profile = row_ink_fraction - row_ink_fraction.mean()
     if not np.any(profile):
-        return None, None
+        return None, None, "row has no ink-fraction variation at all"
     ac = np.correlate(profile, profile, mode="full")[n - 1:]
     if ac[0] <= 0:
-        return None, None
+        return None, None, "row has no ink-fraction variation at all"
     ac = ac / ac[0]
     trough = ac[0]
     lag = 1
+    saw_candidate = False
     while lag <= max_lag:
         if ac[lag] < trough:
             trough = ac[lag]
         elif ac[lag] - trough >= _INTERLINE_MIN_PROMINENCE:
             # Found a rebound off the running trough — walk forward to
             # the top of it.
+            saw_candidate = True
             peak_lag = lag
             while peak_lag + 1 <= max_lag and ac[peak_lag + 1] >= ac[peak_lag]:
                 peak_lag += 1
             if peak_lag >= _INTERLINE_MIN_LAG and ac[peak_lag] >= _INTERLINE_MIN_CONFIDENCE:
-                return float(peak_lag), float(ac[peak_lag])
+                return float(peak_lag), float(ac[peak_lag]), None
             # Rebound too close to the origin (aliasing) or too weak to
             # trust as real periodicity — keep scanning past it.
             trough = ac[peak_lag]
             lag = peak_lag
         lag += 1
-    return None, None
+    if saw_candidate:
+        return None, None, "no periodic staff-line spacing detected"
+    return None, None, (f"no autocorrelation rebound found within the "
+                         f"{max_lag}px search window — a longer period "
+                         f"cannot be ruled out")
 
 
 def _measure_line_thinness(row_ink_fraction):
@@ -3386,10 +3421,10 @@ def compute_row_readability(row_bytes: bytes) -> dict:
         is_ink, _threshold = _binarize_ink(arr)
         row_ink_fraction = is_ink.sum(axis=1) / w
 
-        interline_px, _confidence = _estimate_interline_px(row_ink_fraction)
+        interline_px, _confidence, why = _estimate_interline_px(row_ink_fraction)
         if interline_px is None:
             return {"interline_px": None, "sharpness": None, "quality": "poor",
-                    "reasons": ["no periodic staff-line spacing detected"]}
+                    "reasons": [why or "no periodic staff-line spacing detected"]}
 
         line_width = _measure_line_thinness(row_ink_fraction)
         sharpness = (1.0 / line_width) if line_width else None
@@ -3501,7 +3536,21 @@ def dewarp_row(row_bytes: bytes) -> bytes:
             line_rows = np.where(strip.sum(axis=1) / strip_width > 0.7)[0]
             if len(line_rows) < 2:
                 continue  # no reliable staff reading in this strip
-            ys.append(float(np.mean(line_rows)))
+            # Use the TOPMOST detected staff-line row, not the mean of all
+            # detected rows. The number of rows that clear the 0.7 bar in
+            # any given strip is unstable — measured on the real problem
+            # photo: 0, 6, 9, 9, 7, 15, 9, 8, 9, 8, 7, 0 detections across
+            # the 12 strips. Averaging that unstable SET tracks which rows
+            # happened to be detected in each strip, not where the staff
+            # actually sits — measured peak deviation via the mean was
+            # 0.50px (below _DEWARP_MIN_CURVATURE_PX, i.e. a no-op) on a
+            # photo with real, confirmed curvature. line_rows[0] is
+            # detection-COUNT-independent (the top edge of the topmost
+            # line is the same point in the strip regardless of how many
+            # rows below it also cleared the bar), and recovers the real
+            # curve: measured peak deviation 6.71px on the same photo,
+            # comfortably clearing the gate.
+            ys.append(float(line_rows[0]))
             xs.append((x0 + x1) / 2)
 
         if len(xs) < n_strips // 2:
@@ -4584,7 +4633,30 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
     via quarter_lengths_per_beat(time_sig) first (see
     read_score_notes_oemer in Task 7), or this function's duration-sum
     check will be wrong for any non-simple time signature.
+
+    Never raises. Every sibling in this file (compute_row_readability,
+    dewarp_row, split_row_into_measures, resolve_measure_disagreement)
+    wraps its body and degrades on failure; this function used to be the
+    one exception — a malformed field from an upstream model (e.g.
+    duration_beats reported as a word like "half" instead of a number)
+    raised ValueError straight out of validate_measure and, unguarded
+    inside a Task 11 per-measure loop, would take down the whole score
+    read over one bad measure (I6 in the branch review). Per the
+    asymmetry rule documented above, a check that could not run is
+    reported as `invalid`, never `valid` — the same "fail closed" logic
+    the asymmetry note already requires for a check that DID run and
+    found nothing wrong.
     """
+    try:
+        return _validate_measure_impl(measure, instrument, time_sig,
+                                       is_first_measure, is_last_measure)
+    except Exception as e:
+        print(f"[validate_measure] could not validate, reporting invalid: {e}")
+        return {"valid": False, "issues": [f"could not validate: {e}"]}
+
+
+def _validate_measure_impl(measure: dict, instrument: str, time_sig: str,
+                            is_first_measure: bool, is_last_measure: bool) -> dict:
     notes = measure.get("notes") or []
     issues: list[str] = []
     is_polyphonic_instrument = bool(_instrument_lookup(POLYPHONIC_INSTRUMENTS, instrument))
@@ -4604,8 +4676,29 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
     if not is_first_measure and not is_last_measure and not is_polyphonic_instrument:
         total_beats = sum(float(n.get("duration_beats") or 0) for n in notes)
         expected = beats_per_measure_from_time_sig(time_sig)
-        if abs(total_beats - expected) > 0.05:
-            issues.append(f"duration sum {total_beats:.2f} beats does not match "
+        # ONE-SIDED by design: only flag OVERSHOOT (total_beats > expected).
+        # The score-reading prompt (worker.py's read-score-notes prompt)
+        # explicitly instructs the model to "return written rests of a beat
+        # or longer" — sub-beat rests (an eighth or sixteenth rest) are
+        # therefore DELIBERATELY ABSENT from every measure Claude reports,
+        # by the prompt's own contract, not a recognition gap. A measure
+        # short by exactly a sub-beat rest's worth of beats (e.g. a
+        # quarter + eighth-rest + eighth + half in 4/4 sums to 3.5, not 4)
+        # is the EXPECTED, correct shape of that measure's data, not
+        # evidence of a misread. A two-sided check flagged every such
+        # measure `invalid`, which fed fuse_measure_confidence's
+        # `invalid always wins` rule and forced needs_resolution=True on
+        # perfectly good measures — in the worst case (mixed practice with
+        # short rests scattered throughout a piece) escalating to the
+        # whole-generation refusal gate in _generate_reference_audio.
+        # Overshoot has no such legitimate explanation — there is no
+        # prompt contract under which Claude is instructed to report MORE
+        # duration than the bar actually holds — so it stays a signal
+        # worth keeping: it still catches invented/duplicated notes.
+        # Do NOT change this back to a two-sided `abs(...)` check; that
+        # was tried and is exactly the bug this comment documents.
+        if total_beats - expected > 0.05:
+            issues.append(f"duration sum {total_beats:.2f} beats exceeds the "
                            f"{expected} beats expected for {time_sig}")
 
     written_range = _instrument_lookup(INSTRUMENT_WRITTEN_RANGE, instrument)
@@ -4652,8 +4745,69 @@ def align_claude_to_measure_crops(claude_row_measures: list[dict], crop_count: i
     return list(claude_row_measures)
 
 
+def _cross_source_measure_match(claude_measure: dict, oemer_measure: dict,
+                                 time_sig: str | None) -> bool:
+    """
+    Compares a Claude-sourced measure against an OMR (oemer)-sourced
+    measure for FUSION purposes only.
+
+    This is deliberately NOT `_measure_fingerprint` and must not be
+    merged into it — `_measure_fingerprint` exists to compare two
+    same-source Claude reads (see its own docstring; `read_score_notes_claude`
+    depends on that exact same-source behaviour and must keep working
+    unchanged). Reusing it verbatim across two INDEPENDENT sources was
+    the bug: Claude and oemer share neither a pitch-spelling nor a
+    duration-unit convention, so comparing their raw fingerprints
+    produces false mismatches on ordinary, correctly-read notation:
+
+      * Pitch spelling. Claude is prompted for scientific notation
+        ("Bb4"); parse_musicxml (which is what produces oemer's
+        measures) emits music21's `nameWithOctave` for the same note
+        ("B-4"). Comparing MIDI values via midi_from_name, rather than
+        the raw strings, sidesteps every such spelling difference — it
+        hit every flat note in every flat key otherwise (per
+        midi_from_name's own docstring, "most clarinet writing").
+      * Duration units. `parse_musicxml` reports `duration_beats` as a
+        music21 quarterLength (see its own worker.py:1497 comment);
+        Claude reports notated beats, per its own prompt. The two units
+        only coincide in simple time (4/4, 3/4, 2/4) — in 6/8, 2/2, 3/8
+        etc. every duration differs by quarter_lengths_per_beat(time_sig).
+        Dividing the OMR side's duration by that factor puts both sides
+        in the same unit before comparing.
+
+    An EMPTY note list on either side is NEVER treated as a match, even
+    against another empty list. Two same-source empty fingerprints are
+    legitimately equal (`_measure_fingerprint({}) == _measure_fingerprint
+    ({"notes": []})`), but here that would let an unread/empty OMR
+    candidate "corroborate" an empty Claude measure at high confidence —
+    a measure with no notes validating clean and playing as silence, the
+    only false-"high" path found in the branch's fail-open review (I5).
+    An empty measure is therefore only ever "unavailable", never a match.
+    """
+    claude_notes = claude_measure.get("notes") or []
+    oemer_notes = oemer_measure.get("notes") or []
+    if not claude_notes or not oemer_notes:
+        return False
+    qlpb = quarter_lengths_per_beat(time_sig) or 1.0
+
+    def _norm(notes, from_quarter_lengths):
+        out = []
+        for n in notes:
+            pitch = n.get("pitch")
+            midi = midi_from_name(pitch) if pitch else None
+            dur = float(n.get("duration_beats") or 0)
+            if from_quarter_lengths:
+                dur = dur / qlpb
+            out.append((midi, bool(n.get("is_rest")),
+                        round(float(n.get("beat") or 0), 2), round(dur, 2)))
+        return tuple(out)
+
+    return _norm(claude_notes, False) == _norm(oemer_notes, True)
+
+
 def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
-                             oemer_measure: dict | None, validation: dict) -> dict:
+                             oemer_measure: dict | None, validation: dict,
+                             time_sig: str | None = None) -> dict:
     """
     Combines three signals into one fusion outcome for a single measure.
 
@@ -4676,8 +4830,24 @@ def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
     on its own, sufficient for confidence; every acceptance path below
     also requires positive corroboration from at least two independent
     observations.
+
+    `time_sig` is keyword-with-default so existing call sites and tests
+    that only compare simple-time, already-matching-unit measures (where
+    quarter_lengths_per_beat is 1.0 either way) keep working unchanged;
+    pass it whenever the actual time signature is known, so compound/cut
+    time measures fuse correctly (see _cross_source_measure_match).
+
+    `oemer_measure` is treated as UNAVAILABLE (same as `None`) whenever
+    it is falsy or carries no notes — an empty OMR reading is an absent
+    observation, not a "measure with zero notes" match against anything,
+    including another empty measure (see _cross_source_measure_match's
+    docstring for the false-"high" path this closes, I5 in the branch
+    review).
     """
-    if not validation.get("valid", True):
+    if not oemer_measure or not oemer_measure.get("notes"):
+        oemer_measure = None
+
+    if not validation.get("valid", False):
         return {"confidence": "low", "needs_resolution": True,
                 "reasons": ["validator invalid: " + "; ".join(validation.get("issues", []))]}
 
@@ -4691,7 +4861,7 @@ def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
                     "reasons": ["only one Claude read succeeded and no OMR reading is "
                                 "available — the measure has exactly one uncorroborated "
                                 "observation behind it"]}
-        if _measure_fingerprint(claude_measure) == _measure_fingerprint(oemer_measure):
+        if _cross_source_measure_match(claude_measure, oemer_measure, time_sig):
             return {"confidence": "medium", "needs_resolution": False,
                     "reasons": ["one Claude read, independently corroborated by OMR"]}
         return {"confidence": "low", "needs_resolution": True,
@@ -4702,7 +4872,7 @@ def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
                 "reasons": ["Claude agrees with itself, OMR unavailable for this measure, "
                             "validator passed"]}
 
-    oemer_matches = _measure_fingerprint(claude_measure) == _measure_fingerprint(oemer_measure)
+    oemer_matches = _cross_source_measure_match(claude_measure, oemer_measure, time_sig)
     if oemer_matches:
         return {"confidence": "high", "needs_resolution": False,
                 "reasons": ["Claude agrees with itself, OMR independently matches, validator passed"]}
@@ -8171,10 +8341,23 @@ def _generate_reference_audio(body: dict) -> dict:
     # than authoritative-sounding wrong notes. Whole-generation refusal
     # rather than partial audio is deliberate — see this task's design
     # note in the plan.
-    unresolved = [m.get("number") for m in score.get("measures", []) if m.get("unresolved")]
-    if unresolved or score.get("unresolved_measure_count"):
+    # Fall back to the measure's POSITION (1-based) when it has no printed
+    # "number" — a caller filtering on m.get("number") alone would surface
+    # a bare `null` in unresolved_measures for that entry, which is not
+    # actionable for anyone reading the error (Minor finding, branch review).
+    unresolved = [m.get("number") if m.get("number") is not None else i + 1
+                  for i, m in enumerate(score.get("measures", [])) if m.get("unresolved")]
+    unresolved_measure_count = score.get("unresolved_measure_count") or 0
+    if unresolved or unresolved_measure_count:
+        # Log the count FIELD even when the per-measure list is empty —
+        # the gate also fires on unresolved_measure_count alone (a
+        # row-level OMR corroboration path that doesn't populate individual
+        # measure numbers), and logging only len(unresolved) there printed
+        # "0 unresolved measure(s): []", which reads as a bug during triage
+        # (Minor finding, branch review).
         print(f"[_generate_reference_audio] refusing to synthesize — "
-              f"{len(unresolved)} unresolved measure(s): {unresolved[:20]}")
+              f"{len(unresolved)} unresolved measure(s): {unresolved[:20]} "
+              f"(unresolved_measure_count={unresolved_measure_count})")
         return {
             "error": "score_read_uncertain",
             "message": ("Some measures on this page could not be read reliably, so "

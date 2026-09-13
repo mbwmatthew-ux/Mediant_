@@ -1848,6 +1848,22 @@ def test_compute_row_readability_flags_a_blurry_but_high_resolution_row():
           r_blurry["quality"] != "good", str(r_blurry))
 
 
+def test_compute_row_readability_rates_a_high_interline_row_as_good():
+    print("\n[108] readability check rates a clean, HIGH-interline row as good, not poor "
+          "(I2 in the branch review: _INTERLINE_MAX_LAG was a hard 40px ceiling that "
+          "rejected any row whose true interline exceeded it, regardless of how clean the "
+          "photo actually was — a 600-DPI scan or a tight single-system phone shot can "
+          "easily land above 40px)")
+    for interline in (42, 48, 60):
+        row_bytes = _make_synthetic_row(interline_px=interline, width=1200, height=interline * 8)
+        result = w.compute_row_readability(row_bytes)
+        check(f"interline={interline}px is measured correctly, not lost to the search ceiling",
+              result["interline_px"] is not None and abs(result["interline_px"] - interline) <= 1,
+              str(result))
+        check(f"interline={interline}px is rated good on an otherwise-clean sharp row",
+              result["quality"] == "good", str(result))
+
+
 def test_compute_row_readability_handles_undecodable_bytes():
     print("\n[79] readability check degrades to poor/unknown on bytes it can't decode, does not raise")
     result = w.compute_row_readability(b"\x89PNG-not-a-real-image")
@@ -1965,6 +1981,57 @@ def _measure_staff_curvature(row_bytes):
     return float(np.max(np.abs(np.array(tops) - np.median(tops))))
 
 
+def _measure_staff_curvature_via_staff_lines(row_bytes, n_strips=12):
+    """A SECOND, independent curvature measurement, specifically for the
+    real problem photo (I1 in the branch review): _measure_staff_curvature
+    above uses a fixed arr<128 threshold and counts ANY ink (not just staff
+    lines) as the "top" of each strip. On the real photo that is
+    contaminated by non-staff content sitting above the staff in a couple
+    of strips (measured: strips of "top" position [38,37,37,36,28,20,36,40]
+    — the 28/20 outliers are not the staff at all), which mostly cancels
+    out any real curvature signal instead of revealing it (measured
+    before=16.5, after=17.0 on that flawed measurement — i.e. it looks flat
+    either way, proving nothing about dewarp_row's actual effect).
+
+    This measures the same quantity dewarp_row itself targets — the
+    topmost STAFF-LINE row per vertical strip, found via the shared
+    _binarize_ink helper (a generic, independently-tested binarization
+    primitive used throughout this file, not internal to dewarp_row) plus
+    the "ink spans >70% of the strip's width" staff-line test — then fits
+    a degree-2 polynomial and reports peak deviation from the fitted curve
+    at the center column. This is NOT dewarp_row's own curve-fitting code
+    path; it is an independent measurement using the same domain fact
+    (staff lines, not arbitrary ink, are what indicates page curvature).
+
+    Returns None if fewer than 3 strips produce a usable staff reading.
+    """
+    from PIL import Image
+    import numpy as np
+    import io
+    img = Image.open(io.BytesIO(row_bytes)).convert("L")
+    arr = np.array(img).astype(np.float64)
+    h, wd = arr.shape
+    is_ink, _ = w._binarize_ink(arr)
+    strip_w = max(1, wd // n_strips)
+    xs, ys = [], []
+    for i in range(n_strips):
+        x0, x1 = i * strip_w, min(wd, (i + 1) * strip_w)
+        strip = is_ink[:, x0:x1]
+        strip_width = max(1, x1 - x0)
+        line_rows = np.where(strip.sum(axis=1) / strip_width > 0.7)[0]
+        if len(line_rows) < 2:
+            continue
+        xs.append((x0 + x1) / 2)
+        ys.append(float(line_rows[0]))
+    if len(xs) < 3:
+        return None
+    coeffs = np.polyfit(xs, ys, deg=2)
+    curve = np.poly1d(coeffs)
+    center_x = wd / 2
+    curve_values = curve(np.arange(wd))
+    return float(np.max(np.abs(curve_values - curve(center_x))))
+
+
 def test_dewarp_row_straightens_a_curved_staff():
     print("\n[82] dewarp_row measurably REDUCES staff curvature on a known-curved row")
     # amplitude=10, not the brief's originally-suggested 12: measured, at
@@ -2048,6 +2115,28 @@ def test_dewarp_row_on_the_real_problem_photo():
     else:
         check("dewarping does not INCREASE measured curvature on the real photo row",
               after <= before + 1.0, f"before={before} after={after}")
+
+    # The check above alone is satisfied by a pure no-op (dewarp_row exists
+    # to REDUCE curvature, not merely avoid worsening it — I1 in the branch
+    # review). _measure_staff_curvature's all-ink measurement doesn't
+    # reliably show that on this specific photo (see
+    # _measure_staff_curvature_via_staff_lines's docstring for why: it's
+    # contaminated by non-staff ink and reads before=16.5/after=17.0,
+    # flat either way). Measuring the topmost STAFF LINE specifically
+    # (matching what dewarp_row itself targets, per its own docstring on
+    # why staff lines and not all ink are the right reference) does show
+    # the real, confirmed curvature and its correction.
+    strict_before = _measure_staff_curvature_via_staff_lines(row_bytes)
+    strict_after = _measure_staff_curvature_via_staff_lines(dewarped)
+    check("a staff-line-specific measurement finds real curvature in the "
+          "input row to begin with (fixture/measurement sanity check)",
+          strict_before is not None and strict_before >= 5,
+          f"strict_before={strict_before}")
+    check("dewarping MEASURABLY REDUCES staff curvature on the real problem "
+          "photo — the function's entire purpose, not just 'did not raise'",
+          strict_after is not None and strict_before is not None
+          and strict_after < strict_before * 0.5,
+          f"strict_before={strict_before} strict_after={strict_after}")
 
 
 def _make_row_with_barlines(measure_count=4, width=800, height=140):
@@ -2167,7 +2256,17 @@ def test_split_row_into_measures_on_the_real_problem_photo():
 
 
 def test_validate_measure_duration_sum():
-    print("\n[90] validator catches a duration sum that doesn't match the time signature")
+    print("\n[90] validator catches a duration sum that OVERSHOOTS the time signature")
+    # I3 (branch review): the duration-sum check is ONE-SIDED — only
+    # overshoot is flagged. This test used to assert that an UNDERSHOOT
+    # (2 of 3 beats present, no other note/rest) was invalid; that is no
+    # longer correct on purpose (see test_validate_measure_duration_sum_
+    # undershoot_is_not_flagged below, and validate_measure's inline
+    # comment) — the score-reading prompt instructs Claude to omit
+    # sub-beat rests, so an undershoot measure is the prompt's own
+    # EXPECTED shape, not evidence of a misread. This test now covers the
+    # signal that survives: an OVERSHOOT, which has no such legitimate
+    # explanation and still catches invented/duplicated notes.
     good = {"number": 5, "notes": [
         {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
         {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
@@ -2176,12 +2275,40 @@ def test_validate_measure_duration_sum():
     bad = {"number": 5, "notes": [
         {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
         {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+        {"pitch": "F4", "is_rest": False, "beat": 4.0, "duration_beats": 1.0},
     ]}
     result_good = w.validate_measure(good, "clarinet", "3/4")
     result_bad = w.validate_measure(bad, "clarinet", "3/4")
     check("a correct 3/4 measure (3 beats) is valid", result_good["valid"], str(result_good))
-    check("a short 3/4 measure (2 beats) is invalid", not result_bad["valid"], str(result_bad))
+    check("an overlong 3/4 measure (4 beats) is invalid", not result_bad["valid"], str(result_bad))
     check("the issue mentions duration", any("duration" in i.lower() for i in result_bad["issues"]), str(result_bad))
+
+
+def test_validate_measure_duration_sum_undershoot_is_not_flagged():
+    print("\n[107] validator does NOT flag an undershoot duration sum — the score-reading prompt "
+          "deliberately omits sub-beat rests, so a short bar is the expected shape, not a misread "
+          "(I3 in the branch review: the two-sided check contradicted the prompt's own contract)")
+    # A textbook 4/4 bar as Claude would actually report it: quarter,
+    # (eighth rest omitted per the prompt's own instruction to skip
+    # sub-beat rests), eighth, half -> 1 + 0.5 + 2 = 3.5 of 4 beats.
+    short_by_a_sub_beat_rest = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 1.5, "duration_beats": 0.5},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 2.0},
+    ]}
+    overlong = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+        {"pitch": "F4", "is_rest": False, "beat": 4.0, "duration_beats": 1.5},
+    ]}
+    result_short = w.validate_measure(short_by_a_sub_beat_rest, "clarinet", "4/4")
+    result_over = w.validate_measure(overlong, "clarinet", "4/4")
+    check("a bar short by a sub-beat rest (3.5 of 4 beats) is VALID, not flagged",
+          result_short["valid"], str(result_short))
+    check("an overlong bar (4.5 of 4 beats) is still INVALID",
+          not result_over["valid"], str(result_over))
 
 
 def test_validate_measure_skips_duration_check_on_pickup_and_final_measures():
@@ -2243,6 +2370,28 @@ def test_validate_measure_unknown_instrument_skips_range_check_gracefully():
     result = w.validate_measure(measure, "kazoo", "3/4")
     check("an untabulated instrument is not flagged for range (no data is not evidence of a problem)",
           result["valid"], str(result))
+
+
+def test_validate_measure_degrades_to_invalid_on_a_malformed_note():
+    print("\n[109] validator degrades to invalid rather than raising on a malformed note "
+          "(I6 in the branch review: every sibling function in this file wraps its body "
+          "and degrades on failure; validate_measure raising unguarded would take down a "
+          "whole Task 11 per-measure loop over one bad upstream field)")
+    malformed = {"number": 5, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": "half"},
+    ]}
+    try:
+        result = w.validate_measure(malformed, "clarinet", "4/4")
+        raised = False
+    except Exception as e:
+        result = None
+        raised = True
+    check("does not raise on a malformed duration_beats field", not raised, str(result))
+    check("fails CLOSED to invalid, per the asymmetry rule — not valid, which would be "
+          "the same fail-open mistake one step further",
+          result is not None and result["valid"] is False, str(result))
+    check("the issue explains a validation failure occurred",
+          result is not None and result["issues"], str(result))
 
 
 def test_align_claude_to_measure_crops_matches_on_equal_count():

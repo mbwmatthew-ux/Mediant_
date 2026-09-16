@@ -183,6 +183,10 @@
   border: 1px solid var(--border); border-radius: 10px;
   display: flex; gap: 10px; padding: 8px 10px;
 }
+.pageThumb {
+  border: 1px solid var(--border); border-radius: 6px; flex-shrink: 0;
+  height: 34px; width: 34px; object-fit: cover;
+}
 .pageNum {
   align-items: center; background: var(--text); border-radius: 50%; color: var(--bg);
   display: flex; flex-shrink: 0; font-size: 0.7rem; font-weight: 700;
@@ -205,6 +209,54 @@
   font-size: 0.8rem;
   color: var(--text-muted);
   line-height: 1.45;
+}
+
+/* Non-blocking photo-quality warning. Deliberately NOT the same red as
+   .errorBanner — a "poor" quality check is advisory (the user can proceed
+   anyway), not a failure, so it borrows the same accent tone used for
+   active/CTA states elsewhere in this modal. */
+.qualityWarning {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-border, rgba(233,112,39,0.38));
+  border-radius: 10px;
+  background: var(--coral-soft, rgba(233,112,39,0.12));
+}
+.qualityWarningIcon {
+  flex-shrink: 0;
+  color: var(--accent);
+  margin-top: 1px;
+}
+.qualityWarningText {
+  font-size: 0.84rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+.qualityWarningActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.qualityWarningProceed {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.qualityWarningProceed:hover { background: #d9743f; }
+.qualityWarningDismiss {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-soft);
+  font-size: 0.8rem;
 }
 
 /* ── Footer ── */

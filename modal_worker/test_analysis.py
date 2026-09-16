@@ -1884,6 +1884,115 @@ def test_compute_row_readability_on_the_real_problem_photo():
           result["quality"] in ("good", "marginal", "poor"), str(result))
 
 
+def test_check_score_quality_rejects_http_scheme():
+    print("\n[126] _check_score_quality SSRF allowlist rejects a plain http:// Supabase URL")
+    result = w._check_score_quality(
+        {"score_url": "http://project.supabase.co/storage/v1/object/sheet-music/x.png"})
+    check("rejected for scheme, not attempted", "error" in result, str(result))
+
+
+def test_check_score_quality_rejects_cloud_metadata_host():
+    print("\n[127] _check_score_quality SSRF allowlist rejects a cloud-metadata address")
+    result = w._check_score_quality(
+        {"score_url": "http://169.254.169.254/latest/meta-data/"})
+    check("rejected, not fetched", "error" in result, str(result))
+
+
+def test_check_score_quality_rejects_suffix_spoof_host():
+    print("\n[128] _check_score_quality SSRF allowlist rejects a suffix-spoofed host "
+          "(evil-supabase.co.attacker.test, which naive suffix matching on 'supabase.co' "
+          "without an endswith('.supabase.co') anchor would wrongly accept)")
+    result = w._check_score_quality(
+        {"score_url": "https://evil-supabase.co.attacker.test/storage/v1/object/x"})
+    check("rejected, not fetched", "error" in result, str(result))
+
+
+def test_check_score_quality_rejects_non_storage_path():
+    print("\n[129] _check_score_quality SSRF allowlist rejects a non-storage path on a "
+          "legitimate Supabase host")
+    result = w._check_score_quality(
+        {"score_url": "https://project.supabase.co/rest/v1/some-table"})
+    check("rejected, not fetched", "error" in result, str(result))
+
+
+def test_check_score_quality_accepts_genuine_supabase_storage_url():
+    print("\n[130] _check_score_quality accepts a genuine https Supabase storage object URL, "
+          "fetches with follow_redirects=False, and reports readability")
+    row_bytes = _make_synthetic_row(interline_px=24)
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+        content = row_bytes
+        def raise_for_status(self): pass
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw):
+            captured["url"] = url
+            captured["kw"] = kw
+            return _FakeResp()
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _orig_split = w.split_page_into_rows
+    _httpx.Client = _FakeHttpClient
+    # split_page_into_rows's own row-segmentation behavior is exercised by
+    # its dedicated tests above; isolate THIS test to _check_score_quality's
+    # own fetch/allowlist/aggregation logic by feeding it one known-good row.
+    w.split_page_into_rows = lambda page_bytes: [row_bytes]
+    try:
+        result = w._check_score_quality(
+            {"score_url": "https://project.supabase.co/storage/v1/object/sheet-music/x.png"})
+    finally:
+        _httpx.Client = _orig_httpx
+        w.split_page_into_rows = _orig_split
+
+    check("no error, genuine URL is accepted", "error" not in result, str(result))
+    check("fetch used follow_redirects=False (a 302 on an allowed host must not be "
+          "silently followed past the allowlist check)",
+          captured.get("kw", {}).get("follow_redirects") is False, str(captured.get("kw")))
+    check("reports good quality for a clean 24px-interline synthetic row",
+          result.get("quality") == "good", str(result))
+
+
+def test_check_score_quality_aggregates_worst_row():
+    print("\n[131] _check_score_quality aggregates by the WORST row, not the best — a single "
+          "sharp system must not vouch for a page whose other systems are unreadable")
+    good_row = _make_synthetic_row(interline_px=24)
+    poor_row = _make_synthetic_row(interline_px=8, width=400, height=80)
+
+    class _FakeResp:
+        status_code = 200
+        content = b"whole-page-bytes-irrelevant-since-split-is-mocked"
+        def raise_for_status(self): pass
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): return _FakeResp()
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _orig_split = w.split_page_into_rows
+    _httpx.Client = _FakeHttpClient
+    w.split_page_into_rows = lambda page_bytes: [good_row, poor_row]
+    try:
+        result = w._check_score_quality(
+            {"score_url": "https://project.supabase.co/storage/v1/object/sheet-music/x.png"})
+    finally:
+        _httpx.Client = _orig_httpx
+        w.split_page_into_rows = _orig_split
+
+    check("overall quality is poor because of the WORST row, despite one good row",
+          result.get("quality") == "poor", str(result))
+    check("one poor row is counted", result.get("poor_rows") == 1, str(result))
+    check("two rows were checked", result.get("rows_checked") == 2, str(result))
+
+
 def test_binarize_ink_handles_the_degenerate_otsu_case():
     print("\n[81] _binarize_ink correctly finds ink on both a clean two-valued image and a real photo row")
     from PIL import Image, ImageDraw
@@ -4564,6 +4673,12 @@ def main():
               test_compute_row_readability_flags_a_blurry_but_high_resolution_row,
               test_compute_row_readability_handles_undecodable_bytes,
               test_compute_row_readability_on_the_real_problem_photo,
+              test_check_score_quality_rejects_http_scheme,
+              test_check_score_quality_rejects_cloud_metadata_host,
+              test_check_score_quality_rejects_suffix_spoof_host,
+              test_check_score_quality_rejects_non_storage_path,
+              test_check_score_quality_accepts_genuine_supabase_storage_url,
+              test_check_score_quality_aggregates_worst_row,
               test_binarize_ink_handles_the_degenerate_otsu_case,
               test_dewarp_row_straightens_a_curved_staff,
               test_dewarp_row_is_a_noop_on_an_already_flat_row,

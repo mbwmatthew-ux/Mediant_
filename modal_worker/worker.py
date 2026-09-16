@@ -8873,6 +8873,83 @@ def generate_reference_audio_async(body: dict) -> dict:
     return {"queued": True, "take_id": take_id}
 
 
+def _check_score_quality(body: dict) -> dict:
+    """Downloads one score image and reports its readability. Plain,
+    undecorated for the same test-harness-mocking reason every other
+    _prefixed function in this file is — see generate_reference_audio_endpoint's
+    original docstring for the full explanation."""
+    import httpx
+    from urllib.parse import urlparse
+
+    score_url = body.get("score_url")
+    if not score_url:
+        return {"error": "score_url is required"}
+
+    # This endpoint is a PUBLIC, unauthenticated Modal URL that fetches a
+    # caller-supplied URL, which makes it a server-side request forgery
+    # primitive unless the destination is constrained: anyone who finds
+    # the URL could otherwise point it at cloud-metadata services
+    # (169.254.169.254), internal hosts, or arbitrary third parties and
+    # learn from the response whether they resolved. Unlike this app's
+    # other Modal endpoints, it needs no API key to do real work, so
+    # "useless without your own credentials" does not protect it.
+    #
+    # The constraint MUST be server-controlled. An earlier draft of this
+    # plan took the expected host from the request body, which is
+    # self-defeating — an attacker simply sends a matching pair of
+    # score_url and expected-host values and the check passes. The
+    # allowlist below lives in this deployed function instead, where a
+    # caller cannot influence it.
+    parsed_url = urlparse(score_url)
+    host = (parsed_url.hostname or "").lower()
+    if (parsed_url.scheme != "https"
+            or not (host == "supabase.co" or host.endswith(".supabase.co"))
+            or not parsed_url.path.startswith("/storage/v1/object/")):
+        print(f"[_check_score_quality] rejected non-storage URL host={host!r}")
+        return {"error": "score_url must be an https Supabase storage object URL"}
+
+    try:
+        # follow_redirects=False matters as much as the allowlist: without
+        # it, an allowed host that 302s elsewhere would walk the fetch
+        # straight past the check above.
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(score_url, follow_redirects=False)
+            resp.raise_for_status()
+            image_bytes = resp.content
+    except Exception as e:
+        return {"error": f"could not download image: {e}"}
+
+    rows = split_page_into_rows(image_bytes)
+    if not rows:
+        return {"quality": "poor", "interline_px": None}
+
+    results = [compute_row_readability(r) for r in rows]
+
+    # Aggregate by the WORST row, not the best. Reference audio is
+    # generated from the WHOLE page — one unreadable system means wrong
+    # notes for that whole section, and picking the best row would let a
+    # single sharp system vouch for a page whose other eleven are mush.
+    # The user needs to know the page has a problem, not that some of it
+    # happens to be fine.
+    qualities = [r["quality"] for r in results]
+    overall = ("poor" if "poor" in qualities
+               else "marginal" if "marginal" in qualities
+               else "good")
+    worst = min(results, key=lambda r: r["interline_px"] or 0)
+    return {"quality": overall, "interline_px": worst["interline_px"],
+            "rows_checked": len(results),
+            "poor_rows": sum(1 for q in qualities if q == "poor")}
+
+
+@app.function(image=image, timeout=30)
+@modal.fastapi_endpoint(method="POST", docs=True)
+def check_score_quality(body: dict) -> dict:
+    """Fast, synchronous quality check for the upload-flow UI. No vision
+    model call — pure image processing, sized to run well within a
+    normal HTTP request/response cycle."""
+    return _check_score_quality(body)
+
+
 @app.local_entrypoint()
 def test_local():
     print("Mediant worker app loaded OK.")

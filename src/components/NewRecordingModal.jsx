@@ -89,6 +89,18 @@ export default function NewRecordingModal({ open, onClose }) {
   const [videoFile, setVideoFile] = useState(null)
   const [audioFile, setAudioFile] = useState(null)
   const [scoreFiles, setScoreFiles] = useState([]) // multiple pages; page 0 is what the AI actually analyzes today
+  // Object URLs for local thumbnail previews, index-aligned with scoreFiles.
+  // Created at pick time (no network) so the user sees the photo they just
+  // chose immediately. Must be revoked on removal and on unmount or they leak.
+  const [scorePreviews, setScorePreviews] = useState([])
+  const scorePreviewsRef = useRef([])
+  useEffect(() => { scorePreviewsRef.current = scorePreviews }, [scorePreviews])
+  useEffect(() => () => {
+    scorePreviewsRef.current.forEach(url => { try { URL.revokeObjectURL(url) } catch { /* ignore */ } })
+  }, [])
+  // Set when a post-upload quality check flags a page as "poor" — a non-blocking
+  // warning the user can dismiss and proceed past (see handleSubmit's `force` arg).
+  const [qualityWarning, setQualityWarning] = useState('')
 
   const videoInputRef = useRef()
   const audioInputRef = useRef()
@@ -145,12 +157,23 @@ export default function NewRecordingModal({ open, onClose }) {
   }
   function pickScore(e) {
     const files = Array.from(e.target.files ?? [])
-    if (files.length) { playDrop(); setScoreFiles(prev => [...prev, ...files]) }
+    if (files.length) {
+      playDrop()
+      const previews = files.map(f => URL.createObjectURL(f))
+      setScoreFiles(prev => [...prev, ...files])
+      setScorePreviews(prev => [...prev, ...previews])
+      setQualityWarning('') // a newly added/replaced page supersedes any prior warning
+    }
     e.target.value = '' // allow re-picking the same file(s) / adding more after removing one
   }
   function removeScorePage(idx) {
     playTick()
     setScoreFiles(prev => prev.filter((_, i) => i !== idx))
+    setScorePreviews(prev => {
+      const url = prev[idx]
+      if (url) { try { URL.revokeObjectURL(url) } catch { /* ignore */ } }
+      return prev.filter((_, i) => i !== idx)
+    })
   }
   function clearVideo() {
     playTick()
@@ -164,7 +187,7 @@ export default function NewRecordingModal({ open, onClose }) {
     if (audioInputRef.current) audioInputRef.current.value = ''
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(force = false) {
     if (!readyToAnalyze) return
     if (!user?.id) {
       setErrorMsg('You must be logged in to analyze a recording.')
@@ -177,6 +200,7 @@ export default function NewRecordingModal({ open, onClose }) {
     setPhase('uploading')
     setProgress(0)
     setErrorMsg('')
+    setQualityWarning('')
 
     try {
       const progressTick = setInterval(() => setProgress(p => Math.min(p + 6, 45)), 300)
@@ -230,6 +254,52 @@ export default function NewRecordingModal({ open, onClose }) {
       clearInterval(progressTick)
       if (uploadError) throw new Error(`Upload failed: ${uploadError.message || 'please try a different file'}`)
 
+      const { data: { session: freshSession } } = await supabase.auth.getSession()
+      if (!freshSession) throw new Error('Your session has expired. Please log in again.')
+
+      // Quality gate: after the score pages have uploaded, before the analysis
+      // request is dispatched. This is the only point where a scorePath exists
+      // to sign and check — see score-quality-check, which needs a storage
+      // path, not a raw file. A "poor" result is a non-blocking warning: the
+      // user can proceed anyway (force=true, from the "Continue anyway"
+      // button) or go back and replace the photo. A check that errors, times
+      // out, or comes back "unknown" (e.g. MODAL_SCORE_QUALITY_URL unset)
+      // proceeds silently — a broken quality check must never block an upload.
+      if (!force && scorePaths.length) {
+        let poor = false
+        for (const sp of scorePaths) {
+          try {
+            const qcResp = await fetch(
+              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/score-quality-check`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type':  'application/json',
+                  'Authorization': `Bearer ${freshSession.access_token}`,
+                  'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+                },
+                body: JSON.stringify({ scorePath: sp }),
+              },
+            )
+            if (qcResp.ok) {
+              const qc = await qcResp.json()
+              if (qc.quality === 'poor') { poor = true; break }
+            }
+            // non-OK response: treat like an error below — proceed silently
+          } catch { /* network error — proceed silently */ }
+        }
+        if (poor) {
+          setPhase('idle')
+          setProgress(0)
+          setQualityWarning(
+            "This photo may be too low-resolution or blurry to read accurately, so the "
+            + "reference audio could come out wrong. Try retaking it flatter and closer, "
+            + "or use your phone's scan mode.",
+          )
+          return
+        }
+      }
+
       setProgress(50)
       setPhase('analyzing')
 
@@ -239,9 +309,6 @@ export default function NewRecordingModal({ open, onClose }) {
       const videoFrames = []
       const scoreFacts = null
       const audioFeatures = null
-
-      const { data: { session: freshSession } } = await supabase.auth.getSession()
-      if (!freshSession) throw new Error('Your session has expired. Please log in again.')
 
       const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-performance`
       console.log('[mediant] analysis fetch →', fnUrl)
@@ -575,6 +642,13 @@ export default function NewRecordingModal({ open, onClose }) {
                 <ul className={styles.pageList}>
                   {scoreFiles.map((f, i) => (
                     <li key={`${f.name}-${f.lastModified}-${i}`} className={styles.pageRow}>
+                      {scorePreviews[i] && (
+                        <img
+                          className={styles.pageThumb}
+                          src={scorePreviews[i]}
+                          alt={`Preview of page ${i + 1}`}
+                        />
+                      )}
                       <span className={styles.pageNum}>{i + 1}</span>
                       <span className={styles.pageName} title={f.name}>{f.name}</span>
                       <button
@@ -590,8 +664,34 @@ export default function NewRecordingModal({ open, onClose }) {
                   ))}
                 </ul>
               )}
+              {qualityWarning && (
+                <div className={styles.qualityWarning} role="alert">
+                  <span className={styles.qualityWarningIcon}><WarningIcon /></span>
+                  <div>
+                    <p className={styles.qualityWarningText}>{qualityWarning}</p>
+                    <div className={styles.qualityWarningActions}>
+                      <button
+                        type="button"
+                        className={styles.qualityWarningProceed}
+                        onClick={() => handleSubmit(true)}
+                      >
+                        Continue anyway
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.qualityWarningDismiss}
+                        onClick={() => setQualityWarning('')}
+                      >
+                        Go back
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <p className={styles.infoNote}>
-                A clear photo lets Mediant pin issues to specific measures on your score.
+                For the most accurate reading: lay the page flat, fill the frame with just the
+                music, and avoid glare or shadow across the staff lines. A phone scanning app
+                (rather than the plain camera) usually gives the cleanest result.
               </p>
             </div>
 
@@ -600,7 +700,7 @@ export default function NewRecordingModal({ open, onClose }) {
               <span className={styles.footerNote}>Analysis usually takes 30–60 seconds.</span>
               <div className={styles.footerActions}>
                 <button className={styles.cancelBtn} onClick={() => onClose?.()}>Cancel</button>
-                <button className={styles.analyzeBtn} onClick={handleSubmit} disabled={!readyToAnalyze}>
+                <button className={styles.analyzeBtn} onClick={() => handleSubmit()} disabled={!readyToAnalyze}>
                   Analyze
                 </button>
               </div>
@@ -693,6 +793,14 @@ function CheckIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12"/>
+    </svg>
+  )
+}
+function WarningIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
     </svg>
   )
 }

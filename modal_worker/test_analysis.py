@@ -3027,6 +3027,21 @@ def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
     check("prompt explains the strips share one page number",
           "SOME PAGES ARE SPLIT INTO STRIPS" in prompt_text and "images 1-4 are all horizontal strips of page 1" in prompt_text,
           prompt_text[:600])
+    # Task 11: each row image is immediately preceded by a "PAGE n — ROW m"
+    # label — the mechanism that lets the model reliably report which row a
+    # measure came from at all, which downstream (page, row) fusion depends on.
+    labels = [b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text"
+              and b["text"].startswith("PAGE ")]
+    check("every one of the 4 row images is labelled PAGE 1 — ROW <n>",
+          labels == [f"PAGE 1 — ROW {i}" for i in range(1, 5)], labels)
+    label_then_image = all(
+        blocks[i].get("type") == "text" and blocks[i]["text"].startswith("PAGE ")
+        and blocks[i + 1].get("type") == "image"
+        for i in range(len(blocks) - 1)
+        if isinstance(blocks[i], dict) and blocks[i].get("type") == "text"
+        and blocks[i]["text"].startswith("PAGE ")
+    )
+    check("each row label immediately precedes its own image block", label_then_image, blocks)
 
 
 def test_read_score_notes_claude_unsplit_page_has_no_strip_note():
@@ -3070,6 +3085,180 @@ def test_read_score_notes_claude_unsplit_page_has_no_strip_note():
     prompt_text = " ".join(b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text")
     check("no strip note when nothing was split",
           "SOME PAGES ARE SPLIT INTO STRIPS" not in prompt_text, prompt_text[:200])
+    # Task 11: the single row still gets its "PAGE n — ROW m" label — this
+    # labelling is unconditional, not gated on whether a page split.
+    check("the single unsplit page is still labelled PAGE 1 — ROW 1",
+          any(isinstance(b, dict) and b.get("type") == "text" and b["text"] == "PAGE 1 — ROW 1"
+              for b in blocks),
+          blocks)
+
+
+def _fake_claude_read_stream(measures_json, key_signature=None, time_signature="4/4", tempo_marking=None):
+    """Shared fixture for Task 11 orchestration tests: an Anthropic client
+    mock whose .messages.stream() always returns the same score-read
+    payload, however many times read_score_notes_claude calls it (two
+    reads when they agree, three when they don't)."""
+    import types, json as _json
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+
+    payload = _json.dumps({
+        "key_signature": key_signature, "time_signature": time_signature,
+        "tempo_marking": tempo_marking, "measures": measures_json,
+    })
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            return _FakeStream(payload)
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    return _FakeClient
+
+
+def test_read_score_notes_claude_routes_needs_resolution_to_resolve_measure_disagreement():
+    print("\n[123] a measure fuse_measure_confidence marks needs_resolution is routed to resolve_measure_disagreement")
+    # A middle measure (not first, not last) whose notes sum to 5 beats in
+    # 4/4 overshoots the bar — validate_measure marks it invalid, which
+    # fuse_measure_confidence's "invalid always wins" rule turns into
+    # needs_resolution=True regardless of Claude/OMR agreement.
+    measures_json = [
+        {"number": 1, "pg": 1, "row": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]},
+        {"number": 5, "pg": 1, "row": 1, "notes": [{"p": "E4", "b": 1.0, "d": 5.0}]},
+        {"number": 6, "pg": 1, "row": 1, "notes": [{"p": "F4", "b": 1.0, "d": 1.0}]},
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    resolve_calls = []
+
+    def _fake_resolve(measure_crop_bytes, candidates, instrument, time_sig, anthropic_api_key,
+                       is_first_measure=False, is_last_measure=False):
+        resolve_calls.append({"candidates": candidates, "is_first": is_first_measure,
+                              "is_last": is_last_measure})
+        return {"notes": [{"pitch": "G5", "is_rest": False, "beat": 1.0,
+                           "duration_beats": 1.0, "articulation": None, "dynamic": None}]}
+
+    pages = [(b"\x89PNG-page-one", "image/png")]  # undecodable -> single fallback row
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _orig_resolve = w.resolve_measure_disagreement
+    _ac.Anthropic = _FakeClient
+    w.resolve_measure_disagreement = _fake_resolve
+    try:
+        result = w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig_ac
+        w.resolve_measure_disagreement = _orig_resolve
+
+    check("resolve_measure_disagreement was called exactly once (only the overshooting measure)",
+          len(resolve_calls) == 1, str(resolve_calls))
+    check("it was called with only the disputed measure as a candidate (oemer is permanently unavailable)",
+          resolve_calls and [c.get("pitch") for c in
+                             (resolve_calls[0]["candidates"][0].get("notes") or [])] == ["E4"],
+          str(resolve_calls))
+    check("it was NOT told this is the first or last measure of the piece (m.5 is neither)",
+          resolve_calls and resolve_calls[0]["is_first"] is False and resolve_calls[0]["is_last"] is False,
+          str(resolve_calls))
+    by_number = {m["number"]: m for m in result.get("measures", [])}
+    check("the resolved measure replaces the disputed one in the final result",
+          by_number.get(5, {}).get("notes", [{}])[0].get("pitch") == "G5", str(by_number.get(5)))
+    check("a successfully resolved measure is not counted as unresolved",
+          result.get("unresolved_measure_count") == 0, str(result.get("unresolved_measure_count")))
+
+
+def test_read_score_notes_claude_surfaces_unresolved_measure_count():
+    print("\n[124] a measure that resolve_measure_disagreement cannot rescue is surfaced via unresolved_measure_count")
+    measures_json = [
+        {"number": 1, "pg": 1, "row": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]},
+        {"number": 5, "pg": 1, "row": 1, "notes": [{"p": "E4", "b": 1.0, "d": 5.0}]},
+        {"number": 6, "pg": 1, "row": 1, "notes": [{"p": "F4", "b": 1.0, "d": 1.0}]},
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    def _fake_resolve(measure_crop_bytes, candidates, instrument, time_sig, anthropic_api_key,
+                       is_first_measure=False, is_last_measure=False):
+        # resolve_measure_disagreement itself never fails open — it returns
+        # the measure marked unresolved rather than a guessed answer.
+        return {**candidates[0], "unresolved": True, "issues": ["could not confirm a reading"]}
+
+    pages = [(b"\x89PNG-page-one", "image/png")]
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _orig_resolve = w.resolve_measure_disagreement
+    _ac.Anthropic = _FakeClient
+    w.resolve_measure_disagreement = _fake_resolve
+    try:
+        result = w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig_ac
+        w.resolve_measure_disagreement = _orig_resolve
+
+    check("the whole-score result surfaces exactly one unresolved measure",
+          result.get("unresolved_measure_count") == 1, str(result.get("unresolved_measure_count")))
+    by_number = {m["number"]: m for m in result.get("measures", [])}
+    check("the unresolved measure itself is marked unresolved in the output",
+          by_number.get(5, {}).get("unresolved") is True, str(by_number.get(5)))
+    check("measures that never needed resolution are untouched and not marked unresolved",
+          by_number.get(1, {}).get("unresolved") is None and by_number.get(6, {}).get("unresolved") is None,
+          str((by_number.get(1), by_number.get(6))))
+
+
+def test_read_score_notes_claude_groups_by_page_and_row_not_page():
+    print("\n[125] fusion/resolution groups measures by (page, row), not by page alone — "
+          "the real target photo splits one page into 12 rows, and per-page grouping would "
+          "silently disable row-scoped crop resolution across all of them")
+    # Two measures on the SAME page but reported on DIFFERENT rows. If
+    # grouping were by page alone, both would land in one group and
+    # align_claude_to_measure_crops would be called once with both of them
+    # together; correct (page, row) grouping calls it twice, once per row,
+    # each time with only that row's own measure.
+    measures_json = [
+        {"number": 1, "pg": 1, "row": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]},
+        {"number": 2, "pg": 1, "row": 3, "notes": [{"p": "D4", "b": 1.0, "d": 1.0}]},
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    # Force every row's segmentation to be trustworthy with exactly one
+    # crop, so align_claude_to_measure_crops is deterministically invoked
+    # for every (page, row) group that has measures, regardless of what the
+    # synthetic page's real barline detection happens to find.
+    def _fake_split_row_into_measures(row_bytes):
+        return {"measures": [b"fake-crop"], "boundaries": [], "confidence": 1.0}
+
+    align_calls = []
+    _orig_align = w.align_claude_to_measure_crops
+
+    def _fake_align(claude_row_measures, crop_count):
+        align_calls.append(len(claude_row_measures))
+        return _orig_align(claude_row_measures, crop_count)
+
+    page_bytes, _ = _make_synthetic_page(system_count=4)
+    pages = [(page_bytes, "image/png")]
+
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _orig_split = w.split_row_into_measures
+    _ac.Anthropic = _FakeClient
+    w.split_row_into_measures = _fake_split_row_into_measures
+    w.align_claude_to_measure_crops = _fake_align
+    try:
+        result = w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig_ac
+        w.split_row_into_measures = _orig_split
+        w.align_claude_to_measure_crops = _orig_align
+
+    check("align_claude_to_measure_crops was called once per (page, row) group, not once for the whole page",
+          align_calls == [1, 1], str(align_calls))
+    check("both measures made it through to the final result",
+          sorted(m["number"] for m in result.get("measures", [])) == [1, 2], str(result.get("measures")))
 
 
 def test_coverage_declares_what_was_not_analysed():
@@ -3777,8 +3966,12 @@ def test_fresh_score_read_always_anchors_at_measure_1():
 
     class _FakeMessages:
         def stream(self, **kw):
+            # Text blocks now also include a short "PAGE n — ROW m" label
+            # inserted immediately before each image (Task 11); the actual
+            # instructional prompt is always the LAST text block, appended
+            # after every vision part.
             captured["prompt"] = next(
-                b["text"] for b in kw["messages"][0]["content"] if b.get("type") == "text")
+                b["text"] for b in reversed(kw["messages"][0]["content"]) if b.get("type") == "text")
             return _FakeStream(_json.dumps({
                 "key_signature": "Bb major", "time_signature": "3/4", "tempo_marking": None,
                 "measures": [{"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}],
@@ -4409,6 +4602,9 @@ def main():
               test_generate_reference_audio_proceeds_when_nothing_is_unresolved,
               test_read_score_notes_claude_splits_dense_pages_and_labels_strips,
               test_read_score_notes_claude_unsplit_page_has_no_strip_note,
+              test_read_score_notes_claude_routes_needs_resolution_to_resolve_measure_disagreement,
+              test_read_score_notes_claude_surfaces_unresolved_measure_count,
+              test_read_score_notes_claude_groups_by_page_and_row_not_page,
               test_coverage_declares_what_was_not_analysed,
               test_coverage_pages_read_reflects_pages_covered_not_downloaded,
               test_score_pipeline_returns_derive_pages_read_from_helper,

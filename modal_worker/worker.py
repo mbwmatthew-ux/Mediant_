@@ -3910,8 +3910,52 @@ def _compute_dynamic_wedges(measures: list[dict]) -> list[dict]:
     return wedges
 
 
+def _prepare_score_rows(pages: list[tuple[bytes, str]]) -> list[dict]:
+    """
+    Runs the full per-row preparation pipeline ONCE per page: split into
+    systems, dewarp each system locally, measure its readability, and
+    segment it into measure crops. Shared by both Claude's reading path
+    and the deterministic validation/resolution path below so page
+    download + split + dewarp work isn't duplicated between them.
+
+    Returns a list of dicts, one per PAGE, each:
+    {"page_mime": str, "page_bytes": bytes, "rows": [{"row_bytes": bytes
+    (dewarped), "readability": dict, "segmentation": dict}, ...]}
+    PDF pages pass through with an empty "rows" list — dewarping/
+    segmentation only apply to raster images, matching
+    split_page_into_rows' own existing image-only scope.
+    """
+    CLAUDE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    prepared = []
+    for pg_bytes, pg_mime in pages:
+        if pg_mime not in CLAUDE_IMAGE_TYPES:
+            prepared.append({"page_mime": pg_mime, "page_bytes": pg_bytes, "rows": []})
+            continue
+        row_crops = split_page_into_rows(pg_bytes)
+        rows = []
+        for row_idx, row_bytes in enumerate(row_crops):
+            dewarped = dewarp_row(row_bytes)
+            readability = compute_row_readability(dewarped)
+            if readability["quality"] != "good":
+                # Generation still proceeds on a marginal/poor row (per the
+                # spec: flagged, not blocked) — but this print is the only
+                # record that a low-quality row was in play, for anyone
+                # debugging a bad transcription after the fact. The
+                # user-facing warning is a SEPARATE, earlier check (Task 13's
+                # upload-time quality gate) — this log is for diagnostics,
+                # not the user.
+                print(f"[_prepare_score_rows] row {row_idx} quality={readability['quality']} "
+                      f"interline_px={readability['interline_px']}: {readability['reasons']}")
+            segmentation = split_row_into_measures(dewarped)
+            rows.append({"row_bytes": dewarped, "readability": readability,
+                         "segmentation": segmentation})
+        prepared.append({"page_mime": pg_mime, "page_bytes": pg_bytes, "rows": rows})
+    return prepared
+
+
 def _read_score_notes_claude_once(
     pages: list[tuple[bytes, str]],
+    prepared_pages: list[dict],
     start_measure: int, instrument: str, time_sig: str,
     anthropic_api_key: str,
 ) -> dict:
@@ -3932,17 +3976,20 @@ def _read_score_notes_claude_once(
     # a page number when that count is more than 1.
     vision_parts: list = []
     page_strip_counts: list[int] = []
-    for pg_bytes, pg_mime in pages:
+    for pg_num, prepared_page in enumerate(prepared_pages, start=1):
+        pg_mime = prepared_page["page_mime"]
+        pg_bytes = prepared_page["page_bytes"]
         if pg_mime == "application/pdf":
             b64 = base64.b64encode(pg_bytes).decode()
             vision_parts.append({"type": "document", "source": {
                 "type": "base64", "media_type": "application/pdf", "data": b64}})
             page_strip_counts.append(1)
         elif pg_mime in CLAUDE_IMAGE_TYPES:
-            row_crops = split_page_into_rows(pg_bytes)
-            page_strip_counts.append(len(row_crops))
-            for crop_bytes in row_crops:
-                b64 = base64.b64encode(crop_bytes).decode()
+            page_strip_counts.append(len(prepared_page["rows"]))
+            for row_idx, row in enumerate(prepared_page["rows"], start=1):
+                vision_parts.append({"type": "text",
+                                     "text": f"PAGE {pg_num} — ROW {row_idx}"})
+                b64 = base64.b64encode(row["row_bytes"]).decode()
                 vision_parts.append({"type": "image", "source": {
                     "type": "base64", "media_type": pg_mime, "data": b64}})
         else:
@@ -3985,7 +4032,7 @@ MEASURE NUMBERING — THE MOST IMPORTANT PART OF THIS TASK. Get this wrong and e
 4. Therefore the "number" values you output will normally have GAPS in them (e.g. ... 37, then 40 ...). That is correct and expected. A perfectly consecutive 1,2,3,4... run is almost always a sign you renumbered — do not do that.
 5. Do NOT start counting from the student's starting measure, and do not renumber to make the first measure you see come out as any particular value. Only if the page shows no printed numbers anywhere should you count barlines, and in that case the FIRST measure in the image is measure 1.
 
-MULTIPLE PAGES: You may be given several images. They are consecutive pages of ONE part, in order. Measure numbering runs continuously ACROSS them — the first measure of page 2 is NOT measure 1, it continues from where page 1 ended. Do not restart numbering on a new page. For every measure, also return "pg": the 1-based number of the page you read it from (the first image is page 1).
+MULTIPLE PAGES: You may be given several images. They are consecutive pages of ONE part, in order. Measure numbering runs continuously ACROSS them — the first measure of page 2 is NOT measure 1, it continues from where page 1 ended. Do not restart numbering on a new page. For every measure, also return "pg": the 1-based number of the page you read it from (the first image is page 1). Also return "row" for every measure: the 1-based index of the STRIP (within its page) that you read that measure from, counting strips top to bottom. If a page was not split into strips, every measure on it has "row": 1.
 {strip_note}
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
@@ -4006,7 +4053,7 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
   "key_signature": "...",
   "time_signature": "...",
   "tempo_marking": "...",
-  "measures": [{{"number": {start_measure}, "pg": 1, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}, {{"r": true, "b": 2.5, "d": 1.5}}]}}]
+  "measures": [{{"number": {start_measure}, "pg": 1, "row": 1, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}, {{"r": true, "b": 2.5, "d": 1.5}}]}}]
 }}"""
 
     try:
@@ -4072,8 +4119,22 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
                 "articulation":   n.get("articulation") or n.get("a"),
                 "dynamic":        n.get("dynamic") or n.get("dyn"),
             }
+        def _raw_row(m: dict):
+            """The model's reported strip index, or None if it didn't give a
+            usable one. Deliberately NOT defaulted to 1 here — on a
+            multi-system page "the model didn't say" and "the model said
+            row 1" mean very different things, and only the orchestration
+            (which knows how many rows the page actually has) can decide
+            safely. Collapsing them here would destroy that distinction
+            before it reaches the code that needs it."""
+            try:
+                return int(m.get("row"))
+            except (TypeError, ValueError):
+                return None
+
         measures = [
-            {**m, "page": int(m.get("pg") or m.get("page") or 1), "notes": [
+            {**m, "page": int(m.get("pg") or m.get("page") or 1),
+             "row": _raw_row(m), "notes": [
                 _norm_note(n) for n in m.get("notes", [])
             ]}
             for m in (parsed.get("measures") or [])
@@ -4190,74 +4251,226 @@ def read_score_notes_claude(
     catch. The third read only runs when needed, so the common case (the two
     reads already agree) costs 2x a single read, not 3x.
 
+    Beyond the two/three-way Claude cross-validation described above, this
+    now also orchestrates the rest of the multi-signal pipeline built in
+    Tasks 1-10: shared per-row prep (dewarp + readability + measure
+    segmentation, once per page, via _prepare_score_rows), deterministic
+    validation of every measure (validate_measure), and confidence fusion
+    (fuse_measure_confidence) that routes any measure it marks
+    needs_resolution through a single targeted, closed-ended resolution
+    call (resolve_measure_disagreement) instead of another open re-read.
+
+    OMR (oemer) is PERMANENTLY UNAVAILABLE for this iteration — a spike
+    ran it against this project's real dewarped row crops and it failed
+    6/6 (its own staffline detector found zero stafflines, then crashed),
+    on top of a hard numpy conflict with this worker's pinned stack. The
+    controller's GO/NO-GO gate returned NO-GO, and the spec's own
+    contingency for that outcome is followed exactly: oemer is skipped
+    entirely, fuse_measure_confidence runs on Claude-agreement + the
+    deterministic validator only, and every call below passes
+    `oemer_measure=None` — never `{}`. `fuse_measure_confidence` treats a
+    falsy-but-non-None oemer_measure as "OMR present and disagreeing", not
+    "unavailable"; a `{}`-style default would silently downgrade every
+    measure from "uncorroborated" to "contradicted" and send the whole
+    score into resolution. Segmentation (split_row_into_measures) still
+    matters even with OMR off: it gates the tight measure CROPS used for
+    targeted resolution below.
+
     Signature and return shape are unchanged from the prior single-read
     version — both call sites (read_score_notes_for_reference_audio, and the
     main analysis pipeline's score-reading step) need no changes.
     """
-    read_a = _read_score_notes_claude_once(pages, start_measure, instrument, time_sig, anthropic_api_key)
-    read_b = _read_score_notes_claude_once(pages, start_measure, instrument, time_sig, anthropic_api_key)
+    prepared_pages = _prepare_score_rows(pages)
 
+    read_a = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+    read_b = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+
+    # claude_agreement maps measure number -> "agree" | "disagree" |
+    # "unavailable". Three states, never a boolean — see
+    # fuse_measure_confidence's docstring for why collapsing
+    # "unavailable" into "agree" is a correctness bug, not a shortcut.
     if read_a.get("error") and read_b.get("error"):
         return read_a
     if read_a.get("error"):
-        return read_b
-    if read_b.get("error"):
-        return read_a
+        base_result = read_b
+        # Only ONE read succeeded. There is no cross-validation signal at
+        # all here — not agreement, not disagreement, just a single
+        # uncorroborated observation per measure. Marking these
+        # "unavailable" (rather than defaulting them to "agree") is what
+        # stops a half-failed read from inheriting the confidence of two
+        # matching reads.
+        claude_agreement = {m["number"]: "unavailable" for m in read_b.get("measures", [])}
+    elif read_b.get("error"):
+        base_result = read_a
+        claude_agreement = {m["number"]: "unavailable" for m in read_a.get("measures", [])}
+    else:
+        by_number_a = {m["number"]: m for m in read_a.get("measures", [])}
+        by_number_b = {m["number"]: m for m in read_b.get("measures", [])}
+        all_numbers = sorted(set(by_number_a) | set(by_number_b))
+        disagreements = [
+            n for n in all_numbers
+            if _measure_fingerprint(by_number_a.get(n, {})) != _measure_fingerprint(by_number_b.get(n, {}))
+        ]
+        if not disagreements:
+            print(f"[read_score_notes_claude] two independent reads agree on all "
+                  f"{len(all_numbers)} measures — using read 1")
+            base_result = read_a
+            claude_agreement = {n: "agree" for n in all_numbers}
+        else:
+            print(f"[read_score_notes_claude] two independent reads disagree on "
+                  f"{len(disagreements)}/{len(all_numbers)} measures {disagreements[:20]}"
+                  f"{'...' if len(disagreements) > 20 else ''} — running a third read")
+            read_c = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+            by_number_c = {m["number"]: m for m in read_c.get("measures", [])} if not read_c.get("error") else {}
+            reconciled = []
+            claude_agreement = {}
+            for n in all_numbers:
+                candidates = [by_number_a.get(n), by_number_b.get(n), by_number_c.get(n)]
+                candidates = [c for c in candidates if c is not None]
+                if not candidates:
+                    continue
+                fingerprints = [_measure_fingerprint(c) for c in candidates]
+                counts: dict = {}
+                for fp in fingerprints:
+                    counts[fp] = counts.get(fp, 0) + 1
+                winning_fp = max(counts, key=lambda fp: counts[fp])
+                claude_agreement[n] = ("agree" if counts[winning_fp] >= 2
+                                       else "unavailable" if len(candidates) < 2
+                                       else "disagree")
+                winner = next(c for c, fp in zip(candidates, fingerprints) if fp == winning_fp)
+                reconciled.append(winner)
+            reconciled.sort(key=lambda m: m["number"])
+            reads = [read_a, read_b, read_c]
+            base_result = {
+                "key_signature": _majority_vote(r.get("key_signature") for r in reads),
+                "time_signature": _majority_vote(r.get("time_signature") for r in reads),
+                "tempo_marking": _majority_vote(r.get("tempo_marking") for r in reads),
+                "source": "claude_vision",
+                "measures": reconciled,
+            }
+            base_result["tempo_bpm"] = parse_marked_bpm(base_result["tempo_marking"])
+            base_result["wedges"] = _compute_dynamic_wedges(reconciled)
 
-    by_number_a = {m["number"]: m for m in read_a.get("measures", [])}
-    by_number_b = {m["number"]: m for m in read_b.get("measures", [])}
-    all_numbers = sorted(set(by_number_a) | set(by_number_b))
+    if base_result.get("error") or not base_result.get("measures"):
+        return base_result
 
-    disagreements = [
-        n for n in all_numbers
-        if _measure_fingerprint(by_number_a.get(n, {})) != _measure_fingerprint(by_number_b.get(n, {}))
-    ]
+    resolved_time_sig = base_result.get("time_signature") or time_sig
 
-    if not disagreements:
-        print(f"[read_score_notes_claude] two independent reads agree on all "
-              f"{len(all_numbers)} measures — using read 1")
-        return read_a
+    # Group by (page, row) — NOT by page. Grouping by page alone can only
+    # fuse single-system pages, and the real target input (the photo this
+    # whole redesign exists for) splits into 12 systems. Per-row grouping
+    # is what lets the segmentation half of this pipeline (targeted
+    # resolution crops) run on dense multi-system pages at all.
+    #
+    # Row provenance FAILS SAFE, never to row 1. On a 12-system page, a
+    # measure whose "row" the model omitted or garbled is not "probably
+    # row 1" — it is unknown, and silently calling it row 1 would compare
+    # it against a completely unrelated system's crops, manufacturing
+    # false resolution targets out of a bookkeeping gap. Unknown
+    # provenance instead means row=None: that measure keeps its Claude
+    # cross-validation and deterministic validation, and simply forgoes
+    # the row-scoped crop-based resolution. Defaulting to 1 is only
+    # correct when the page genuinely has one row.
+    measures_by_row: dict = {}
+    for m in base_result["measures"]:
+        page_idx = m.get("page", 1)
+        rows_on_page = (len(prepared_pages[page_idx - 1]["rows"])
+                        if 0 <= page_idx - 1 < len(prepared_pages) else 0)
+        raw_row = m.get("row")
+        if rows_on_page <= 1:
+            row_key = 1
+        elif isinstance(raw_row, int) and 1 <= raw_row <= rows_on_page:
+            row_key = raw_row
+        else:
+            row_key = None   # provenance unavailable — no row-scoped resolution crop
+            print(f"[read_score_notes_claude] m.{m.get('number')} has no usable row "
+                  f"provenance (got {raw_row!r}, page has {rows_on_page} rows) — "
+                  f"skipping row-scoped crop fusion for it rather than guessing row 1")
+        measures_by_row.setdefault((page_idx, row_key), []).append(m)
 
-    print(f"[read_score_notes_claude] two independent reads disagree on "
-          f"{len(disagreements)}/{len(all_numbers)} measures {disagreements[:20]}"
-          f"{'...' if len(disagreements) > 20 else ''} — running a third read to break ties")
-    read_c = _read_score_notes_claude_once(pages, start_measure, instrument, time_sig, anthropic_api_key)
-    by_number_c = {m["number"]: m for m in read_c.get("measures", [])} if not read_c.get("error") else {}
+    # The GLOBALLY last measure of the whole score — only this one gets the
+    # partial-measure exemption. Using "last of its page/row" instead would
+    # exempt every system's final measure from duration validation, which
+    # is most of the interior of the piece.
+    last_measure_number = max(m["number"] for m in base_result["measures"])
 
-    reconciled: list[dict] = []
-    still_disagree = 0
-    for n in all_numbers:
-        candidates = [by_number_a.get(n), by_number_b.get(n), by_number_c.get(n)]
-        candidates = [c for c in candidates if c is not None]
-        if not candidates:
-            continue
-        fingerprints = [_measure_fingerprint(c) for c in candidates]
-        counts: dict[tuple, int] = {}
-        for fp in fingerprints:
-            counts[fp] = counts.get(fp, 0) + 1
-        winning_fp = max(counts, key=lambda fp: counts[fp])
-        if counts[winning_fp] < 2:
-            still_disagree += 1
-        winner = next(c for c, fp in zip(candidates, fingerprints) if fp == winning_fp)
-        reconciled.append(winner)
-    reconciled.sort(key=lambda m: m["number"])
+    final_measures = []
+    unresolved_count = 0
 
-    if still_disagree:
-        print(f"[read_score_notes_claude] {still_disagree} measure(s) had no "
-              f"2-of-3 majority even after a third read — kept read 1's version "
-              f"for those, lower confidence")
+    # row_key may be None (unknown provenance), which can't be compared to
+    # an int — sort those last rather than letting sorted() raise.
+    for (page_idx, row_idx), row_measures in sorted(
+            measures_by_row.items(),
+            key=lambda kv: (kv[0][0], float("inf") if kv[0][1] is None else kv[0][1])):
+        row_measures.sort(key=lambda m: m["number"])
+        row = None
+        if row_idx is not None:
+            prepared_rows = (prepared_pages[page_idx - 1]["rows"]
+                             if 0 <= page_idx - 1 < len(prepared_pages) else [])
+            if 0 <= row_idx - 1 < len(prepared_rows):
+                row = prepared_rows[row_idx - 1]
 
-    reads = [read_a, read_b, read_c]
-    result = {
-        "key_signature":  _majority_vote(r.get("key_signature") for r in reads),
-        "time_signature": _majority_vote(r.get("time_signature") for r in reads),
-        "tempo_marking":  _majority_vote(r.get("tempo_marking") for r in reads),
-        "source":         "claude_vision",
-        "measures":       reconciled,
-    }
-    result["tempo_bpm"] = parse_marked_bpm(result["tempo_marking"])
-    result["wedges"] = _compute_dynamic_wedges(reconciled)
-    return result
+        # --- Measure crops, for dispute resolution only -------------------
+        segmentation = row["segmentation"] if row else {"measures": [], "confidence": 0.0}
+        crops = None
+        if segmentation["confidence"] >= 0.6:
+            crops = (segmentation["measures"]
+                     if align_claude_to_measure_crops(
+                         row_measures, len(segmentation["measures"])) is not None
+                     else None)
+
+        for i, measure in enumerate(row_measures):
+            is_first = measure["number"] == start_measure
+            is_last = measure["number"] == last_measure_number
+            validation = validate_measure(
+                measure, instrument, resolved_time_sig,
+                is_first_measure=is_first, is_last_measure=is_last,
+            )
+            # OMR is permanently unavailable this iteration (NO-GO, see
+            # docstring above) — literally None, never {}, on every path.
+            oemer_measure = None
+            fusion = fuse_measure_confidence(
+                claude_agreement.get(measure["number"], "unavailable"),
+                measure, oemer_measure, validation, resolved_time_sig)
+
+            if fusion["needs_resolution"]:
+                # Resolve against the tightest image available: this
+                # measure's own crop when segmentation was trustworthy,
+                # otherwise the whole row. Tight crops are exactly where a
+                # closed-ended candidate comparison belongs — the model has
+                # no neighbouring measures left to pattern-match against.
+                crop_for_resolution = (crops[i] if crops is not None and i < len(crops)
+                                       else (row["row_bytes"] if row else None))
+                if crop_for_resolution is not None:
+                    candidates = [measure]
+                    resolved = resolve_measure_disagreement(
+                        crop_for_resolution, candidates, instrument,
+                        resolved_time_sig, anthropic_api_key,
+                        is_first_measure=is_first, is_last_measure=is_last)
+                    resolved["number"] = measure["number"]
+                    resolved["page"] = measure.get("page", 1)
+                    resolved["row"] = measure.get("row", 1)
+                    measure = resolved
+                else:
+                    measure = {**measure, "unresolved": True,
+                               "issues": fusion["reasons"]}
+
+            if measure.get("unresolved"):
+                unresolved_count += 1
+                print(f"[read_score_notes_claude] m.{measure['number']} UNRESOLVED: "
+                      f"{measure.get('issues')}")
+
+            final_measures.append(measure)
+
+    base_result["measures"] = sorted(final_measures, key=lambda m: m["number"])
+    # Surfaced so callers (and the Task 14 ground-truth test) can tell
+    # "this measure is known-shaky" apart from "this measure was accepted
+    # confidently" — the distinction the whole redesign turns on.
+    base_result["unresolved_measure_count"] = unresolved_count
+    if unresolved_count:
+        print(f"[read_score_notes_claude] {unresolved_count} measure(s) could not be "
+              f"resolved confidently out of {len(final_measures)}")
+    return base_result
 
 
 def _majority_vote(values) -> object:

@@ -22,46 +22,38 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
-- [ ] **Reference-audio recognition pipeline (multi-signal redesign) — branch
-  `reference-audio-recognition`, 11 commits, 493/493 checks green, NOT merged
-  and NOT deployed.** Spec and plan:
-  `docs/superpowers/specs/2026-09-12-reference-audio-recognition-pipeline.md`
-  and the matching file under `plans/`. Replaces same-model-only Claude
-  cross-validation (which can agree with itself while being wrong) with
-  independent signals plus deterministic validation.
+- [ ] **Reference-audio recognition pipeline — PIPELINE IS NOW WIRED AND LIVE.**
+  Branch `task-11-13` (3 feature + 3 fix commits on top of `main`), 566/566 checks green,
+  NOT merged and NOT deployed. Spec and plan:
+  `docs/superpowers/specs/2026-09-12-reference-audio-recognition-pipeline.md` and the
+  matching file under `plans/` (see its "Owner Decisions — 2026-09-13" section).
 
-  **Landed (8 of 15 plan tasks):** `compute_row_readability` + shared
-  `_binarize_ink`; `dewarp_row`; `split_row_into_measures` with a confidence
-  score; `validate_measure` + `INSTRUMENT_WRITTEN_RANGE` /
-  `POLYPHONIC_INSTRUMENTS`; `align_claude_to_measure_crops`;
-  `fuse_measure_confidence` + `_cross_source_measure_match`;
-  `resolve_measure_disagreement`; and the refusal gate in
-  `_generate_reference_audio` that declines to synthesize from an uncertain
-  read rather than playing notes it does not trust.
+  **What changed:** Task 11 wired the whole recognition pipeline into
+  `read_score_notes_claude`, the shared reader for BOTH reference audio and the main
+  analysis. Eleven previously-dead components now execute: readability, dewarping,
+  measure segmentation, the deterministic validator, confidence fusion, targeted
+  resolution, the reference-audio refusal gate, and confidence-aware suppression of
+  score-dependent analysis findings. Task 13 added an upload-time photo quality gate
+  (public Modal endpoint + edge function + CI entry + New Recording modal wiring).
 
-  **Blocked, not started (7 tasks), each on something outside the code:**
-  - Task 5 ground truth — needs a verified external source (owner checks a
-    candidate against the physical page, a clean published copy of the Bocook
-    arrangement, or a proper scan). The cached parse CANNOT serve: it covers
-    m.20-35 not 12-30, and its content is the hallucination signature itself
-    (every measure a clean alternating scale run, m.21/m.27 and m.26/m.29
-    near-duplicates).
-  - Task 6 `oemer` GO/NO-GO — needs a Modal run; oemer's stated dependency is
-    the GPU onnxruntime package and this image is CPU-only.
-  - Task 7 `read_score_notes_oemer` — gated on Task 6's verdict.
-  - Task 11 wiring — calls `read_score_notes_oemer`, so gated on Task 7. **This
-    is why none of the landed code is reachable from production yet.**
-  - Task 13 upload quality-gate UI — needs a Modal deploy + a Supabase secret.
-  - Tasks 14-15 live ground-truth test and deploy — need restored Anthropic
-    credits and Task 5.
+  **oemer: NO-GO, settled.** The spike ran it against real dewarped row crops on a
+  CPU-only Modal image. It failed 6/6 — its own staffline detector found zero
+  stafflines, then crashed — at native and 3x scale, and its `opencv-python-headless`
+  requires numpy>=2 while this worker pins numpy<2 for librosa/torch. Skipped per the
+  spec's own NO-GO branch; the OMR signal is permanently `unavailable`. Honest residual
+  risk: the "confidently wrong the same way every time" case is now caught only by the
+  deterministic validator, so a musically-plausible misreading still passes.
 
-  **Two things for the owner to decide before wiring (from the branch review):**
-  `read_score_notes_claude` is also the MAIN ANALYSIS reader, so unresolved
-  measures would flow into flags and coaching where nothing checks them — wire
-  fusion at the reference-audio seam only, or add a matching gate there. And
-  `POLYPHONIC_INSTRUMENTS` excludes strings per the spec, so one violin double
-  stop would refuse reference audio for an entire piece under the all-or-nothing
-  gate.
+  **NEEDS THE OWNER — three deploys, in this order:**
+  1. `modal deploy modal_worker/worker.py` — capture the `check_score_quality` URL
+  2. `supabase secrets set MODAL_SCORE_QUALITY_URL=<that URL>`
+  3. `supabase functions deploy score-quality-check`
+  Until step 2, the gate degrades silently: the edge function returns `quality: 'unknown'`
+  and uploads proceed unwarned. Nothing breaks; the feature is simply inert.
+
+  **Still blocked:** Task 5 (ground truth for measures 12-30 — owner to provide a verified
+  source; the cached parse is NOT usable, it carries the hallucination signature) and
+  Task 14 (the ground-truth live test, which also needs Anthropic credits).
 
 ---
 

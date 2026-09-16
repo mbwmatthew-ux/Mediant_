@@ -177,12 +177,36 @@ serve(async (req: Request) => {
       .catch((e: Error) => console.warn('[analysis-webhook] evidence write failed:', e.message))
   }
 
-  // Store freshly-parsed score notes in cache (fire-and-forget)
-  if (parsedScoreNotes && scorePath) {
+  // Store freshly-parsed score notes in cache (fire-and-forget).
+  //
+  // (I2) Do NOT cache a parse carrying unresolved measures. This is the
+  // same class of problem worker.py's `_degraded` guard exists for (see
+  // its comment there: "a poisoned row costs every future take on this
+  // score", cleared only by manual row delete) — that guard was never
+  // extended to cover this case. score_cache is keyed on score_path,
+  // which is the photo's CONTENT HASH, shared by every take that reuses
+  // that photo. If one read of one bar comes back unresolved, caching it
+  // here suppresses that bar's feedback (D1: an unresolved measure
+  // produces no score-dependent output) for every future take of the
+  // same page, forever, with no signal anything is stuck. The take this
+  // request is for still gets its own unresolved measures — D1 requires
+  // `unresolved` to be preserved through THIS take's analysis, and
+  // `parsedScoreNotes` above (the `takes` row update) is untouched by
+  // this guard. Only the shared, content-hash-keyed cache write is
+  // skipped. A cache miss costs one re-read; this costs every future
+  // take on this score.
+  const unresolvedCount = Number(
+    (parsedScoreNotes as { unresolved_measure_count?: number } | null)?.unresolved_measure_count ?? 0
+  )
+  if (parsedScoreNotes && scorePath && unresolvedCount === 0) {
     admin.from('score_cache')
       .upsert({ score_path: scorePath, parsed_notes: parsedScoreNotes }, { onConflict: 'score_path' })
       .then(() => console.log('[analysis-webhook] score cache written for', scorePath))
       .catch((e: Error) => console.warn('[analysis-webhook] score cache write failed:', e.message))
+  } else if (parsedScoreNotes && scorePath) {
+    console.log('[analysis-webhook] not caching score parse: '
+      + unresolvedCount + ' unresolved measure(s) — a parse with unresolved '
+      + 'measures must not be written under the shared content-hash cache key')
   }
 
   // Generate practice plan with Haiku (fire-and-forget — doesn't block response)

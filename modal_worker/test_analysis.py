@@ -3524,15 +3524,18 @@ def test_read_score_notes_claude_pdf_page_attempts_resolution():
     _orig_ac = _ac.Anthropic
     _orig_resolve = w.resolve_measure_disagreement
     _orig_rasterize = w.pdf_first_page_to_png
+    _orig_page_count = w._pdf_page_count
     _ac.Anthropic = _FakeClient
     w.resolve_measure_disagreement = _fake_resolve
     w.pdf_first_page_to_png = _fake_pdf_first_page_to_png
+    w._pdf_page_count = lambda pdf_bytes: 1  # single-page PDF — the rescue case
     try:
         result = w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
     finally:
         _ac.Anthropic = _orig_ac
         w.resolve_measure_disagreement = _orig_resolve
         w.pdf_first_page_to_png = _orig_rasterize
+        w._pdf_page_count = _orig_page_count
 
     check("the PDF page was rasterized to attempt resolution",
           len(rasterize_calls) == 1, str(len(rasterize_calls)))
@@ -3543,6 +3546,64 @@ def test_read_score_notes_claude_pdf_page_attempts_resolution():
           str(result.get("measures")))
     check("no measure was marked unresolved (the fallback let resolution succeed)",
           result.get("unresolved_measure_count") == 0, str(result.get("unresolved_measure_count")))
+
+
+def test_read_score_notes_claude_multipage_pdf_refuses_whole_page_fallback():
+    print("\n[137] I1 fail-open fix: a MULTI-page PDF must NOT be rescued by resolving "
+          "against physical page 1 — there is no per-measure record of which physical "
+          "page a disputed measure is actually on, so guessing page 1 risks a "
+          "confidently wrong bar passing revalidation (a musically-valid transcription "
+          "of the WRONG page's measure). The measure must fall through to honest "
+          "unresolved, with NO resolve call placed — this is the non-regression guard "
+          "for test [135]'s single-page rescue case")
+    measures_json = [
+        {"number": 1, "pg": 1, "row": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]},
+        {"number": 5, "pg": 1, "row": 1, "notes": [{"p": "E4", "b": 1.0, "d": 5.0}]},
+        {"number": 6, "pg": 1, "row": 1, "notes": [{"p": "F4", "b": 1.0, "d": 1.0}]},
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    resolve_calls = []
+
+    def _fake_resolve(measure_crop_bytes, candidates, instrument, time_sig, anthropic_api_key,
+                       is_first_measure=False, is_last_measure=False):
+        resolve_calls.append(measure_crop_bytes)
+        return {"notes": [{"pitch": "G5", "is_rest": False, "beat": 1.0,
+                           "duration_beats": 1.0, "articulation": None, "dynamic": None}]}
+
+    rasterize_calls = []
+
+    def _fake_pdf_first_page_to_png(pdf_bytes, dpi=150):
+        rasterize_calls.append(pdf_bytes)
+        return b"\x89PNG-rasterized-pdf-page"
+
+    pages = [(b"%PDF-1.4 fake TWO-page pdf bytes", "application/pdf")]
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _orig_resolve = w.resolve_measure_disagreement
+    _orig_rasterize = w.pdf_first_page_to_png
+    _orig_page_count = w._pdf_page_count
+    _ac.Anthropic = _FakeClient
+    w.resolve_measure_disagreement = _fake_resolve
+    w.pdf_first_page_to_png = _fake_pdf_first_page_to_png
+    w._pdf_page_count = lambda pdf_bytes: 2  # TWO physical pages
+    try:
+        result = w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig_ac
+        w.resolve_measure_disagreement = _orig_resolve
+        w.pdf_first_page_to_png = _orig_rasterize
+        w._pdf_page_count = _orig_page_count
+
+    check("a 2-physical-page PDF is NEVER rasterized for the whole-page fallback",
+          len(rasterize_calls) == 0, str(len(rasterize_calls)))
+    check("resolve_measure_disagreement is NEVER called — no crop could be produced",
+          len(resolve_calls) == 0, str(len(resolve_calls)))
+    check("the disputed measure falls through to honest unresolved, not a confident guess",
+          result.get("unresolved_measure_count") == 1, str(result.get("unresolved_measure_count")))
+    by_number = {m["number"]: m for m in result.get("measures", [])}
+    check("m.5 itself is marked unresolved (not silently transcribed from the wrong page)",
+          by_number.get(5, {}).get("unresolved") is True, str(by_number.get(5)))
 
 
 def test_align_claude_to_measure_crops_refuses_non_contiguous_row():
@@ -4918,6 +4979,7 @@ def main():
               test_read_score_notes_claude_groups_by_page_and_row_not_page,
               test_read_score_notes_claude_caps_resolution_fan_out,
               test_read_score_notes_claude_pdf_page_attempts_resolution,
+              test_read_score_notes_claude_multipage_pdf_refuses_whole_page_fallback,
               test_align_claude_to_measure_crops_refuses_non_contiguous_row,
               test_coverage_declares_what_was_not_analysed,
               test_coverage_pages_read_reflects_pages_covered_not_downloaded,

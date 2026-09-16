@@ -253,6 +253,24 @@ def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes | None:
         return None
 
 
+def _pdf_page_count(pdf_bytes: bytes) -> int | None:
+    """
+    Returns a PDF's PHYSICAL page count, or None if it can't be opened.
+    Split out from _whole_page_crop_for_resolution (rather than inlined)
+    for two reasons: it lets the multi-page fail-open guard there run
+    BEFORE any rasterization is attempted, and it gives tests a seam to
+    control page count independently of pdf_first_page_to_png's own
+    rasterization behaviour.
+    """
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        return doc.page_count
+    except Exception as e:
+        print(f"[_pdf_page_count] failed: {e}")
+        return None
+
+
 def _whole_page_crop_for_resolution(prepared_pages: list[dict], page_idx: int) -> bytes | None:
     """
     (I1) Last-resort fallback for resolve_measure_disagreement when neither
@@ -272,20 +290,33 @@ def _whole_page_crop_for_resolution(prepared_pages: list[dict], page_idx: int) -
     pinned dependency, already used the same way in pdf_first_page_to_png
     above); raster pages are re-encoded through PIL.
 
-    Only renders the FIRST physical page of a PDF. Multi-physical-page
-    PDF files are represented as a single prepared_pages entry (Claude
-    reads the whole document in one block; see page_strip_counts in
+    MULTI-PAGE PDFs ARE REFUSED, NOT GUESSED AT. prepared_pages has one
+    entry per uploaded *file*, not per physical PDF page (Claude reads a
+    multi-page PDF as one document block; see page_strip_counts in
     _read_score_notes_claude_once), so there is no per-measure record of
-    which physical PDF page a given measure printed on. A disputed
-    measure that happens to live on page 2+ of a multi-page PDF will be
-    resolved against page 1's image and most likely fail to match,
-    falling through to unresolved same as before — a known limitation,
-    but strictly no worse than the previous zero-attempt behaviour, and
-    the common case (one photographed/scanned page per PDF) is unaffected.
+    which physical page a given measure printed on. Rasterizing physical
+    page 1 as a stand-in for "the page" is fine for a single-page PDF (the
+    common product input — a scanned/photographed page) but is a FAIL-OPEN
+    for a multi-page PDF: resolve_measure_disagreement's revalidation only
+    re-runs validate_measure, a deterministic check on note count/range/
+    polyphony — it cannot detect "this is a musically-valid transcription
+    of the WRONG page's measure." Shown a page that doesn't contain the
+    disputed measure at all, the model's own documented fallback is to
+    transcribe whatever IS on the page it was shown, which can pass
+    revalidation and come back unresolved=False: a confidently wrong bar,
+    silently promoted past the safety net. Before this whole-page fallback
+    existed, such a measure would deterministically end up `unresolved`
+    (an honest failure, safe under D2's whole-score refusal). Guessing
+    page 1 for a multi-page PDF would make that case STRICTLY WORSE than
+    doing nothing, not just coarser — so page count is checked first, and
+    anything other than exactly one physical page refuses (returns None)
+    before rasterizing anything, falling through to the caller's existing
+    "still None -> mark unresolved" branch. Per-measure physical-page
+    tracking doesn't exist yet; refusing beats guessing until it does.
 
-    Returns None (never raises) if page_idx is out of range or
-    rasterization/re-encoding fails, so the caller's existing
-    "still None -> mark unresolved" branch keeps working unchanged.
+    Returns None (never raises) if page_idx is out of range, the PDF has
+    zero or more than one physical page, page count can't be determined,
+    or rasterization/re-encoding fails.
     """
     if not (0 <= page_idx - 1 < len(prepared_pages)):
         return None
@@ -295,6 +326,14 @@ def _whole_page_crop_for_resolution(prepared_pages: list[dict], page_idx: int) -
     if not page_bytes:
         return None
     if page_mime == "application/pdf":
+        page_count = _pdf_page_count(page_bytes)
+        if page_count != 1:
+            print(f"[_whole_page_crop_for_resolution] refusing whole-page PDF fallback: "
+                  f"page_count={page_count!r} (need exactly 1) — no per-measure record of "
+                  f"which physical page this measure is on, so resolving against physical "
+                  f"page 1 of a multi-page PDF risks a confidently wrong bar rather than an "
+                  f"honest unresolved one")
+            return None
         return pdf_first_page_to_png(page_bytes)
     try:
         from PIL import Image

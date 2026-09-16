@@ -253,6 +253,61 @@ def pdf_first_page_to_png(pdf_bytes: bytes, dpi: int = 150) -> bytes | None:
         return None
 
 
+def _whole_page_crop_for_resolution(prepared_pages: list[dict], page_idx: int) -> bytes | None:
+    """
+    (I1) Last-resort fallback for resolve_measure_disagreement when neither
+    a measure crop nor a row crop is available — currently: PDF pages
+    (_prepare_score_rows gives them "rows": [] by design, since dewarping/
+    segmentation are image-only) and raster rows whose provenance came
+    back unusable (row_key is None). Previously both cases fell straight
+    to "unresolved" with ZERO resolution calls attempted — the cleanest
+    input this product accepts (a PDF) was refusing reference audio for
+    the whole piece on a false-invalid bar with no attempt to rescue it.
+
+    resolve_measure_disagreement hardcodes media_type "image/png" (it only
+    ever received PNG crops from split_row_into_measures/dewarp_row
+    before this fallback existed), so whatever we hand back here MUST be
+    PNG bytes — a raw JPEG/WEBP upload or raw PDF bytes would silently
+    mislabel the media type. PDFs are rasterized with PyMuPDF (already a
+    pinned dependency, already used the same way in pdf_first_page_to_png
+    above); raster pages are re-encoded through PIL.
+
+    Only renders the FIRST physical page of a PDF. Multi-physical-page
+    PDF files are represented as a single prepared_pages entry (Claude
+    reads the whole document in one block; see page_strip_counts in
+    _read_score_notes_claude_once), so there is no per-measure record of
+    which physical PDF page a given measure printed on. A disputed
+    measure that happens to live on page 2+ of a multi-page PDF will be
+    resolved against page 1's image and most likely fail to match,
+    falling through to unresolved same as before — a known limitation,
+    but strictly no worse than the previous zero-attempt behaviour, and
+    the common case (one photographed/scanned page per PDF) is unaffected.
+
+    Returns None (never raises) if page_idx is out of range or
+    rasterization/re-encoding fails, so the caller's existing
+    "still None -> mark unresolved" branch keeps working unchanged.
+    """
+    if not (0 <= page_idx - 1 < len(prepared_pages)):
+        return None
+    prepared_page = prepared_pages[page_idx - 1]
+    page_mime = prepared_page.get("page_mime")
+    page_bytes = prepared_page.get("page_bytes")
+    if not page_bytes:
+        return None
+    if page_mime == "application/pdf":
+        return pdf_first_page_to_png(page_bytes)
+    try:
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(page_bytes)).convert("RGB")
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as e:
+        print(f"[_whole_page_crop_for_resolution] failed: {e}")
+        return None
+
+
 # ── Core functions ─────────────────────────────────────────────────────────
 
 def extract_audio_from_video(video_bytes: bytes, target_sr: int = 22050) -> tuple[bytes, float]:
@@ -4349,6 +4404,19 @@ def read_score_notes_claude(
                 "measures": reconciled,
             }
             base_result["tempo_bpm"] = parse_marked_bpm(base_result["tempo_marking"])
+            # (M5, known limitation, deliberate) wedges are computed from
+            # `reconciled` HERE, before the per-measure resolution pass
+            # below runs and can replace some of these measures' dynamics
+            # entirely (resolve_measure_disagreement's prompt only asks for
+            # pitch/beat/duration — see its prompt string — and never
+            # returns "dyn"). wedges are not recomputed afterward, so a
+            # resolved measure's crescendo/decrescendo span is derived from
+            # its PRE-resolution dynamics, not its resolved ones. Not
+            # fixing this now: the prompt is deliberately NOT being
+            # expanded (closed-ended and minimal is the whole point of
+            # targeted resolution), and articulation has the same gap for
+            # the same reason. Flagging it here so the next person touching
+            # this knows it's known, not an oversight.
             base_result["wedges"] = _compute_dynamic_wedges(reconciled)
 
     if base_result.get("error") or not base_result.get("measures"):
@@ -4393,9 +4461,29 @@ def read_score_notes_claude(
     # exempt every system's final measure from duration validation, which
     # is most of the interior of the piece.
     last_measure_number = max(m["number"] for m in base_result["measures"])
+    # Same reasoning for the FIRST measure exemption, keyed on the first
+    # printed measure of the whole piece — NOT start_measure. start_measure
+    # is where the STUDENT began playing (see the DO NOT renumber comment
+    # above in this file), which for any interior take is an ordinary bar
+    # with no anacrusis. Keying the exemption on start_measure gave every
+    # such take's opening bar a free pass on the duration-sum check.
+    first_measure_number = min(m["number"] for m in base_result["measures"])
 
     final_measures = []
     unresolved_count = 0
+    # C1: hard cap on resolution calls per read. A misread time signature
+    # (this file's own docstrings record 2/4 vs 3/4 on different runs of
+    # the SAME image) makes beats_per_measure_from_time_sig wrong for every
+    # measure, which makes validate_measure invalid for all of them, which
+    # makes fuse_measure_confidence's "invalid always wins" rule mark all
+    # of them needs_resolution — a 50-measure page fans out to 50
+    # sequential vision calls with no budget. Past the cap, refusing IS the
+    # more correct outcome: a whole-score dispute rate is itself evidence
+    # the read is untrustworthy, and paying for the remaining calls just to
+    # confirm that would be waste. The measures skipped past the cap are
+    # marked unresolved directly, same as a measure with no crop at all.
+    _RESOLUTION_CALL_CAP = 25
+    resolution_calls_made = 0
 
     # row_key may be None (unknown provenance), which can't be compared to
     # an int — sort those last rather than letting sorted() raise.
@@ -4420,7 +4508,7 @@ def read_score_notes_claude(
                      else None)
 
         for i, measure in enumerate(row_measures):
-            is_first = measure["number"] == start_measure
+            is_first = measure["number"] == first_measure_number
             is_last = measure["number"] == last_measure_number
             validation = validate_measure(
                 measure, instrument, resolved_time_sig,
@@ -4434,14 +4522,34 @@ def read_score_notes_claude(
                 measure, oemer_measure, validation, resolved_time_sig)
 
             if fusion["needs_resolution"]:
+                if resolution_calls_made >= _RESOLUTION_CALL_CAP:
+                    # C1: cap reached — do not place another call. See the
+                    # cap comment above for why refusing here is correct,
+                    # not merely cheap.
+                    measure = {**measure, "unresolved": True,
+                               "issues": fusion["reasons"] +
+                               [f"resolution call cap ({_RESOLUTION_CALL_CAP}) reached"]}
+                    final_measures.append(measure)
+                    unresolved_count += 1
+                    print(f"[read_score_notes_claude] m.{measure['number']} UNRESOLVED "
+                          f"(cap): {measure.get('issues')}")
+                    continue
+
                 # Resolve against the tightest image available: this
                 # measure's own crop when segmentation was trustworthy,
-                # otherwise the whole row. Tight crops are exactly where a
-                # closed-ended candidate comparison belongs — the model has
-                # no neighbouring measures left to pattern-match against.
+                # then the whole row, then (I1) the whole page — a page is
+                # still a real attempt at resolution and is strictly better
+                # than giving up with zero calls made. Only PDFs and rows
+                # with unusable provenance (row is None) reach the page
+                # fallback in practice, since raster pages normally have a
+                # row.
                 crop_for_resolution = (crops[i] if crops is not None and i < len(crops)
                                        else (row["row_bytes"] if row else None))
+                if crop_for_resolution is None:
+                    crop_for_resolution = _whole_page_crop_for_resolution(
+                        prepared_pages, page_idx)
                 if crop_for_resolution is not None:
+                    resolution_calls_made += 1
                     candidates = [measure]
                     resolved = resolve_measure_disagreement(
                         crop_for_resolution, candidates, instrument,
@@ -4872,9 +4980,13 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
     duration_beats), with duration_beats in NOTATED BEAT units (matching
     Claude's own prompt convention) — NOT quarterLengths. A caller
     passing music21/oemer-sourced measures MUST convert duration_beats
-    via quarter_lengths_per_beat(time_sig) first (see
-    read_score_notes_oemer in Task 7), or this function's duration-sum
-    check will be wrong for any non-simple time signature.
+    via quarter_lengths_per_beat(time_sig) first. (There is currently no
+    such caller: OMR/oemer is permanently unavailable this iteration —
+    the controller's GO/NO-GO gate returned NO-GO after oemer failed 6/6
+    on this project's real dewarped row crops, see the docstring on
+    read_score_notes_claude above for the full spike writeup — so every
+    live caller of this function is Claude-sourced already. This note is
+    for whoever revisits OMR later.)
 
     Never raises. Every sibling in this file (compute_row_readability,
     dewarp_row, split_row_into_measures, resolve_measure_disagreement)
@@ -5006,8 +5118,25 @@ def align_claude_to_measure_crops(claude_row_measures: list[dict], crop_count: i
     segmentation or Claude's read is wrong for this row; forcing a
     positional match anyway would silently mislabel every measure after
     the first disagreement, which is worse than not aligning at all.
+
+    (M1) Also refused if the row's measure NUMBERS aren't contiguous.
+    split_row_into_measures segments every printed measure in the row,
+    but the read prompt explicitly instructs Claude to "omit measures
+    that are entirely rest." A row where Claude drops k rest measures
+    and segmentation loses k barlines (independently, for its own
+    reasons) can still pass the bare count check — with every remaining
+    crop off by one position. Resolution would then show the model a
+    DIFFERENT measure's crop, get a confident and clean-revalidating
+    transcription back, and return it unflagged: a confidently wrong bar,
+    the exact failure this whole pipeline exists to eliminate. Requiring
+    max-min+1 == count catches any single contiguous gap (the common
+    case: a run of omitted rests) without needing to know which measures
+    were omitted.
     """
     if len(claude_row_measures) != crop_count:
+        return None
+    numbers = [m["number"] for m in claude_row_measures]
+    if numbers and (max(numbers) - min(numbers) + 1) != len(numbers):
         return None
     return list(claude_row_measures)
 
@@ -8100,7 +8229,18 @@ def post_webhook(webhook_url: str, webhook_secret: str | None, payload: dict, an
 
 @app.function(
     image=image,
-    timeout=300,
+    # (C1) timeout=890, was 300. This function calls read_score_notes_claude
+    # for the score-parsing step — the SAME multi-read + targeted-resolution
+    # pipeline generate_reference_audio_background uses (see that function's
+    # own comment for the full sizing rationale: 2-3 reads, each over a
+    # minute on a dense real page, plus now up to 25 sequential resolution
+    # calls capped by _RESOLUTION_CALL_CAP). 300s was sized for the old
+    # single-read behaviour; under a misread time signature that pushes
+    # every measure to needs_resolution, this path was getting SIGKILLed by
+    # Modal mid-run with no webhook ever posted — the take hangs in
+    # "analyzing" until nothing rescues it. Matching the reference-audio
+    # path's timeout closes that gap.
+    timeout=890,
     memory=4096,
 )
 def run_full_analysis(payload: dict) -> None:
@@ -8715,10 +8855,15 @@ def _generate_reference_audio(body: dict) -> dict:
 
     # Refuse to synthesize anything from a read the pipeline itself does
     # not trust. read_score_notes_claude marks a measure "unresolved" when
-    # Claude's independent reads disagreed, an independent OMR read
-    # contradicted them, or the measure failed deterministic music
-    # validation AND targeted re-reading could not settle it (see
-    # resolve_measure_disagreement).
+    # fuse_measure_confidence flagged it needs_resolution — from Claude's
+    # two independent reads disagreeing and/or deterministic validation
+    # (validate_measure) calling it invalid — AND the targeted
+    # closed-ended re-read (resolve_measure_disagreement) could not
+    # settle it either (no crop was available to even attempt one, the
+    # call failed, or the resolved answer still didn't revalidate).
+    # ("An independent OMR read contradicted them" described a condition
+    # that cannot occur this iteration — OMR/oemer is permanently
+    # unavailable, NO-GO; see read_score_notes_claude's docstring.)
     #
     # Playing those notes anyway is the exact product failure this whole
     # pipeline exists to end: a student hears confident, fluent, WRONG
@@ -8908,6 +9053,16 @@ def _check_score_quality(body: dict) -> dict:
         print(f"[_check_score_quality] rejected non-storage URL host={host!r}")
         return {"error": "score_url must be an https Supabase storage object URL"}
 
+    # (M2) Size cap, checked BEFORE PIL decode (via split_page_into_rows /
+    # compute_row_readability below). This endpoint is public and
+    # unauthenticated (see the SSRF allowlist above, same rationale
+    # applies here): with no cap, a caller-supplied URL could point at a
+    # multi-gigabyte or decompression-bomb image and either exhaust this
+    # container's memory in PIL or just tie it up for the full 30s
+    # timeout, repeatedly, for free. A few MB comfortably covers any real
+    # phone photo of a score page.
+    MAX_QUALITY_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MB
+
     try:
         # follow_redirects=False matters as much as the allowlist: without
         # it, an allowed host that 302s elsewhere would walk the fetch
@@ -8918,6 +9073,11 @@ def _check_score_quality(body: dict) -> dict:
             image_bytes = resp.content
     except Exception as e:
         return {"error": f"could not download image: {e}"}
+
+    if len(image_bytes) > MAX_QUALITY_IMAGE_BYTES:
+        print(f"[_check_score_quality] rejected oversized image: "
+              f"{len(image_bytes)} bytes > {MAX_QUALITY_IMAGE_BYTES} cap")
+        return {"error": "image exceeds size limit"}
 
     rows = split_page_into_rows(image_bytes)
     if not rows:
@@ -8951,12 +9111,23 @@ def _check_score_quality(body: dict) -> dict:
             "poor_rows": sum(1 for q in qualities if q == "poor")}
 
 
-@app.function(image=image, timeout=30)
-@modal.fastapi_endpoint(method="POST", docs=True)
+@app.function(image=image, timeout=30, max_containers=10)
+@modal.fastapi_endpoint(method="POST", docs=False)
 def check_score_quality(body: dict) -> dict:
     """Fast, synchronous quality check for the upload-flow UI. No vision
     model call — pure image processing, sized to run well within a
-    normal HTTP request/response cycle."""
+    normal HTTP request/response cycle.
+
+    (M2) max_containers=10 and docs=False: this endpoint is public and
+    unauthenticated (see the SSRF allowlist comment in
+    _check_score_quality — the "useless without your own credentials"
+    argument that protects this app's other endpoints does not apply
+    here), so it has no natural rate limit of its own. max_containers
+    bounds how much it can scale under abuse instead of autoscaling
+    without limit; docs=False stops it publishing an OpenAPI page that
+    makes the endpoint (and the allowlist it's guarding against) trivial
+    to discover.
+    """
     return _check_score_quality(body)
 
 

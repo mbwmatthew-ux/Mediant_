@@ -3442,6 +3442,128 @@ def test_read_score_notes_claude_groups_by_page_and_row_not_page():
           sorted(m["number"] for m in result.get("measures", [])) == [1, 2], str(result.get("measures")))
 
 
+def test_read_score_notes_claude_caps_resolution_fan_out():
+    print("\n[134] C1: a whole-score dispute rate (e.g. from a misread time signature) is "
+          "bounded by a resolution-call cap instead of fanning out one sequential vision "
+          "call per disputed measure with no budget")
+    # 30 interior measures, each a single note overshooting 4/4 by one beat
+    # (5 beats) -> validate_measure invalid for every one of them except
+    # the piece's own first/last measure (exempt from the duration-sum
+    # check). 28 measures need resolution, comfortably over the cap.
+    measures_json = [
+        {"number": n, "pg": 1, "row": 1, "notes": [{"p": "E4", "b": 1.0, "d": 5.0}]}
+        for n in range(2, 32)
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    resolve_calls = []
+
+    def _fake_resolve(measure_crop_bytes, candidates, instrument, time_sig, anthropic_api_key,
+                       is_first_measure=False, is_last_measure=False):
+        resolve_calls.append(candidates[0]["number"])
+        return {"notes": [{"pitch": "G5", "is_rest": False, "beat": 1.0,
+                           "duration_beats": 1.0, "articulation": None, "dynamic": None}]}
+
+    pages = [(b"\x89PNG-page-one", "image/png")]  # undecodable -> single fallback row
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _orig_resolve = w.resolve_measure_disagreement
+    _ac.Anthropic = _FakeClient
+    w.resolve_measure_disagreement = _fake_resolve
+    try:
+        result = w.read_score_notes_claude(pages, 2, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig_ac
+        w.resolve_measure_disagreement = _orig_resolve
+
+    check("the cap actually stops calls: at most 25 resolution calls were made "
+          "despite 28 measures needing resolution",
+          len(resolve_calls) == 25, f"calls={len(resolve_calls)} {resolve_calls}")
+    check("28 measures needed resolution and all 28 end up unresolved-or-resolved "
+          "(none silently dropped from the result)",
+          len(result.get("measures", [])) == 30, str(len(result.get("measures", []))))
+    check("the measures past the cap are marked unresolved WITHOUT a call ever being "
+          "made for them (3 = 28 disputed - 25 allowed calls)",
+          result.get("unresolved_measure_count") == 3, str(result.get("unresolved_measure_count")))
+    uncalled_unresolved = [m for m in result.get("measures", [])
+                            if m.get("unresolved") and m["number"] not in resolve_calls]
+    check("every capped-out measure's issues explain it was the call cap, not a failed call",
+          len(uncalled_unresolved) == 3 and
+          all("cap" in " ".join(m.get("issues") or []) for m in uncalled_unresolved),
+          str(uncalled_unresolved))
+
+
+def test_read_score_notes_claude_pdf_page_attempts_resolution():
+    print("\n[135] I1: a PDF measure needing resolution gets a resolution call attempted "
+          "against the rasterized page, instead of being marked unresolved with zero "
+          "attempts made (PDFs have no 'rows' by design — _prepare_score_rows gives them "
+          "an empty rows list, so before this fix crop_for_resolution was always None here)")
+    measures_json = [
+        {"number": 1, "pg": 1, "row": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]},
+        {"number": 5, "pg": 1, "row": 1, "notes": [{"p": "E4", "b": 1.0, "d": 5.0}]},
+        {"number": 6, "pg": 1, "row": 1, "notes": [{"p": "F4", "b": 1.0, "d": 1.0}]},
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    resolve_calls = []
+
+    def _fake_resolve(measure_crop_bytes, candidates, instrument, time_sig, anthropic_api_key,
+                       is_first_measure=False, is_last_measure=False):
+        resolve_calls.append(measure_crop_bytes)
+        return {"notes": [{"pitch": "G5", "is_rest": False, "beat": 1.0,
+                           "duration_beats": 1.0, "articulation": None, "dynamic": None}]}
+
+    rasterize_calls = []
+
+    def _fake_pdf_first_page_to_png(pdf_bytes, dpi=150):
+        rasterize_calls.append(pdf_bytes)
+        return b"\x89PNG-rasterized-pdf-page"
+
+    pages = [(b"%PDF-1.4 fake pdf bytes", "application/pdf")]
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _orig_resolve = w.resolve_measure_disagreement
+    _orig_rasterize = w.pdf_first_page_to_png
+    _ac.Anthropic = _FakeClient
+    w.resolve_measure_disagreement = _fake_resolve
+    w.pdf_first_page_to_png = _fake_pdf_first_page_to_png
+    try:
+        result = w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig_ac
+        w.resolve_measure_disagreement = _orig_resolve
+        w.pdf_first_page_to_png = _orig_rasterize
+
+    check("the PDF page was rasterized to attempt resolution",
+          len(rasterize_calls) == 1, str(len(rasterize_calls)))
+    check("resolve_measure_disagreement was actually called (not skipped with zero attempts)",
+          len(resolve_calls) == 1, str(len(resolve_calls)))
+    check("the resolved measure replaces the disputed one",
+          {m["number"]: m for m in result.get("measures", [])}.get(5, {}).get("notes", [{}])[0].get("pitch") == "G5",
+          str(result.get("measures")))
+    check("no measure was marked unresolved (the fallback let resolution succeed)",
+          result.get("unresolved_measure_count") == 0, str(result.get("unresolved_measure_count")))
+
+
+def test_align_claude_to_measure_crops_refuses_non_contiguous_row():
+    print("\n[136] M1: alignment is refused when a row's measure numbers aren't "
+          "contiguous, even though the bare count matches — the read prompt tells "
+          "Claude to omit all-rest measures, so a row where Claude drops k rests and "
+          "segmentation independently loses k barlines can pass the count check with "
+          "every crop off by one position")
+    # 3 measures, count matches crop_count (3), but numbers 4,5,7 skip 6 —
+    # not contiguous.
+    claude_row_measures = [{"number": 4}, {"number": 5}, {"number": 7}]
+    result = w.align_claude_to_measure_crops(claude_row_measures, 3)
+    check("alignment is refused (returns None) despite the count matching",
+          result is None, str(result))
+
+    contiguous_measures = [{"number": 4}, {"number": 5}, {"number": 6}]
+    result_ok = w.align_claude_to_measure_crops(contiguous_measures, 3)
+    check("a genuinely contiguous row still aligns normally (no false-positive refusal)",
+          result_ok == contiguous_measures, str(result_ok))
+
+
 def test_coverage_declares_what_was_not_analysed():
     print("\n[44] coverage declares partial analysis instead of implying completeness")
     score_two_pages = {"measures": [{"number": n, "notes": [{"pitch": "C4"}]}
@@ -4794,6 +4916,9 @@ def main():
               test_read_score_notes_claude_routes_needs_resolution_to_resolve_measure_disagreement,
               test_read_score_notes_claude_surfaces_unresolved_measure_count,
               test_read_score_notes_claude_groups_by_page_and_row_not_page,
+              test_read_score_notes_claude_caps_resolution_fan_out,
+              test_read_score_notes_claude_pdf_page_attempts_resolution,
+              test_align_claude_to_measure_crops_refuses_non_contiguous_row,
               test_coverage_declares_what_was_not_analysed,
               test_coverage_pages_read_reflects_pages_covered_not_downloaded,
               test_score_pipeline_returns_derive_pages_read_from_helper,

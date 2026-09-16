@@ -1993,6 +1993,78 @@ def test_check_score_quality_aggregates_worst_row():
     check("two rows were checked", result.get("rows_checked") == 2, str(result))
 
 
+def test_check_score_quality_zero_rows_is_poor():
+    print("\n[132] _check_score_quality rates a page that yields zero rows as poor, "
+          "does not raise (reviewer finding: this branch was reachable but untested)")
+
+    class _FakeResp:
+        status_code = 200
+        content = b"page-bytes-irrelevant-since-split-is-mocked"
+        def raise_for_status(self): pass
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): return _FakeResp()
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _orig_split = w.split_page_into_rows
+    _httpx.Client = _FakeHttpClient
+    w.split_page_into_rows = lambda page_bytes: []
+    try:
+        result = w._check_score_quality(
+            {"score_url": "https://project.supabase.co/storage/v1/object/sheet-music/x.png"})
+    finally:
+        _httpx.Client = _orig_httpx
+        w.split_page_into_rows = _orig_split
+
+    check("no rows -> quality is poor", result.get("quality") == "poor", str(result))
+    check("no rows -> interline_px is None", result.get("interline_px") is None, str(result))
+
+
+def test_check_score_quality_degrades_to_poor_when_readability_raises():
+    print("\n[133] _check_score_quality degrades to poor instead of raising when "
+          "compute_row_readability itself raises on a row (reviewer finding: this endpoint "
+          "is public/unauthenticated and must never surface a raw 500 to the caller)")
+    good_row = _make_synthetic_row(interline_px=24)
+
+    class _FakeResp:
+        status_code = 200
+        content = b"page-bytes-irrelevant-since-split-and-readability-are-mocked"
+        def raise_for_status(self): pass
+
+    class _FakeHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): return _FakeResp()
+
+    def _raising_readability(row_bytes):
+        raise ValueError("simulated malformed-image failure")
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _orig_split = w.split_page_into_rows
+    _orig_readability = w.compute_row_readability
+    _httpx.Client = _FakeHttpClient
+    w.split_page_into_rows = lambda page_bytes: [good_row]
+    w.compute_row_readability = _raising_readability
+    try:
+        result = w._check_score_quality(
+            {"score_url": "https://project.supabase.co/storage/v1/object/sheet-music/x.png"})
+    finally:
+        _httpx.Client = _orig_httpx
+        w.split_page_into_rows = _orig_split
+        w.compute_row_readability = _orig_readability
+
+    check("does not raise, returns a well-formed result", isinstance(result, dict), str(result))
+    check("degrades to poor rather than propagating the exception",
+          result.get("quality") == "poor", str(result))
+    check("no fabricated interline reading", result.get("interline_px") is None, str(result))
+
+
 def test_binarize_ink_handles_the_degenerate_otsu_case():
     print("\n[81] _binarize_ink correctly finds ink on both a clean two-valued image and a real photo row")
     from PIL import Image, ImageDraw
@@ -4679,6 +4751,8 @@ def main():
               test_check_score_quality_rejects_non_storage_path,
               test_check_score_quality_accepts_genuine_supabase_storage_url,
               test_check_score_quality_aggregates_worst_row,
+              test_check_score_quality_zero_rows_is_poor,
+              test_check_score_quality_degrades_to_poor_when_readability_raises,
               test_binarize_ink_handles_the_degenerate_otsu_case,
               test_dewarp_row_straightens_a_curved_staff,
               test_dewarp_row_is_a_noop_on_an_already_flat_row,

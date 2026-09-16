@@ -8923,7 +8923,17 @@ def _check_score_quality(body: dict) -> dict:
     if not rows:
         return {"quality": "poor", "interline_px": None}
 
-    results = [compute_row_readability(r) for r in rows]
+    try:
+        # This endpoint is public and unauthenticated — nothing downstream of
+        # the allowlist check above is allowed to take it down. A malformed
+        # or adversarial image that makes compute_row_readability raise
+        # (rather than return its own "poor" verdict, which it already does
+        # for undecodable bytes) must degrade the same way a bad fetch does,
+        # not escape as an unhandled 500 with a stack trace.
+        results = [compute_row_readability(r) for r in rows]
+    except Exception as e:
+        print(f"[_check_score_quality] row readability raised, degrading to poor: {e}")
+        return {"quality": "poor", "interline_px": None}
 
     # Aggregate by the WORST row, not the best. Reference audio is
     # generated from the WHOLE page — one unreadable system means wrong

@@ -70,6 +70,14 @@ function extractVideoFrames(videoFile, count = 9) {
   })
 }
 
+/* "1" / "1 and 2" / "1, 2, and 3" — used to name every poor-quality page in
+   one warning rather than revealing them one submit at a time. */
+function formatPageList(nums) {
+  if (nums.length === 1) return `${nums[0]}`
+  if (nums.length === 2) return `${nums[0]} and ${nums[1]}`
+  return `${nums.slice(0, -1).join(', ')}, and ${nums[nums.length - 1]}`
+}
+
 export default function NewRecordingModal({ open, onClose }) {
   const nav = useNavigate()
   const { user } = useAuth()
@@ -95,12 +103,25 @@ export default function NewRecordingModal({ open, onClose }) {
   const [scorePreviews, setScorePreviews] = useState([])
   const scorePreviewsRef = useRef([])
   useEffect(() => { scorePreviewsRef.current = scorePreviews }, [scorePreviews])
+  // Backstop only — this component is rendered unconditionally by AppShell
+  // and gated internally via `if (!open) return null`, so it essentially
+  // never actually unmounts during ordinary open/close/submit cycles. The
+  // real cleanup paths are the reset-on-close effect below and the
+  // post-submit clear in handleSubmit, both of which call clearScoreSelection().
   useEffect(() => () => {
     scorePreviewsRef.current.forEach(url => { try { URL.revokeObjectURL(url) } catch { /* ignore */ } })
   }, [])
   // Set when a post-upload quality check flags a page as "poor" — a non-blocking
   // warning the user can dismiss and proceed past (see handleSubmit's `force` arg).
   const [qualityWarning, setQualityWarning] = useState('')
+  // Caches the performance-media + score-page upload results of the most recent
+  // handleSubmit attempt within this open/close cycle. The media path is
+  // timestamp-keyed with upsert:false (unlike the content-hashed score paths,
+  // which already no-op on a re-upload), so without this cache a "Continue
+  // anyway" retry after a quality warning would re-upload the whole video a
+  // second time and orphan the first copy. Invalidated by any file change and
+  // cleared alongside the score selection.
+  const uploadedRef = useRef(null)
 
   const videoInputRef = useRef()
   const audioInputRef = useRef()
@@ -122,6 +143,7 @@ export default function NewRecordingModal({ open, onClose }) {
   useEffect(() => {
     if (!open) {
       setPhase('idle'); setProgress(0); setErrorMsg('')
+      clearScoreSelection()
     }
   }, [open])
 
@@ -147,13 +169,28 @@ export default function NewRecordingModal({ open, onClose }) {
 
   if (!open) return null
 
+  // Revokes every current score-page preview URL and clears the score
+  // selection. Called on modal close and after a successful submit — the
+  // two points in this component's real lifecycle where the previews are
+  // actually done with, since AppShell keeps NewRecordingModal mounted
+  // permanently and only toggles `open` (see the note by scorePreviewsRef's
+  // unmount backstop above). Also invalidates the cached upload (Finding 2:
+  // stale filePath/scorePaths must never be reused across a fresh selection).
+  function clearScoreSelection() {
+    setScoreFiles([])
+    setScorePreviews(prev => {
+      prev.forEach(url => { try { URL.revokeObjectURL(url) } catch { /* ignore */ } })
+      return []
+    })
+    uploadedRef.current = null
+  }
   function pickVideo(e) {
     const f = e.target.files?.[0]
-    if (f) { playDrop(); setVideoFile(f); setAudioFile(null) }
+    if (f) { playDrop(); setVideoFile(f); setAudioFile(null); uploadedRef.current = null }
   }
   function pickAudio(e) {
     const f = e.target.files?.[0]
-    if (f) { playDrop(); setAudioFile(f); setVideoFile(null) }
+    if (f) { playDrop(); setAudioFile(f); setVideoFile(null); uploadedRef.current = null }
   }
   function pickScore(e) {
     const files = Array.from(e.target.files ?? [])
@@ -163,6 +200,7 @@ export default function NewRecordingModal({ open, onClose }) {
       setScoreFiles(prev => [...prev, ...files])
       setScorePreviews(prev => [...prev, ...previews])
       setQualityWarning('') // a newly added/replaced page supersedes any prior warning
+      uploadedRef.current = null // the score-page set changed — any cached upload is stale
     }
     e.target.value = '' // allow re-picking the same file(s) / adding more after removing one
   }
@@ -174,17 +212,20 @@ export default function NewRecordingModal({ open, onClose }) {
       if (url) { try { URL.revokeObjectURL(url) } catch { /* ignore */ } }
       return prev.filter((_, i) => i !== idx)
     })
+    uploadedRef.current = null
   }
   function clearVideo() {
     playTick()
     setVideoFile(null)
     // Clear the input's value too, or re-picking the SAME file fires no change event.
     if (videoInputRef.current) videoInputRef.current.value = ''
+    uploadedRef.current = null
   }
   function clearAudio() {
     playTick()
     setAudioFile(null)
     if (audioInputRef.current) audioInputRef.current.value = ''
+    uploadedRef.current = null
   }
 
   async function handleSubmit(force = false) {
@@ -203,56 +244,73 @@ export default function NewRecordingModal({ open, onClose }) {
     setQualityWarning('')
 
     try {
-      const progressTick = setInterval(() => setProgress(p => Math.min(p + 6, 45)), 300)
+      let filePath, scorePath, scorePaths
 
-      // Upload performance media
-      const safeName = media.name.replace(/[^a-zA-Z0-9._-]/g, '-')
-      const filePath = `${user.id}/${Date.now()}-${safeName}`
-      const { error: uploadError } = await supabase.storage
-        .from('recordings')
-        .upload(filePath, media, { contentType: media.type || 'video/mp4', upsert: false })
+      if (force && uploadedRef.current) {
+        // "Continue anyway" from the quality warning re-enters handleSubmit —
+        // reuse the upload this same attempt already did instead of re-running
+        // it. The media path is timestamp-keyed with upsert:false, so re-running
+        // this block would create a brand-new storage object for the same video
+        // and silently orphan the first one (Finding 2). The score paths are
+        // content-hashed and already no-op on a re-upload, but there is no
+        // reason to pay even that round-trip again.
+        ({ filePath, scorePath, scorePaths } = uploadedRef.current)
+        setProgress(45)
+      } else {
+        const progressTick = setInterval(() => setProgress(p => Math.min(p + 6, 45)), 300)
 
-      // Upload sheet music pages (optional, multiple allowed). Only the FIRST page
-      // (scorePath, kept singular for backward compat) is actually read by the AI
-      // today — the rest are stored and viewable on the Analysis page but not yet
-      // fed into measure detection.
-      let scorePath
-      const scorePaths = []
-      for (const file of scoreFiles) {
-        const safeSN = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
-        // Name the object by its CONTENT hash, not Date.now(). The analysis
-        // pipeline caches its (slow, expensive, AI-vision) score parse in
-        // score_cache keyed on this path — with a timestamp in the name, the
-        // same photo got a new path every upload, so the cache could never hit
-        // and every run re-read the page from scratch. Those re-reads are not
-        // identical: the same image yielded 54 / 64 / 68 measures and a 2/4 vs
-        // 3/4 time signature on different runs, and each wrong value flows
-        // straight into measure numbering. Hashing makes an identical photo
-        // reuse one parse — consistent measure numbers, and no repeat cost.
-        const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
-        const hash = Array.from(new Uint8Array(digest))
-          .map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32)
-        const sp = `${user.id}/scores/${hash}-${safeSN}`
-        const { error: scoreErr } = await supabase.storage
-          .from('sheet-music')
-          .upload(sp, file, { contentType: file.type || 'application/octet-stream', upsert: false })
-        // A collision here is expected and benign: the path IS the file's content
-        // hash, so an object already sitting there is byte-identical and there is
-        // nothing to re-upload. Deliberately NOT `upsert: true` — that issues an
-        // UPDATE, and the storage policies grant INSERT/SELECT/DELETE only, so it
-        // failed RLS ("new row violates row-level security policy") the moment the
-        // same photo was uploaded twice.
-        const isDuplicate = scoreErr && (
-          scoreErr.statusCode === '409' || scoreErr.statusCode === 409 ||
-          /already exists|duplicate|resource already/i.test(scoreErr.message || '')
-        )
-        if (scoreErr && !isDuplicate) throw new Error(`Sheet music upload failed: ${scoreErr.message}`)
-        scorePaths.push(sp)
+        // Upload performance media
+        const safeName = media.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+        filePath = `${user.id}/${Date.now()}-${safeName}`
+        const { error: uploadError } = await supabase.storage
+          .from('recordings')
+          .upload(filePath, media, { contentType: media.type || 'video/mp4', upsert: false })
+
+        // Upload sheet music pages (optional, multiple allowed). Only the FIRST page
+        // (scorePath, kept singular for backward compat) is actually read by the AI
+        // today — the rest are stored and viewable on the Analysis page but not yet
+        // fed into measure detection.
+        scorePaths = []
+        for (const file of scoreFiles) {
+          const safeSN = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+          // Name the object by its CONTENT hash, not Date.now(). The analysis
+          // pipeline caches its (slow, expensive, AI-vision) score parse in
+          // score_cache keyed on this path — with a timestamp in the name, the
+          // same photo got a new path every upload, so the cache could never hit
+          // and every run re-read the page from scratch. Those re-reads are not
+          // identical: the same image yielded 54 / 64 / 68 measures and a 2/4 vs
+          // 3/4 time signature on different runs, and each wrong value flows
+          // straight into measure numbering. Hashing makes an identical photo
+          // reuse one parse — consistent measure numbers, and no repeat cost.
+          const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+          const hash = Array.from(new Uint8Array(digest))
+            .map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32)
+          const sp = `${user.id}/scores/${hash}-${safeSN}`
+          const { error: scoreErr } = await supabase.storage
+            .from('sheet-music')
+            .upload(sp, file, { contentType: file.type || 'application/octet-stream', upsert: false })
+          // A collision here is expected and benign: the path IS the file's content
+          // hash, so an object already sitting there is byte-identical and there is
+          // nothing to re-upload. Deliberately NOT `upsert: true` — that issues an
+          // UPDATE, and the storage policies grant INSERT/SELECT/DELETE only, so it
+          // failed RLS ("new row violates row-level security policy") the moment the
+          // same photo was uploaded twice.
+          const isDuplicate = scoreErr && (
+            scoreErr.statusCode === '409' || scoreErr.statusCode === 409 ||
+            /already exists|duplicate|resource already/i.test(scoreErr.message || '')
+          )
+          if (scoreErr && !isDuplicate) throw new Error(`Sheet music upload failed: ${scoreErr.message}`)
+          scorePaths.push(sp)
+        }
+        if (scorePaths.length) scorePath = scorePaths[0]
+
+        clearInterval(progressTick)
+        if (uploadError) throw new Error(`Upload failed: ${uploadError.message || 'please try a different file'}`)
+
+        // Cache the upload results so a later "Continue anyway" (force=true)
+        // resumes from here instead of re-uploading (Finding 2).
+        uploadedRef.current = { filePath, scorePath, scorePaths }
       }
-      if (scorePaths.length) scorePath = scorePaths[0]
-
-      clearInterval(progressTick)
-      if (uploadError) throw new Error(`Upload failed: ${uploadError.message || 'please try a different file'}`)
 
       const { data: { session: freshSession } } = await supabase.auth.getSession()
       if (!freshSession) throw new Error('Your session has expired. Please log in again.')
@@ -265,9 +323,12 @@ export default function NewRecordingModal({ open, onClose }) {
       // button) or go back and replace the photo. A check that errors, times
       // out, or comes back "unknown" (e.g. MODAL_SCORE_QUALITY_URL unset)
       // proceeds silently — a broken quality check must never block an upload.
+      // Every page is checked (no early break) so the warning names every
+      // poor page at once — a serial "fix one, resubmit, discover the next"
+      // loop would defeat the point of checking before the user waits.
       if (!force && scorePaths.length) {
-        let poor = false
-        for (const sp of scorePaths) {
+        const poorPages = []
+        for (let i = 0; i < scorePaths.length; i++) {
           try {
             const qcResp = await fetch(
               `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/score-quality-check`,
@@ -278,23 +339,27 @@ export default function NewRecordingModal({ open, onClose }) {
                   'Authorization': `Bearer ${freshSession.access_token}`,
                   'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
                 },
-                body: JSON.stringify({ scorePath: sp }),
+                body: JSON.stringify({ scorePath: scorePaths[i] }),
               },
             )
             if (qcResp.ok) {
               const qc = await qcResp.json()
-              if (qc.quality === 'poor') { poor = true; break }
+              if (qc.quality === 'poor') poorPages.push(i + 1)
             }
             // non-OK response: treat like an error below — proceed silently
           } catch { /* network error — proceed silently */ }
         }
-        if (poor) {
+        if (poorPages.length) {
           setPhase('idle')
           setProgress(0)
+          const label = poorPages.length === 1
+            ? `Page ${poorPages[0]}`
+            : `Pages ${formatPageList(poorPages)}`
+          const pronoun = poorPages.length === 1 ? 'it' : 'them'
           setQualityWarning(
-            "This photo may be too low-resolution or blurry to read accurately, so the "
-            + "reference audio could come out wrong. Try retaking it flatter and closer, "
-            + "or use your phone's scan mode.",
+            `${label} may be too low-resolution or blurry to read accurately, so the `
+            + `reference audio could come out wrong. Try retaking ${pronoun} flatter and `
+            + "closer, or use your phone's scan mode.",
           )
           return
         }
@@ -395,6 +460,7 @@ export default function NewRecordingModal({ open, onClose }) {
 
       setProgress(100)
       playAnalyzeComplete()
+      clearScoreSelection() // revoke thumbnail object URLs now that the take is submitted
       setTimeout(() => {
         onClose?.()
         nav(`/analysis?takeId=${encodeURIComponent(jobId)}`)

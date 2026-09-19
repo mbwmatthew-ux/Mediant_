@@ -4411,9 +4411,27 @@ def read_score_notes_claude(
             base_result = read_a
             claude_agreement = {n: "agree" for n in all_numbers}
         else:
+            # Split the disagreement by CAUSE before reporting it. A measure the
+            # two reads simply don't agree EXISTS (present in one, absent from
+            # the other) mismatches here for a completely different reason than
+            # a measure both read and transcribed differently: `by_number_b.get(n, {})`
+            # fingerprints an absent measure as (), so coverage divergence shows
+            # up as content disagreement and inflates the headline rate. A raw
+            # "disagree on 53/53" cannot be read as "this page is illegible"
+            # without knowing which half it is.
+            both = set(by_number_a) & set(by_number_b)
+            coverage_only = [n for n in disagreements if n not in both]
+            content_diff = [n for n in disagreements if n in both]
             print(f"[read_score_notes_claude] two independent reads disagree on "
                   f"{len(disagreements)}/{len(all_numbers)} measures {disagreements[:20]}"
                   f"{'...' if len(disagreements) > 20 else ''} — running a third read")
+            print(f"[read_score_notes_claude] read coverage: A={len(by_number_a)} "
+                  f"measures {min(by_number_a) if by_number_a else None}-"
+                  f"{max(by_number_a) if by_number_a else None}, "
+                  f"B={len(by_number_b)} measures {min(by_number_b) if by_number_b else None}-"
+                  f"{max(by_number_b) if by_number_b else None}, "
+                  f"both={len(both)}; disagreement cause: {len(content_diff)} content, "
+                  f"{len(coverage_only)} coverage-only {coverage_only[:20]}")
             read_c = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
             by_number_c = {m["number"]: m for m in read_c.get("measures", [])} if not read_c.get("error") else {}
             reconciled = []

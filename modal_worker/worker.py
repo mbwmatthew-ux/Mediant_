@@ -9075,6 +9075,53 @@ def generate_reference_audio_async(body: dict) -> dict:
     return {"queued": True, "take_id": take_id}
 
 
+def _detect_screenshot(image_bytes: bytes) -> bool:
+    """
+    Heuristic screenshot detector, run against an uploaded score image
+    before/alongside the readability check. Exists because a screenshot of
+    a photo (a screen capture of the image being displayed somewhere) is
+    permanently capped to whatever resolution it occupied on screen at
+    that moment, no matter how high-resolution the original photo was —
+    and it looks perfectly sharp to the uploader, since that IS their
+    screen's native resolution, which is exactly why the low-quality
+    warning's normal "retake it flatter/closer" advice doesn't help: the
+    fix is "upload the original", not "take a better photo".
+
+    Checks for an explicit OS-embedded marker — confirmed present as
+    macOS's EXIF UserComment ("...ASCII\\x00\\x00\\x00Screenshot") on the
+    real screenshot that triggered this whole investigation. Checked via
+    a raw substring search on the container's exif bytes rather than
+    structured IFD parsing — robust to which sub-IFD a given OS happens to
+    file it under.
+
+    Deliberately does NOT use "PNG with no camera EXIF" as a signal, even
+    though screenshots are typically that shape — a real photo that's
+    been cropped, rotated, or exported through an app that strips
+    metadata (all ordinary things to do before uploading) is ALSO that
+    shape, and confirmed false-positive on this project's own committed
+    real-photo test fixture (testdata/real_photo_row.png: plain PNG, zero
+    EXIF, definitely not a screenshot). A missed screenshot (false
+    negative — e.g. iOS/Android screenshots, which typically carry no
+    identifying metadata at all) is a minor gap; wrongly telling a user
+    their real photo isn't one is the worse failure mode, so this stays
+    conservative and only fires on positive proof.
+
+    Returns False (never raises) on any decode failure — this is an
+    advisory heuristic layered onto the readability check, not a gate of
+    its own; a photo that fails this check for an unrelated reason must
+    not be blocked here.
+    """
+    try:
+        from PIL import Image
+        import io
+
+        img = Image.open(io.BytesIO(image_bytes))
+        raw_exif = img.info.get("exif") or b""
+        return b"screenshot" in raw_exif.lower()
+    except Exception:
+        return False
+
+
 def _check_score_quality(body: dict) -> dict:
     """Downloads one score image and reports its readability. Plain,
     undecorated for the same test-harness-mocking reason every other
@@ -9136,9 +9183,15 @@ def _check_score_quality(body: dict) -> dict:
               f"{len(image_bytes)} bytes > {MAX_QUALITY_IMAGE_BYTES} cap")
         return {"error": "image exceeds size limit"}
 
+    # Checked independently of readability below — a screenshot can measure
+    # as "good" quality by interline/sharpness alone (the display it was
+    # captured from may have been plenty sharp) while still being a
+    # fraction of the original photo's actual resolution.
+    is_screenshot = _detect_screenshot(image_bytes)
+
     rows = split_page_into_rows(image_bytes)
     if not rows:
-        return {"quality": "poor", "interline_px": None}
+        return {"quality": "poor", "interline_px": None, "is_screenshot": is_screenshot}
 
     try:
         # This endpoint is public and unauthenticated — nothing downstream of
@@ -9150,7 +9203,7 @@ def _check_score_quality(body: dict) -> dict:
         results = [compute_row_readability(r) for r in rows]
     except Exception as e:
         print(f"[_check_score_quality] row readability raised, degrading to poor: {e}")
-        return {"quality": "poor", "interline_px": None}
+        return {"quality": "poor", "interline_px": None, "is_screenshot": is_screenshot}
 
     # Aggregate by the WORST row, not the best. Reference audio is
     # generated from the WHOLE page — one unreadable system means wrong
@@ -9165,7 +9218,8 @@ def _check_score_quality(body: dict) -> dict:
     worst = min(results, key=lambda r: r["interline_px"] or 0)
     return {"quality": overall, "interline_px": worst["interline_px"],
             "rows_checked": len(results),
-            "poor_rows": sum(1 for q in qualities if q == "poor")}
+            "poor_rows": sum(1 for q in qualities if q == "poor"),
+            "is_screenshot": is_screenshot}
 
 
 @app.function(image=image, timeout=30, max_containers=10)

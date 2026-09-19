@@ -2065,6 +2065,56 @@ def test_check_score_quality_degrades_to_poor_when_readability_raises():
     check("no fabricated interline reading", result.get("interline_px") is None, str(result))
 
 
+def test_detect_screenshot():
+    print("\n[138] _detect_screenshot fires only on an explicit OS-embedded marker, "
+          "never on a plain re-saved/cropped photo with no EXIF at all (a real photo "
+          "that's been cropped, rotated, or exported through an app that strips "
+          "metadata must not be told it looks like a screenshot)")
+    from PIL import Image
+    import io, struct
+
+    # A minimal PNG carrying an eXIf chunk whose payload is a TIFF-format
+    # EXIF blob with tag 0x9286 (UserComment) set to the macOS-style
+    # "ASCII\x00\x00\x00Screenshot" value — the exact shape confirmed on a
+    # real macOS screenshot that triggered this investigation. Built by
+    # hand (rather than via PIL, which doesn't expose EXIF-writing on save)
+    # using a big-endian TIFF IFD.
+    def _png_with_exif(exif_bytes):
+        im = Image.new("RGB", (20, 20), "white")
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        png = buf.getvalue()
+        chunk_type = b"eXIf"
+        payload = exif_bytes
+        crc = __import__("zlib").crc32(chunk_type + payload) & 0xffffffff
+        chunk = struct.pack(">I", len(payload)) + chunk_type + payload + struct.pack(">I", crc)
+        # Insert right after the IHDR chunk (first 8 bytes signature + IHDR chunk).
+        ihdr_len = struct.unpack(">I", png[8:12])[0]
+        insert_at = 8 + 12 + ihdr_len  # length+type+data+crc for IHDR
+        return png[:insert_at] + chunk + png[insert_at:]
+
+    user_comment_value = b"ASCII\x00\x00\x00Screenshot"
+    macos_exif = (
+        b"MM\x00\x2a"                      # big-endian TIFF, magic 42
+        + struct.pack(">I", 8)              # offset to IFD0
+        + struct.pack(">H", 1)               # 1 entry
+        + struct.pack(">HHII", 0x9286, 7, len(user_comment_value), 26)  # UserComment, offset 26
+        + struct.pack(">I", 0)               # next IFD offset (none)
+        + user_comment_value
+    )
+    screenshot_png = _png_with_exif(macos_exif)
+    check("macOS-style UserComment 'Screenshot' marker is detected",
+          w._detect_screenshot(screenshot_png) is True, "")
+
+    plain_buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "white").save(plain_buf, format="PNG")
+    check("a plain PNG with zero EXIF is NOT flagged (no false positive on a re-saved photo)",
+          w._detect_screenshot(plain_buf.getvalue()) is False, "")
+
+    check("undecodable bytes return False rather than raising",
+          w._detect_screenshot(b"not an image at all") is False, "")
+
+
 def test_binarize_ink_handles_the_degenerate_otsu_case():
     print("\n[81] _binarize_ink correctly finds ink on both a clean two-valued image and a real photo row")
     from PIL import Image, ImageDraw
@@ -4936,6 +4986,7 @@ def main():
               test_check_score_quality_aggregates_worst_row,
               test_check_score_quality_zero_rows_is_poor,
               test_check_score_quality_degrades_to_poor_when_readability_raises,
+              test_detect_screenshot,
               test_binarize_ink_handles_the_degenerate_otsu_case,
               test_dewarp_row_straightens_a_curved_staff,
               test_dewarp_row_is_a_noop_on_an_already_flat_row,

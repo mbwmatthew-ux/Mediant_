@@ -328,6 +328,7 @@ export default function NewRecordingModal({ open, onClose }) {
       // loop would defeat the point of checking before the user waits.
       if (!force && scorePaths.length) {
         const poorPages = []
+        const screenshotPages = []
         for (let i = 0; i < scorePaths.length; i++) {
           try {
             const qcResp = await fetch(
@@ -344,10 +345,30 @@ export default function NewRecordingModal({ open, onClose }) {
             )
             if (qcResp.ok) {
               const qc = await qcResp.json()
-              if (qc.quality === 'poor') poorPages.push(i + 1)
+              // Checked first and exclusively of the blur/resolution warning
+              // below: a screenshot's real cause (capped to whatever
+              // resolution it occupied on screen, however sharp it looks)
+              // needs different advice ("upload the original", not "retake
+              // it flatter") — showing both would bury the actionable one.
+              if (qc.is_screenshot) screenshotPages.push(i + 1)
+              else if (qc.quality === 'poor') poorPages.push(i + 1)
             }
             // non-OK response: treat like an error below — proceed silently
           } catch { /* network error — proceed silently */ }
+        }
+        if (screenshotPages.length) {
+          setPhase('idle')
+          setProgress(0)
+          const label = screenshotPages.length === 1
+            ? `Page ${screenshotPages[0]} looks`
+            : `Pages ${formatPageList(screenshotPages)} look`
+          setQualityWarning(
+            `${label} like a screenshot rather than a photo of the page. A screenshot is `
+            + "capped to your screen's resolution no matter how sharp it looks, which is "
+            + 'usually far below the original photo — so the reference audio could come out '
+            + 'wrong. Please upload the original photo from your camera roll instead.',
+          )
+          return
         }
         if (poorPages.length) {
           setPhase('idle')

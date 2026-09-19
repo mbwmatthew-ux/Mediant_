@@ -55,7 +55,7 @@ serve(async (req: Request) => {
     if (!modalRes || !modalRes.ok) {
       // A quality check that fails to run should never block the upload
       // flow — fail open, not closed.
-      return new Response(JSON.stringify({ quality: 'unknown', interlinePx: null }), {
+      return new Response(JSON.stringify({ quality: 'unknown', interlinePx: null, is_screenshot: false }), {
         headers: jsonHeaders,
       })
     }
@@ -64,6 +64,7 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({
       quality: result.quality ?? 'unknown',
       interlinePx: result.interline_px ?? null,
+      is_screenshot: result.is_screenshot ?? false,
     }), { headers: jsonHeaders })
 
   } catch (err) {

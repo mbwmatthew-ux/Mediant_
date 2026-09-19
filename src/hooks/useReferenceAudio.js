@@ -169,8 +169,13 @@ export function useReferenceAudio(takeId) {
     }
     rangeEndRef.current = onTick
     audio.addEventListener('timeupdate', onTick)
-    audio.play()
-    setIsPlaying(true)
+    try {
+      await audio.play()
+      setIsPlaying(true)
+    } catch (e) {
+      clearRangeWatcher()
+      setError(e.message || 'Could not play reference audio')
+    }
   }, [timeline, clearRangeWatcher, generate])
 
   // Same "generate on first use" shape as playRange, and for the same
@@ -184,8 +189,12 @@ export function useReferenceAudio(takeId) {
     if (!audioRef.current?.src) {
       const result = await generate()
       if (!result) return
-      audioRef.current.play()
-      setIsPlaying(true)
+      try {
+        await audioRef.current.play()
+        setIsPlaying(true)
+      } catch (e) {
+        setError(e.message || 'Could not play reference audio')
+      }
       return
     }
     const audio = audioRef.current
@@ -194,8 +203,12 @@ export function useReferenceAudio(takeId) {
       setIsPlaying(false)
     } else {
       clearRangeWatcher()
-      audio.play()
-      setIsPlaying(true)
+      try {
+        await audio.play()
+        setIsPlaying(true)
+      } catch (e) {
+        setError(e.message || 'Could not play reference audio')
+      }
     }
   }, [isPlaying, clearRangeWatcher, generate])
 

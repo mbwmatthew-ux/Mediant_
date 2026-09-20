@@ -4928,6 +4928,33 @@ def test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it():
           all(24 not in (lo, hi) for lo, hi in inton), str(inton))
 
 
+def test_vision_call_sites_use_current_high_res_model():
+    print("\n[143] all three vision call sites use claude-sonnet-5 (current, "
+          "high-resolution tier — 2576px/4784 tokens), not a legacy standard-tier "
+          "model, which silently downscales every image above 1568px/1568 tokens "
+          "regardless of source photo quality (see the 2026-09-20 vision-resolution "
+          "spec). Reads the source file directly rather than importing constants, "
+          "so it catches the model string wherever it's written, including inline "
+          "literals that never get their own named constant.")
+    import re
+    worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker.py")
+    with open(worker_path) as f:
+        src = f.read()
+
+    legacy_hits = re.findall(r'"claude-sonnet-4-6"', src)
+    check("no remaining references to the legacy standard-tier model",
+          len(legacy_hits) == 0, f"found {len(legacy_hits)} occurrence(s)")
+
+    # Every vision-facing model= or CLAUDE_MODEL = literal must be the
+    # upgraded model. This intentionally checks the source text, not a
+    # runtime import, because two of the three sites (the score-read and
+    # measure-resolution calls) set the model inline at the call site
+    # rather than through a shared constant.
+    current_model_hits = len(re.findall(r'"claude-sonnet-5"', src))
+    check("claude-sonnet-5 appears at least 3 times (the three call sites)",
+          current_model_hits >= 3, f"found {current_model_hits} occurrence(s)")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5061,7 +5088,8 @@ def main():
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged,
               test_global_tempo_findings_survive_an_unrelated_unresolved_measure,
-              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it):
+              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it,
+              test_vision_call_sites_use_current_high_res_model):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

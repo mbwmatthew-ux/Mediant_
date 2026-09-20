@@ -4162,7 +4162,7 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
         # minutes"), which turned the truncation into a hard error. Streaming is
         # the supported way to ask for a long generation.
         with client.messages.stream(
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             max_tokens=32000,
             # Reading a score is a deterministic extraction task, not a creative
             # one. This ran at the API default (1.0), so the SAME photo produced
@@ -5406,7 +5406,7 @@ If matched_candidate is not null, "notes" may be empty — the matched candidate
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         with client.messages.stream(
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             max_tokens=2000,
             temperature=0,
             messages=[{"role": "user", "content": [
@@ -6519,7 +6519,7 @@ def compare_and_coach_claude(
     _LAST_SKIPPED_UNRESOLVED_MEASURES = sorted(unresolved_measures)
 
     import anthropic as ac, re
-    CLAUDE_MODEL = "claude-sonnet-4-6"
+    CLAUDE_MODEL = "claude-sonnet-5"
     allowed_types = {
         "intonation", "timing", "rhythm", "articulation", "dynamics",
         "voicing", "phrasing", "tone", "error", "posture", "technique",

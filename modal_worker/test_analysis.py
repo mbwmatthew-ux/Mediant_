@@ -1771,6 +1771,108 @@ def test_split_page_into_rows_falls_back_on_undecodable_bytes():
           crops == [garbage], str(crops))
 
 
+def _make_page_with_margin(system_count=4, content_w=800, content_h=1000, margin=300):
+    """A synthetic page like _make_synthetic_page's, but pasted into a
+    larger canvas with a substantial blank margin on all sides — the
+    photographed-page-with-background-around-it shape _detect_page_bounds
+    exists to recover resolution from."""
+    from PIL import Image
+    content_bytes, band_ys = _make_synthetic_page(system_count=system_count, width=content_w, height=content_h)
+    import io
+    content_img = Image.open(io.BytesIO(content_bytes))
+    canvas = Image.new("L", (content_w + 2 * margin, content_h + 2 * margin), color=250)
+    canvas.paste(content_img, (margin, margin))
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue(), margin, content_w, content_h
+
+
+def test_detect_page_bounds_finds_the_page_within_a_wide_margin():
+    print("\n[139] _detect_page_bounds recovers the actual page region from a photo with "
+          "substantial background margin around it (the resolution-recovery fix for photos "
+          "that measure low interline despite high pixel dimensions, because much of the "
+          "frame is desk/wall rather than the page)")
+    import numpy as np
+    page_bytes, margin, content_w, content_h = _make_page_with_margin(margin=300)
+    from PIL import Image
+    import io
+    img = Image.open(io.BytesIO(page_bytes)).convert("L")
+    arr = np.array(img).astype(np.float64)
+    bounds = w._detect_page_bounds(arr)
+    check("finds a crop (not None) when there's a real margin to recover", bounds is not None, str(bounds))
+    if bounds:
+        x0, y0, x1, y1 = bounds
+        # Generous tolerance (±40px) — this is a heuristic on synthetic content
+        # with its own scattered noteheads, not a pixel-exact boundary.
+        check("left edge lands near the real content boundary", abs(x0 - margin) < 40, f"x0={x0} expected~{margin}")
+        check("right edge lands near the real content boundary",
+              abs(x1 - (margin + content_w)) < 40, f"x1={x1} expected~{margin + content_w}")
+        check("crop is meaningfully smaller than the original frame",
+              (x1 - x0) < content_w + 2 * margin, f"cropped width {x1 - x0}")
+
+
+def test_detect_page_bounds_noop_when_already_tightly_framed():
+    print("\n[140] _detect_page_bounds returns None (no-op) when the page already "
+          "fills nearly the whole frame — cropping would do nothing useful and risks "
+          "clipping real content")
+    import numpy as np
+    from PIL import Image, ImageDraw
+    import random, io
+    # Built directly (not via _make_synthetic_page, which bakes in its own
+    # inter-system gaps by design) so content genuinely fills the frame with
+    # only a tiny, uniform margin — the real "already tightly framed" shape.
+    width, height, margin = 800, 400, 8
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    rng = random.Random(7)
+    for line_i in range(5):
+        line_y = margin + line_i * ((height - 2 * margin) // 4)
+        draw.line([(margin, line_y), (width - margin, line_y)], fill=0, width=2)
+    for x in range(margin + 10, width - margin - 10, 12):
+        blob_y = margin + rng.randint(0, height - 2 * margin)
+        draw.ellipse([x, blob_y, x + 6, blob_y + 6], fill=0)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    arr = np.array(Image.open(io.BytesIO(buf.getvalue())).convert("L")).astype(np.float64)
+    bounds = w._detect_page_bounds(arr)
+    check("declines to crop an already tightly-framed page", bounds is None, str(bounds))
+
+
+def test_detect_page_bounds_noop_on_blank_image():
+    print("\n[141] _detect_page_bounds returns None rather than raising or fabricating "
+          "a box on a uniform/blank image (no content signal to find bounds from at all)")
+    import numpy as np
+    from PIL import Image
+    import io
+    blank = Image.new("L", (400, 400), color=250)
+    buf = io.BytesIO()
+    blank.save(buf, format="PNG")
+    arr = np.array(Image.open(io.BytesIO(buf.getvalue())).convert("L")).astype(np.float64)
+    bounds = w._detect_page_bounds(arr)
+    check("no crash and no fabricated bounds on a blank image", bounds is None, str(bounds))
+
+
+def test_split_page_into_rows_benefits_from_page_bounds_crop():
+    print("\n[142] split_page_into_rows' own row crops are tighter (better effective "
+          "resolution) when the source page has real background margin to crop away")
+    page_with_margin, margin, content_w, content_h = _make_page_with_margin(system_count=5, margin=300)
+    page_tight, _ = _make_synthetic_page(system_count=5, width=content_w, height=content_h)
+    from PIL import Image
+    import io
+    crops_margin = w.split_page_into_rows(page_with_margin)
+    crops_tight = w.split_page_into_rows(page_tight)
+    check("still finds all 5 systems despite the margin", len(crops_margin) == 5, str(len(crops_margin)))
+    if crops_margin:
+        w_margin = Image.open(io.BytesIO(crops_margin[0])).width
+        w_tight = Image.open(io.BytesIO(crops_tight[0])).width
+        # The margin version starts from a much wider canvas (content_w + 2*margin)
+        # but should crop down close to the tight version's width, not stay near
+        # the original wide canvas width.
+        check("row crop width from the margin photo is close to the tight photo's, "
+              "not the original wide canvas", abs(w_margin - w_tight) < 80,
+              f"margin-photo row width={w_margin}, tight-photo row width={w_tight}")
+
+
 def _make_synthetic_row(interline_px=20, width=800, height=140, blur=0):
     """A single-system row crop with 5 staff lines at a known, controllable
     interline spacing, PLUS notehead blobs (real notation has symbols, not
@@ -4999,6 +5101,11 @@ def main():
               test_split_page_into_rows_finds_distinct_systems,
               test_split_page_into_rows_falls_back_on_a_single_system,
               test_split_page_into_rows_falls_back_on_undecodable_bytes,
+              test_detect_page_bounds_finds_the_page_within_a_wide_margin,
+              test_detect_page_bounds_noop_when_already_tightly_framed,
+              test_detect_page_bounds_noop_on_blank_image,
+              test_split_page_into_rows_benefits_from_page_bounds_crop,
+              test_vision_call_sites_use_current_high_res_model,
               test_compute_row_readability_measures_known_interline,
               test_compute_row_readability_flags_low_interline_as_poor,
               test_compute_row_readability_marginal_band,
@@ -5088,8 +5195,7 @@ def main():
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged,
               test_global_tempo_findings_survive_an_unrelated_unresolved_measure,
-              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it,
-              test_vision_call_sites_use_current_high_res_model):
+              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

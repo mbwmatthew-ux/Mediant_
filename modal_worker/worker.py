@@ -3872,6 +3872,70 @@ def split_row_into_measures(row_bytes: bytes) -> dict:
         return {"measures": [row_bytes], "boundaries": [], "confidence": 0.0}
 
 
+def _detect_page_bounds(arr) -> tuple[int, int, int, int] | None:
+    """
+    Finds the page's own bounding box within a photographed frame that
+    likely includes background beyond the page's edges (desk, wall, the
+    hand holding the page) — confirmed on two real uploads the night this
+    was written, where the page filled well under 90% of the frame. Every
+    pixel spent on that background is resolution split_page_into_rows and
+    compute_row_readability never get to spend on actual notation:
+    measured on a 2160x2880 iPhone 16 Pro photo of a page that LOOKED
+    high-resolution, the effective on-page DPI worked out to only ~230 —
+    plausible interline of 13-14px, not a measurement bug (the math
+    checks out against standard engraved staff spacing). Cropping to the
+    page FIRST recovers that wasted resolution for free: no threshold
+    gets loosened, no measurement gets trusted less, and it costs nothing
+    when a photo is already tightly framed (returns None, a no-op).
+
+    Same technique as split_page_into_rows' own row-band detection
+    (local-contrast Otsu, not raw brightness — a photographed background
+    is rarely uniformly white under real lighting), applied on BOTH axes
+    instead of one: a column or row crossing the page mixes ink and paper
+    background within itself (high std); one entirely outside the page
+    is close to uniform desk/wall (low std).
+
+    Returns (x0, y0, x1, y1) with a small margin, or None when nothing is
+    confidently croppable — the content already covers nearly the whole
+    frame, or so little of the frame reads as content that trusting the
+    box would risk cropping into the page itself. Both are "don't guess,"
+    the same convention as every other no-op path in this file.
+    """
+    import numpy as np
+
+    h, w = arr.shape
+    if h < 20 or w < 20:
+        return None
+
+    col_std = arr.std(axis=0)
+    row_std = arr.std(axis=1)
+    col_is_content = col_std > _otsu_threshold(col_std)
+    row_is_content = row_std > _otsu_threshold(row_std)
+
+    content_cols = np.where(col_is_content)[0]
+    content_rows = np.where(row_is_content)[0]
+    if len(content_cols) == 0 or len(content_rows) == 0:
+        return None
+
+    x0, x1 = int(content_cols[0]), int(content_cols[-1]) + 1
+    y0, y1 = int(content_rows[0]), int(content_rows[-1]) + 1
+
+    # Small margin so content flush against the detected edge isn't
+    # clipped — mirrors split_page_into_rows' own per-band padding.
+    pad_x = max(4, int((x1 - x0) * 0.01))
+    pad_y = max(4, int((y1 - y0) * 0.01))
+    x0, x1 = max(0, x0 - pad_x), min(w, x1 + pad_x)
+    y0, y1 = max(0, y0 - pad_y), min(h, y1 + pad_y)
+
+    area_frac = ((x1 - x0) * (y1 - y0)) / (h * w)
+    if area_frac > 0.92:
+        return None  # already fills the frame — cropping would do nothing useful
+    if area_frac < 0.15:
+        return None  # implausibly small — don't trust a crop this aggressive
+
+    return (x0, y0, x1, y1)
+
+
 def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
     """
     Split a photographed/scanned sheet-music PAGE into per-system (per-row)
@@ -3913,6 +3977,26 @@ def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
         img = Image.open(io.BytesIO(page_bytes)).convert("L")
         arr = np.array(img).astype(np.float64)
         h, w = arr.shape
+
+        # Crop to the page's own bounding box FIRST, before any row-band
+        # detection below — background outside the page (desk, wall) is
+        # resolution wasted on nothing, and every measurement downstream
+        # (this function's own bands, dewarp_row, compute_row_readability)
+        # is more accurate against a tightly-framed page. See
+        # _detect_page_bounds for why this is a real resolution recovery,
+        # not a loosened quality bar. Re-decodes from page_bytes rather
+        # than cropping the already-grayscale `img` in place, so the rows
+        # built below still come from the original (RGB-capable) bytes.
+        bounds = _detect_page_bounds(arr)
+        if bounds is not None:
+            x0, y0, x1, y1 = bounds
+            cropped = Image.open(io.BytesIO(page_bytes)).convert("RGB").crop((x0, y0, x1, y1))
+            buf = io.BytesIO()
+            cropped.save(buf, format="PNG")
+            page_bytes = buf.getvalue()
+            img = cropped.convert("L")
+            arr = np.array(img).astype(np.float64)
+            h, w = arr.shape
 
         # Row-wise LOCAL CONTRAST (standard deviation), not absolute darkness.
         # A photographed page's "blank" background is rarely uniform white —

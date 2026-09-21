@@ -5170,12 +5170,30 @@ def test_read_score_notes_claude_once_splits_requests_over_20_images():
             calls.append(image_count)
             check(f"request {len(calls)} has at most 20 images", image_count <= 20,
                   f"request {len(calls)} had {image_count} images")
+            # The prompt is always the LAST content block (built as
+            # [*vision_parts, {"type": "text", "text": prompt}]) — reading
+            # its actual text, not just inferring continuity from call
+            # order, is what proves the real function put the CONTINUATION
+            # note and the correct next-measure number in the request it
+            # actually sent, rather than merely returning numbers that
+            # happen to look continuous.
+            prompt_text = messages[0]["content"][-1]["text"]
             # start_measure is read back out of the prompt text this task
             # must include (see Step 3) — the fake client can't see the
             # real function's internal variable, so it infers continuity
             # from call ORDER instead: first call starts fresh, every
             # later call must be a fresh, larger batch.
             start = 12 if len(calls) == 1 else 12 + (len(calls) - 1) * 5
+            if len(calls) == 1:
+                check("first request's prompt carries no stray CONTINUATION note",
+                      "CONTINUATION" not in prompt_text, "found CONTINUATION on call 1")
+            else:
+                check(f"request {len(calls)}'s prompt contains the CONTINUATION note",
+                      "CONTINUATION" in prompt_text, "no CONTINUATION note in prompt text")
+                check(f"request {len(calls)}'s prompt tells the model to continue "
+                      f"from the correct measure ({start}), not restart",
+                      f"measure {start}." in prompt_text,
+                      f"'measure {start}.' not found in prompt text")
             return _FakeStream(len(calls), start)
 
     class _FakeClient:
@@ -5198,6 +5216,159 @@ def test_read_score_notes_claude_once_splits_requests_over_20_images():
     check("measure numbers from every sub-request are merged, in order, no duplicates",
           numbers_returned == sorted(set(numbers_returned)) and len(numbers_returned) > 5,
           str(numbers_returned))
+
+
+def test_read_score_notes_claude_once_repairs_renumbering_across_a_batch_boundary():
+    print("\n[150] when a batch after the first restarts numbering at 1 (e.g. its "
+          "images happen to carry no legible printed numbers, so prompt rule 5 "
+          "tells the model the FIRST measure it sees is measure 1) the merged "
+          "result is still strictly increasing end to end — the per-batch repair "
+          "pass inside _call_claude_score_batch only guarantees increasing numbers "
+          "WITHIN its own call, so without a second repair pass over the full "
+          "merged list this collapses into the exact "
+          "'m.30 labeled but m.20 played' bug class the original repair pass was "
+          "built to prevent, just re-opened at a request boundary instead of a "
+          "measure boundary")
+    import types
+
+    fake_page_bytes, _ = _make_synthetic_page(system_count=25, width=800, height=3000)
+    rows = w.split_page_into_rows(fake_page_bytes)
+    prepared_pages = [{
+        "page_mime": "image/png",
+        "page_bytes": fake_page_bytes,
+        "rows": [{"row_bytes": r, "readability": {"quality": "good", "interline_px": 24.0,
+                                                    "sharpness": 0.5, "reasons": []},
+                   "segmentation": {"measures": [r], "boundaries": [], "confidence": 1.0}}
+                  for r in rows],
+    }]
+
+    calls = []
+
+    class _FakeStream:
+        def __init__(self, numbers):
+            self._numbers = numbers
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def get_final_message(self):
+            measures_json = ", ".join(
+                f'{{"number": {n}, "pg": 1, "row": 1, "notes": '
+                f'[{{"p": "C4", "b": 1.0, "d": 1.0}}]}}' for n in self._numbers)
+            text = ('{"key_signature": "C", "time_signature": "4/4", '
+                    f'"tempo_marking": null, "measures": [{measures_json}]}}')
+            block = types.SimpleNamespace(type="text", text=text)
+            return types.SimpleNamespace(content=[block])
+
+    class _FakeMessages:
+        def stream(self, model, max_tokens, temperature, messages):
+            calls.append(1)
+            if len(calls) == 1:
+                # Batch 1 reads correctly: measures 12-16.
+                return _FakeStream(list(range(12, 17)))
+            # Batch 2 IGNORES the continuation instruction and restarts at 1,
+            # as a model would if its images had no legible printed numbers —
+            # this is the exact failure mode the cross-batch repair must catch.
+            return _FakeStream(list(range(1, 6)))
+
+    class _FakeClient:
+        def __init__(self, api_key=None):
+            self.messages = _FakeMessages()
+
+    import anthropic as _ac
+    orig_anthropic = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        result = w._read_score_notes_claude_once(
+            [(fake_page_bytes, "image/png")], prepared_pages, 12, "clarinet", "4/4", "fake-key")
+    finally:
+        _ac.Anthropic = orig_anthropic
+
+    check("both batches were called", len(calls) == 2, str(calls))
+    numbers = [m["number"] for m in result["measures"]]
+    check("merged numbers are strictly increasing end to end, not duplicated/decreasing",
+          all(b > a for a, b in zip(numbers, numbers[1:])), str(numbers))
+    check("no measure number from the mis-numbered second batch survives as a "
+          "low duplicate of the first batch's numbers",
+          len(numbers) == len(set(numbers)) and min(numbers) == 12, str(numbers))
+
+
+def test_read_score_notes_claude_once_strip_note_is_scoped_to_each_batch():
+    print("\n[151] each batch's strip note describes only the images actually "
+          "attached to THAT request, not the whole read's global page layout — "
+          "a page split across a batch boundary must not tell the model about "
+          "images 21-24 of a page when the current request only carries 4 of "
+          "them (as images 1-4)")
+    import types
+
+    # 24 rows of ONE page: batch 1 gets rows 1-20 (image indices 1-20 in ITS
+    # OWN request), batch 2 gets rows 21-24 (image indices 1-4 in ITS OWN
+    # request, not 21-24 — that global numbering doesn't exist in batch 2's
+    # message at all).
+    fake_page_bytes, _ = _make_synthetic_page(system_count=24, width=800, height=2880)
+    rows = w.split_page_into_rows(fake_page_bytes)
+    check("fixture setup produced more than 20 rows to split across", len(rows) > 20,
+          f"got {len(rows)} rows")
+
+    prepared_pages = [{
+        "page_mime": "image/png",
+        "page_bytes": fake_page_bytes,
+        "rows": [{"row_bytes": r, "readability": {"quality": "good", "interline_px": 24.0,
+                                                    "sharpness": 0.5, "reasons": []},
+                   "segmentation": {"measures": [r], "boundaries": [], "confidence": 1.0}}
+                  for r in rows],
+    }]
+
+    prompts = []
+
+    class _FakeStream:
+        def __init__(self, numbers):
+            self._numbers = numbers
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def get_final_message(self):
+            measures_json = ", ".join(
+                f'{{"number": {n}, "pg": 1, "row": 1, "notes": '
+                f'[{{"p": "C4", "b": 1.0, "d": 1.0}}]}}' for n in self._numbers)
+            text = ('{"key_signature": "C", "time_signature": "4/4", '
+                    f'"tempo_marking": null, "measures": [{measures_json}]}}')
+            block = types.SimpleNamespace(type="text", text=text)
+            return types.SimpleNamespace(content=[block])
+
+    class _FakeMessages:
+        def stream(self, model, max_tokens, temperature, messages):
+            prompts.append(messages[0]["content"][-1]["text"])
+            start = 5 if len(prompts) == 1 else 25
+            return _FakeStream(list(range(start, start + 3)))
+
+    class _FakeClient:
+        def __init__(self, api_key=None):
+            self.messages = _FakeMessages()
+
+    import anthropic as _ac
+    orig_anthropic = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        w._read_score_notes_claude_once(
+            [(fake_page_bytes, "image/png")], prepared_pages, 5, "clarinet", "4/4", "fake-key")
+    finally:
+        _ac.Anthropic = orig_anthropic
+
+    check("exactly two requests were sent", len(prompts) == 2, str(len(prompts)))
+    check("batch 1's strip note describes its own 20 images (1-20), not the "
+          "read's global row count (24)",
+          "images 1-20 are all horizontal strips of page 1" in prompts[0],
+          prompts[0][:800])
+    check("batch 1's strip note does NOT leak the global row count anywhere in its range text",
+          "1-24" not in prompts[0], prompts[0][:800])
+    check("batch 2's strip note describes only ITS OWN attached images "
+          "(local indices 1-4), not the stale global indices 21-24",
+          "images 1-4 are all horizontal strips of page 1" in prompts[1],
+          prompts[1][:800])
+    check("batch 2's strip note does not reference the stale global indices 21-24",
+          "21-24" not in prompts[1] and "21-" not in prompts[1], prompts[1][:800])
 
 
 def main():
@@ -5255,6 +5426,8 @@ def main():
               test_resize_for_claude_produces_target_dimensions,
               test_resize_for_claude_noop_bytes_identical_when_already_within_limits,
               test_read_score_notes_claude_once_splits_requests_over_20_images,
+              test_read_score_notes_claude_once_repairs_renumbering_across_a_batch_boundary,
+              test_read_score_notes_claude_once_strip_note_is_scoped_to_each_batch,
               test_compute_row_readability_measures_known_interline,
               test_compute_row_readability_flags_low_interline_as_poor,
               test_compute_row_readability_marginal_band,

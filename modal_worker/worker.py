@@ -4405,47 +4405,57 @@ def _read_score_notes_claude_once(
     # Each IMAGE page is further split into per-system row crops (see
     # split_page_into_rows) before being sent — a dense, photographed page
     # sent whole was producing an unreliable read (see that function's
-    # docstring). page_strip_counts tracks how many images each original
-    # page turned into, so the prompt can tell the model which images share
-    # a page number when that count is more than 1.
+    # docstring).
     #
     # Each unit below becomes exactly one image-slot (a PDF document block or
     # one row image) — the flat list is built first, unchanged from before,
     # and batched into ≤20-image requests afterward as a separate pass.
+    # Every unit (pdf or row) carries its own pg_num so a per-BATCH strip
+    # note can be built below — the note must describe only the images
+    # actually attached to that request, not the whole read's page layout
+    # (a batch boundary can split a single page's strips across requests).
     units: list[dict] = []
-    page_strip_counts: list[int] = []
     for pg_num, prepared_page in enumerate(prepared_pages, start=1):
         pg_mime = prepared_page["page_mime"]
         pg_bytes = prepared_page["page_bytes"]
         if pg_mime == "application/pdf":
-            units.append({"kind": "pdf", "pg_bytes": pg_bytes})
-            page_strip_counts.append(1)
+            units.append({"kind": "pdf", "pg_num": pg_num, "pg_bytes": pg_bytes})
         elif pg_mime in CLAUDE_IMAGE_TYPES:
-            page_strip_counts.append(len(prepared_page["rows"]))
             for row_idx, row in enumerate(prepared_page["rows"], start=1):
                 resized_bytes = _resize_for_claude(row["row_bytes"], pg_mime)
                 units.append({"kind": "row", "pg_num": pg_num, "row_idx": row_idx,
                               "mime": pg_mime, "row_bytes": resized_bytes})
         else:
             print(f"[read_score_notes_claude] skipping unsupported mime: {pg_mime}")
-            page_strip_counts.append(0)
     if not units:
         return {"key_signature": None, "time_signature": None,
                 "tempo_marking": None, "measures": []}
 
-    strip_note = ""
-    if any(c > 1 for c in page_strip_counts):
+    def _build_strip_note(batch_units: list[dict]) -> str:
+        # Same message the original single-request function built from the
+        # GLOBAL page_strip_counts, but scoped to only the units actually
+        # attached to THIS batch — grouping consecutive units in the batch
+        # by pg_num reproduces the identical text for the common single-
+        # batch case (the whole read's units == the one batch's units) and
+        # correctly describes a partial page's strips when a batch boundary
+        # falls mid-page.
+        groups: list[list] = []
+        for u in batch_units:
+            if groups and groups[-1][0] == u["pg_num"]:
+                groups[-1][1] += 1
+            else:
+                groups.append([u["pg_num"], 1])
+        if not any(count > 1 for _, count in groups):
+            return ""
         ranges = []
         idx = 1
-        for pg_num, count in enumerate(page_strip_counts, start=1):
-            if count == 0:
-                continue
+        for pg_num, count in groups:
             if count == 1:
                 ranges.append(f"image {idx} is page {pg_num}")
             else:
                 ranges.append(f"images {idx}-{idx + count - 1} are all horizontal strips of page {pg_num}, top to bottom")
             idx += count
-        strip_note = (
+        return (
             "\n\nSOME PAGES ARE SPLIT INTO STRIPS: to make dense systems easier to "
             "read accurately, one or more pages above have been cut into horizontal "
             "strips instead of sent as one image. " + "; ".join(ranges) + ". Strips "
@@ -4489,7 +4499,7 @@ def _read_score_notes_claude_once(
         # strip_note already gives Claude across pages within one request,
         # reused here across a REQUEST boundary. next_start_measure carries
         # forward the highest measure number actually returned so far.
-        batch_note = strip_note
+        batch_note = _build_strip_note(batch)
         if batch_idx > 0:
             batch_note += (
                 f"\n\nCONTINUATION: this is a continuation of the same page(s) you "
@@ -4572,6 +4582,38 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
             source = batch_result.get("source")
         if error is None:
             error = batch_result.get("error")
+
+    # Cross-batch repair: _call_claude_score_batch's own repair pass only
+    # guarantees strictly-increasing numbers WITHIN its own batch — its
+    # `_prev` resets to None on every call, so it has no knowledge of the
+    # previous batch's last number. A batch is a fresh, stateless API call;
+    # if its images happen to carry no legible printed numbers, prompt rule
+    # 5 tells the model to restart at measure 1 for "the FIRST measure in
+    # the image", which would otherwise merge into something like
+    # [12..40, 1..15] — duplicated, decreasing, and exactly the
+    # "m.30 labeled but m.20 played" bug class _call_claude_score_batch's
+    # own repair-pass comment describes. Re-running the same strictly-
+    # increasing repair over the FULL merged list closes that gap. This is
+    # a no-op whenever len(batches) == 1 (the common case): a single
+    # batch's measures are already strictly increasing by construction, so
+    # every number here already satisfies n > _prev and nothing is touched.
+    _prev = None
+    _cross_batch_corrections = 0
+    for m in all_measures:
+        try:
+            n = int(m.get("number"))
+        except (TypeError, ValueError):
+            n = None
+        if n is None or (_prev is not None and n <= _prev):
+            n = (_prev + 1) if _prev is not None else start_measure
+            _cross_batch_corrections += 1
+        m["number"] = n
+        _prev = n
+    if _cross_batch_corrections:
+        print(f"[read_score_notes_claude] cross-batch repair corrected "
+              f"{_cross_batch_corrections} measure number(s) that were not strictly "
+              f"increasing across the {len(batches)} request batch(es) — likely a "
+              f"batch after the first restarted numbering instead of continuing it")
 
     result = {
         "key_signature": key_signature, "time_signature": time_signature,

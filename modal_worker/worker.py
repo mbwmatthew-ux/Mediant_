@@ -87,10 +87,15 @@ image = (
         # Major-version ceiling only, same reasoning as the torch/torchaudio/
         # torchcrepe pins above: an unpinned "anthropic>=0.30.0" silently
         # resolved to 1.4.0 on a routine rebuild and broke
-        # read_score_notes_claude's `client.messages.stream(temperature=0, ...)`
-        # call outright — "Messages.stream() got an unexpected keyword
-        # argument 'temperature'" — with no code change on this side at all.
-        # Confirmed live (2026-09-10) via Modal function logs, not guessed.
+        # read_score_notes_claude's `client.messages.stream(...)` call
+        # outright — "Messages.stream() got an unexpected keyword argument
+        # 'temperature'" — with no code change on this side at all. (That
+        # call has since dropped `temperature` entirely, for an unrelated
+        # reason: claude-sonnet-5 itself rejects a non-default temperature
+        # with a 400 — see _call_claude_score_batch. This SDK-pin incident
+        # predates that and is about the SDK silently changing its
+        # signature, not about the model.) Confirmed live (2026-09-10) via
+        # Modal function logs, not guessed.
         # Every vision-based score read on a cache miss (main pipeline AND
         # reference-audio) silently failed and fell back to whatever stale
         # data existed, for however long this had been deployed.
@@ -4245,18 +4250,25 @@ def _call_claude_score_batch(vision_parts: list, prompt: str, anthropic_api_key:
         # the supported way to ask for a long generation.
         with client.messages.stream(
             model="claude-sonnet-5",
-            max_tokens=32000,
+            max_tokens=64000,
             # Reading a score is a deterministic extraction task, not a creative
-            # one. This ran at the API default (1.0), so the SAME photo produced
-            # materially different parses run to run — 54 vs 64 vs 68 measures,
-            # and a time signature of 2/4 on one run and 3/4 on the next for a
-            # page that plainly reads 3/4. Every one of those wrong values then
-            # propagates into measure numbering and alignment.
-            temperature=0,
+            # one. At the API default (1.0) on the legacy model, the SAME photo
+            # produced materially different parses run to run — 54 vs 64 vs 68
+            # measures, and a time signature of 2/4 on one run and 3/4 on the
+            # next for a page that plainly reads 3/4. claude-sonnet-5 rejects a
+            # non-default temperature/top_p/top_k outright (400), so this
+            # parameter is gone — determinism is now steered entirely by the
+            # prompt's explicit instructions (see MEASURE NUMBERING below),
+            # not an API knob. temperature=0 is still disallowed here, just no
+            # longer expressible.
             messages=[{"role": "user", "content": [*vision_parts, {"type": "text", "text": prompt}]}],
         ) as stream:
             msg = stream.get_final_message()
-        raw    = msg.content[0].text
+        # Sonnet 5 runs adaptive thinking by default even when `thinking` is
+        # omitted, so a `thinking` block can precede the `text` block in
+        # msg.content — content[0] is not reliably the text. Filter by type
+        # instead of indexing.
+        raw    = "".join(block.text for block in msg.content if block.type == "text")
         if getattr(msg, "stop_reason", None) == "max_tokens":
             print(f"[read_score_notes_claude] hit max_tokens ({len(raw):,} chars) — "
                   f"salvaging the complete measures")
@@ -4391,10 +4403,13 @@ def _read_score_notes_claude_once(
     # Anthropic enforces a much stricter per-image pixel cap once a request
     # carries more than 20 images — this is the exact mechanism behind a
     # real "many-image requests...2000 pixels" 400 error hit in production.
-    # Splitting into multiple requests of at most this many image blocks
-    # each keeps every image at the full resolution _resize_for_claude
-    # already computed for it.
-    MAX_IMAGES_PER_REQUEST = 20
+    # Anthropic's docs only state "more than 20 triggers the stricter cap";
+    # the exact inclusive/exclusive boundary was never confirmed live, so
+    # this is set to 19, not 20 — cheap insurance so a full batch never
+    # sits exactly on the unconfirmed boundary. Splitting into multiple
+    # requests of at most this many image blocks each keeps every image at
+    # the full resolution _resize_for_claude already computed for it.
+    MAX_IMAGES_PER_REQUEST = 19
 
     # One media block per uploaded file, in page order. A single multi-page PDF
     # still arrives as ONE document block and Claude reads all of its pages — that
@@ -5738,14 +5753,19 @@ If matched_candidate is not null, "notes" may be empty — the matched candidate
         with client.messages.stream(
             model="claude-sonnet-5",
             max_tokens=2000,
-            temperature=0,
+            # No temperature param — claude-sonnet-5 rejects a non-default
+            # temperature/top_p/top_k with a 400 (see _call_claude_score_batch
+            # for the full history of why this measure-resolution call, like
+            # the primary score-read call, wants deterministic output).
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
                 {"type": "text", "text": prompt},
             ]}],
         ) as stream:
             msg = stream.get_final_message()
-        raw = msg.content[0].text
+        # See _call_claude_score_batch: adaptive thinking can put a thinking
+        # block before the text block, so filter by type rather than index.
+        raw = "".join(block.text for block in msg.content if block.type == "text")
         parsed = extract_json_object(raw) or {}
 
         resolved = None
@@ -8331,7 +8351,10 @@ Return JSON only (no markdown):
             model=CLAUDE_MODEL, max_tokens=16000,
             messages=[{"role": "user", "content": coach_prompt}],
         )
-        parsed = extract_json_object(msg.content[0].text)
+        # See _call_claude_score_batch: adaptive thinking can put a thinking
+        # block before the text block, so filter by type rather than index.
+        coach_raw = "".join(block.text for block in msg.content if block.type == "text")
+        parsed = extract_json_object(coach_raw)
         for c in (parsed or {}).get("coaching", []):
             if isinstance(c, dict) and isinstance(c.get("i"), (int, float)):
                 coaching_by_index[int(c["i"])] = {

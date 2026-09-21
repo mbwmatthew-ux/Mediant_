@@ -44,7 +44,7 @@ class _FakeMessages:
         prompt = kw["messages"][0]["content"]
         idxs = [int(x) for x in re.findall(r'^\[(\d+)\] ', prompt, re.M)]
         return types.SimpleNamespace(content=[types.SimpleNamespace(
-            text=json.dumps({"coaching": [
+            type="text", text=json.dumps({"coaching": [
                 {"i": i, "title": f"Title {i}", "body": "A. B. C."} for i in idxs]}))])
 
 
@@ -1667,7 +1667,7 @@ def test_score_reader_sends_every_page():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)],
+                content=[types.SimpleNamespace(type="text", text=self._payload)],
                 stop_reason="end_turn")
 
     class _FakeMessages:
@@ -2919,7 +2919,7 @@ def test_resolve_measure_disagreement_sends_crop_and_candidates():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -2991,7 +2991,7 @@ def test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -3028,7 +3028,7 @@ def test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -3068,7 +3068,7 @@ def test_resolve_measure_disagreement_matched_candidate_returns_a_copy():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -3118,7 +3118,7 @@ def test_resolve_measure_disagreement_accepts_a_correctly_resolved_string_double
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -3329,7 +3329,7 @@ def test_read_score_notes_claude_splits_dense_pages_and_labels_strips():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -3388,7 +3388,7 @@ def test_read_score_notes_claude_unsplit_page_has_no_strip_note():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -3439,7 +3439,7 @@ def _fake_claude_read_stream(measures_json, key_signature=None, time_signature="
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     payload = _json.dumps({
         "key_signature": key_signature, "time_signature": time_signature,
@@ -4478,7 +4478,7 @@ def test_fresh_score_read_always_anchors_at_measure_1():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -4535,7 +4535,7 @@ def test_reference_audio_endpoint_prefers_fresh_read_over_provided_score():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -4622,7 +4622,7 @@ def test_reference_audio_background_posts_success_to_webhook():
         def __exit__(self, *a): return False
         def get_final_message(self):
             return types.SimpleNamespace(
-                content=[types.SimpleNamespace(text=self._payload)], stop_reason="end_turn")
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn")
 
     class _FakeMessages:
         def stream(self, **kw):
@@ -5165,7 +5165,7 @@ def test_read_score_notes_claude_once_splits_requests_over_20_images():
             return types.SimpleNamespace(content=[block])
 
     class _FakeMessages:
-        def stream(self, model, max_tokens, temperature, messages):
+        def stream(self, model, max_tokens, messages, **kwargs):
             image_count = sum(1 for part in messages[0]["content"] if part.get("type") == "image")
             calls.append(image_count)
             check(f"request {len(calls)} has at most 20 images", image_count <= 20,
@@ -5261,7 +5261,7 @@ def test_read_score_notes_claude_once_repairs_renumbering_across_a_batch_boundar
             return types.SimpleNamespace(content=[block])
 
     class _FakeMessages:
-        def stream(self, model, max_tokens, temperature, messages):
+        def stream(self, model, max_tokens, messages, **kwargs):
             calls.append(1)
             if len(calls) == 1:
                 # Batch 1 reads correctly: measures 12-16.
@@ -5297,13 +5297,14 @@ def test_read_score_notes_claude_once_strip_note_is_scoped_to_each_batch():
     print("\n[151] each batch's strip note describes only the images actually "
           "attached to THAT request, not the whole read's global page layout — "
           "a page split across a batch boundary must not tell the model about "
-          "images 21-24 of a page when the current request only carries 4 of "
-          "them (as images 1-4)")
+          "images 20-24 of a page when the current request only carries 5 of "
+          "them (as images 1-5)")
     import types
 
-    # 24 rows of ONE page: batch 1 gets rows 1-20 (image indices 1-20 in ITS
-    # OWN request), batch 2 gets rows 21-24 (image indices 1-4 in ITS OWN
-    # request, not 21-24 — that global numbering doesn't exist in batch 2's
+    # 24 rows of ONE page: batch 1 gets rows 1-19 (image indices 1-19 in ITS
+    # OWN request — MAX_IMAGES_PER_REQUEST is 19, not 20, per the unconfirmed-
+    # boundary fix), batch 2 gets rows 20-24 (image indices 1-5 in ITS OWN
+    # request, not 20-24 — that global numbering doesn't exist in batch 2's
     # message at all).
     fake_page_bytes, _ = _make_synthetic_page(system_count=24, width=800, height=2880)
     rows = w.split_page_into_rows(fake_page_bytes)
@@ -5338,7 +5339,7 @@ def test_read_score_notes_claude_once_strip_note_is_scoped_to_each_batch():
             return types.SimpleNamespace(content=[block])
 
     class _FakeMessages:
-        def stream(self, model, max_tokens, temperature, messages):
+        def stream(self, model, max_tokens, messages, **kwargs):
             prompts.append(messages[0]["content"][-1]["text"])
             start = 5 if len(prompts) == 1 else 25
             return _FakeStream(list(range(start, start + 3)))
@@ -5357,18 +5358,18 @@ def test_read_score_notes_claude_once_strip_note_is_scoped_to_each_batch():
         _ac.Anthropic = orig_anthropic
 
     check("exactly two requests were sent", len(prompts) == 2, str(len(prompts)))
-    check("batch 1's strip note describes its own 20 images (1-20), not the "
+    check("batch 1's strip note describes its own 19 images (1-19), not the "
           "read's global row count (24)",
-          "images 1-20 are all horizontal strips of page 1" in prompts[0],
+          "images 1-19 are all horizontal strips of page 1" in prompts[0],
           prompts[0][:800])
     check("batch 1's strip note does NOT leak the global row count anywhere in its range text",
           "1-24" not in prompts[0], prompts[0][:800])
     check("batch 2's strip note describes only ITS OWN attached images "
-          "(local indices 1-4), not the stale global indices 21-24",
-          "images 1-4 are all horizontal strips of page 1" in prompts[1],
+          "(local indices 1-5), not the stale global indices 20-24",
+          "images 1-5 are all horizontal strips of page 1" in prompts[1],
           prompts[1][:800])
-    check("batch 2's strip note does not reference the stale global indices 21-24",
-          "21-24" not in prompts[1] and "21-" not in prompts[1], prompts[1][:800])
+    check("batch 2's strip note does not reference the stale global indices 20-24",
+          "20-24" not in prompts[1] and "20-" not in prompts[1], prompts[1][:800])
 
 
 def main():

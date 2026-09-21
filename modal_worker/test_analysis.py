@@ -5057,6 +5057,66 @@ def test_vision_call_sites_use_current_high_res_model():
           current_model_hits >= 3, f"found {current_model_hits} occurrence(s)")
 
 
+def test_claude_target_size_matches_documented_example():
+    print("\n[144] _claude_target_size reproduces Anthropic's own documented worked "
+          "example exactly — an A4 page scanned at 130 DPI (1075x1520px) resizes to "
+          "924x1307 on the standard tier (1568 edge / 1568 tokens), per the Vision "
+          "docs' 'How Claude resizes and pads images' section. Verified against a "
+          "published example rather than only checked for internal consistency.")
+    result = w._claude_target_size(1075, 1520, max_edge=1568, max_tokens=1568)
+    check("matches Anthropic's documented example exactly",
+          result == (924, 1307), str(result))
+
+
+def test_claude_target_size_high_res_tier_no_resize_needed():
+    print("\n[145] _claude_target_size leaves an image unchanged when it already "
+          "fits the high-resolution tier's limits — the same 1075x1520 scan that "
+          "needed resizing on the standard tier fits the high-res tier's 4784-token "
+          "budget untouched (39x55=2145 visual tokens, per Anthropic's own worked "
+          "arithmetic in the same doc section, well under 4784)")
+    result = w._claude_target_size(1075, 1520, max_edge=2576, max_tokens=4784)
+    check("no resize needed — image already fits the high-resolution tier",
+          result == (1075, 1520), str(result))
+
+
+def test_claude_target_size_noop_when_already_within_limits():
+    print("\n[146] _claude_target_size is a no-op on an image already within limits "
+          "on either tier (small images, e.g. a single measure crop, must never be "
+          "upscaled — only downscaled when oversized)")
+    result = w._claude_target_size(200, 200, max_edge=1568, max_tokens=1568)
+    check("small image returned unchanged, not upscaled", result == (200, 200), str(result))
+
+
+def test_resize_for_claude_produces_target_dimensions():
+    print("\n[147] _resize_for_claude actually resizes an oversized row-crop-shaped "
+          "image to the computed target size, using a high-quality resample filter")
+    from PIL import Image
+    import io
+    oversized = Image.new("L", (2200, 150), color=250)
+    buf = io.BytesIO()
+    oversized.save(buf, format="PNG")
+    resized_bytes = w._resize_for_claude(buf.getvalue(), "image/png")
+    resized_img = Image.open(io.BytesIO(resized_bytes))
+    expected = w._claude_target_size(2200, 150)
+    check("resized to the computed target dimensions", resized_img.size == expected,
+          f"got {resized_img.size}, expected {expected}")
+
+
+def test_resize_for_claude_noop_bytes_identical_when_already_within_limits():
+    print("\n[148] _resize_for_claude returns the ORIGINAL bytes unchanged (not just "
+          "same-dimensions-but-re-encoded) when no resize is needed — avoids a "
+          "pointless re-encode/quality-loss round trip on images that already fit")
+    from PIL import Image
+    import io
+    small = Image.new("L", (400, 100), color=250)
+    buf = io.BytesIO()
+    small.save(buf, format="PNG")
+    original_bytes = buf.getvalue()
+    result_bytes = w._resize_for_claude(original_bytes, "image/png")
+    check("bytes are unchanged, not re-encoded", result_bytes == original_bytes,
+          f"{len(result_bytes)} bytes vs original {len(original_bytes)} bytes")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5106,6 +5166,11 @@ def main():
               test_detect_page_bounds_noop_on_blank_image,
               test_split_page_into_rows_benefits_from_page_bounds_crop,
               test_vision_call_sites_use_current_high_res_model,
+              test_claude_target_size_matches_documented_example,
+              test_claude_target_size_high_res_tier_no_resize_needed,
+              test_claude_target_size_noop_when_already_within_limits,
+              test_resize_for_claude_produces_target_dimensions,
+              test_resize_for_claude_noop_bytes_identical_when_already_within_limits,
               test_compute_row_readability_measures_known_interline,
               test_compute_row_readability_flags_low_interline_as_poor,
               test_compute_row_readability_marginal_band,

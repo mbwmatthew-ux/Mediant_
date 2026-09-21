@@ -3464,6 +3464,83 @@ def _measure_line_thinness(row_ink_fraction):
     return float(np.mean(widths))
 
 
+def _claude_target_size(width: int, height: int, max_edge: int = 2576,
+                          max_tokens: int = 4784) -> tuple[int, int]:
+    """
+    The exact size Claude resizes an image to before padding, computed
+    ourselves rather than left to Claude's internal (undocumented-algorithm)
+    resize — so we control the resampling quality on notation, which is
+    fragile to blurring, and never send more bytes than the model will
+    actually use.
+
+    Reference implementation from Anthropic's Vision/Coordinates docs
+    ("Resize your image before uploading"), ported as-is. Defaults are the
+    high-resolution tier's limits (2576px edge / 4784 visual tokens); pass
+    max_edge=1568, max_tokens=1568 for the standard tier. An image already
+    within both limits is returned unchanged — this function only ever
+    downscales, never upscales.
+    """
+    import math
+
+    def count_tokens(w: int, h: int) -> int:
+        return math.ceil(w / 28) * math.ceil(h / 28)
+
+    def fits(w: int, h: int) -> bool:
+        return (math.ceil(w / 28) * 28 <= max_edge
+                and math.ceil(h / 28) * 28 <= max_edge
+                and count_tokens(w, h) <= max_tokens)
+
+    if fits(width, height):
+        return (width, height)
+    if height > width:
+        resized_h, resized_w = _claude_target_size(height, width, max_edge, max_tokens)
+        return (resized_w, resized_h)
+
+    aspect_ratio = width / height
+    lo, hi = 1, width  # lo always fits; hi never fits
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if fits(mid, max(round(mid / aspect_ratio), 1)):
+            lo = mid
+        else:
+            hi = mid
+    return (lo, max(round(lo / aspect_ratio), 1))
+
+
+def _resize_for_claude(image_bytes: bytes, mime: str) -> bytes:
+    """
+    Resizes an image to the exact size Claude's high-resolution tier will
+    use, with a high-quality resample filter (Lanczos) — rather than
+    sending an oversized image and trusting Claude's own internal resize,
+    whose exact algorithm Anthropic does not publish. A no-op (returns the
+    ORIGINAL bytes, not a re-encode) when the image already fits, so an
+    already-small crop (e.g. a single measure) never pays a pointless
+    re-encode cost or quality loss.
+
+    Never raises — undecodable bytes come back unchanged, same
+    no-op-on-failure convention as split_page_into_rows and
+    compute_row_readability.
+    """
+    try:
+        from PIL import Image
+        import io
+
+        img = Image.open(io.BytesIO(image_bytes))
+        w, h = img.size
+        target_w, target_h = _claude_target_size(w, h)
+        if (target_w, target_h) == (w, h):
+            return image_bytes
+
+        resized = img.resize((target_w, target_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        save_format = "PNG" if mime == "image/png" else "JPEG"
+        resized.convert("RGB" if save_format == "JPEG" else img.mode).save(buf, format=save_format)
+        return buf.getvalue()
+    except Exception as e:
+        print(f"[_resize_for_claude] failed, sending original bytes: {e}")
+        return image_bytes
+
+
 def compute_row_readability(row_bytes: bytes) -> dict:
     """
     Measures TWO independent quality signals for one row crop and returns

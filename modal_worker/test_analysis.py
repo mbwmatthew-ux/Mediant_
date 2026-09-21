@@ -5117,6 +5117,89 @@ def test_resize_for_claude_noop_bytes_identical_when_already_within_limits():
           f"{len(result_bytes)} bytes vs original {len(original_bytes)} bytes")
 
 
+def test_read_score_notes_claude_once_splits_requests_over_20_images():
+    print("\n[149] _read_score_notes_claude_once splits into multiple API requests "
+          "when a page's row crops would exceed 20 images in one message, and "
+          "merges the results back into one continuous measure list — the exact "
+          "mechanism behind the real 'many-image requests...2000 pixels' 400 error "
+          "hit in production tonight, which this task closes")
+    import types
+
+    # 25 synthetic rows on one page -> 25 image blocks, over the 20-image cap.
+    fake_page_bytes, _ = _make_synthetic_page(system_count=25, width=800, height=3000)
+    rows = w.split_page_into_rows(fake_page_bytes)
+    check("fixture setup produced more than 20 rows to split across", len(rows) > 20,
+          f"got {len(rows)} rows")
+
+    prepared_pages = [{
+        "page_mime": "image/png",
+        "page_bytes": fake_page_bytes,
+        "rows": [{"row_bytes": r, "readability": {"quality": "good", "interline_px": 24.0,
+                                                    "sharpness": 0.5, "reasons": []},
+                   "segmentation": {"measures": [r], "boundaries": [], "confidence": 1.0}}
+                  for r in rows],
+    }]
+
+    calls = []
+
+    class _FakeStream:
+        def __init__(self, batch_number, start_measure):
+            self._batch = batch_number
+            self._start = start_measure
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def get_final_message(self):
+            # Each fake batch "reads" 5 fresh measures starting from whatever
+            # start_measure this call was given, proving continuity: batch 2
+            # must have been called with a start_measure past batch 1's last
+            # returned measure, not restarted at the original start_measure.
+            numbers = list(range(self._start, self._start + 5))
+            measures_json = ", ".join(
+                f'{{"number": {n}, "pg": 1, "row": 1, "notes": '
+                f'[{{"p": "C4", "b": 1.0, "d": 1.0}}]}}' for n in numbers)
+            text = ('{"key_signature": "C", "time_signature": "4/4", '
+                    f'"tempo_marking": null, "measures": [{measures_json}]}}')
+            block = types.SimpleNamespace(type="text", text=text)
+            return types.SimpleNamespace(content=[block])
+
+    class _FakeMessages:
+        def stream(self, model, max_tokens, temperature, messages):
+            image_count = sum(1 for part in messages[0]["content"] if part.get("type") == "image")
+            calls.append(image_count)
+            check(f"request {len(calls)} has at most 20 images", image_count <= 20,
+                  f"request {len(calls)} had {image_count} images")
+            # start_measure is read back out of the prompt text this task
+            # must include (see Step 3) — the fake client can't see the
+            # real function's internal variable, so it infers continuity
+            # from call ORDER instead: first call starts fresh, every
+            # later call must be a fresh, larger batch.
+            start = 12 if len(calls) == 1 else 12 + (len(calls) - 1) * 5
+            return _FakeStream(len(calls), start)
+
+    class _FakeClient:
+        def __init__(self, api_key=None):
+            self.messages = _FakeMessages()
+
+    import anthropic as _ac
+    orig_anthropic = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        result = w._read_score_notes_claude_once(
+            [(fake_page_bytes, "image/png")], prepared_pages, 12, "clarinet", "4/4", "fake-key")
+    finally:
+        _ac.Anthropic = orig_anthropic
+
+    check("split into more than one API request", len(calls) > 1, str(calls))
+    check("every individual request stayed at or under the 20-image cap",
+          all(c <= 20 for c in calls), str(calls))
+    numbers_returned = sorted(m["number"] for m in result["measures"])
+    check("measure numbers from every sub-request are merged, in order, no duplicates",
+          numbers_returned == sorted(set(numbers_returned)) and len(numbers_returned) > 5,
+          str(numbers_returned))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5171,6 +5254,7 @@ def main():
               test_claude_target_size_noop_when_already_within_limits,
               test_resize_for_claude_produces_target_dimensions,
               test_resize_for_claude_noop_bytes_identical_when_already_within_limits,
+              test_read_score_notes_claude_once_splits_requests_over_20_images,
               test_compute_row_readability_measures_known_interline,
               test_compute_row_readability_flags_low_interline_as_poor,
               test_compute_row_readability_marginal_band,

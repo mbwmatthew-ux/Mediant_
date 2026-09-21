@@ -4208,109 +4208,30 @@ def _prepare_score_rows(pages: list[tuple[bytes, str]]) -> list[dict]:
     return prepared
 
 
-def _read_score_notes_claude_once(
-    pages: list[tuple[bytes, str]],
-    prepared_pages: list[dict],
-    start_measure: int, instrument: str, time_sig: str,
-    anthropic_api_key: str,
-) -> dict:
-    import base64, anthropic as ac
-    CLAUDE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-
-    # One media block per uploaded file, in page order. A single multi-page PDF
-    # still arrives as ONE document block and Claude reads all of its pages — that
-    # path already worked and is unchanged. What was broken is several separate
-    # files (the usual case: phone photos of each page), where only the first was
-    # ever sent.
-    #
-    # Each IMAGE page is further split into per-system row crops (see
-    # split_page_into_rows) before being sent — a dense, photographed page
-    # sent whole was producing an unreliable read (see that function's
-    # docstring). page_strip_counts tracks how many images each original
-    # page turned into, so the prompt can tell the model which images share
-    # a page number when that count is more than 1.
-    vision_parts: list = []
-    page_strip_counts: list[int] = []
-    for pg_num, prepared_page in enumerate(prepared_pages, start=1):
-        pg_mime = prepared_page["page_mime"]
-        pg_bytes = prepared_page["page_bytes"]
-        if pg_mime == "application/pdf":
-            b64 = base64.b64encode(pg_bytes).decode()
-            vision_parts.append({"type": "document", "source": {
-                "type": "base64", "media_type": "application/pdf", "data": b64}})
-            page_strip_counts.append(1)
-        elif pg_mime in CLAUDE_IMAGE_TYPES:
-            page_strip_counts.append(len(prepared_page["rows"]))
-            for row_idx, row in enumerate(prepared_page["rows"], start=1):
-                vision_parts.append({"type": "text",
-                                     "text": f"PAGE {pg_num} — ROW {row_idx}"})
-                b64 = base64.b64encode(row["row_bytes"]).decode()
-                vision_parts.append({"type": "image", "source": {
-                    "type": "base64", "media_type": pg_mime, "data": b64}})
-        else:
-            print(f"[read_score_notes_claude] skipping unsupported mime: {pg_mime}")
-            page_strip_counts.append(0)
-    if not vision_parts:
-        return {"key_signature": None, "time_signature": None,
-                "tempo_marking": None, "measures": []}
-
-    strip_note = ""
-    if any(c > 1 for c in page_strip_counts):
-        ranges = []
-        idx = 1
-        for pg_num, count in enumerate(page_strip_counts, start=1):
-            if count == 0:
-                continue
-            if count == 1:
-                ranges.append(f"image {idx} is page {pg_num}")
-            else:
-                ranges.append(f"images {idx}-{idx + count - 1} are all horizontal strips of page {pg_num}, top to bottom")
-            idx += count
-        strip_note = (
-            "\n\nSOME PAGES ARE SPLIT INTO STRIPS: to make dense systems easier to "
-            "read accurately, one or more pages above have been cut into horizontal "
-            "strips instead of sent as one image. " + "; ".join(ranges) + ". Strips "
-            "of the SAME page are NOT separate pages — give every measure from those "
-            "strips the SAME \"pg\" number, and continue measure numbering across "
-            "strips exactly as you would within an unsplit page. Only advance \"pg\" "
-            "and reset your reading context at an ACTUAL boundary between two "
-            "different pages."
-        )
-
-    prompt = f"""You are an expert music engraver reading sheet music for a {instrument} student.
-
-MEASURE NUMBERING — THE MOST IMPORTANT PART OF THIS TASK. Get this wrong and every piece of feedback points at the wrong bar.
-
-1. The printed numbers on the page are the ONLY source of truth. These are the small boxed numbers above the staff (e.g. 12, 20, 38, 50, 58). Assign them exactly as printed.
-2. MULTIRESTS CONSUME MEASURE NUMBERS. A bar drawn as a thick horizontal block with a number over it (e.g. "11", "4", "2") is that many WHOLE MEASURES of rest, not one measure. If a multirest of 11 sits before the bar printed "12", then those 11 rest measures are measures 1-11. After a multirest of N, the next measure number is (current + N). Skipping a multirest without advancing the count is the single most common way to get this wrong.
-3. Number every measure continuously across the whole line, including measures that contain only rests. You will NOT output the rest measures (see below) — but they must still consume their numbers, so the measures you DO output carry their true printed numbers.
-4. Therefore the "number" values you output will normally have GAPS in them (e.g. ... 37, then 40 ...). That is correct and expected. A perfectly consecutive 1,2,3,4... run is almost always a sign you renumbered — do not do that.
-5. Do NOT start counting from the student's starting measure, and do not renumber to make the first measure you see come out as any particular value. Only if the page shows no printed numbers anywhere should you count barlines, and in that case the FIRST measure in the image is measure 1.
-
-MULTIPLE PAGES: You may be given several images. They are consecutive pages of ONE part, in order. Measure numbering runs continuously ACROSS them — the first measure of page 2 is NOT measure 1, it continues from where page 1 ended. Do not restart numbering on a new page. For every measure, also return "pg": the 1-based number of the page you read it from (the first image is page 1). Also return "row" for every measure: the 1-based index of the STRIP (within its page) that you read that measure from, counting strips top to bottom. If a page was not split into strips, every measure on it has "row": 1.
-{strip_note}
-Time signature hint: {time_sig}. Use what you see in the image if different.
-
-Return every measure that CONTAINS AT LEAST ONE SOUNDED NOTE, in order. Omit measures that are entirely rest (including multirests) — but per the numbering rules above, they still consume their measure numbers. For each sounded note:
-- "p": pitch in scientific notation ("D3", "F#4") — null only if notehead present but pitch unreadable
-- "b": beat position in measure (1.0 = downbeat)
-- "d": duration in beats
-- "a": articulation — "staccato", "tenuto", "accent", or null
-- "dyn": dynamic marking at this note — "pp","p","mp","mf","f","ff","cresc","dim", or null
-
-Also return written rests of a beat or longer (do NOT report a multirest as a rest entry — those are already handled by the numbering rule above):
-- "r": true, and no "p" (omit or leave null)
-- "b": beat position where the rest begins
-- "d": duration in beats
-
-Use short field names to keep the JSON compact. Return JSON only (no markdown):
-{{
-  "key_signature": "...",
-  "time_signature": "...",
-  "tempo_marking": "...",
-  "measures": [{{"number": {start_measure}, "pg": 1, "row": 1, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}, {{"r": true, "b": 2.5, "d": 1.5}}]}}]
-}}"""
-
+def _call_claude_score_batch(vision_parts: list, prompt: str, anthropic_api_key: str,
+                              start_measure: int, time_sig: str) -> dict:
+    """
+    Sends one already-built vision_parts + prompt to Claude and parses the
+    response — the single-request body extracted verbatim out of
+    _read_score_notes_claude_once so it can be called once per batch when a
+    read's images exceed the 20-image-per-request cap (see
+    _read_score_notes_claude_once). `start_measure` is the batch's own
+    starting measure number and `time_sig` is the original time-signature
+    hint (both were closure variables of the original single function, now
+    passed in explicitly since the moved body references them: start_measure
+    in the anti-renumbering repair pass and the "numbering looks unread"
+    warning, time_sig in a diagnostic log line) — the caller passes the
+    running next_start_measure for every batch after the first, not the
+    read's original start_measure, so the repair pass anchors each batch
+    correctly. Returns the exact same dict shape _read_score_notes_claude_once
+    used to return directly: on success, {"key_signature", "time_signature",
+    "tempo_marking", "tempo_bpm", "wedges", "measures", "source":
+    "claude_vision"}; on a partial-JSON parse failure, {"key_signature",
+    "time_signature", "tempo_marking", "measures": [], "source":
+    "claude_vision_partial"} or the fully-empty/error shape; on an
+    exception, {"key_signature": None, ..., "measures": [], "error": ...}.
+    """
+    import anthropic as ac
     try:
         client = ac.Anthropic(api_key=anthropic_api_key)
         # MUST stream. A full score is one JSON object per NOTE, so a couple of
@@ -4457,6 +4378,212 @@ Use short field names to keep the JSON compact. Return JSON only (no markdown):
         print(f"[read_score_notes_claude] error: {e}")
         return {"key_signature": None, "time_signature": None, "tempo_marking": None,
                 "measures": [], "error": f"{type(e).__name__}: {e}"}
+
+
+def _read_score_notes_claude_once(
+    pages: list[tuple[bytes, str]],
+    prepared_pages: list[dict],
+    start_measure: int, instrument: str, time_sig: str,
+    anthropic_api_key: str,
+) -> dict:
+    import base64
+    CLAUDE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    # Anthropic enforces a much stricter per-image pixel cap once a request
+    # carries more than 20 images — this is the exact mechanism behind a
+    # real "many-image requests...2000 pixels" 400 error hit in production.
+    # Splitting into multiple requests of at most this many image blocks
+    # each keeps every image at the full resolution _resize_for_claude
+    # already computed for it.
+    MAX_IMAGES_PER_REQUEST = 20
+
+    # One media block per uploaded file, in page order. A single multi-page PDF
+    # still arrives as ONE document block and Claude reads all of its pages — that
+    # path already worked and is unchanged. What was broken is several separate
+    # files (the usual case: phone photos of each page), where only the first was
+    # ever sent.
+    #
+    # Each IMAGE page is further split into per-system row crops (see
+    # split_page_into_rows) before being sent — a dense, photographed page
+    # sent whole was producing an unreliable read (see that function's
+    # docstring). page_strip_counts tracks how many images each original
+    # page turned into, so the prompt can tell the model which images share
+    # a page number when that count is more than 1.
+    #
+    # Each unit below becomes exactly one image-slot (a PDF document block or
+    # one row image) — the flat list is built first, unchanged from before,
+    # and batched into ≤20-image requests afterward as a separate pass.
+    units: list[dict] = []
+    page_strip_counts: list[int] = []
+    for pg_num, prepared_page in enumerate(prepared_pages, start=1):
+        pg_mime = prepared_page["page_mime"]
+        pg_bytes = prepared_page["page_bytes"]
+        if pg_mime == "application/pdf":
+            units.append({"kind": "pdf", "pg_bytes": pg_bytes})
+            page_strip_counts.append(1)
+        elif pg_mime in CLAUDE_IMAGE_TYPES:
+            page_strip_counts.append(len(prepared_page["rows"]))
+            for row_idx, row in enumerate(prepared_page["rows"], start=1):
+                resized_bytes = _resize_for_claude(row["row_bytes"], pg_mime)
+                units.append({"kind": "row", "pg_num": pg_num, "row_idx": row_idx,
+                              "mime": pg_mime, "row_bytes": resized_bytes})
+        else:
+            print(f"[read_score_notes_claude] skipping unsupported mime: {pg_mime}")
+            page_strip_counts.append(0)
+    if not units:
+        return {"key_signature": None, "time_signature": None,
+                "tempo_marking": None, "measures": []}
+
+    strip_note = ""
+    if any(c > 1 for c in page_strip_counts):
+        ranges = []
+        idx = 1
+        for pg_num, count in enumerate(page_strip_counts, start=1):
+            if count == 0:
+                continue
+            if count == 1:
+                ranges.append(f"image {idx} is page {pg_num}")
+            else:
+                ranges.append(f"images {idx}-{idx + count - 1} are all horizontal strips of page {pg_num}, top to bottom")
+            idx += count
+        strip_note = (
+            "\n\nSOME PAGES ARE SPLIT INTO STRIPS: to make dense systems easier to "
+            "read accurately, one or more pages above have been cut into horizontal "
+            "strips instead of sent as one image. " + "; ".join(ranges) + ". Strips "
+            "of the SAME page are NOT separate pages — give every measure from those "
+            "strips the SAME \"pg\" number, and continue measure numbering across "
+            "strips exactly as you would within an unsplit page. Only advance \"pg\" "
+            "and reset your reading context at an ACTUAL boundary between two "
+            "different pages."
+        )
+
+    # Split `units` into batches of at most MAX_IMAGES_PER_REQUEST image-slots
+    # each — every unit (pdf or row) occupies exactly one image-slot.
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    for unit in units:
+        if len(current) >= MAX_IMAGES_PER_REQUEST:
+            batches.append(current)
+            current = []
+        current.append(unit)
+    if current:
+        batches.append(current)
+
+    batch_results: list[dict] = []
+    next_start_measure = start_measure
+    for batch_idx, batch in enumerate(batches):
+        vision_parts: list = []
+        for unit in batch:
+            if unit["kind"] == "pdf":
+                b64 = base64.b64encode(unit["pg_bytes"]).decode()
+                vision_parts.append({"type": "document", "source": {
+                    "type": "base64", "media_type": "application/pdf", "data": b64}})
+            else:
+                vision_parts.append({"type": "text",
+                                     "text": f"PAGE {unit['pg_num']} — ROW {unit['row_idx']}"})
+                b64 = base64.b64encode(unit["row_bytes"]).decode()
+                vision_parts.append({"type": "image", "source": {
+                    "type": "base64", "media_type": unit["mime"], "data": b64}})
+
+        # A batch after the first is a CONTINUATION of the same read, not a
+        # fresh one — same "don't restart numbering" contract the existing
+        # strip_note already gives Claude across pages within one request,
+        # reused here across a REQUEST boundary. next_start_measure carries
+        # forward the highest measure number actually returned so far.
+        batch_note = strip_note
+        if batch_idx > 0:
+            batch_note += (
+                f"\n\nCONTINUATION: this is a continuation of the same page(s) you "
+                f"were already reading. Measure numbering continues from where the "
+                f"previous batch of images left off — the first measure you see "
+                f"here is NOT measure 1 and is NOT necessarily {start_measure}; "
+                f"continue counting forward from measure {next_start_measure}."
+            )
+
+        prompt = f"""You are an expert music engraver reading sheet music for a {instrument} student.
+
+MEASURE NUMBERING — THE MOST IMPORTANT PART OF THIS TASK. Get this wrong and every piece of feedback points at the wrong bar.
+
+1. The printed numbers on the page are the ONLY source of truth. These are the small boxed numbers above the staff (e.g. 12, 20, 38, 50, 58). Assign them exactly as printed.
+2. MULTIRESTS CONSUME MEASURE NUMBERS. A bar drawn as a thick horizontal block with a number over it (e.g. "11", "4", "2") is that many WHOLE MEASURES of rest, not one measure. If a multirest of 11 sits before the bar printed "12", then those 11 rest measures are measures 1-11. After a multirest of N, the next measure number is (current + N). Skipping a multirest without advancing the count is the single most common way to get this wrong.
+3. Number every measure continuously across the whole line, including measures that contain only rests. You will NOT output the rest measures (see below) — but they must still consume their numbers, so the measures you DO output carry their true printed numbers.
+4. Therefore the "number" values you output will normally have GAPS in them (e.g. ... 37, then 40 ...). That is correct and expected. A perfectly consecutive 1,2,3,4... run is almost always a sign you renumbered — do not do that.
+5. Do NOT start counting from the student's starting measure, and do not renumber to make the first measure you see come out as any particular value. Only if the page shows no printed numbers anywhere should you count barlines, and in that case the FIRST measure in the image is measure 1.
+
+MULTIPLE PAGES: You may be given several images. They are consecutive pages of ONE part, in order. Measure numbering runs continuously ACROSS them — the first measure of page 2 is NOT measure 1, it continues from where page 1 ended. Do not restart numbering on a new page. For every measure, also return "pg": the 1-based number of the page you read it from (the first image is page 1). Also return "row" for every measure: the 1-based index of the STRIP (within its page) that you read that measure from, counting strips top to bottom. If a page was not split into strips, every measure on it has "row": 1.
+{batch_note}
+Time signature hint: {time_sig}. Use what you see in the image if different.
+
+Return every measure that CONTAINS AT LEAST ONE SOUNDED NOTE, in order. Omit measures that are entirely rest (including multirests) — but per the numbering rules above, they still consume their measure numbers. For each sounded note:
+- "p": pitch in scientific notation ("D3", "F#4") — null only if notehead present but pitch unreadable
+- "b": beat position in measure (1.0 = downbeat)
+- "d": duration in beats
+- "a": articulation — "staccato", "tenuto", "accent", or null
+- "dyn": dynamic marking at this note — "pp","p","mp","mf","f","ff","cresc","dim", or null
+
+Also return written rests of a beat or longer (do NOT report a multirest as a rest entry — those are already handled by the numbering rule above):
+- "r": true, and no "p" (omit or leave null)
+- "b": beat position where the rest begins
+- "d": duration in beats
+
+Use short field names to keep the JSON compact. Return JSON only (no markdown):
+{{
+  "key_signature": "...",
+  "time_signature": "...",
+  "tempo_marking": "...",
+  "measures": [{{"number": {next_start_measure}, "pg": 1, "row": 1, "notes": [{{"p": "D3", "b": 1.0, "d": 1.5, "a": null, "dyn": "p"}}, {{"r": true, "b": 2.5, "d": 1.5}}]}}]
+}}"""
+
+        batch_result = _call_claude_score_batch(vision_parts, prompt, anthropic_api_key,
+                                                 next_start_measure, time_sig)
+        batch_results.append(batch_result)
+        batch_measures = batch_result.get("measures") or []
+        if batch_measures:
+            next_start_measure = max(m["number"] for m in batch_measures) + 1
+
+    # Merge: measures concatenate in batch order (each batch's numbers are
+    # already absolute and correct — the repair pass inside
+    # _call_claude_score_batch anchors each batch's own start_measure
+    # correctly since next_start_measure was threaded into that batch's
+    # call as its start_measure). Page-level facts (key/time signature,
+    # tempo) take the first batch that has them, since these describe the
+    # whole read, not a single batch. Wedges are recomputed fresh over the
+    # full merged measures list, not concatenated per-batch, since a wedge
+    # can only be judged across its full dynamic span. A single-batch read
+    # (the common case, ≤20 images) behaves EXACTLY as before this task,
+    # byte-for-byte: batch_results has one entry, which is exactly what
+    # _read_score_notes_claude_once used to return directly.
+    all_measures: list[dict] = []
+    key_signature = time_signature = tempo_marking = tempo_bpm = None
+    source = None
+    error = None
+    for batch_result in batch_results:
+        all_measures.extend(batch_result.get("measures") or [])
+        if key_signature is None:
+            key_signature = batch_result.get("key_signature")
+        if time_signature is None:
+            time_signature = batch_result.get("time_signature")
+        if tempo_marking is None:
+            tempo_marking = batch_result.get("tempo_marking")
+        if tempo_bpm is None:
+            tempo_bpm = batch_result.get("tempo_bpm")
+        if batch_result.get("source") == "claude_vision":
+            source = "claude_vision"
+        elif source is None:
+            source = batch_result.get("source")
+        if error is None:
+            error = batch_result.get("error")
+
+    result = {
+        "key_signature": key_signature, "time_signature": time_signature,
+        "tempo_marking": tempo_marking, "tempo_bpm": tempo_bpm,
+        "wedges": _compute_dynamic_wedges(all_measures),
+        "measures": all_measures,
+    }
+    if source:
+        result["source"] = source
+    if error and not all_measures:
+        result["error"] = error
+    return result
 
 
 def _measure_fingerprint(m: dict) -> tuple:

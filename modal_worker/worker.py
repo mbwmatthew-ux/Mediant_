@@ -4436,10 +4436,22 @@ def _read_score_notes_claude_once(
         if pg_mime == "application/pdf":
             units.append({"kind": "pdf", "pg_num": pg_num, "pg_bytes": pg_bytes})
         elif pg_mime in CLAUDE_IMAGE_TYPES:
+            # Row bytes are ALWAYS PNG here, regardless of pg_mime (the
+            # ORIGINAL uploaded page's format) — split_page_into_rows,
+            # dewarp_row, and split_row_into_measures all unconditionally
+            # re-encode to PNG (see their `.save(buf, format="PNG")` calls).
+            # Declaring pg_mime as the media_type for a row image was a
+            # real, live bug: a JPEG-sourced photo's row crops were PNG
+            # bytes labeled "image/jpeg", rejected outright once Claude
+            # started strictly validating declared-vs-actual format
+            # ("...specified using the image/jpeg media type, but the
+            # image appears to be a image/png image"). resolve_measure_
+            # disagreement already knew this and hardcodes "image/png"
+            # (see its own comment) — this was the one place that didn't.
             for row_idx, row in enumerate(prepared_page["rows"], start=1):
-                resized_bytes = _resize_for_claude(row["row_bytes"], pg_mime)
+                resized_bytes = _resize_for_claude(row["row_bytes"], "image/png")
                 units.append({"kind": "row", "pg_num": pg_num, "row_idx": row_idx,
-                              "mime": pg_mime, "row_bytes": resized_bytes})
+                              "mime": "image/png", "row_bytes": resized_bytes})
         else:
             print(f"[read_score_notes_claude] skipping unsupported mime: {pg_mime}")
     if not units:

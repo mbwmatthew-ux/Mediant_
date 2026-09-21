@@ -5117,6 +5117,66 @@ def test_resize_for_claude_noop_bytes_identical_when_already_within_limits():
           f"{len(result_bytes)} bytes vs original {len(original_bytes)} bytes")
 
 
+def test_read_score_notes_claude_once_declares_png_for_a_jpeg_sourced_page():
+    print("\n[152] _read_score_notes_claude_once always declares row images as "
+          "image/png regardless of the ORIGINAL uploaded page's mime type — a real "
+          "production 400 fixed tonight: split_page_into_rows/dewarp_row always "
+          "re-encode row crops to PNG, but a JPEG-sourced photo's row units were "
+          "declaring media_type='image/jpeg', which Claude rejected outright "
+          "('...specified using the image/jpeg media type, but the image appears "
+          "to be a image/png image')")
+    import types
+
+    fake_page_bytes, _ = _make_synthetic_page(system_count=3, width=800, height=600)
+    rows = w.split_page_into_rows(fake_page_bytes)
+    check("fixture setup produced multiple rows", len(rows) >= 2, f"got {len(rows)} rows")
+
+    # The uploaded page's ORIGINAL mime is JPEG — a real phone photo, the
+    # common case. Row bytes themselves are still PNG (split_page_into_rows
+    # always re-encodes), exactly the mismatch this test guards against.
+    prepared_pages = [{
+        "page_mime": "image/jpeg",
+        "page_bytes": fake_page_bytes,
+        "rows": [{"row_bytes": r, "readability": {"quality": "good", "interline_px": 24.0,
+                                                    "sharpness": 0.5, "reasons": []},
+                   "segmentation": {"measures": [r], "boundaries": [], "confidence": 1.0}}
+                  for r in rows],
+    }]
+
+    declared_media_types = []
+
+    class _FakeStream:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            text = '{"key_signature": "C", "time_signature": "4/4", "tempo_marking": null, "measures": []}'
+            return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text=text)])
+
+    class _FakeMessages:
+        def stream(self, model, max_tokens, messages, **kwargs):
+            for part in messages[0]["content"]:
+                if part.get("type") == "image":
+                    declared_media_types.append(part["source"]["media_type"])
+            return _FakeStream()
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    import anthropic as _ac
+    orig_anthropic = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        w._read_score_notes_claude_once(
+            [(fake_page_bytes, "image/jpeg")], prepared_pages, 1, "clarinet", "4/4", "fake-key")
+    finally:
+        _ac.Anthropic = orig_anthropic
+
+    check("at least one row image was sent", len(declared_media_types) >= 2,
+          str(declared_media_types))
+    check("every row image declares image/png, never the source page's image/jpeg",
+          all(mt == "image/png" for mt in declared_media_types), str(declared_media_types))
+
+
 def test_read_score_notes_claude_once_splits_requests_over_20_images():
     print("\n[149] _read_score_notes_claude_once splits into multiple API requests "
           "when a page's row crops would exceed 20 images in one message, and "
@@ -5426,6 +5486,7 @@ def main():
               test_claude_target_size_noop_when_already_within_limits,
               test_resize_for_claude_produces_target_dimensions,
               test_resize_for_claude_noop_bytes_identical_when_already_within_limits,
+              test_read_score_notes_claude_once_declares_png_for_a_jpeg_sourced_page,
               test_read_score_notes_claude_once_splits_requests_over_20_images,
               test_read_score_notes_claude_once_repairs_renumbering_across_a_batch_boundary,
               test_read_score_notes_claude_once_strip_note_is_scoped_to_each_batch,

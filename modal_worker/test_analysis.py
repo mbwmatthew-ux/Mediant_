@@ -1873,6 +1873,111 @@ def test_split_page_into_rows_benefits_from_page_bounds_crop():
               f"margin-photo row width={w_margin}, tight-photo row width={w_tight}")
 
 
+def _make_row_with_background_wedge(width=800, height=140, wedge_width=150, wedge_gray=30):
+    """A row crop with real staff content on the left and a solid, darker
+    'background wedge' on the right — the shape a rotated page's edge
+    leaves behind in an individual row crop even after _detect_page_bounds
+    has already run at the whole-page level (see
+    _crop_row_background_columns' docstring for why the page-level pass
+    structurally can't remove it, but a row-scoped pass can)."""
+    from PIL import Image, ImageDraw
+    import random
+    import io
+    content = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(content)
+    top = height // 2 - 40
+    for line_i in range(5):
+        y = top + line_i * 20
+        draw.line([(20, y), (width - 20, y)], fill=0, width=2)
+    rng = random.Random(3)
+    for x in range(30, width - 30, 12):
+        blob_y = top + rng.randint(0, 80)
+        draw.ellipse([x, blob_y, x + 6, blob_y + 6], fill=0)
+    canvas = Image.new("L", (width + wedge_width, height), color=wedge_gray)
+    canvas.paste(content, (0, 0))
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_crop_row_background_columns_trims_a_leftover_wedge():
+    print("\n[153] _crop_row_background_columns trims a solid background wedge "
+          "left over on one side of a row crop, recovering close to the real "
+          "content width")
+    from PIL import Image
+    import io
+    row_with_wedge = _make_row_with_background_wedge(width=800, wedge_width=150)
+    cropped = w._crop_row_background_columns(row_with_wedge)
+    original_width = Image.open(io.BytesIO(row_with_wedge)).width
+    cropped_width = Image.open(io.BytesIO(cropped)).width
+    check("original fixture is wider than the real content (sanity check)",
+          original_width == 950, str(original_width))
+    check("cropped width is meaningfully smaller than the original",
+          cropped_width < original_width - 50,
+          f"cropped={cropped_width} original={original_width}")
+    check("cropped width lands close to the real content width (800), not "
+          "still including the wedge", abs(cropped_width - 800) < 60,
+          f"cropped={cropped_width}")
+
+
+def test_crop_row_background_columns_noop_when_already_tight():
+    print("\n[154] _crop_row_background_columns leaves an already-tightly-framed "
+          "row crop unchanged rather than clipping into real content")
+    from PIL import Image, ImageDraw
+    import random, io
+    # Built directly (not via _make_synthetic_page/_make_row_with_background_wedge,
+    # which both bake in their own real margin/wedge by design) so content
+    # genuinely fills the frame with only a tiny, uniform margin — matching
+    # test_detect_page_bounds_noop_when_already_tightly_framed's own fixture
+    # shape for the same reason.
+    width, height, margin = 800, 140, 8
+    img = Image.new("L", (width, height), color=250)
+    draw = ImageDraw.Draw(img)
+    rng = random.Random(5)
+    for line_i in range(5):
+        y = margin + line_i * ((height - 2 * margin) // 4)
+        draw.line([(margin, y), (width - margin, y)], fill=0, width=2)
+    for x in range(margin + 10, width - margin - 10, 12):
+        blob_y = margin + rng.randint(0, height - 2 * margin)
+        draw.ellipse([x, blob_y, x + 6, blob_y + 6], fill=0)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    tight_row = buf.getvalue()
+
+    cropped = w._crop_row_background_columns(tight_row)
+    original_width = Image.open(io.BytesIO(tight_row)).width
+    cropped_width = Image.open(io.BytesIO(cropped)).width
+    check("width is unchanged (or nearly so) when there is no real background "
+          "to trim", abs(cropped_width - original_width) < 10,
+          f"cropped={cropped_width} original={original_width}")
+
+
+def test_crop_row_background_columns_recovers_interline_on_the_real_photo():
+    print("\n[155] cropping a real problem-photo row's leftover background "
+          "wedge before dewarping recovers a staff-line interline reading that "
+          "was previously undetectable — this is the actual fix, not a "
+          "synthetic proxy for it. See _crop_row_background_columns' "
+          "docstring for the full mechanism: the wedge doesn't corrupt the "
+          "interline autocorrelation directly (it mean-subtracts a uniform "
+          "contribution away for free), it corrupts dewarp_row's own "
+          "per-strip staff-line search, which silently no-ops or mis-fits "
+          "and leaves the row's real curvature/tilt uncorrected.")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row_background_wedge.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+
+    before = w.compute_row_readability(w.dewarp_row(row_bytes))
+    check("fixture sanity check: interline is undetectable BEFORE the fix, "
+          "matching the real production failure this fixture was pulled from",
+          before["interline_px"] is None, str(before))
+
+    cropped = w._crop_row_background_columns(row_bytes)
+    after = w.compute_row_readability(w.dewarp_row(cropped))
+    check("interline IS detected after cropping the background wedge first",
+          after["interline_px"] is not None, str(after))
+
+
 def _make_synthetic_row(interline_px=20, width=800, height=140, blur=0):
     """A single-system row crop with 5 staff lines at a known, controllable
     interline spacing, PLUS notehead blobs (real notation has symbols, not
@@ -5480,6 +5585,9 @@ def main():
               test_detect_page_bounds_noop_when_already_tightly_framed,
               test_detect_page_bounds_noop_on_blank_image,
               test_split_page_into_rows_benefits_from_page_bounds_crop,
+              test_crop_row_background_columns_trims_a_leftover_wedge,
+              test_crop_row_background_columns_noop_when_already_tight,
+              test_crop_row_background_columns_recovers_interline_on_the_real_photo,
               test_vision_call_sites_use_current_high_res_model,
               test_claude_target_size_matches_documented_example,
               test_claude_target_size_high_res_tier_no_resize_needed,

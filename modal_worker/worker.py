@@ -4142,6 +4142,95 @@ def split_page_into_rows(page_bytes: bytes) -> list[bytes]:
         return [page_bytes]
 
 
+def _crop_row_background_columns(row_bytes: bytes) -> bytes:
+    """
+    Trims leftover LEFT/RIGHT background columns from a single row crop —
+    a second, row-scoped pass at the same problem _detect_page_bounds
+    solves at the whole-page level, needed because that page-level pass
+    can miss a real background wedge entirely on a rotated photo.
+
+    A photographed page that is even slightly rotated (a couple of
+    degrees is enough, and easy to produce hand-holding a page) has a
+    page edge whose x-position drifts as y increases. Over a WHOLE
+    page's height, that drift can be 100+ px — enough that a column
+    anywhere near the edge is genuinely "page" at some rows and
+    genuinely "background" at others, which makes its per-column std
+    over the FULL page height read as high-contrast "content" at every
+    row it touches. _detect_page_bounds's column-std test (correctly)
+    can't crop that column away, because by its own metric it isn't
+    background — confirmed on the real problem photo, where a visible
+    ~110px dark background wedge on the right survived that pass
+    completely untouched (x0=0, x1=2160, the full original width).
+
+    The SAME drift, measured across one row's much smaller height
+    range (~100-250px vs. the full page), is only a few pixels — small
+    enough that within a single row, the background columns are
+    genuinely uniform low-std background from top to bottom. Re-running
+    the column-std test at row scope, after split_page_into_rows has
+    already narrowed the height range, recovers exactly the crop the
+    page-level pass structurally cannot.
+
+    This matters even though the interline/staff-line periodicity
+    detector (_estimate_interline_px) is NOT directly corrupted by a
+    uniform background strip — the detector mean-subtracts its ink
+    profile, which cancels out a spatially-constant contribution
+    (confirmed by direct measurement: cropping alone, without also
+    dewarping, changed nothing for compute_row_readability). What the
+    leftover background strip DOES corrupt is dewarp_row's own per-strip
+    staff-line search: a strip sitting entirely inside a uniformly dark
+    background reads as "ink" (>70% width covered) at literally every
+    row within it, so dewarp_row's picked "topmost staff line" for that
+    strip is really just the strip's own top edge — a garbage point
+    that skews or defeats the quadratic curve fit dewarp_row needs to
+    actually straighten the row. Cropping the background out here, before
+    dewarp_row ever sees the row, is what lets dewarp_row (and therefore
+    the interline detector downstream of it) do its job — confirmed on
+    the real problem photo: 5 of its 8 previously-undetectable rows
+    gained a valid interline reading once this crop ran first.
+
+    Only crops horizontally — a row crop's vertical extent is already
+    the output of split_page_into_rows' own band detection, and
+    revisiting it here risks clipping real content the row detector
+    already placed correctly. No-ops (returns input unchanged) if the
+    image can't be decoded, no content signal is found, the crop would
+    remove less than 1% of the width (not worth a re-encode), or the
+    remaining width would fall under half the original (too aggressive
+    to trust — same "don't guess" convention as every other no-op path
+    in this file).
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+        import io
+
+        img = Image.open(io.BytesIO(row_bytes)).convert("L")
+        arr = np.array(img).astype(np.float64)
+        h, w = arr.shape
+        if h < 10 or w < 20:
+            return row_bytes
+
+        col_std = arr.std(axis=0)
+        threshold = _otsu_threshold(col_std)
+        content_cols = np.where(col_std > threshold)[0]
+        if len(content_cols) == 0:
+            return row_bytes
+
+        x0, x1 = int(content_cols[0]), int(content_cols[-1]) + 1
+        pad = max(4, int((x1 - x0) * 0.01))
+        x0, x1 = max(0, x0 - pad), min(w, x1 + pad)
+
+        if (x1 - x0) >= w * 0.99 or (x1 - x0) < w * 0.5:
+            return row_bytes  # negligible crop, or too aggressive to trust
+
+        cropped = Image.open(io.BytesIO(row_bytes)).convert("RGB").crop((x0, 0, x1, h))
+        buf = io.BytesIO()
+        cropped.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception as e:
+        print(f"[_crop_row_background_columns] failed, using row unchanged: {e}")
+        return row_bytes
+
+
 def _compute_dynamic_wedges(measures: list[dict]) -> list[dict]:
     """
     Fold a run of consecutive measures that each carry the same single
@@ -4194,6 +4283,17 @@ def _prepare_score_rows(pages: list[tuple[bytes, str]]) -> list[dict]:
         row_crops = split_page_into_rows(pg_bytes)
         rows = []
         for row_idx, row_bytes in enumerate(row_crops):
+            # Trim any leftover left/right background BEFORE dewarping —
+            # see _crop_row_background_columns for why this has to run at
+            # row scope (split_page_into_rows already narrowed the height
+            # range enough that a rotated page's edge drift is small
+            # again) and why it matters even though the interline
+            # detector itself isn't directly corrupted by it: a
+            # background strip left in the row instead corrupts
+            # dewarp_row's own per-strip staff-line search, which is what
+            # actually blocked interline detection on this project's real
+            # problem photo.
+            row_bytes = _crop_row_background_columns(row_bytes)
             dewarped = dewarp_row(row_bytes)
             readability = compute_row_readability(dewarped)
             if readability["quality"] != "good":

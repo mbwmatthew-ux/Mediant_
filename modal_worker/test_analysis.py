@@ -5767,6 +5767,13 @@ def test_read_score_notes_claude_audiveris_breaks_a_genuine_tie():
 
     check("the Audiveris-corroborated candidate (D4) won, not an arbitrary first pick",
           result["measures"][0]["notes"][0]["pitch"] == "D4", str(result["measures"]))
+    check("the measure was accepted via the tie-break itself — not silently rescued by "
+          "resolve_measure_disagreement afterward — so unresolved_measure_count is 0",
+          result.get("unresolved_measure_count") == 0, str(result.get("unresolved_measure_count")))
+    check("the measure carries no unresolved flag, confirming fuse_measure_confidence "
+          "treated disagree_omr_broke_tie as high-confidence and never routed it through "
+          "resolution at all",
+          not result["measures"][0].get("unresolved"), str(result["measures"][0]))
 
 
 def test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match():

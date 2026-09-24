@@ -1334,13 +1334,45 @@ def find_exported_musicxml(output_dir: str) -> str | None:
     return candidates[0]
 
 
+def _run_audiveris_command(command: list[str], output_dir: str, env: dict,
+                            timeout_s: int) -> tuple[bytes | None, str | None, str]:
+    """
+    Runs ONE Audiveris CLI invocation and returns (exported bytes,
+    exported path, diagnostic text). `exported_bytes`/`exported_path` are
+    both None on any failure (non-zero exit, no export found, or a
+    timeout); `diagnostic` is always populated (from stderr/stdout, or a
+    timeout message) for the caller to log or return as an error detail.
+    Never raises.
+
+    Extracted out of convert_visual_score_to_musicxml so the per-row
+    Audiveris cross-validation runner (_run_audiveris_on_row) can reuse
+    the exact same "run the CLI, find find_exported_musicxml's output,
+    read its bytes" logic without duplicating it — the two callers only
+    differ in how many commands they try (convert_visual_score_to_musicxml
+    retries a plain -export after -transcribe -export fails; a single row
+    crop has no page-level transcription step to retry, so it calls this
+    once). See docs/superpowers/specs/2026-09-23-audiveris-cross-validation-design.md.
+    """
+    import subprocess
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                 timeout=timeout_s, env=env)
+    except subprocess.TimeoutExpired:
+        return None, None, f"Audiveris timed out after {timeout_s}s"
+    diagnostic = (result.stderr or result.stdout or "").strip()
+    exported_path = find_exported_musicxml(output_dir)
+    if result.returncode != 0 or not exported_path:
+        return None, exported_path, diagnostic
+    with open(exported_path, "rb") as f:
+        return f.read(), exported_path, diagnostic
+
+
 def convert_visual_score_to_musicxml(score_bytes: bytes, score_mime: str, score_url: str, start_measure: int) -> dict:
     """
     Convert a PDF/image score to MusicXML with Audiveris, then parse it with music21.
     Returns the same ScoreResult shape as parse_musicxml.
     """
     import os
-    import subprocess
     import tempfile
 
     suffix = score_suffix(score_bytes, score_mime, score_url)
@@ -1378,30 +1410,24 @@ def convert_visual_score_to_musicxml(score_bytes: bytes, score_mime: str, score_
         ]
 
         last_output = ""
+        exported_bytes = None
+        exported_path = None
         for idx, command in enumerate(commands, start=1):
             print(f"[audiveris] running OMR conversion attempt {idx}: {' '.join(command[:-1])} <score>")
-            result = subprocess.run(command, capture_output=True, text=True, timeout=300, env=env)
-            last_output = (result.stderr or result.stdout or "").strip()
-            exported_path = find_exported_musicxml(output_dir)
-            if result.returncode == 0 and exported_path:
+            exported_bytes, exported_path, last_output = _run_audiveris_command(
+                command, output_dir, env, 300)
+            if exported_bytes is not None:
                 break
-            print(f"[audiveris] attempt {idx} did not produce export. rc={result.returncode}; output={last_output[:1000]}")
-        else:
+            print(f"[audiveris] attempt {idx} did not produce export. output={last_output[:1000]}")
+
+        if exported_bytes is None:
             return {
                 "error": f"Audiveris produced no MusicXML export: {last_output[:500] or 'no output'}",
                 "measures": [],
                 "source": "audiveris",
             }
 
-        exported_path = find_exported_musicxml(output_dir)
-        if not exported_path:
-            print("[audiveris] no MusicXML/MXL export found")
-            return {"error": "Audiveris produced no MusicXML export", "measures": [], "source": "audiveris"}
-
         print(f"[audiveris] exported {exported_path}")
-        with open(exported_path, "rb") as f:
-            exported_bytes = f.read()
-
         parsed = parse_score_document(exported_bytes, start_measure)
         parsed["source"] = "audiveris+music21"
         parsed["omr_export_path"] = os.path.basename(exported_path)

@@ -5537,6 +5537,61 @@ def test_read_score_notes_claude_once_strip_note_is_scoped_to_each_batch():
           "20-24" not in prompts[1] and "20-" not in prompts[1], prompts[1][:800])
 
 
+def test_run_audiveris_command_returns_export_bytes_on_success():
+    print("\n[156] _run_audiveris_command returns the exported file's bytes "
+          "when the CLI succeeds and an export is found")
+    from unittest.mock import patch, MagicMock
+
+    with patch("subprocess.run") as mock_run, \
+         patch.object(w, "find_exported_musicxml") as mock_find, \
+         patch("builtins.open", create=True) as mock_open:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_find.return_value = "/tmp/fake/output/score.mxl"
+        mock_open.return_value.__enter__.return_value.read.return_value = b"FAKE_MXL_BYTES"
+
+        exported_bytes, exported_path, diagnostic = w._run_audiveris_command(
+            ["audiveris", "-batch"], "/tmp/fake/output", {}, 30)
+
+    check("returns the exported bytes read from the found path",
+          exported_bytes == b"FAKE_MXL_BYTES", str(exported_bytes))
+    check("returns the path find_exported_musicxml found",
+          exported_path == "/tmp/fake/output/score.mxl", str(exported_path))
+    check("diagnostic is a string even on success", isinstance(diagnostic, str), str(diagnostic))
+
+
+def test_run_audiveris_command_returns_none_on_failure_or_timeout():
+    print("\n[157] _run_audiveris_command returns None bytes (never raises) on a "
+          "non-zero exit code, a missing export, or a timeout")
+    from unittest.mock import patch, MagicMock
+    import subprocess as real_subprocess
+
+    with patch("subprocess.run") as mock_run, \
+         patch.object(w, "find_exported_musicxml") as mock_find:
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="boom")
+        mock_find.return_value = None
+        exported_bytes, exported_path, diagnostic = w._run_audiveris_command(
+            ["audiveris", "-batch"], "/tmp/fake/output", {}, 30)
+    check("non-zero exit code with no export returns None bytes",
+          exported_bytes is None, str(exported_bytes))
+    check("diagnostic carries the stderr text", "boom" in diagnostic, diagnostic)
+
+    with patch("subprocess.run") as mock_run, \
+         patch.object(w, "find_exported_musicxml") as mock_find:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        mock_find.return_value = None
+        exported_bytes, exported_path, diagnostic = w._run_audiveris_command(
+            ["audiveris", "-batch"], "/tmp/fake/output", {}, 30)
+    check("zero exit code but no export file found still returns None bytes",
+          exported_bytes is None, str(exported_bytes))
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.side_effect = real_subprocess.TimeoutExpired(cmd=["audiveris"], timeout=30)
+        exported_bytes, exported_path, diagnostic = w._run_audiveris_command(
+            ["audiveris", "-batch"], "/tmp/fake/output", {}, 30)
+    check("a subprocess timeout is caught, not raised", exported_bytes is None, str(exported_bytes))
+    check("the timeout diagnostic mentions the timeout", "30" in diagnostic, diagnostic)
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5687,6 +5742,8 @@ def main():
               test_overall_drift_and_marked_tempo_flag_still_dedup_to_one,
               test_crescendo_that_never_arrives_is_flagged,
               test_global_tempo_findings_survive_an_unrelated_unresolved_measure,
+              test_run_audiveris_command_returns_export_bytes_on_success,
+              test_run_audiveris_command_returns_none_on_failure_or_timeout,
               test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it):
         try:
             t()

@@ -5096,6 +5096,14 @@ def read_score_notes_claude(
                   f"{len(coverage_only)} coverage-only {coverage_only[:20]}")
             read_c = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
             by_number_c = {m["number"]: m for m in read_c.get("measures", [])} if not read_c.get("error") else {}
+            # Compute the tie-break alignment BEFORE reconciliation picks a
+            # winner below — this is why _group_measure_numbers_by_row/
+            # _align_audiveris_measures are called here with the raw
+            # [read_a, read_b, read_c], not with the not-yet-built
+            # reconciled result (see Task 4's docstring on why the same
+            # two functions serve both call shapes).
+            claude_numbers_by_row_prelim = _group_measure_numbers_by_row([read_a, read_b, read_c])
+            aligned_omr_prelim = _align_audiveris_measures(claude_numbers_by_row_prelim, audiveris_by_row)
             reconciled = []
             claude_agreement = {}
             for n in all_numbers:
@@ -5108,10 +5116,24 @@ def read_score_notes_claude(
                 for fp in fingerprints:
                     counts[fp] = counts.get(fp, 0) + 1
                 winning_fp = max(counts, key=lambda fp: counts[fp])
-                claude_agreement[n] = ("agree" if counts[winning_fp] >= 2
-                                       else "unavailable" if len(candidates) < 2
-                                       else "disagree")
-                winner = next(c for c, fp in zip(candidates, fingerprints) if fp == winning_fp)
+                is_disagreement = counts[winning_fp] < 2 and len(candidates) >= 2
+                omr_tie_break_winner = None
+                if is_disagreement:
+                    omr_measure = aligned_omr_prelim.get(n)
+                    if omr_measure is not None:
+                        omr_matches = [c for c in candidates
+                                       if _cross_source_measure_match(c, omr_measure, time_sig)]
+                        if len(omr_matches) == 1:
+                            omr_tie_break_winner = omr_matches[0]
+
+                if omr_tie_break_winner is not None:
+                    claude_agreement[n] = "disagree_omr_broke_tie"
+                    winner = omr_tie_break_winner
+                else:
+                    claude_agreement[n] = ("agree" if counts[winning_fp] >= 2
+                                           else "unavailable" if len(candidates) < 2
+                                           else "disagree")
+                    winner = next(c for c, fp in zip(candidates, fingerprints) if fp == winning_fp)
                 reconciled.append(winner)
             reconciled.sort(key=lambda m: m["number"])
             reads = [read_a, read_b, read_c]

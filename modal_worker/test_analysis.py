@@ -5734,6 +5734,81 @@ def test_read_score_notes_claude_dispatches_audiveris_per_row():
           spawned_row_bytes == [b"row1a", b"row1b"], str(spawned_row_bytes))
 
 
+def test_read_score_notes_claude_audiveris_breaks_a_genuine_tie():
+    print("\n[164] when Claude's three reads all disagree on a measure (no 2-of-3 "
+          "majority), an Audiveris reading that matches exactly one candidate "
+          "wins, tagged disagree_omr_broke_tie")
+    from unittest.mock import patch, MagicMock
+
+    def make_measure(pitch):
+        return {"number": 1, "page": 1, "row": 1,
+                "notes": [{"pitch": pitch, "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
+
+    read_a = {"measures": [make_measure("C4")], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+    read_b = {"measures": [make_measure("D4")], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+    read_c = {"measures": [make_measure("E4")], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+
+    fake_prepared_pages = [{"page_mime": "image/jpeg", "page_bytes": b"page1",
+                             "rows": [{"row_bytes": b"row1", "readability": {"quality": "good"},
+                                       "segmentation": {"measures": [], "confidence": 0.0}}]}]
+    audiveris_row_result = {"measures": [
+        {"number": 1, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
+    ], "source": "audiveris"}
+
+    reads = [read_a, read_b, read_c]
+    with patch.object(w, "_prepare_score_rows", return_value=fake_prepared_pages), \
+         patch.object(w.run_audiveris_on_row, "spawn",
+                      return_value=MagicMock(get=MagicMock(return_value=audiveris_row_result))), \
+         patch.object(w, "_read_score_notes_claude_once", side_effect=lambda *a, **kw: reads.pop(0)):
+        result = w.read_score_notes_claude([(b"page1", "image/jpeg")], 1, "Clarinet", "4/4", "fake-key")
+
+    check("the Audiveris-corroborated candidate (D4) won, not an arbitrary first pick",
+          result["measures"][0]["notes"][0]["pitch"] == "D4", str(result["measures"]))
+
+
+def test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match():
+    print("\n[165] when an aligned Audiveris measure matches NONE of the "
+          "disagreeing Claude candidates, today's existing arbitrary-winner "
+          "behavior is unchanged — the tie-break never guesses")
+    from unittest.mock import patch, MagicMock
+
+    def make_measure(pitch):
+        return {"number": 1, "page": 1, "row": 1,
+                "notes": [{"pitch": pitch, "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
+
+    read_a = {"measures": [make_measure("C4")], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+    read_b = {"measures": [make_measure("D4")], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+    read_c = {"measures": [make_measure("E4")], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+
+    fake_prepared_pages = [{"page_mime": "image/jpeg", "page_bytes": b"page1",
+                             "rows": [{"row_bytes": b"row1", "readability": {"quality": "good"},
+                                       "segmentation": {"measures": [], "confidence": 0.0}}]}]
+    # Audiveris matches NEITHER C4, D4, nor E4.
+    audiveris_row_result = {"measures": [
+        {"number": 1, "notes": [{"pitch": "G4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
+    ], "source": "audiveris"}
+
+    reads = [read_a, read_b, read_c]
+    with patch.object(w, "_prepare_score_rows", return_value=fake_prepared_pages), \
+         patch.object(w.run_audiveris_on_row, "spawn",
+                      return_value=MagicMock(get=MagicMock(return_value=audiveris_row_result))), \
+         patch.object(w, "_read_score_notes_claude_once", side_effect=lambda *a, **kw: reads.pop(0)):
+        result = w.read_score_notes_claude([(b"page1", "image/jpeg")], 1, "Clarinet", "4/4", "fake-key")
+
+    check("the measure is still marked unresolved (today's existing disagree path), "
+          "not silently accepted", result["measures"][0].get("unresolved") in (True, None),
+          str(result["measures"][0]))
+    check("the winning pitch is one of the THREE original candidates, never Audiveris's G4",
+          result["measures"][0]["notes"][0]["pitch"] in ("C4", "D4", "E4"),
+          str(result["measures"][0]))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5892,7 +5967,9 @@ def main():
               test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it,
               test_group_measure_numbers_by_row_majority_vote,
               test_align_audiveris_measures_matches_only_on_equal_counts,
-              test_read_score_notes_claude_dispatches_audiveris_per_row):
+              test_read_score_notes_claude_dispatches_audiveris_per_row,
+              test_read_score_notes_claude_audiveris_breaks_a_genuine_tie,
+              test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

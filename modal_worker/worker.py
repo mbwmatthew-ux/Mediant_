@@ -5821,13 +5821,16 @@ def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
     """
     Combines three signals into one fusion outcome for a single measure.
 
-    claude_agreement is a THREE-state value, not a boolean:
-      * "agree"       — 2+ independent Claude reads produced identical content
-      * "disagree"    — independent Claude reads contradicted each other
-      * "unavailable" — only ONE Claude read succeeded, so there was no
-                        cross-validation at all
+    claude_agreement is a FOUR-state value, not a boolean:
+      * "agree"                — 2+ independent Claude reads produced identical content
+      * "disagree"             — independent Claude reads contradicted each other
+      * "unavailable"          — only ONE Claude read succeeded, so there was no
+                                 cross-validation at all
+      * "disagree_omr_broke_tie" — Claude's own reads disagreed with each other, but
+                                 an independent Audiveris (OMR) reading matched exactly
+                                 one of the disagreeing candidates, breaking the tie
 
-    The three-state distinction is load-bearing. A boolean collapses
+    The four-state distinction is load-bearing. A boolean collapses
     "unavailable" into "agree", which would silently grant a lone,
     uncorroborated observation the same confidence as two independent
     reads that matched. One observation is not agreement — it is an

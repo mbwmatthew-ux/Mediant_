@@ -5724,12 +5724,15 @@ def validate_measure(measure: dict, instrument: str, time_sig: str,
     Claude's own prompt convention) — NOT quarterLengths. A caller
     passing music21/oemer-sourced measures MUST convert duration_beats
     via quarter_lengths_per_beat(time_sig) first. (There is currently no
-    such caller: OMR/oemer is permanently unavailable this iteration —
-    the controller's GO/NO-GO gate returned NO-GO after oemer failed 6/6
-    on this project's real dewarped row crops, see the docstring on
-    read_score_notes_claude above for the full spike writeup — so every
-    live caller of this function is Claude-sourced already. This note is
-    for whoever revisits OMR later.)
+    such caller: OMR corroboration is live now (via Audiveris, not oemer —
+    see docs/superpowers/specs/2026-09-23-audiveris-cross-validation-design.md
+    for the full design), but Audiveris-sourced measures only ever reach
+    this pipeline through fuse_measure_confidence's oemer_measure parameter
+    and _cross_source_measure_match, which does its own
+    quarter_lengths_per_beat conversion — never through validate_measure
+    directly. So every live caller of THIS function is still
+    Claude-sourced. This note is for whoever ever calls validate_measure
+    directly with OMR-sourced measures.)
 
     Never raises. Every sibling in this file (compute_row_readability,
     dewarp_row, split_row_into_measures, resolve_measure_disagreement)
@@ -9615,14 +9618,20 @@ def _generate_reference_audio(body: dict) -> dict:
     # Refuse to synthesize anything from a read the pipeline itself does
     # not trust. read_score_notes_claude marks a measure "unresolved" when
     # fuse_measure_confidence flagged it needs_resolution — from Claude's
-    # two independent reads disagreeing and/or deterministic validation
-    # (validate_measure) calling it invalid — AND the targeted
-    # closed-ended re-read (resolve_measure_disagreement) could not
-    # settle it either (no crop was available to even attempt one, the
-    # call failed, or the resolved answer still didn't revalidate).
-    # ("An independent OMR read contradicted them" described a condition
-    # that cannot occur this iteration — OMR/oemer is permanently
-    # unavailable, NO-GO; see read_score_notes_claude's docstring.)
+    # two independent reads disagreeing, and/or deterministic validation
+    # (validate_measure) calling it invalid, and/or (now that OMR
+    # corroboration is live via Audiveris — see docs/superpowers/specs/
+    # 2026-09-23-audiveris-cross-validation-design.md) Claude agreeing
+    # with itself but an independent Audiveris reading contradicting it
+    # (see fuse_measure_confidence's own docstring/verdict table for that
+    # exact branch) — AND the targeted closed-ended re-read
+    # (resolve_measure_disagreement) could not settle it either (no crop
+    # was available to even attempt one, the call failed, or the
+    # resolved answer still didn't revalidate).
+    # (This means "an independent OMR read contradicted them" is no
+    # longer a condition that cannot occur — it is now the primary new
+    # failure mode this whole feature exists to catch, routed through
+    # the same resolution attempt as any other disagreement above.)
     #
     # Playing those notes anyway is the exact product failure this whole
     # pipeline exists to end: a student hears confident, fluent, WRONG

@@ -4875,6 +4875,88 @@ def _measure_fingerprint(m: dict) -> tuple:
     )
 
 
+def _group_measure_numbers_by_row(reads: list[dict]) -> dict[tuple[int, int], list[int]]:
+    """
+    For each measure number appearing in ANY of the given reads,
+    determines which (page, row) it belongs to by STRICT majority across
+    however many of the reads report that measure at all, and groups
+    measure numbers by their winning (page, row).
+
+    Used both BEFORE Claude's own reads are reconciled (fed [read_a,
+    read_b, read_c] so the tie-break step in the reconciliation loop
+    knows each row's full Claude-side measure count before a winner is
+    even picked) and AFTER reconciliation (fed [base_result], a single
+    already-final read, for the per-measure loop's oemer_measure lookup)
+    — a single-read list trivially satisfies "strict majority" for every
+    measure it contains, so the same function serves both call shapes
+    with no special-casing.
+
+    A measure whose reads don't strictly majority-agree on its row (e.g.
+    a genuine 1-1 tie between two different rows) is left out of EVERY
+    row's list entirely — never guessed into row 1 or into whichever row
+    happened to be checked first. This mirrors the exact "don't guess on
+    ambiguous row provenance" rule read_score_notes_claude's own
+    per-measure loop already applies to a single already-reconciled
+    measure's row field.
+    """
+    by_number: dict[int, list[dict]] = {}
+    for read in reads:
+        if read.get("error"):
+            continue
+        for m in read.get("measures", []):
+            by_number.setdefault(m["number"], []).append(m)
+
+    result: dict[tuple[int, int], list[int]] = {}
+    for number, candidates in by_number.items():
+        rows = [(c.get("page", 1), c.get("row")) for c in candidates if c.get("row") is not None]
+        if not rows:
+            continue
+        counts: dict[tuple[int, int], int] = {}
+        for r in rows:
+            counts[r] = counts.get(r, 0) + 1
+        best_row, best_count = max(counts.items(), key=lambda kv: kv[1])
+        if best_count * 2 <= len(rows):
+            continue  # no strict majority — don't guess
+        result.setdefault(best_row, []).append(number)
+    return result
+
+
+def _align_audiveris_measures(claude_numbers_by_row: dict[tuple[int, int], list[int]],
+                               audiveris_by_row: dict[tuple[int, int], dict]) -> dict[int, dict]:
+    """
+    Given, for each (page, row), the list of Claude's own global measure
+    numbers assigned to that row, and that row's Audiveris parse result
+    (or a dict with an "error" key, or absent entirely), returns a flat
+    {measure_number: audiveris_measure} map — one entry per measure that
+    could be confidently aligned, entirely absent for any row where
+    alignment isn't trustworthy.
+
+    Alignment is POSITIONAL and ALL-OR-NOTHING PER ROW: Audiveris numbers
+    measures 1..N within the row it was given, not globally (see
+    _run_audiveris_on_row), so its Nth measure is assumed to correspond
+    to the Nth of Claude's own row-assigned measure numbers (sorted
+    ascending) — but ONLY when the two counts are exactly equal. A count
+    mismatch means at least one side split/merged that row's content
+    differently than the other, and guessing which measures line up
+    would silently mismatch content across sources — every measure in
+    that row is left OUT of the returned map instead, identical to
+    oemer_measure=None for all of them. This is the same "don't guess"
+    convention used throughout this file (_detect_page_bounds,
+    _crop_row_background_columns, _group_measure_numbers_by_row above).
+    """
+    aligned: dict[int, dict] = {}
+    for row_key, claude_numbers in claude_numbers_by_row.items():
+        audiveris_result = audiveris_by_row.get(row_key)
+        if not audiveris_result or audiveris_result.get("error"):
+            continue
+        audiveris_measures = audiveris_result.get("measures") or []
+        if len(audiveris_measures) != len(claude_numbers):
+            continue
+        for claude_number, audiveris_measure in zip(sorted(claude_numbers), audiveris_measures):
+            aligned[claude_number] = audiveris_measure
+    return aligned
+
+
 def read_score_notes_claude(
     pages: list[tuple[bytes, str]],
     start_measure: int, instrument: str, time_sig: str,
@@ -4933,8 +5015,31 @@ def read_score_notes_claude(
     """
     prepared_pages = _prepare_score_rows(pages)
 
+    # Dispatch Audiveris on every raster row NOW, in parallel, before
+    # Claude's own sequential reads begin below — Audiveris takes
+    # 60-120s per row, so dispatching it first lets its latency mostly
+    # hide behind Claude's own read time instead of stacking on top of
+    # it. PDF pages already have "rows": [] from _prepare_score_rows
+    # (image-only scope, unchanged), so they dispatch zero calls here.
+    audiveris_handles: dict[tuple[int, int], object] = {}
+    for page_idx, prepared_page in enumerate(prepared_pages, start=1):
+        for row_idx, row in enumerate(prepared_page["rows"], start=1):
+            audiveris_handles[(page_idx, row_idx)] = run_audiveris_on_row.spawn(row["row_bytes"])
+
     read_a = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
     read_b = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+
+    # Collect Audiveris results now — by this point Claude's own two
+    # reads have taken real wall-clock time, so most/all Audiveris calls
+    # are typically already done. Any failure (crash, timeout) here
+    # degrades that row to oemer_measure=None everywhere downstream,
+    # identical to today's current behavior — never raises.
+    audiveris_by_row: dict[tuple[int, int], dict] = {}
+    for row_key, handle in audiveris_handles.items():
+        try:
+            audiveris_by_row[row_key] = handle.get(timeout=160)
+        except Exception as e:
+            print(f"[read_score_notes_claude] Audiveris row {row_key} failed or timed out: {e}")
 
     # claude_agreement maps measure number -> "agree" | "disagree" |
     # "unavailable". Three states, never a boolean — see

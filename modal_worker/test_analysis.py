@@ -5649,6 +5649,91 @@ def test_run_audiveris_on_row_returns_error_on_failure():
     check("measures is an empty list on error", result.get("measures") == [], str(result))
 
 
+def test_group_measure_numbers_by_row_majority_vote():
+    print("\n[161] _group_measure_numbers_by_row groups by strict-majority row, "
+          "never guessing on a tie")
+    read_a = {"measures": [
+        {"number": 1, "page": 1, "row": 1, "notes": []},
+        {"number": 2, "page": 1, "row": 1, "notes": []},
+        {"number": 3, "page": 1, "row": 2, "notes": []},
+    ]}
+    read_b = {"measures": [
+        {"number": 1, "page": 1, "row": 1, "notes": []},
+        {"number": 2, "page": 1, "row": 2, "notes": []},  # disagrees with read_a on m.2's row
+        {"number": 3, "page": 1, "row": 2, "notes": []},
+    ]}
+    result = w._group_measure_numbers_by_row([read_a, read_b])
+    check("m.1: both reads agree it's row 1", result.get((1, 1)) == [1] or 1 in result.get((1, 1), []),
+          str(result))
+    check("m.3: both reads agree it's row 2", 3 in result.get((1, 2), []), str(result))
+    check("m.2: a 1-1 tie between row 1 and row 2 is NOT guessed into either row",
+          2 not in result.get((1, 1), []) and 2 not in result.get((1, 2), []), str(result))
+
+    single_read_result = w._group_measure_numbers_by_row([read_a])
+    check("a single read's row assignment is trusted outright (trivial majority)",
+          single_read_result.get((1, 2)) == [3], str(single_read_result))
+
+
+def test_align_audiveris_measures_matches_only_on_equal_counts():
+    print("\n[162] _align_audiveris_measures aligns a row's measures positionally "
+          "only when Claude's and Audiveris's counts for that row are equal")
+    claude_numbers_by_row = {(1, 1): [5, 6, 7], (1, 2): [8, 9]}
+    audiveris_by_row = {
+        (1, 1): {"measures": [{"number": 1, "notes": [{"pitch": "C4"}]},
+                               {"number": 2, "notes": [{"pitch": "D4"}]},
+                               {"number": 3, "notes": [{"pitch": "E4"}]}]},
+        (1, 2): {"measures": [{"number": 1, "notes": [{"pitch": "F4"}]}]},  # count mismatch: 1 vs 2
+    }
+    aligned = w._align_audiveris_measures(claude_numbers_by_row, audiveris_by_row)
+    check("row (1,1) with matching counts aligns all three measures",
+          set(aligned.keys()) >= {5, 6, 7}, str(aligned.keys()))
+    check("m.5 (Claude's first in its row) maps to Audiveris's first measure in that row",
+          aligned[5]["notes"][0]["pitch"] == "C4", str(aligned.get(5)))
+    check("row (1,2) with mismatched counts (2 vs 1) contributes NOTHING",
+          8 not in aligned and 9 not in aligned, str(aligned))
+
+    aligned_missing = w._align_audiveris_measures(
+        {(1, 3): [10]}, {(1, 3): {"error": "no export", "measures": []}})
+    check("a row with an Audiveris error contributes nothing",
+          10 not in aligned_missing, str(aligned_missing))
+
+    aligned_no_row = w._align_audiveris_measures({(1, 4): [11]}, {})
+    check("a row with no Audiveris result at all contributes nothing",
+          11 not in aligned_no_row, str(aligned_no_row))
+
+
+def test_read_score_notes_claude_dispatches_audiveris_per_row():
+    print("\n[163] read_score_notes_claude dispatches one Audiveris call per raster "
+          "row and collects results before the function returns, but never for a PDF page")
+    from unittest.mock import patch, MagicMock
+
+    fake_prepared_pages = [
+        {"page_mime": "image/jpeg", "page_bytes": b"page1",
+         "rows": [{"row_bytes": b"row1a", "readability": {"quality": "good"},
+                   "segmentation": {"measures": [], "confidence": 0.0}},
+                  {"row_bytes": b"row1b", "readability": {"quality": "good"},
+                   "segmentation": {"measures": [], "confidence": 0.0}}]},
+        {"page_mime": "application/pdf", "page_bytes": b"pdf1", "rows": []},
+    ]
+    spawned_row_bytes = []
+
+    def fake_spawn(row_bytes):
+        spawned_row_bytes.append(row_bytes)
+        handle = MagicMock()
+        handle.get.return_value = {"measures": [], "source": "audiveris"}
+        return handle
+
+    with patch.object(w, "_prepare_score_rows", return_value=fake_prepared_pages), \
+         patch.object(w.run_audiveris_on_row, "spawn", side_effect=fake_spawn), \
+         patch.object(w, "_read_score_notes_claude_once",
+                       return_value={"measures": [], "error": "no measures needed for this test"}):
+        w.read_score_notes_claude([(b"page1", "image/jpeg"), (b"pdf1", "application/pdf")],
+                                   1, "Clarinet", "4/4", "fake-key")
+
+    check("exactly one Audiveris call was dispatched per raster row (2 rows, not the PDF)",
+          spawned_row_bytes == [b"row1a", b"row1b"], str(spawned_row_bytes))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5804,7 +5889,10 @@ def main():
               test_run_audiveris_command_returns_none_on_failure_or_timeout,
               test_run_audiveris_on_row_returns_parsed_measures_on_success,
               test_run_audiveris_on_row_returns_error_on_failure,
-              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it):
+              test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it,
+              test_group_measure_numbers_by_row_majority_vote,
+              test_align_audiveris_measures_matches_only_on_equal_counts,
+              test_read_score_notes_claude_dispatches_audiveris_per_row):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

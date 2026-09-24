@@ -5861,6 +5861,11 @@ def fuse_measure_confidence(claude_agreement: str, claude_measure: dict,
         return {"confidence": "low", "needs_resolution": True,
                 "reasons": ["validator invalid: " + "; ".join(validation.get("issues", []))]}
 
+    if claude_agreement == "disagree_omr_broke_tie":
+        return {"confidence": "high", "needs_resolution": False,
+                "reasons": ["Claude's own reads disagreed with each other; an "
+                            "independent OMR (Audiveris) reading broke the tie"]}
+
     if claude_agreement == "disagree":
         return {"confidence": "low", "needs_resolution": True,
                 "reasons": ["Claude's own independent reads disagreed on this measure"]}

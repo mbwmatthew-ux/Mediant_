@@ -3013,6 +3013,28 @@ def test_fuse_measure_confidence_two_empty_measures_never_fuse_high_i5():
           r == w.fuse_measure_confidence("agree", claude_empty, None, valid), str(r))
 
 
+def test_fuse_measure_confidence_disagree_omr_broke_tie():
+    print("\n[160] fuse_measure_confidence's new 'disagree_omr_broke_tie' state "
+          "resolves with high confidence and needs_resolution=False")
+    measure = {"number": 5, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]}
+    validation = {"valid": True, "issues": []}
+
+    result = w.fuse_measure_confidence("disagree_omr_broke_tie", measure, None, validation)
+    check("needs_resolution is False when OMR broke the tie",
+          result["needs_resolution"] is False, str(result))
+    check("confidence is high", result["confidence"] == "high", str(result))
+    check("reasons mention the tie-break", any("tie" in r.lower() for r in result["reasons"]), str(result))
+
+    invalid_validation = {"valid": False, "issues": ["duration sum wrong"]}
+    result_invalid = w.fuse_measure_confidence("disagree_omr_broke_tie", measure, None, invalid_validation)
+    check("validator-invalid still wins over the tie-break state",
+          result_invalid["needs_resolution"] is True, str(result_invalid))
+
+    check("plain 'disagree' is UNCHANGED by this new state's addition",
+          w.fuse_measure_confidence("disagree", measure, None, validation)["needs_resolution"] is True,
+          "regression check")
+
+
 def test_resolve_measure_disagreement_sends_crop_and_candidates():
     print("\n[99] targeted disagreement resolution sends the measure crop and candidate list, not an open re-read")
     import types, json as _json
@@ -5728,6 +5750,7 @@ def main():
               test_fuse_measure_confidence_cross_source_compound_time_duration_i4,
               test_fuse_measure_confidence_missing_valid_key_fails_closed_i5,
               test_fuse_measure_confidence_two_empty_measures_never_fuse_high_i5,
+              test_fuse_measure_confidence_disagree_omr_broke_tie,
               test_resolve_measure_disagreement_sends_crop_and_candidates,
               test_resolve_measure_disagreement_marks_unresolved_on_failure,
               test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,

@@ -5592,6 +5592,41 @@ def test_run_audiveris_command_returns_none_on_failure_or_timeout():
     check("the timeout diagnostic mentions the timeout", "30" in diagnostic, diagnostic)
 
 
+def test_run_audiveris_on_row_returns_parsed_measures_on_success():
+    print("\n[158] _run_audiveris_on_row returns parsed measures tagged "
+          "source='audiveris' when Audiveris succeeds on a row crop")
+    from unittest.mock import patch
+
+    with patch.object(w, "_run_audiveris_command") as mock_cmd, \
+         patch.object(w, "parse_score_document") as mock_parse:
+        mock_cmd.return_value = (b"FAKE_MXL_BYTES", "/tmp/fake/row.mxl", "")
+        mock_parse.return_value = {"measures": [{"number": 1, "notes": []}], "source": "music21"}
+
+        result = w._run_audiveris_on_row(b"FAKE_ROW_PNG_BYTES")
+
+    check("parse_score_document was called with the exported bytes, anchored at measure 1",
+          mock_parse.call_args[0] == (b"FAKE_MXL_BYTES", 1), str(mock_parse.call_args))
+    check("source is overwritten to 'audiveris', not left as 'music21'",
+          result.get("source") == "audiveris", str(result))
+    check("measures pass through unchanged",
+          result.get("measures") == [{"number": 1, "notes": []}], str(result))
+
+
+def test_run_audiveris_on_row_returns_error_on_failure():
+    print("\n[159] _run_audiveris_on_row returns an error dict (never raises) "
+          "when Audiveris produces no export for a row")
+    from unittest.mock import patch
+
+    with patch.object(w, "_run_audiveris_command") as mock_cmd:
+        mock_cmd.return_value = (None, None, "no staff lines found")
+        result = w._run_audiveris_on_row(b"FAKE_ROW_PNG_BYTES")
+
+    check("returns an error, not a raised exception", "error" in result, str(result))
+    check("error message carries the diagnostic",
+          "no staff lines found" in result["error"], str(result))
+    check("measures is an empty list on error", result.get("measures") == [], str(result))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5744,6 +5779,8 @@ def main():
               test_global_tempo_findings_survive_an_unrelated_unresolved_measure,
               test_run_audiveris_command_returns_export_bytes_on_success,
               test_run_audiveris_command_returns_none_on_failure_or_timeout,
+              test_run_audiveris_on_row_returns_parsed_measures_on_success,
+              test_run_audiveris_on_row_returns_error_on_failure,
               test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it):
         try:
             t()

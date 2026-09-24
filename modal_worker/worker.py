@@ -1434,6 +1434,80 @@ def convert_visual_score_to_musicxml(score_bytes: bytes, score_mime: str, score_
         return parsed
 
 
+def _run_audiveris_on_row(row_bytes: bytes) -> dict:
+    """
+    Runs Audiveris on ONE already-dewarped, already-background-cropped
+    row crop (see _prepare_score_rows) and returns the same ScoreResult
+    shape as parse_score_document: {"measures": [...], "source":
+    "audiveris", ...} on success, or {"error": ..., "measures": []} on
+    any failure. Never raises.
+
+    Always anchored at measure 1: Audiveris numbers measures within the
+    row it was given, not the piece's global numbering. Aligning that
+    row-local numbering to Claude's global numbering is the caller's
+    job (read_score_notes_claude), not this function's.
+
+    Runs exactly once per row, unlike Claude's repeated reads — Audiveris
+    is a deterministic classical algorithm, so re-running it on the same
+    bytes would produce identical output for no new information. See
+    docs/superpowers/specs/2026-09-23-audiveris-cross-validation-design.md
+    (Non-Goals).
+
+    Kept plain (undecorated) so this test suite can call it directly —
+    see run_audiveris_on_row below for the thin Modal-deployable wrapper,
+    and _generate_reference_audio's docstring (worker.py:9330-9334) for
+    why this split exists in this codebase already.
+    """
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        home_dir = os.path.join(tmpdir, "home")
+        input_path = os.path.join(tmpdir, "row.png")
+        output_dir = os.path.join(tmpdir, "audiveris-output")
+        for path in (home_dir, output_dir):
+            os.makedirs(path, exist_ok=True)
+        with open(input_path, "wb") as f:
+            f.write(row_bytes)
+
+        env = {
+            **os.environ,
+            "HOME": home_dir,
+            "JAVA_TOOL_OPTIONS": "-Djava.awt.headless=true",
+        }
+        command = ["audiveris", "-batch", "-transcribe", "-export",
+                   "-output", output_dir, "--", input_path]
+        exported_bytes, _exported_path, diagnostic = _run_audiveris_command(
+            command, output_dir, env, 140)
+
+        if exported_bytes is None:
+            return {"error": f"Audiveris produced no export for this row: "
+                              f"{diagnostic[:500] or 'no output'}",
+                    "measures": []}
+
+        parsed = parse_score_document(exported_bytes, 1)
+        parsed["source"] = "audiveris"
+        return parsed
+
+
+@app.function(image=image, timeout=150)
+def run_audiveris_on_row(row_bytes: bytes) -> dict:
+    """
+    Modal-deployable wrapper, invoked via .spawn(). See
+    _run_audiveris_on_row for the real logic.
+
+    Decorated with the SAME `image` this whole app already builds —
+    Audiveris is already installed there (see the apt_install/run_commands
+    block near the top of this file) — so this needs no new Modal image
+    or deployment infrastructure. The 150s Modal-level timeout leaves
+    margin over the 140s internal subprocess timeout _run_audiveris_on_row
+    passes to _run_audiveris_command, which itself leaves margin over the
+    60-120s Audiveris typically takes on one row crop (confirmed via a
+    live spike against a real photo's row, tonight).
+    """
+    return _run_audiveris_on_row(row_bytes)
+
+
 def assign_events_to_measures(
     events: list[dict],
     beat_times: list[float],

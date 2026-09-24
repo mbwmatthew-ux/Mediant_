@@ -5816,6 +5816,64 @@ def test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match():
           str(result["measures"][0]))
 
 
+def test_read_score_notes_claude_pdf_pages_get_no_audiveris_corroboration():
+    print("\n[166] a PDF page (no row crops) never gets real oemer_measure data — "
+          "identical to today's oemer_measure=None for every PDF measure")
+    from unittest.mock import patch
+
+    fake_prepared_pages = [{"page_mime": "application/pdf", "page_bytes": b"pdf1", "rows": []}]
+    pdf_measure = {"number": 1, "page": 1, "row": 1,
+                   "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
+    read_a = {"measures": [pdf_measure], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+    read_b = {"measures": [pdf_measure], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+
+    reads = [read_a, read_b]
+    with patch.object(w, "_prepare_score_rows", return_value=fake_prepared_pages), \
+         patch.object(w, "_read_score_notes_claude_once", side_effect=lambda *a, **kw: reads.pop(0)):
+        result = w.read_score_notes_claude([(b"pdf1", "application/pdf")], 1, "Clarinet", "4/4", "fake-key")
+
+    check("a PDF page's measure resolves via Claude-agreement alone (medium "
+          "confidence, no OMR), not via any fabricated corroboration",
+          result["measures"][0].get("unresolved") is not True, str(result["measures"][0]))
+
+
+def test_read_score_notes_claude_agree_case_gets_audiveris_corroboration():
+    print("\n[167] when Claude's two reads AGREE on a measure, a matching aligned "
+          "Audiveris reading now reaches fuse_measure_confidence for real "
+          "(this is the actual symptom fix: catches a Claude-agrees-with-itself "
+          "measure Audiveris independently CONTRADICTS)")
+    from unittest.mock import patch, MagicMock
+
+    agreeing_measure = {"number": 1, "page": 1, "row": 1,
+                        "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
+    read_a = {"measures": [agreeing_measure], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+    read_b = {"measures": [agreeing_measure], "key_signature": None,
+              "time_signature": "4/4", "tempo_marking": None}
+
+    fake_prepared_pages = [{"page_mime": "image/jpeg", "page_bytes": b"page1",
+                             "rows": [{"row_bytes": b"row1", "readability": {"quality": "good"},
+                                       "segmentation": {"measures": [], "confidence": 0.0}}]}]
+    # Audiveris CONTRADICTS the agreeing Claude reads (G4, not C4).
+    audiveris_row_result = {"measures": [
+        {"number": 1, "notes": [{"pitch": "G4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
+    ], "source": "audiveris"}
+
+    reads = [read_a, read_b]
+    with patch.object(w, "_prepare_score_rows", return_value=fake_prepared_pages), \
+         patch.object(w.run_audiveris_on_row, "spawn",
+                      return_value=MagicMock(get=MagicMock(return_value=audiveris_row_result))), \
+         patch.object(w, "_read_score_notes_claude_once", side_effect=lambda *a, **kw: reads.pop(0)), \
+         patch.object(w, "fuse_measure_confidence", wraps=w.fuse_measure_confidence) as spy_fuse:
+        w.read_score_notes_claude([(b"page1", "image/jpeg")], 1, "Clarinet", "4/4", "fake-key")
+
+    oemer_args = [call.args[2] for call in spy_fuse.call_args_list]
+    check("fuse_measure_confidence was called with REAL Audiveris data at least once, "
+          "not an unconditional None", any(a is not None for a in oemer_args), str(oemer_args))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -5976,7 +6034,9 @@ def main():
               test_align_audiveris_measures_matches_only_on_equal_counts,
               test_read_score_notes_claude_dispatches_audiveris_per_row,
               test_read_score_notes_claude_audiveris_breaks_a_genuine_tie,
-              test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match):
+              test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match,
+              test_read_score_notes_claude_pdf_pages_get_no_audiveris_corroboration,
+              test_read_score_notes_claude_agree_case_gets_audiveris_corroboration):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

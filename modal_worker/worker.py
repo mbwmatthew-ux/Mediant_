@@ -4993,21 +4993,13 @@ def read_score_notes_claude(
     needs_resolution through a single targeted, closed-ended resolution
     call (resolve_measure_disagreement) instead of another open re-read.
 
-    OMR (oemer) is PERMANENTLY UNAVAILABLE for this iteration — a spike
-    ran it against this project's real dewarped row crops and it failed
-    6/6 (its own staffline detector found zero stafflines, then crashed),
-    on top of a hard numpy conflict with this worker's pinned stack. The
-    controller's GO/NO-GO gate returned NO-GO, and the spec's own
-    contingency for that outcome is followed exactly: oemer is skipped
-    entirely, fuse_measure_confidence runs on Claude-agreement + the
-    deterministic validator only, and every call below passes
-    `oemer_measure=None` — never `{}`. `fuse_measure_confidence` treats a
-    falsy-but-non-None oemer_measure as "OMR present and disagreeing", not
-    "unavailable"; a `{}`-style default would silently downgrade every
-    measure from "uncorroborated" to "contradicted" and send the whole
-    score into resolution. Segmentation (split_row_into_measures) still
-    matters even with OMR off: it gates the tight measure CROPS used for
-    targeted resolution below.
+    OMR cross-validation is provided by Audiveris (not oemer — oemer was
+    spiked and rejected; see docs/superpowers/specs/2026-09-23-audiveris-
+    cross-validation-design.md for that history and for this feature's
+    full design). Audiveris runs per-row, in parallel with Claude's own
+    reads (see the dispatch/collect code near the top of this function),
+    and its aligned results feed both the reconciliation loop's tie-break
+    step and this function's per-measure fuse_measure_confidence calls.
 
     Signature and return shape are unchanged from the prior single-read
     version — both call sites (read_score_notes_for_reference_audio, and the
@@ -5160,6 +5152,13 @@ def read_score_notes_claude(
             # this knows it's known, not an oversight.
             base_result["wedges"] = _compute_dynamic_wedges(reconciled)
 
+    # Final alignment for the corroboration lookup below — uses the
+    # single, already-reconciled base_result (not the raw read_a/read_b/
+    # read_c candidates the tie-break step used) since a winner has
+    # already been picked for every measure by this point.
+    claude_numbers_by_row = _group_measure_numbers_by_row([base_result])
+    aligned_omr = _align_audiveris_measures(claude_numbers_by_row, audiveris_by_row)
+
     if base_result.get("error") or not base_result.get("measures"):
         return base_result
 
@@ -5255,9 +5254,12 @@ def read_score_notes_claude(
                 measure, instrument, resolved_time_sig,
                 is_first_measure=is_first, is_last_measure=is_last,
             )
-            # OMR is permanently unavailable this iteration (NO-GO, see
-            # docstring above) — literally None, never {}, on every path.
-            oemer_measure = None
+            # Real Audiveris corroboration, when this measure's row could
+            # be confidently aligned (see _align_audiveris_measures) —
+            # None (never {}) for every measure it could not align,
+            # identical to the old permanently-unavailable behavior for
+            # exactly those measures.
+            oemer_measure = aligned_omr.get(measure["number"])
             fusion = fuse_measure_confidence(
                 claude_agreement.get(measure["number"], "unavailable"),
                 measure, oemer_measure, validation, resolved_time_sig)

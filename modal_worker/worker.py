@@ -4943,6 +4943,20 @@ def _align_audiveris_measures(claude_numbers_by_row: dict[tuple[int, int], list[
     oemer_measure=None for all of them. This is the same "don't guess"
     convention used throughout this file (_detect_page_bounds,
     _crop_row_background_columns, _group_measure_numbers_by_row above).
+
+    Before trusting the count comparison at all, Claude's own
+    measure-number set for the row must be a CONTIGUOUS run (no gaps).
+    _group_measure_numbers_by_row can OMIT a measure number from a row's
+    list entirely (no strict-majority row, or — in the pre-reconciliation
+    tie-break call shape — a number only one of three reads reported,
+    which is not even in the final candidate set). A gap means the count
+    we're about to compare against Audiveris is already truncated, so a
+    count that happens to match is coincidence, not agreement — aligning
+    on it would zip Audiveris's measures against the WRONG Claude
+    measures (e.g. Claude's real [1,2,3,4,5,6] truncated to [1,2,4,5,6]
+    would align Audiveris's 4th measure, meant for Claude's 5, against
+    Claude's 4). A gapped row is treated exactly like a count mismatch —
+    skipped entirely, contributing nothing to the returned map.
     """
     aligned: dict[int, dict] = {}
     for row_key, claude_numbers in claude_numbers_by_row.items():
@@ -4951,6 +4965,12 @@ def _align_audiveris_measures(claude_numbers_by_row: dict[tuple[int, int], list[
             continue
         audiveris_measures = audiveris_result.get("measures") or []
         if len(audiveris_measures) != len(claude_numbers):
+            continue
+        if not claude_numbers:
+            continue
+        if max(claude_numbers) - min(claude_numbers) + 1 != len(claude_numbers):
+            # Gap in Claude's row-assigned numbers — the count we just
+            # compared is truncated, not real. Don't guess.
             continue
         for claude_number, audiveris_measure in zip(sorted(claude_numbers), audiveris_measures):
             aligned[claude_number] = audiveris_measure
@@ -5016,29 +5036,58 @@ def read_score_notes_claude(
     audiveris_handles: dict[tuple[int, int], object] = {}
     for page_idx, prepared_page in enumerate(prepared_pages, start=1):
         for row_idx, row in enumerate(prepared_page["rows"], start=1):
-            audiveris_handles[(page_idx, row_idx)] = run_audiveris_on_row.spawn(row["row_bytes"])
+            try:
+                audiveris_handles[(page_idx, row_idx)] = run_audiveris_on_row.spawn(row["row_bytes"])
+            except Exception as e:
+                # C2: .spawn() itself failing (stale deploy, transient Modal
+                # API error, oversized argument) must NOT propagate out of
+                # this function — that would break the fail-open invariant
+                # this whole feature is built on (see the collection loop's
+                # own try/except below). Simply don't add this row's handle;
+                # the collection loop then naturally skips it, producing
+                # oemer_measure=None for this row exactly as if Audiveris had
+                # never run.
+                print(f"[read_score_notes_claude] Audiveris dispatch for row "
+                      f"{(page_idx, row_idx)} failed: {e}")
 
     read_a = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
     read_b = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+
+    # claude_agreement maps measure number -> "agree" | "disagree" |
+    # "unavailable". Three states, never a boolean — see
+    # fuse_measure_confidence's docstring for why collapsing
+    # "unavailable" into "agree" is a correctness bug, not a shortcut.
+    #
+    # M2: this early return happens BEFORE we collect Audiveris results —
+    # on a total-failure read there is no use for them, and there is no
+    # reason to block waiting on Modal handles this function is about to
+    # discard anyway.
+    if read_a.get("error") and read_b.get("error"):
+        return read_a
 
     # Collect Audiveris results now — by this point Claude's own two
     # reads have taken real wall-clock time, so most/all Audiveris calls
     # are typically already done. Any failure (crash, timeout) here
     # degrades that row to oemer_measure=None everywhere downstream,
     # identical to today's current behavior — never raises.
+    #
+    # I1: the timeout budget is a single deadline computed ONCE, not a
+    # fixed 160s re-applied on every iteration — the latter could let N
+    # rows each burn up to 160s serially (up to N*160s total), which is
+    # additive against this function's own callers' Modal timeout
+    # (run_full_analysis / generate_reference_audio_background, both
+    # timeout=890) rather than the hidden/parallel latency this feature
+    # was designed around. A single deadline bounds the TOTAL time this
+    # loop can spend across all rows to roughly 160s.
+    import time
+    deadline = time.monotonic() + 160
     audiveris_by_row: dict[tuple[int, int], dict] = {}
     for row_key, handle in audiveris_handles.items():
         try:
-            audiveris_by_row[row_key] = handle.get(timeout=160)
+            audiveris_by_row[row_key] = handle.get(timeout=max(0, deadline - time.monotonic()))
         except Exception as e:
             print(f"[read_score_notes_claude] Audiveris row {row_key} failed or timed out: {e}")
 
-    # claude_agreement maps measure number -> "agree" | "disagree" |
-    # "unavailable". Three states, never a boolean — see
-    # fuse_measure_confidence's docstring for why collapsing
-    # "unavailable" into "agree" is a correctness bug, not a shortcut.
-    if read_a.get("error") and read_b.get("error"):
-        return read_a
     if read_a.get("error"):
         base_result = read_b
         # Only ONE read succeeded. There is no cross-validation signal at
@@ -5088,6 +5137,19 @@ def read_score_notes_claude(
                   f"{len(coverage_only)} coverage-only {coverage_only[:20]}")
             read_c = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
             by_number_c = {m["number"]: m for m in read_c.get("measures", [])} if not read_c.get("error") else {}
+            # I2: the tie-break below needs a time signature to convert
+            # durations for _cross_source_measure_match, and must NOT use
+            # the raw `time_sig` parameter — that's a caller-supplied HINT
+            # (read_score_notes_for_reference_audio hardcodes "4/4"
+            # regardless of the piece's actual signature) that can be
+            # wrong or a placeholder. base_result's own "time_signature"
+            # (built further below, AFTER the tie-break loop runs) is the
+            # right value but computed too late for this use, so it's
+            # computed here instead, from the same three reads, before the
+            # tie-break loop needs it.
+            tie_break_time_sig = _majority_vote(
+                [read_a.get("time_signature"), read_b.get("time_signature"),
+                 read_c.get("time_signature")]) or time_sig
             # Compute the tie-break alignment BEFORE reconciliation picks a
             # winner below — this is why _group_measure_numbers_by_row/
             # _align_audiveris_measures are called here with the raw
@@ -5114,7 +5176,7 @@ def read_score_notes_claude(
                     omr_measure = aligned_omr_prelim.get(n)
                     if omr_measure is not None:
                         omr_matches = [c for c in candidates
-                                       if _cross_source_measure_match(c, omr_measure, time_sig)]
+                                       if _cross_source_measure_match(c, omr_measure, tie_break_time_sig)]
                         if len(omr_matches) == 1:
                             omr_tie_break_winner = omr_matches[0]
 
@@ -5155,7 +5217,13 @@ def read_score_notes_claude(
     # Final alignment for the corroboration lookup below — uses the
     # single, already-reconciled base_result (not the raw read_a/read_b/
     # read_c candidates the tie-break step used) since a winner has
-    # already been picked for every measure by this point.
+    # already been picked for every measure by this point. M3: because
+    # this computation and the tie-break's earlier one (aligned_omr_prelim,
+    # above) run against genuinely different inputs — a single reconciled
+    # read here vs. three raw candidate reads there, whose row assignments
+    # and contiguity can differ — they CAN reach different verdicts about
+    # whether a given row's data is trustworthy enough to align; that's
+    # expected, not a bug, if a future maintainer notices it.
     claude_numbers_by_row = _group_measure_numbers_by_row([base_result])
     aligned_omr = _align_audiveris_measures(claude_numbers_by_row, audiveris_by_row)
 

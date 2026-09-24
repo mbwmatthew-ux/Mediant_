@@ -5702,6 +5702,33 @@ def test_align_audiveris_measures_matches_only_on_equal_counts():
           11 not in aligned_no_row, str(aligned_no_row))
 
 
+def test_align_audiveris_measures_declines_on_gapped_claude_numbers():
+    print("\n[162b] C1: _align_audiveris_measures declines a row whose Claude "
+          "numbers have a gap (a dropped/ambiguous measure), even when "
+          "Audiveris's count happens to coincidentally match the TRUNCATED "
+          "list length, instead of silently zipping mismatched measures together")
+    # Simulates measure 3 having been dropped from this row's count (e.g. no
+    # strict-majority row assignment) — Claude's real row is [1,2,3,4,5,6],
+    # but only [1,2,4,5,6] (5 numbers, with a gap at 3) made it into this map.
+    claude_numbers_by_row = {(1, 1): [1, 2, 4, 5, 6]}
+    # Audiveris "coincidentally" also reports exactly 5 measures for this row
+    # — a naive count comparison (5 == 5) would proceed to align, but doing
+    # so would zip Audiveris's 3rd measure (meant for Claude's real m.3)
+    # against Claude's m.4, etc.
+    audiveris_by_row = {(1, 1): {"measures": [
+        {"number": 1, "notes": [{"pitch": "C4"}]},
+        {"number": 2, "notes": [{"pitch": "D4"}]},
+        {"number": 3, "notes": [{"pitch": "E4"}]},
+        {"number": 4, "notes": [{"pitch": "F4"}]},
+        {"number": 5, "notes": [{"pitch": "G4"}]},
+    ]}}
+    aligned = w._align_audiveris_measures(claude_numbers_by_row, audiveris_by_row)
+    check("no measure in the gapped row gets aligned, despite the coincidental count match",
+          not any(n in aligned for n in (1, 2, 4, 5, 6)), str(aligned))
+    check("the row contributes NOTHING at all to the returned map",
+          aligned == {}, str(aligned))
+
+
 def test_read_score_notes_claude_dispatches_audiveris_per_row():
     print("\n[163] read_score_notes_claude dispatches one Audiveris call per raster "
           "row and collects results before the function returns, but never for a PDF page")
@@ -6032,6 +6059,7 @@ def main():
               test_unresolved_measure_trims_a_merged_run_instead_of_deleting_it,
               test_group_measure_numbers_by_row_majority_vote,
               test_align_audiveris_measures_matches_only_on_equal_counts,
+              test_align_audiveris_measures_declines_on_gapped_claude_numbers,
               test_read_score_notes_claude_dispatches_audiveris_per_row,
               test_read_score_notes_claude_audiveris_breaks_a_genuine_tie,
               test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match,

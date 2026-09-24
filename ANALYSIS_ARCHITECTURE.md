@@ -69,10 +69,24 @@ Score-reading order, as actually implemented in `_score_pipeline`:
   then ask Gemini for each measure's on-page coordinates
 - Parsed results are cached in `score_cache`, keyed by `score_path`
 
-There is **no OMR step**. `convert_visual_score_to_musicxml` (Audiveris) exists
-in `worker.py` and has zero call sites, though Audiveris is still installed into
-the Modal image on every build. This document previously described that path as
-live; it never runs.
+Audiveris now runs as a **per-row OMR cross-validation source**, not as the
+whole-page conversion path this section previously described. `read_score_notes_claude`
+dispatches `run_audiveris_on_row` (via `_run_audiveris_on_row`) in parallel, once per
+raster row produced by `_prepare_score_rows`, alongside Claude's own vision reads. Its
+per-row results are aligned back to Claude's global measure numbers
+(`_group_measure_numbers_by_row` / `_align_audiveris_measures`) and feed two places: the
+Claude-vs-Claude tie-break when the two/three-way reconciliation reads disagree, and
+`fuse_measure_confidence`'s per-measure confidence fusion. Audiveris never runs on PDF
+pages (image-only scope — PDF pages have zero rows from `_prepare_score_rows`), and any
+dispatch/collection failure degrades a row to `oemer_measure=None`, identical to the old
+permanently-unavailable behavior. See
+`docs/superpowers/specs/2026-09-23-audiveris-cross-validation-design.md` for the full
+design and the oemer NO-GO history that preceded it.
+
+`convert_visual_score_to_musicxml` itself — the whole-page-to-MusicXML conversion
+function — is a **separate, still-unused** function. It still has zero call sites;
+visual scores are read via the row-level pipeline above, not by converting a whole page
+to MusicXML.
 
 Fallback path:
 

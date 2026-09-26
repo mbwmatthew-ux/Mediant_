@@ -5158,6 +5158,10 @@ def read_score_notes_claude(
             # two functions serve both call shapes).
             claude_numbers_by_row_prelim = _group_measure_numbers_by_row([read_a, read_b, read_c])
             aligned_omr_prelim = _align_audiveris_measures(claude_numbers_by_row_prelim, audiveris_by_row)
+            usable_rows = sum(1 for r in audiveris_by_row.values() if r.get("measures"))
+            print(f"[read_score_notes_claude] Audiveris: {len(audiveris_by_row)}/"
+                  f"{len(audiveris_handles)} row(s) collected, {usable_rows} produced "
+                  f"measures, {len(aligned_omr_prelim)} measure(s) aligned for tie-break")
             reconciled = []
             claude_agreement = {}
             for n in all_numbers:
@@ -5174,15 +5178,22 @@ def read_score_notes_claude(
                 omr_tie_break_winner = None
                 if is_disagreement:
                     omr_measure = aligned_omr_prelim.get(n)
-                    if omr_measure is not None:
+                    if omr_measure is None:
+                        print(f"[read_score_notes_claude] m.{n}: disagreement, but no "
+                              f"aligned Audiveris measure to consult")
+                    else:
                         omr_matches = [c for c in candidates
                                        if _cross_source_measure_match(c, omr_measure, tie_break_time_sig)]
                         if len(omr_matches) == 1:
                             omr_tie_break_winner = omr_matches[0]
+                        else:
+                            print(f"[read_score_notes_claude] m.{n}: disagreement, Audiveris "
+                                  f"consulted but matched {len(omr_matches)} candidate(s) — declining to guess")
 
                 if omr_tie_break_winner is not None:
                     claude_agreement[n] = "disagree_omr_broke_tie"
                     winner = omr_tie_break_winner
+                    print(f"[read_score_notes_claude] m.{n}: Audiveris broke a Claude-vs-Claude tie")
                 else:
                     claude_agreement[n] = ("agree" if counts[winning_fp] >= 2
                                            else "unavailable" if len(candidates) < 2

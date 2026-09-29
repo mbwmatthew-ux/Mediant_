@@ -3766,11 +3766,15 @@ def dewarp_row(row_bytes: bytes) -> bytes:
 
     Algorithm: binarize via the shared _binarize_ink helper (see that
     function's docstring for why a raw `arr < _otsu_threshold(...)` call is
-    broken on clean two-valued fixtures), then in each vertical strip find
-    the STAFF LINES specifically — pixel-rows where ink spans most of that
-    strip's width — and take their centroid. Fit a quadratic to those
-    per-strip staff centers, then shift each column vertically by the
-    fitted curve's deviation from the center column.
+    broken on clean two-valued fixtures), then in each of 24 vertical
+    strips find candidate STAFF-LINE rows — pixel-rows where ink spans
+    most of that strip's width. Track the SAME staff line across strips
+    by nearest-neighbor proximity (not by blindly taking the topmost
+    candidate in each strip — see below for why that fails), with a
+    robust two-round refit that drops any strip whose tracked point still
+    ends up an outlier. Fit a quadratic to the surviving points, then
+    shift each column vertically by the fitted curve's deviation from the
+    center column.
 
     Tracking staff lines rather than ALL ink is load-bearing: noteheads,
     stems, beams, slurs, dynamics, and rehearsal marks are distributed
@@ -3781,6 +3785,21 @@ def dewarp_row(row_bytes: bytes) -> bytes:
     introduce distortion into a perfectly flat row. Staff lines are the
     only feature in a system that is supposed to be straight and
     horizontal, which is exactly what makes them the right reference.
+
+    Proximity tracking rather than "topmost candidate per strip" is
+    ALSO load-bearing — an earlier version of this function did the
+    latter and shipped with real, confirmed curvature still visible in
+    its output. Root-caused live against the real problem photo: under
+    severe curvature (or a strip with few ink candidates), "topmost"
+    does not reliably mean the same physical staff line in every strip —
+    one row's per-strip topmost picks measured [144, 34, 93, 102, 67, 71,
+    125, 84, 122], not a shape a physical page can bend into, because
+    different strips were latching onto different features entirely (a
+    rehearsal-number box, a beam, page text). Fitting a quadratic to that
+    fits noise, not the page. Confirmed the fix on that same photo's
+    worst rows via compute_row_readability as an independent oracle
+    (sharpness went from 0.18 "poor" to 0.29 "marginal" on one row) and
+    by direct visual inspection of the corrected crops.
 
     No-ops (returns input unchanged) if the fit's curvature is negligible
     (row is already flat), if the image can't be decoded, or if too few
@@ -3799,42 +3818,92 @@ def dewarp_row(row_bytes: bytes) -> bytes:
 
         is_ink, _threshold = _binarize_ink(arr)
 
-        n_strips = 12
+        # Per-strip candidate staff-line rows: ink spanning most of this
+        # strip's width. A notehead or stem covers a few columns; a staff
+        # line covers essentially all of them. 24 strips (not 12) — less
+        # content per strip means fewer competing non-staff features
+        # inside any one strip's window.
+        n_strips = 24
         strip_w = max(1, w // n_strips)
-        xs, ys = [], []
+        candidates: list[tuple[float, list[float]]] = []
         for i in range(n_strips):
             x0, x1 = i * strip_w, min(w, (i + 1) * strip_w)
             strip = is_ink[:, x0:x1]
             strip_width = max(1, x1 - x0)
-            # Staff-line rows only: ink spanning most of this strip's
-            # width. A notehead or stem covers a few columns; a staff line
-            # covers essentially all of them.
             line_rows = np.where(strip.sum(axis=1) / strip_width > 0.7)[0]
-            if len(line_rows) < 2:
-                continue  # no reliable staff reading in this strip
-            # Use the TOPMOST detected staff-line row, not the mean of all
-            # detected rows. The number of rows that clear the 0.7 bar in
-            # any given strip is unstable — measured on the real problem
-            # photo: 0, 6, 9, 9, 7, 15, 9, 8, 9, 8, 7, 0 detections across
-            # the 12 strips. Averaging that unstable SET tracks which rows
-            # happened to be detected in each strip, not where the staff
-            # actually sits — measured peak deviation via the mean was
-            # 0.50px (below _DEWARP_MIN_CURVATURE_PX, i.e. a no-op) on a
-            # photo with real, confirmed curvature. line_rows[0] is
-            # detection-COUNT-independent (the top edge of the topmost
-            # line is the same point in the strip regardless of how many
-            # rows below it also cleared the bar), and recovers the real
-            # curve: measured peak deviation 6.71px on the same photo,
-            # comfortably clearing the gate.
-            ys.append(float(line_rows[0]))
-            xs.append((x0 + x1) / 2)
+            candidates.append(((x0 + x1) / 2, [float(y) for y in line_rows]))
 
-        if len(xs) < n_strips // 2:
+        usable = [c for c in candidates if c[1]]
+        if len(usable) < n_strips // 2:
             return row_bytes  # too few reliable strips, don't guess
+
+        # Track the SAME staff line across strips by proximity, instead of
+        # independently taking the topmost candidate in each strip
+        # (the previous approach). That independent choice is unstable
+        # under real curvature: measured on the actual problem photo, one
+        # severely curved row's per-strip topmost-row picks were
+        # [144, 34, 93, 102, 67, 71, 125, 84, 122] — not a shape a
+        # physical page can bend into, because different strips were
+        # picking up different ink features entirely (a rehearsal-number
+        # box, a beam, text) rather than the same staff line. Fitting a
+        # quadratic to that is fitting noise, which is exactly why rows
+        # with real, visible curvature were coming out of dewarp_row
+        # still visibly curved.
+        #
+        # Seed from the strip with the fewest candidates (least
+        # ambiguous), preferring one near the middle on ties, seeded to
+        # the candidate closest to the overall median of every strip's
+        # own topmost candidate (a robust starting guess for "where the
+        # staff roughly is"). Then propagate outward in both directions,
+        # at each step picking the neighbor's candidate closest to the
+        # last CHOSEN y — tracking the line's identity by continuity
+        # rather than by position-in-list.
+        center_x = w / 2
+        seed_idx = min(range(len(candidates)),
+                       key=lambda i: (len(candidates[i][1]) == 0,
+                                      len(candidates[i][1]),
+                                      abs(candidates[i][0] - center_x)))
+        if not candidates[seed_idx][1]:
+            return row_bytes
+
+        chosen: list[float | None] = [None] * len(candidates)
+        seed_guess = float(np.median([c[1][0] for c in usable]))
+        chosen[seed_idx] = min(candidates[seed_idx][1], key=lambda y: abs(y - seed_guess))
+
+        for i in range(seed_idx + 1, len(candidates)):
+            prev_y, cands = chosen[i - 1], candidates[i][1]
+            chosen[i] = min(cands, key=lambda y: abs(y - prev_y)) if cands and prev_y is not None else None
+        for i in range(seed_idx - 1, -1, -1):
+            prev_y, cands = chosen[i + 1], candidates[i][1]
+            chosen[i] = min(cands, key=lambda y: abs(y - prev_y)) if cands and prev_y is not None else None
+
+        xs = [candidates[i][0] for i in range(len(candidates)) if chosen[i] is not None]
+        ys = [chosen[i] for i in range(len(candidates)) if chosen[i] is not None]
+        if len(xs) < n_strips // 2:
+            return row_bytes
+
+        # Robust refit: the greedy nearest-neighbor tracking above can
+        # still get hijacked onto a wrong candidate at one strip and then
+        # propagate that error to every strip after it. Fit once, drop
+        # points whose residual is both large in absolute pixel terms (a
+        # real staff line is only a few px thick) and an outlier relative
+        # to the rest, refit on what's left. Two rounds is enough to clear
+        # a single bad hijack without needing a full RANSAC.
+        for _ in range(2):
+            if len(xs) < n_strips // 2:
+                break
+            coeffs = np.polyfit(xs, ys, deg=2)
+            curve = np.poly1d(coeffs)
+            residuals = np.abs(np.array(ys) - curve(np.array(xs)))
+            mad = float(np.median(residuals)) or 1.0
+            keep = residuals <= max(8.0, mad * 4)
+            if bool(keep.all()):
+                break
+            xs = [x for x, k in zip(xs, keep) if k]
+            ys = [y for y, k in zip(ys, keep) if k]
 
         coeffs = np.polyfit(xs, ys, deg=2)
         curve = np.poly1d(coeffs)
-        center_x = w / 2
         curve_values = curve(np.arange(w))
         peak_deviation = float(np.max(np.abs(curve_values - curve(center_x))))
 

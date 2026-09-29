@@ -1954,27 +1954,30 @@ def test_crop_row_background_columns_noop_when_already_tight():
 
 def test_crop_row_background_columns_recovers_interline_on_the_real_photo():
     print("\n[155] cropping a real problem-photo row's leftover background "
-          "wedge before dewarping recovers a staff-line interline reading that "
-          "was previously undetectable — this is the actual fix, not a "
-          "synthetic proxy for it. See _crop_row_background_columns' "
-          "docstring for the full mechanism: the wedge doesn't corrupt the "
-          "interline autocorrelation directly (it mean-subtracts a uniform "
-          "contribution away for free), it corrupts dewarp_row's own "
-          "per-strip staff-line search, which silently no-ops or mis-fits "
-          "and leaves the row's real curvature/tilt uncorrected.")
+          "wedge before dewarping produces a valid staff-line interline "
+          "reading in the real production order (crop, then dewarp). See "
+          "_crop_row_background_columns' docstring for the full mechanism: "
+          "the wedge doesn't corrupt the interline autocorrelation directly "
+          "(it mean-subtracts a uniform contribution away for free), it "
+          "corrupts dewarp_row's own per-strip staff-line search, which can "
+          "mis-fit and leave the row's real curvature/tilt uncorrected.")
     row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "testdata", "real_photo_row_background_wedge.png")
     with open(row_path, "rb") as f:
         row_bytes = f.read()
 
-    before = w.compute_row_readability(w.dewarp_row(row_bytes))
-    check("fixture sanity check: interline is undetectable BEFORE the fix, "
-          "matching the real production failure this fixture was pulled from",
-          before["interline_px"] is None, str(before))
-
+    # NOTE: dewarp_row's staff-line tracking became robust enough (see
+    # [168]) that interline is now detected on this fixture even WITHOUT
+    # cropping first — it no longer reproduces the total "undetectable"
+    # failure this fixture was originally pulled from. That is a real
+    # improvement, not a test bug: this check now asserts the property
+    # that actually matters — the REAL pipeline order
+    # (_prepare_score_rows crops before dewarping) still produces a
+    # valid, non-None interline reading — rather than a since-superseded
+    # "dewarp alone completely fails" precondition.
     cropped = w._crop_row_background_columns(row_bytes)
     after = w.compute_row_readability(w.dewarp_row(cropped))
-    check("interline IS detected after cropping the background wedge first",
+    check("interline IS detected in the real crop-then-dewarp pipeline order",
           after["interline_px"] is not None, str(after))
 
 
@@ -5901,6 +5904,43 @@ def test_read_score_notes_claude_agree_case_gets_audiveris_corroboration():
           "not an unconditional None", any(a is not None for a in oemer_args), str(oemer_args))
 
 
+def test_dewarp_row_tracks_the_same_staff_line_on_severe_real_curvature():
+    print("\n[168] dewarp_row's staff-line tracking follows the SAME physical "
+          "line across strips on a severely curved real row, instead of "
+          "independently taking each strip's topmost ink candidate. "
+          "Root-caused live against the real problem photo: under severe "
+          "curvature, 'topmost candidate per strip' does not reliably mean "
+          "the same staff line in every strip — measured per-strip picks of "
+          "[144, 34, 93, 102, 67, 71, 125, 84, 122] on one row, not a shape "
+          "a physical page can bend into, because different strips were "
+          "latching onto different ink features entirely (a rehearsal-number "
+          "box, a beam, page text). Fitting a quadratic to that fits noise, "
+          "which is exactly why that row came out of dewarp_row still "
+          "visibly curved. This fixture (a different, less severely curved "
+          "row from the same real photo) demonstrably failed the same way "
+          "under the old topmost-per-strip algorithm: compute_row_readability "
+          "measured sharpness=0.179 ('poor', at the poor threshold) on its "
+          "output. The fix must clear that same fixture at 'marginal' or "
+          "better — not merely 'does not raise'.")
+    row_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_photo_row_severe_curvature.png")
+    with open(row_path, "rb") as f:
+        row_bytes = f.read()
+
+    dewarped = w.dewarp_row(row_bytes)
+    cropped = w._crop_row_background_columns(dewarped)
+    result = w.compute_row_readability(cropped)
+
+    check("dewarping this severely curved real row no longer leaves it at "
+          "'poor' quality — the old topmost-per-strip tracking measured "
+          "sharpness=0.179 (poor) on this exact fixture",
+          result["quality"] != "poor", str(result))
+    check("sharpness clears the 'poor' threshold with real margin, not by "
+          "a coincidental rounding difference",
+          result["sharpness"] is not None and result["sharpness"] >= 0.25,
+          str(result))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6064,7 +6104,8 @@ def main():
               test_read_score_notes_claude_audiveris_breaks_a_genuine_tie,
               test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match,
               test_read_score_notes_claude_pdf_pages_get_no_audiveris_corroboration,
-              test_read_score_notes_claude_agree_case_gets_audiveris_corroboration):
+              test_read_score_notes_claude_agree_case_gets_audiveris_corroboration,
+              test_dewarp_row_tracks_the_same_staff_line_on_severe_real_curvature):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

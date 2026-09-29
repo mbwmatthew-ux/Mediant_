@@ -9194,6 +9194,26 @@ def run_full_analysis(payload: dict) -> None:
 
     try:
         from concurrent.futures import ThreadPoolExecutor
+        # Force numpy's full import chain to finish HERE, in the main
+        # thread, before the pool below starts _crepe_pipeline and
+        # _score_pipeline concurrently — both do their own lazy
+        # `import numpy as np` internally (run_beat_tracking,
+        # dewarp_row, compute_row_readability, ...). numpy's submodule
+        # imports (numpy.lib -> numpy.matrixlib -> numpy.linalg ->
+        # numpy._typing) are not guaranteed thread-safe: on a cold
+        # container where numpy has never been imported yet in this
+        # process, two threads racing to import it for the first time
+        # at nearly the same instant can have one thread observe
+        # another's partially-initialized submodule and crash with
+        # "cannot import name 'NDArray' from partially initialized
+        # module 'numpy._typing' (most likely due to a circular
+        # import)" — confirmed live in production on take
+        # 24294c2c-e0cd-40e0-aff5-6da5287b10f4, which lost its entire
+        # analysis to this exact traceback. A single eager import here
+        # makes every later `import numpy` in either pool thread a
+        # cache hit against sys.modules — no import machinery runs
+        # again, so there is nothing left to race on.
+        import numpy  # noqa: F401
 
         # ── Step 1: Download video ─────────────────────────────────────────
         print(f"[run_full_analysis] downloading video for take {take_id}")

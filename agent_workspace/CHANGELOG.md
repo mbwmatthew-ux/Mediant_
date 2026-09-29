@@ -1,5 +1,71 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-28 — Root-caused and fixed dewarp_row's curve-fit bug (real rows were still curved after "dewarping")
+
+User pushed back on the Audiveris feature's real-world numbers (83-89%
+measure resolution on the actual problem photo) and asked for a real fix,
+not a lowered bar. A spike testing classical image sharpening/contrast
+enhancement on the photo's worst rows showed no real improvement — and,
+critically, visual inspection of the row crops during that spike revealed
+`dewarp_row`'s output was STILL visibly curved on several rows, which is
+what actually mattered: two rows (`row_00`, `row_01`) turned out to be
+non-music content (background, title block) — expected and correct — but
+several real music rows (`row_02`, `row_08`, `row_09`, `row_11`, `row_12`)
+showed dramatic, uncorrected staff-line curvature after `dewarp_row` had
+already run.
+
+Root cause: `dewarp_row` picked each vertical strip's staff line by taking
+the TOPMOST ink row that spans >70% of that strip's width, independently
+per strip. Under severe curvature (or a sparse strip), "topmost" does not
+reliably mean the same physical staff line in every strip — measured
+per-strip picks on one row: `[144, 34, 93, 102, 67, 71, 125, 84, 122]`, not
+a shape a physical page can bend into. Different strips were latching onto
+different ink features entirely (a rehearsal-number box, a beam, page
+text), so the quadratic fit was fitting noise, not the page's real
+geometry.
+
+Fix: track the SAME staff line across strips by nearest-neighbor proximity
+— seed from the least-ambiguous strip, propagate outward picking each
+neighbor's candidate closest to the last chosen y — plus a robust
+two-round outlier-rejection refit for strips that still get hijacked.
+Verified directly against the real photo: quality distribution across its
+13 rows went from 9 poor/4 marginal/0 good to 5 poor/8 marginal/0 good, and
+two rows that previously had NO detectable staff-line periodicity at all
+now measure a real interline value. Confirmed red/green with a new
+regression test (`test_analysis.py` [168]) using a real curved row fixture
+(`testdata/real_photo_row_severe_curvature.png`): fails against the old
+algorithm (reproduces its measured sharpness=0.179 "poor"), passes with
+the fix (0.294 "marginal"). One existing test's now-stale precondition
+(`[155]`) updated to match — the new algorithm is robust enough that
+`dewarp_row` alone no longer reproduces the old total "undetectable"
+failure a different fixture was pulled from. 634/634 checks. Deployed.
+Commit `9ae8ccd`.
+
+Also (earlier the same session): a smaller diagnostic-logging commit
+(`f7c6611`) added success-path logging to the Audiveris dispatch/tie-break
+path in `read_score_notes_claude` — it previously only logged on failure,
+so a fully-successful (or fully-empty) Audiveris run was indistinguishable
+in the logs. That's what made this investigation possible in the first
+place.
+
+## 2026-09-23 — Audiveris cross-validation, Task 5: use OMR to break genuine Claude-vs-Claude ties
+
+`modal_worker/worker.py` `read_score_notes_claude`: when Claude's own three
+independent reads disagree on a measure with no 2-of-3 majority, and the
+Audiveris (OMR) reading aligned to that measure (via Task 4's
+`_group_measure_numbers_by_row`/`_align_audiveris_measures`) matches exactly
+one of the disagreeing candidates (via existing `_cross_source_measure_match`),
+that candidate now wins instead of an arbitrary first pick, tagged
+`claude_agreement[n] = "disagree_omr_broke_tie"` — which `fuse_measure_confidence`
+(Task 3) already treats as resolved/high-confidence. Matching zero or multiple
+candidates, or having no aligned OMR data for that measure, falls through to
+today's exact prior behavior, unchanged. This is Task 5 of 6 in the Audiveris
+cross-validation plan (`.superpowers/sdd/2026-09-23-audiveris-cross-validation/`)
+— the task that makes the whole feature actually resolve the dominant
+real-world failure mode (Claude disagreeing with itself) instead of just
+detecting it. Two new tests added (`test_analysis.py` [164], [165]); full
+suite 643/643 passing. Commit `a8b750825f72`.
+
 ## 2026-09-11/12 — Fixed the real "wrong music" bug (vision hallucination on dense pages), converted reference-audio to async, fixed 8 issues found in final review, deployed
 
 ### The real bug

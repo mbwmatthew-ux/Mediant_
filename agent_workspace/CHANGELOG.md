@@ -1,5 +1,47 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-29 — Two more real bugs found and fixed in production: a numpy import race, and adjacent-measure vision hallucination
+
+**Numpy circular-import race (commit `c3d0e14`):** a real take
+(`24294c2c-e0cd-40e0-aff5-6da5287b10f4`) lost its entire analysis to `"cannot
+import name 'NDArray' from partially initialized module 'numpy._typing'"`.
+Root cause: `run_full_analysis`'s `ThreadPoolExecutor` runs the audio pipeline
+and the score-reading pipeline concurrently, and both do their own lazy
+`import numpy as np`. On a cold container, two threads racing to import numpy
+for the first time at nearly the same instant can crash — numpy's own
+submodule imports aren't guaranteed thread-safe. Fixed by importing numpy
+once, eagerly, in the main thread before the pool starts. Only one occurrence
+in the last 5000 log entries — a rare race, not a systematic failure.
+
+**Adjacent-measure vision hallucination (commit `e634508`):** user reported
+two symptoms in the same take — a dynamics judgment that contradicted itself
+within the same passage, and "wrong note" flags on notes that were actually
+correct. Traced directly to real data: pulled the take's persisted
+`measure_layout` and found measures 33 and 34 were byte-for-byte identical
+(same single D5 dotted half, same duration) — a known Claude vision
+hallucination pattern this codebase already documented (measures repeating
+across a page, which splitting into per-row crops was built to reduce), still
+possible *within* one row crop. The phantom duplicate measure shifts every
+downstream measure-to-timestamp mapping — the log shows the real DTW
+alignment being rejected as "untrustworthy" and falling back to a rough
+even-distribution estimate for exactly this passage — which plausibly
+explains both symptoms as one root cause: the wrong nominal measure getting
+compared against the real audio.
+
+Why the existing cross-read voting and Audiveris tie-break both missed it:
+they check whether independent SOURCES agree with each other on one measure
+number. Neither can catch a source that's wrong but internally consistent
+with itself — if every independent read converges on the same
+simplification, there's no disagreement to catch. Added a new, orthogonal
+check: compare each finalized measure's content to its immediate numeric
+neighbor (skipping numbering gaps, which are expected around multirests); an
+exact content match marks both unresolved, feeding the same
+suppression/coverage-caveat machinery already built tonight rather than
+attempting an automatic re-read (which could just reproduce the same
+hallucination). 640/640 checks (4 new, plus 2 pre-existing tests' unrealistic
+"identical content across measures" fixtures fixed to vary per measure, since
+they now correctly collide with the new check). Both fixes deployed.
+
 ## 2026-09-28 — Root-caused and fixed dewarp_row's curve-fit bug (real rows were still curved after "dewarping")
 
 User pushed back on the Audiveris feature's real-world numbers (83-89%

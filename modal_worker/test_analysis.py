@@ -3743,8 +3743,15 @@ def test_read_score_notes_claude_caps_resolution_fan_out():
     def _fake_resolve(measure_crop_bytes, candidates, instrument, time_sig, anthropic_api_key,
                        is_first_measure=False, is_last_measure=False):
         resolve_calls.append(candidates[0]["number"])
+        # Varies per call (not a fixed canned note) — a real resolution
+        # would virtually never return byte-identical content for every
+        # measure it resolves, and a fixed response here would otherwise
+        # make every resolved measure collide with its neighbor under
+        # [168]'s adjacent-duplicate check, which is testing something
+        # this test isn't about.
         return {"notes": [{"pitch": "G5", "is_rest": False, "beat": 1.0,
-                           "duration_beats": 1.0, "articulation": None, "dynamic": None}]}
+                           "duration_beats": 1.0 + 0.1 * len(resolve_calls),
+                           "articulation": None, "dynamic": None}]}
 
     pages = [(b"\x89PNG-page-one", "image/png")]  # undecodable -> single fallback row
     import anthropic as _ac
@@ -4669,9 +4676,15 @@ def test_reference_audio_endpoint_prefers_fresh_read_over_provided_score():
 
     class _FakeMessages:
         def stream(self, **kw):
+            # Notes vary per measure (not a fixed "C4" for all five) — real
+            # sheet music essentially never has byte-identical adjacent
+            # measures, and a fixed note here would otherwise collide with
+            # [168]'s adjacent-duplicate hallucination check, which this
+            # test isn't exercising.
+            pitches = ["C4", "D4", "E4", "F4", "G4"]
             return _FakeStream(_json.dumps({
                 "key_signature": None, "time_signature": "4/4", "tempo_marking": None,
-                "measures": [{"number": n, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}
+                "measures": [{"number": n, "pg": 1, "notes": [{"p": pitches[n - 1], "b": 1.0, "d": 1.0}]}
                              for n in range(1, 6)],
             }))
 
@@ -5941,6 +5954,59 @@ def test_dewarp_row_tracks_the_same_staff_line_on_severe_real_curvature():
           str(result))
 
 
+def test_read_score_notes_claude_flags_adjacent_duplicate_measures():
+    print("\n[169] two ADJACENT measures with byte-for-byte identical note content "
+          "are both marked unresolved — a known Claude vision hallucination "
+          "pattern (duplicating one measure's content onto the next) that "
+          "cross-read agreement and Audiveris corroboration cannot catch on "
+          "their own, since a source that is wrong but internally consistent "
+          "with itself passes both checks. Confirmed live in production: "
+          "measures 33 and 34 of a real take came back byte-for-byte "
+          "identical (same single note, same duration) and were reported as "
+          "confirmed, corrupting the downstream measure-timeline alignment "
+          "and producing both a false wrong-note flag and a contradictory "
+          "dynamics judgment on the misassigned passage.")
+    # m.1/m.2: identical content, adjacent -> must be flagged.
+    # m.3: distinct content -> must NOT be flagged.
+    # m.5: identical to m.3's content, but NOT adjacent to it (m.4 doesn't
+    # exist, a numbering gap as multirests produce) -> must NOT be flagged;
+    # "next in this list" isn't "next on the page" across a gap.
+    measures_json = [
+        {"number": 1, "pg": 1, "row": 1, "notes": [{"p": "D5", "b": 1.0, "d": 3.0}]},
+        {"number": 2, "pg": 1, "row": 1, "notes": [{"p": "D5", "b": 1.0, "d": 3.0}]},
+        {"number": 3, "pg": 1, "row": 1, "notes": [{"p": "C5", "b": 1.0, "d": 2.5},
+                                                    {"p": None, "b": 3.5, "d": 0.5, "r": True}]},
+        {"number": 5, "pg": 1, "row": 1, "notes": [{"p": "C5", "b": 1.0, "d": 2.5},
+                                                    {"p": None, "b": 3.5, "d": 0.5, "r": True}]},
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    pages = [(b"\x89PNG-page-one", "image/png")]  # undecodable -> single fallback row
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    try:
+        result = w.read_score_notes_claude(pages, 1, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig_ac
+
+    by_number = {m["number"]: m for m in result.get("measures", [])}
+    check("m.1 (identical to its neighbor m.2) is marked unresolved",
+          by_number.get(1, {}).get("unresolved") is True, str(by_number.get(1)))
+    check("m.2 (identical to its neighbor m.1) is marked unresolved",
+          by_number.get(2, {}).get("unresolved") is True, str(by_number.get(2)))
+    check("m.1's issues name the adjacent-duplicate pattern, not a generic reason",
+          any("identical" in s for s in (by_number.get(1, {}).get("issues") or [])),
+          str(by_number.get(1, {}).get("issues")))
+    check("m.3 (distinct from its neighbors) is NOT marked unresolved",
+          not by_number.get(3, {}).get("unresolved"), str(by_number.get(3)))
+    check("m.5 (identical content to m.3, but not adjacent to it — a numbering "
+          "gap where m.4 doesn't exist) is NOT marked unresolved",
+          not by_number.get(5, {}).get("unresolved"), str(by_number.get(5)))
+    check("unresolved_measure_count reflects exactly the 2 duplicate measures",
+          result.get("unresolved_measure_count") == 2, str(result.get("unresolved_measure_count")))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6105,7 +6171,8 @@ def main():
               test_read_score_notes_claude_audiveris_tie_break_declines_when_no_match,
               test_read_score_notes_claude_pdf_pages_get_no_audiveris_corroboration,
               test_read_score_notes_claude_agree_case_gets_audiveris_corroboration,
-              test_dewarp_row_tracks_the_same_staff_line_on_severe_real_curvature):
+              test_dewarp_row_tracks_the_same_staff_line_on_severe_real_curvature,
+              test_read_score_notes_claude_flags_adjacent_duplicate_measures):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

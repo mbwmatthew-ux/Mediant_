@@ -5461,7 +5461,54 @@ def read_score_notes_claude(
 
             final_measures.append(measure)
 
-    base_result["measures"] = sorted(final_measures, key=lambda m: m["number"])
+    final_measures = sorted(final_measures, key=lambda m: m["number"])
+
+    # Adjacent-duplicate hallucination check: Claude's vision reads can
+    # duplicate one measure's content onto the NEXT measure number,
+    # CONSISTENTLY across independent reads (see split_page_into_rows'
+    # docstring for the whole-page version of this same failure mode,
+    # and read_score_notes_claude's own docstring on "mirror-image
+    # measures, duplicated measures" being confident-looking but wrong).
+    # Neither the cross-read agreement check above nor Audiveris
+    # corroboration can catch this — both check whether independent
+    # SOURCES agree with each other, and a source that is wrong but
+    # internally consistent with itself passes that check every time.
+    # Confirmed live in production: measures 33 and 34 of a real take
+    # came back byte-for-byte identical (same single note, same
+    # duration) despite going through the full reconciliation pipeline
+    # above, which corrupted the downstream measure-timeline alignment
+    # and caused both a false wrong-note flag and a contradictory
+    # dynamics judgment on the misassigned passage.
+    #
+    # Only a fingerprint match on truly ADJACENT numbers counts — a
+    # numbering gap (e.g. either side of a multirest) means "next" in
+    # this list isn't musically next on the page, so it says nothing
+    # about duplication. Already-unresolved neighbors are skipped: they
+    # already won't be reported as confirmed, so there's nothing this
+    # check would additionally protect against.
+    for i in range(1, len(final_measures)):
+        prev_m, cur_m = final_measures[i - 1], final_measures[i]
+        if cur_m.get("unresolved") or prev_m.get("unresolved"):
+            continue
+        if cur_m["number"] != prev_m["number"] + 1:
+            continue
+        if _measure_fingerprint(cur_m) != _measure_fingerprint(prev_m):
+            continue
+        for m in (prev_m, cur_m):
+            m["unresolved"] = True
+            m["issues"] = [
+                f"measure {m['number']} is byte-for-byte identical to its "
+                f"immediate neighboring measure — this is a known Claude "
+                f"vision hallucination pattern (duplicating one measure's "
+                f"content onto the next), not independently-agreeing "
+                f"sources confirming real content. Declining to report "
+                f"this measure's notes/rhythm/dynamics as confirmed rather "
+                f"than risk exactly that failure mode."]
+            unresolved_count += 1
+            print(f"[read_score_notes_claude] m.{m['number']} UNRESOLVED: "
+                  f"adjacent-duplicate with its neighbor")
+
+    base_result["measures"] = final_measures
     # Surfaced so callers (and the Task 14 ground-truth test) can tell
     # "this measure is known-shaky" apart from "this measure was accepted
     # confidently" — the distinction the whole redesign turns on.

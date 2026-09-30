@@ -18,6 +18,16 @@ export function useReferenceAudio(takeId) {
   // project's lint config forbids writing ref.current during render).
   const takeIdRef = useRef(takeId)
   useEffect(() => { takeIdRef.current = takeId }, [takeId])
+  // Holds the in-flight generate() promise, if one is running. generate()'s
+  // only other re-entrancy guard (audioRef.current?.src) is checked once,
+  // before any async work, so two calls issued close together (e.g. the
+  // main "Play reference" button and the drag-to-select range's own play
+  // button, which has no disabled state of its own) would otherwise both
+  // pass that check and each independently POST to generate-reference-audio
+  // and poll for up to ~17 minutes — a real duplicate paid Modal generation,
+  // not just a wasted HTTP call, since each spawns its own full 2-3x vision
+  // cross-validation. Callers now share the SAME in-flight promise instead.
+  const generateInFlightRef = useRef(null)
   const [timeline, setTimeline] = useState([])
   const [baselineBpm, setBaselineBpm] = useState(null)
   const [tempo, setTempoState] = useState(null)
@@ -63,59 +73,68 @@ export function useReferenceAudio(takeId) {
   const generate = useCallback(async () => {
     if (!takeId) return null
     if (audioRef.current?.src) return { timeline, bpm: baselineBpm, measureRange }
+    // A generate() already in flight — share its promise instead of
+    // starting a second, independent (and independently paid) generation.
+    if (generateInFlightRef.current) return generateInFlightRef.current
     const myTakeId = takeId
     setIsLoading(true)
     setError('')
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session?.access_token}`,
-        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-      }
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-reference-audio`
-
-      // Reference-audio generation now runs as a background job. The score
-      // read cross-validates with 2-3 sequential vision calls (see
-      // read_score_notes_claude in worker.py) instead of 1, and the Modal
-      // background function's own timeout was raised to 890s to give that
-      // room — 120 attempts (10 minutes) could time out on a legitimately
-      // still-running generation before it ever got a chance to finish.
-      // 200 attempts (~16.7 minutes) stays comfortably above the backend's
-      // own 950s self-heal window (generate-reference-audio/index.ts).
-      let body = null
-      for (let attempt = 0; attempt < 200; attempt++) {
-        if (attempt > 0) await new Promise(r => setTimeout(r, 5000))
-        if (takeIdRef.current !== myTakeId) return null
-        try {
-          const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ takeId }) })
-          if (!resp.ok) continue
-          const json = await resp.json()
-          if (json.status === 'done') { body = json; break }
-          if (json.status === 'failed') throw new Error(json.error || 'Failed to generate reference audio')
-          // status === 'processing' -> keep polling
-        } catch (pollErr) {
-          if (pollErr.message && !pollErr.message.includes('Failed to fetch')) throw pollErr
+    const runGenerate = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
         }
-      }
-      if (!body) throw new Error('Reference audio is taking longer than expected. Please try again in a moment.')
-      if (takeIdRef.current !== myTakeId) return null
+        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-reference-audio`
 
-      if (!audioRef.current) audioRef.current = new Audio()
-      audioRef.current.src = body.audioUrl
-      audioRef.current.preservesPitch = true
-      const freshTimeline = Array.isArray(body.timeline) ? body.timeline : []
-      setTimeline(freshTimeline)
-      setBaselineBpm(body.bpm)
-      setTempoState(body.bpm)
-      setMeasureRange(body.measureRange ?? null)
-      return { timeline: freshTimeline, bpm: body.bpm, measureRange: body.measureRange ?? null }
-    } catch (e) {
-      setError(e.message || 'Failed to generate reference audio')
-      return null
-    } finally {
-      setIsLoading(false)
+        // Reference-audio generation now runs as a background job. The score
+        // read cross-validates with 2-3 sequential vision calls (see
+        // read_score_notes_claude in worker.py) instead of 1, and the Modal
+        // background function's own timeout was raised to 890s to give that
+        // room — 120 attempts (10 minutes) could time out on a legitimately
+        // still-running generation before it ever got a chance to finish.
+        // 200 attempts (~16.7 minutes) stays comfortably above the backend's
+        // own 950s self-heal window (generate-reference-audio/index.ts).
+        let body = null
+        for (let attempt = 0; attempt < 200; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 5000))
+          if (takeIdRef.current !== myTakeId) return null
+          try {
+            const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ takeId }) })
+            if (!resp.ok) continue
+            const json = await resp.json()
+            if (json.status === 'done') { body = json; break }
+            if (json.status === 'failed') throw new Error(json.error || 'Failed to generate reference audio')
+            // status === 'processing' -> keep polling
+          } catch (pollErr) {
+            if (pollErr.message && !pollErr.message.includes('Failed to fetch')) throw pollErr
+          }
+        }
+        if (!body) throw new Error('Reference audio is taking longer than expected. Please try again in a moment.')
+        if (takeIdRef.current !== myTakeId) return null
+
+        if (!audioRef.current) audioRef.current = new Audio()
+        audioRef.current.src = body.audioUrl
+        audioRef.current.preservesPitch = true
+        const freshTimeline = Array.isArray(body.timeline) ? body.timeline : []
+        setTimeline(freshTimeline)
+        setBaselineBpm(body.bpm)
+        setTempoState(body.bpm)
+        setMeasureRange(body.measureRange ?? null)
+        return { timeline: freshTimeline, bpm: body.bpm, measureRange: body.measureRange ?? null }
+      } catch (e) {
+        setError(e.message || 'Failed to generate reference audio')
+        return null
+      } finally {
+        setIsLoading(false)
+        generateInFlightRef.current = null
+      }
     }
+    const promise = runGenerate()
+    generateInFlightRef.current = promise
+    return promise
   }, [takeId, timeline, baselineBpm, measureRange])
 
   const setTempo = useCallback((bpm) => {

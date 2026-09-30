@@ -2258,7 +2258,8 @@ const videoRef    = useRef(null)
                                   className={aStyles.scoreMarker}
                                   style={{ left: `${(startBox.left + endBox.right) / 2}%`, top: `${Math.min(startBox.y, endBox.y) - 4}%`, background: 'var(--accent)' }}
                                   onClick={() => { playTick(); referenceAudio.playRange(startM, endM) }}
-                                  title={`Play m.${startM}–${endM}`}
+                                  disabled={referenceAudio.isLoading}
+                                  title={referenceAudio.isLoading ? 'Reference audio is generating…' : `Play m.${startM}–${endM}`}
                                 >{'▸'}</button>
                               </>
                             )

@@ -2414,7 +2414,13 @@ def parse_reference_midi(midi_bytes: bytes, start_measure: int) -> list[dict]:
     also carries time_sec from the reference performance, letting us invert
     the time-warp function and get accurate measure timestamps in student time.
 
-    Returns: [{"midi": int, "time_sec": float, "measure": int, "beat": float}]
+    Returns: [{"midi": int, "time_sec": float, "measure": int, "beat": float,
+    "dur_beats": float}]. dur_beats is music21's quarterLength, the same
+    convention flatten_score_notes uses for the score-DTW path — needed so
+    dtw_align_to_reference can stamp full score_* fields onto aligned
+    events and objective timing analysis (analyze_timing_vs_score) isn't
+    silently disabled on this alignment path (see dtw_align_to_reference's
+    own docstring).
     """
     import tempfile, os
     import music21 as m21
@@ -2463,20 +2469,23 @@ def parse_reference_midi(midi_bytes: bytes, start_measure: int) -> list[dict]:
             time_sec    = qb_to_sec(offset_qb)
             measure_num = getattr(el, "measureNumber", None) or 1
 
+            dur_beats = float(getattr(el, "quarterLength", 0.0) or 0.0)
             if isinstance(el, m21.note.Note):
                 notes_out.append({
-                    "midi":     el.pitch.midi,
-                    "time_sec": round(time_sec, 3),
-                    "measure":  start_measure + measure_num - 1,
-                    "beat":     float(getattr(el, "beat", 1.0)),
+                    "midi":      el.pitch.midi,
+                    "time_sec":  round(time_sec, 3),
+                    "measure":   start_measure + measure_num - 1,
+                    "beat":      float(getattr(el, "beat", 1.0)),
+                    "dur_beats": dur_beats,
                 })
             elif isinstance(el, m21.chord.Chord):
                 for n in el.notes:
                     notes_out.append({
-                        "midi":     n.pitch.midi,
-                        "time_sec": round(time_sec, 3),
-                        "measure":  start_measure + measure_num - 1,
-                        "beat":     float(getattr(el, "beat", 1.0)),
+                        "midi":      n.pitch.midi,
+                        "time_sec":  round(time_sec, 3),
+                        "measure":   start_measure + measure_num - 1,
+                        "beat":      float(getattr(el, "beat", 1.0)),
+                        "dur_beats": dur_beats,
                     })
 
         notes_out.sort(key=lambda n: n["time_sec"])
@@ -2496,6 +2505,7 @@ def dtw_align_to_reference(
     events: list[dict],
     ref_notes: list[dict],
     start_measure: int,
+    beats_per_measure: int | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Align student CREPE events to a reference MIDI using Dynamic Time Warping.
@@ -2506,9 +2516,38 @@ def dtw_align_to_reference(
       - The time-warp path lets us invert reference timestamps into student
         timestamps, giving calibrated measure boundaries in student time.
 
+    Two bugs fixed here that this function's sibling, dtw_align_to_score,
+    already had fixed — this one never received either port, and both are
+    confirmed live in production (reference-MIDI alignment is priority #1
+    in run_full_analysis's alignment order, so any take of a song with a
+    reference MIDI uploaded hit both):
+
+    1. CLOSED-end traceback (forced onto ref_notes' last note) stretched a
+       take that stopped partway through the reference across every
+       remaining unplayed reference measure, smearing every later measure
+       number — the exact failure this file's own dtw_align_to_score
+       history describes fixing for score DTW. Now an open-end traceback,
+       starting from whichever reference index the DTW cost matrix's last
+       row actually favors, same as dtw_align_to_score.
+    2. Aligned events were stamped with ONLY "measure" — no score_idx,
+       score_beat, score_dur_beats, score_abs_beat, or score_pitch. Every
+       downstream consumer that needs those fields
+       (analyze_timing_vs_score, analyze_dynamics_vs_score's many-to-one
+       dedup, _timeline()'s DTW cross-reference, the audio-measured-
+       transposition check in find_wrong_note_candidates) gates on
+       `score_idx is not None`, so objective timing analysis was SILENTLY
+       disabled outright on this alignment path — not degraded, entirely
+       absent, with no error or log explaining why. Now stamped the same
+       way dtw_align_to_score stamps them, from the matched reference
+       note's own data. score_artic is always "" — standard MIDI carries
+       no articulation marks, so there is genuinely nothing to stamp there
+       (not a gap in this fix).
+
     Returns:
         (aligned_events, alignment_ranges)
-        aligned_events: events with 'measure' assigned from reference
+        aligned_events: events with 'measure' and the full score_* fields
+        (score_idx, score_beat, score_dur_beats, score_abs_beat,
+        score_pitch, score_artic) assigned from the matched reference note
         alignment_ranges: [{"measure": int, "start": float, "end": float}]
     """
     import numpy as np
@@ -2552,9 +2591,16 @@ def dtw_align_to_reference(
                 candidates.extend([acc[i - 1, j - 1], acc[i, j - 1]])
             acc[i, j] = cost[i, j] + min(candidates)
 
-    # ── Traceback ─────────────────────────────────────────────────────────
+    # ── Open-END traceback ───────────────────────────────────────────────
+    # Begin from the best-scoring column of the last row rather than forcing
+    # the path onto the reference's final note — see this function's own
+    # docstring (bug 1) and dtw_align_to_score's identical comment for why
+    # a closed end smears every later measure number on a take that stops
+    # before the reference does.
+    last_row = acc[n - 1]
+    j_end = int(np.argmin(last_row)) if np.isfinite(last_row).any() else m_len - 1
     path: list[int] = [0] * n
-    i, j = n - 1, m_len - 1
+    i, j = n - 1, j_end
     while i > 0 or j > 0:
         path[i] = j
         if i == 0:
@@ -2572,12 +2618,28 @@ def dtw_align_to_reference(
             else:              j -= 1
     path[0] = j
 
-    # ── Assign measures from reference ────────────────────────────────────
+    # ── Assign measures AND full score_* fields from reference ────────────
+    # abs_beat anchored to this reference's OWN minimum measure, exactly the
+    # convention flatten_score_notes uses for the score-DTW path — so a
+    # downstream consumer fed either alignment source sees the same shape.
+    bpm_m = max(1, int(beats_per_measure or 4))
+    first_ref_measure = min(r["measure"] for r in ref_notes)
     aligned: list[dict] = []
     for idx, ev in enumerate(events):
-        ref_idx     = path[idx]
-        measure_num = ref_notes[ref_idx]["measure"]
-        aligned.append({**ev, "measure": measure_num})
+        ref_idx  = path[idx]
+        ref_note = ref_notes[ref_idx]
+        abs_beat = ((ref_note["measure"] - first_ref_measure) * bpm_m
+                    + (ref_note.get("beat", 1.0) - 1.0))
+        aligned.append({
+            **ev,
+            "measure":         ref_note["measure"],
+            "score_idx":       ref_idx,
+            "score_beat":      ref_note.get("beat", 1.0),
+            "score_dur_beats": ref_note.get("dur_beats", 0.0),
+            "score_abs_beat":  abs_beat,
+            "score_pitch":     midi_to_scientific(ref_note["midi"]),
+            "score_artic":     "",
+        })
 
     # ── Build alignment_ranges using the time-warp path ───────────────────
     # For each measure, find the student-time window by inverting the warp:
@@ -5486,11 +5548,29 @@ def read_score_notes_claude(
     # about duplication. Already-unresolved neighbors are skipped: they
     # already won't be reported as confirmed, so there's nothing this
     # check would additionally protect against.
+    #
+    # (branch review, 2026-09-30) SHORT measures only (<=3 notes): real
+    # repertoire legitimately repeats a short figure back-to-back often
+    # enough — a held whole-note re-struck across a barline, two
+    # consecutively-written whole-rest bars, a short ostinato cell — that
+    # flagging every exact match risked silently withholding correct
+    # feedback on those. The real, confirmed production bug this check
+    # exists for (m.33/34, above) was a single held note — exactly this
+    # shape. A long, complex passage matching its neighbor NOTE-FOR-NOTE
+    # (same pitches AND beats AND durations) is both far less likely to
+    # be a coincidental legitimate repeat and far less likely to be
+    # something Claude hallucinates byte-for-byte by accident, so
+    # trading away that narrower slice of coverage is the right side of
+    # the tradeoff: it keeps the check aimed at the shape of hallucination
+    # actually observed, without silencing real feedback on legitimately
+    # repeated longer passages.
     for i in range(1, len(final_measures)):
         prev_m, cur_m = final_measures[i - 1], final_measures[i]
         if cur_m.get("unresolved") or prev_m.get("unresolved"):
             continue
         if cur_m["number"] != prev_m["number"] + 1:
+            continue
+        if len(cur_m.get("notes") or []) > 3 or len(prev_m.get("notes") or []) > 3:
             continue
         if _measure_fingerprint(cur_m) != _measure_fingerprint(prev_m):
             continue
@@ -9551,7 +9631,7 @@ def run_full_analysis(payload: dict) -> None:
 
         if ref_notes and len(ref_notes) >= 4:
             print(f"[run_full_analysis] using reference MIDI alignment ({len(ref_notes)} reference notes)")
-            aligned, alignment_ranges = dtw_align_to_reference(raw_events, ref_notes, start_measure)
+            aligned, alignment_ranges = dtw_align_to_reference(raw_events, ref_notes, start_measure, bpm_int)
             alignment_method_used = "reference_midi_dtw"
             debug_steps.append(f"alignment: reference_midi_dtw aligned={len(aligned)} ranges={len(alignment_ranges)}")
         else:
@@ -9829,6 +9909,35 @@ def _generate_reference_audio(body: dict) -> dict:
         return {"error": "score with at least one measure is required"}
     if len(score.get("measures", [])) > 500:
         return {"error": "score has too many measures for reference-audio generation (max 500)"}
+
+    # Provenance gap (found in a full-pipeline audit, 2026-09-30): the
+    # `fallback = body.get("score")` path above takes whatever shape of
+    # dict the caller hands in — for generate_reference_audio_background,
+    # that's score_cache.parsed_notes, which could be a row written before
+    # read_score_notes_claude's validation pipeline existed at all. Such a
+    # row carries NO "unresolved"/"unresolved_measure_count" markers
+    # whatsoever, so the gate below reads it as fully trustworthy by
+    # ABSENCE of a red flag rather than by confirmation — exactly backwards
+    # for a gate whose entire purpose is never trusting unvalidated vision
+    # content. Only vision-sourced scores are the actual risk here:
+    # "music21" (deterministic MusicXML/MXL parsing) has no hallucination
+    # risk to begin with, never goes through read_score_notes_claude, and
+    # legitimately never carries these markers — refusing it would be a
+    # regression, not a fix. So this only fires for a vision-sourced score
+    # missing its validation markers, not for every marker-less score.
+    if (score.get("source") in ("claude_vision", "claude_vision_partial")
+            and "unresolved_measure_count" not in score):
+        print("[_generate_reference_audio] refusing to synthesize — vision-sourced "
+              "score carries no validation markers at all (provenance gap: likely a "
+              "score_cache row written before the current validation pipeline existed)")
+        return {
+            "error": "score_read_uncertain",
+            "message": ("This score's cached data predates the current accuracy "
+                        "checks, so reference audio was not generated from it. "
+                        "Please try again — a fresh read of the page will be "
+                        "attempted."),
+            "unresolved_measures": [],
+        }
 
     # Refuse to synthesize anything from a read the pipeline itself does
     # not trust. read_score_notes_claude marks a measure "unresolved" when

@@ -4754,6 +4754,83 @@ def test_reference_audio_endpoint_falls_back_when_fresh_read_fails():
           len(res.get("timeline", [])) == 1, str(res.get("timeline")))
 
 
+def test_reference_audio_refuses_vision_sourced_fallback_with_no_validation_markers():
+    print("\n[172] _generate_reference_audio refuses a FALLBACK score that claims "
+          "to be vision-sourced (source='claude_vision') but carries no "
+          "unresolved_measure_count at all — a provenance gap, e.g. a "
+          "score_cache row written before read_score_notes_claude's validation "
+          "pipeline existed. Before this fix, a fallback score's absence of "
+          "'unresolved' markers read as 'fully trustworthy' rather than "
+          "'never validated', exactly backwards for a gate whose whole "
+          "purpose is never trusting unvalidated vision content.")
+    class _FailingHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): raise RuntimeError("network down")
+
+    stale_cache_row = {
+        "source": "claude_vision",
+        "measures": [{"number": 20, "notes": [{"pitch": "Bb4", "beat": 1.0, "duration_beats": 1.0}]}],
+        # No "unresolved_measure_count" key at all — the exact shape of a
+        # row written before validation existed.
+    }
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _httpx.Client = _FailingHttpClient
+    try:
+        res = w._generate_reference_audio({
+            "score_urls": ["https://example.test/unreachable.png"],
+            "score": stale_cache_row,
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+        })
+    finally:
+        _httpx.Client = _orig_httpx
+
+    check("refuses rather than synthesizing from unvalidated vision content",
+          res.get("error") == "score_read_uncertain", str(res))
+    check("does NOT return audio", "audio_base64" not in res, str(res))
+
+
+def test_reference_audio_accepts_music21_sourced_fallback_with_no_validation_markers():
+    print("\n[173] a fallback score with NO validation markers is still accepted "
+          "when it's music21-sourced (deterministic MusicXML/MXL parsing) — "
+          "that source never goes through read_score_notes_claude and has no "
+          "hallucination risk to begin with, so refusing it would be a "
+          "regression, not a fix. [172]'s check is scoped to vision sources "
+          "specifically, not to 'any score missing the marker'.")
+    class _FailingHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): raise RuntimeError("network down")
+
+    musicxml_score = {
+        "source": "music21",
+        "measures": [{"number": 20, "notes": [{"pitch": "Bb4", "beat": 1.0, "duration_beats": 1.0}]}],
+    }
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _httpx.Client = _FailingHttpClient
+    try:
+        res = w._generate_reference_audio({
+            "score_urls": ["https://example.test/unreachable.png"],
+            "score": musicxml_score,
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+        })
+    finally:
+        _httpx.Client = _orig_httpx
+
+    check("a music21-sourced fallback with no validation markers still synthesizes",
+          "audio_base64" in res, str(res))
+
+
 def test_reference_audio_background_posts_success_to_webhook():
     print("\n[73] generate_reference_audio_background posts the audio result to the webhook, not a return value")
     import types, json as _json
@@ -5966,11 +6043,17 @@ def test_read_score_notes_claude_flags_adjacent_duplicate_measures():
           "confirmed, corrupting the downstream measure-timeline alignment "
           "and producing both a false wrong-note flag and a contradictory "
           "dynamics judgment on the misassigned passage.")
-    # m.1/m.2: identical content, adjacent -> must be flagged.
+    # m.1/m.2: identical content, adjacent, SHORT (1 note each) -> must be flagged.
     # m.3: distinct content -> must NOT be flagged.
     # m.5: identical to m.3's content, but NOT adjacent to it (m.4 doesn't
     # exist, a numbering gap as multirests produce) -> must NOT be flagged;
     # "next in this list" isn't "next on the page" across a gap.
+    # m.7/m.8: identical content, adjacent, but LONG (4 notes each) -> must
+    # NOT be flagged (branch review refinement: a longer passage matching
+    # its neighbor note-for-note is far more likely to be a legitimate
+    # repeated figure than the hallucination this check targets, which the
+    # real production bug it was built for — a single held note — shows is
+    # a SHORT-measure pattern specifically).
     measures_json = [
         {"number": 1, "pg": 1, "row": 1, "notes": [{"p": "D5", "b": 1.0, "d": 3.0}]},
         {"number": 2, "pg": 1, "row": 1, "notes": [{"p": "D5", "b": 1.0, "d": 3.0}]},
@@ -5978,6 +6061,12 @@ def test_read_score_notes_claude_flags_adjacent_duplicate_measures():
                                                     {"p": None, "b": 3.5, "d": 0.5, "r": True}]},
         {"number": 5, "pg": 1, "row": 1, "notes": [{"p": "C5", "b": 1.0, "d": 2.5},
                                                     {"p": None, "b": 3.5, "d": 0.5, "r": True}]},
+        {"number": 7, "pg": 1, "row": 1, "notes": [
+            {"p": "E5", "b": 1.0, "d": 0.5}, {"p": "F5", "b": 1.5, "d": 0.5},
+            {"p": "G5", "b": 2.0, "d": 0.5}, {"p": "A5", "b": 2.5, "d": 0.5}]},
+        {"number": 8, "pg": 1, "row": 1, "notes": [
+            {"p": "E5", "b": 1.0, "d": 0.5}, {"p": "F5", "b": 1.5, "d": 0.5},
+            {"p": "G5", "b": 2.0, "d": 0.5}, {"p": "A5", "b": 2.5, "d": 0.5}]},
     ]
     _FakeClient = _fake_claude_read_stream(measures_json)
 
@@ -6003,8 +6092,94 @@ def test_read_score_notes_claude_flags_adjacent_duplicate_measures():
     check("m.5 (identical content to m.3, but not adjacent to it — a numbering "
           "gap where m.4 doesn't exist) is NOT marked unresolved",
           not by_number.get(5, {}).get("unresolved"), str(by_number.get(5)))
+    check("m.7 (identical to its neighbor m.8, but a LONG 4-note passage — "
+          "outside the short-measure scope) is NOT marked unresolved",
+          not by_number.get(7, {}).get("unresolved"), str(by_number.get(7)))
+    check("m.8 (identical to its neighbor m.7, but a LONG 4-note passage — "
+          "outside the short-measure scope) is NOT marked unresolved",
+          not by_number.get(8, {}).get("unresolved"), str(by_number.get(8)))
     check("unresolved_measure_count reflects exactly the 2 duplicate measures",
           result.get("unresolved_measure_count") == 2, str(result.get("unresolved_measure_count")))
+
+
+def test_dtw_align_to_reference_stamps_full_score_fields():
+    print("\n[170] dtw_align_to_reference stamps the full score_* field set "
+          "(score_idx/score_beat/score_dur_beats/score_abs_beat/score_pitch/"
+          "score_artic) onto aligned events, not just 'measure'. Before this "
+          "fix it stamped ONLY 'measure' — every downstream consumer that "
+          "needs these fields (analyze_timing_vs_score, most visibly) gates "
+          "on `score_idx is not None`, so objective timing analysis was "
+          "SILENTLY disabled outright on the reference-MIDI alignment path, "
+          "which run_full_analysis treats as the MOST accurate alignment "
+          "source and prefers whenever a reference MIDI is available — not "
+          "a rare or secondary path.")
+    ref_notes = [
+        {"midi": 60, "time_sec": 0.0, "measure": 1, "beat": 1.0, "dur_beats": 1.0},   # C4
+        {"midi": 62, "time_sec": 0.5, "measure": 1, "beat": 2.0, "dur_beats": 1.0},   # D4
+        {"midi": 64, "time_sec": 1.0, "measure": 2, "beat": 1.0, "dur_beats": 2.0},   # E4
+        {"midi": 65, "time_sec": 1.5, "measure": 2, "beat": 3.0, "dur_beats": 1.0},   # F4
+    ]
+    events = [
+        {"time_sec": 0.02, "pitches": ["C4"], "confidence": 90, "cents_offset": 0},
+        {"time_sec": 0.52, "pitches": ["D4"], "confidence": 90, "cents_offset": 0},
+        {"time_sec": 1.02, "pitches": ["E4"], "confidence": 90, "cents_offset": 0},
+        {"time_sec": 1.52, "pitches": ["F4"], "confidence": 90, "cents_offset": 0},
+    ]
+    aligned, _ranges = w.dtw_align_to_reference(events, ref_notes, start_measure=1, beats_per_measure=4)
+
+    check("all 4 events aligned", len(aligned) == 4, str(len(aligned)))
+    check("every aligned event carries a non-None score_idx",
+          all(ev.get("score_idx") is not None for ev in aligned), str(aligned))
+    check("score_pitch matches the matched reference note's pitch, in order",
+          [ev["score_pitch"] for ev in aligned] == ["C4", "D4", "E4", "F4"],
+          str([ev.get("score_pitch") for ev in aligned]))
+    check("score_beat matches the matched reference note's beat position",
+          [ev["score_beat"] for ev in aligned] == [1.0, 2.0, 1.0, 3.0],
+          str([ev.get("score_beat") for ev in aligned]))
+    check("score_dur_beats matches the matched reference note's duration",
+          [ev["score_dur_beats"] for ev in aligned] == [1.0, 1.0, 2.0, 1.0],
+          str([ev.get("score_dur_beats") for ev in aligned]))
+    check("score_abs_beat is computed the same way flatten_score_notes computes "
+          "it for the score-DTW path (measure offset * beats_per_measure + "
+          "beat - 1), anchored to this reference's own first measure",
+          [ev["score_abs_beat"] for ev in aligned] == [0.0, 1.0, 4.0, 6.0],
+          str([ev.get("score_abs_beat") for ev in aligned]))
+    check("score_artic is '' for every event — standard MIDI carries no "
+          "articulation marks, so there is nothing to stamp there",
+          all(ev.get("score_artic") == "" for ev in aligned), str(aligned))
+
+
+def test_dtw_align_to_reference_uses_open_end_traceback():
+    print("\n[171] a take that stops partway through a longer reference MIDI "
+          "does not get its last events stretched onto the reference's "
+          "final measure. Before this fix, the traceback was forced to "
+          "start at the reference's LAST note regardless of whether the "
+          "audio's own pitches actually matched anything that late — the "
+          "exact bug dtw_align_to_score's own history describes fixing for "
+          "score DTW, ported here from the same root cause, never applied "
+          "to this sibling function.")
+    # 10 reference notes, strictly ascending pitch, spanning measures 1-5
+    # two notes each — an unambiguous DTW path for any audio subset.
+    ref_pitches = [60, 62, 64, 65, 67, 69, 71, 72, 74, 76]
+    ref_notes = [
+        {"midi": p, "time_sec": float(i), "measure": 1 + i // 2, "beat": 1.0 + (i % 2),
+         "dur_beats": 1.0}
+        for i, p in enumerate(ref_pitches)
+    ]
+    # A short take covering only the reference's first 3 notes (measures 1-2)
+    # — it stops there, it never plays anything from measures 3-5.
+    events = [
+        {"time_sec": 0.02, "pitches": ["C4"], "confidence": 90, "cents_offset": 0},   # 60
+        {"time_sec": 1.02, "pitches": ["D4"], "confidence": 90, "cents_offset": 0},   # 62
+        {"time_sec": 2.02, "pitches": ["E4"], "confidence": 90, "cents_offset": 0},   # 64
+    ]
+    aligned, _ranges = w.dtw_align_to_reference(events, ref_notes, start_measure=1, beats_per_measure=4)
+
+    check("the short take's events stay aligned to the EARLY reference "
+          "measures its pitches actually match (<=2), not stretched to the "
+          "reference's final measure (5) by a closed-end traceback",
+          max(ev["measure"] for ev in aligned) <= 2,
+          str([ev["measure"] for ev in aligned]))
 
 
 def main():
@@ -6172,7 +6347,11 @@ def main():
               test_read_score_notes_claude_pdf_pages_get_no_audiveris_corroboration,
               test_read_score_notes_claude_agree_case_gets_audiveris_corroboration,
               test_dewarp_row_tracks_the_same_staff_line_on_severe_real_curvature,
-              test_read_score_notes_claude_flags_adjacent_duplicate_measures):
+              test_read_score_notes_claude_flags_adjacent_duplicate_measures,
+              test_dtw_align_to_reference_stamps_full_score_fields,
+              test_dtw_align_to_reference_uses_open_end_traceback,
+              test_reference_audio_refuses_vision_sourced_fallback_with_no_validation_markers,
+              test_reference_audio_accepts_music21_sourced_fallback_with_no_validation_markers):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

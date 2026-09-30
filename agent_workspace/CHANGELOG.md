@@ -1,5 +1,60 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-09-30 — Full pipeline audit: 5 real bugs fixed across visual/audio/reference-audio, 2 documented as deliberate non-fixes
+
+Requested as a full audit of the analysis pipeline (visual, audio,
+synthetic reference-audio generation) after a long live-debugging session.
+Ran three independent, parallel code reviews (one per area), personally
+re-verified every finding against the actual code before touching
+anything, fixed what was real, and documented what wasn't fixed and why.
+
+**Fixed (commit `4d91b50`):**
+1. `dtw_align_to_reference` stamped only `"measure"` on aligned events —
+   never `score_idx`/`score_beat`/`score_dur_beats`/`score_abs_beat`/
+   `score_pitch`. `analyze_timing_vs_score` (placement/drift/duration —
+   the whole objective-timing category) gates on `score_idx is not None`,
+   so it was silently disabled outright whenever reference-MIDI alignment
+   was used — which `run_full_analysis` treats as the MOST accurate
+   alignment source and prefers over score DTW whenever a reference MIDI
+   exists. Not a rare path. Fixed by stamping the same field set its
+   sibling `dtw_align_to_score` already produces.
+2. Same function also used a closed-end DTW traceback, reproducing a bug
+   already fixed in that sibling (forcing a partial take's last events
+   onto the reference's final note, smearing every later measure
+   number). Ported the same open-end-traceback fix.
+3. `useReferenceAudio`'s `generate()` had no in-flight lock, and the
+   drag-to-select range's own "Play" button had no `disabled` state at
+   all — two calls issued close together (e.g. the main Play button and
+   the range button) could each independently trigger a full, separately
+   paid Modal generation. Fixed with a shared in-flight promise plus the
+   missing `disabled={isLoading}`.
+4. `_generate_reference_audio`'s "never synthesize from an unvalidated
+   read" refusal gate trusted a fallback score's shape, not its
+   provenance — a score_cache row written before the validation pipeline
+   existed carries no `unresolved_measure_count` at all and read as
+   fully trustworthy by absence of a red flag. Fixed: a vision-sourced
+   fallback missing its validation markers is now refused; deterministic
+   MusicXML-sourced fallbacks (which never carry these markers and have
+   no hallucination risk) are correctly still accepted.
+5. The adjacent-duplicate-measure check (2026-09-29) risked
+   false-positiving on legitimately repeated long passages. Narrowed to
+   measures with ≤3 notes — the real bug it exists for (m.33/34) was a
+   single held note — keeping full protection on the observed failure
+   shape without risking real feedback on legitimate longer repeats.
+
+**Documented, not fixed (deliberately):** `resolve_measure_disagreement`
+discards the other two candidates in a genuine 3-way Claude disagreement,
+showing the model only the single tie-broken winner rather than all
+competing readings its own prompt describes. Real, but bounded severity
+(the "transcribe fresh" fallback means it doesn't guarantee a wrong
+answer) and the function's history shows a *deliberate* simplification to
+single-target resolution — reversing that is a real design discussion,
+not something to rush under audit time pressure.
+
+653/653 checks (640 before — 13 new, all red/green verified by hand).
+Frontend build and lint clean. Backend deployed to Modal; frontend pushed
+to `main` (Vercel auto-deploy).
+
 ## 2026-09-29 — Two more real bugs found and fixed in production: a numpy import race, and adjacent-measure vision hallucination
 
 **Numpy circular-import race (commit `c3d0e14`):** a real take

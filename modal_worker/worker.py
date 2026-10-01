@@ -169,6 +169,66 @@ def page_mime_from_response(header_value: str | None, fallback_mime: str) -> str
     return fallback_mime
 
 
+def _normalize_page_orientation(page_bytes: bytes) -> bytes:
+    """
+    Applies a photo's own EXIF orientation tag before anything else in this
+    file ever looks at its pixels.
+
+    Phone cameras are sensor-native landscape — a portrait photo is stored
+    as landscape pixel data plus an EXIF orientation tag telling a viewer
+    to rotate it for display; the pixels themselves are never physically
+    rotated. PIL's Image.open() does not apply that tag, and nothing in
+    this file did either, which means every row-detection and staff-line
+    algorithm downstream (split_page_into_rows, dewarp_row,
+    compute_row_readability, run_audiveris_on_row, even the whole-page
+    image handed to Claude/Gemini) was implicitly assuming pixel rows run
+    along the photo's true vertical axis. On an uncorrected portrait phone
+    photo they don't — every one of those algorithms was scanning along
+    the wrong axis for the overwhelming majority of real-world uploads.
+
+    Confirmed on a real take's photo (a clean, well-engraved clarinet
+    part — not a hard read for a human): uncorrected,
+    split_page_into_rows fragmented 9 real staff systems into 17 unusable
+    slivers (64-118px tall, several missing their own staff lines
+    entirely), and Audiveris returned zero measures on every single one
+    of them. Applying this fix alone, with no other change, recovered 8
+    properly-bounded rows with real, periodic staff-line spacing detected
+    on several — see test_split_page_into_rows_recovers_real_systems_
+    once_orientation_is_fixed.
+
+    Called ONCE, here, before a downloaded page's bytes enter `pages` —
+    not inside split_page_into_rows or any other downstream function —
+    so every consumer of a page's bytes sees the same correctly-oriented
+    pixels without each needing its own fix.
+
+    No-ops (returns input unchanged, never raises) whenever: the bytes
+    don't decode as an image PIL can open (a PDF page, corrupt bytes —
+    matching every other defensive helper in this file); or there is no
+    EXIF orientation tag, or it's already 1 (normal) — avoiding a
+    pointless re-encode, and any re-encode quality loss, on the
+    overwhelming majority of pages that need no correction at all.
+    """
+    try:
+        from PIL import Image, ImageOps
+        import io
+
+        img = Image.open(io.BytesIO(page_bytes))
+        orientation = img.getexif().get(274)
+        if orientation is None or orientation == 1:
+            return page_bytes
+
+        fixed = ImageOps.exif_transpose(img)
+        fmt = (img.format or "PNG").upper()
+        if fmt == "JPEG" and fixed.mode not in ("RGB", "L"):
+            fixed = fixed.convert("RGB")
+        buf = io.BytesIO()
+        fixed.save(buf, format=fmt)
+        return buf.getvalue()
+    except Exception as e:
+        print(f"[_normalize_page_orientation] failed, using page unchanged: {e}")
+        return page_bytes
+
+
 # Raw bytes we are willing to inline into a single Gemini request. base64 inflates
 # by ~4/3, so 12 MiB of pages is roughly 16 MB on the wire — comfortably inside the
 # ~20 MB inline-request ceiling with room for the prompt.
@@ -9457,7 +9517,11 @@ def run_full_analysis(payload: dict) -> None:
                         # Each page declares its OWN type — see page_mime_from_response.
                         # score_mime is only the first uploaded file's type and a mixed
                         # upload would otherwise mislabel every later page.
-                        pages.append((sresp.content, page_mime_from_response(
+                        #
+                        # Orientation is normalized HERE, once, before these bytes go
+                        # anywhere — see _normalize_page_orientation's docstring for why
+                        # every downstream consumer depends on this running first.
+                        pages.append((_normalize_page_orientation(sresp.content), page_mime_from_response(
                             sresp.headers.get("content-type"), score_mime)))
                     except Exception as e:
                         print(f"[run_full_analysis] failed to download score page: {e}")

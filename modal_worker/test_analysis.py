@@ -6182,6 +6182,119 @@ def test_dtw_align_to_reference_uses_open_end_traceback():
           str([ev["measure"] for ev in aligned]))
 
 
+def test_normalize_page_orientation_rotates_a_sideways_portrait_photo():
+    print("\n[174] a photo stored sensor-native landscape with an EXIF "
+          "orientation tag telling a viewer to rotate it for display gets "
+          "that rotation actually APPLIED to its pixels, not left for every "
+          "downstream consumer to discover the hard way. PIL's Image.open "
+          "ignores the orientation tag by default — before this fix, nothing "
+          "in this file ever applied it, so every row/staff-line algorithm "
+          "was scanning along the wrong axis on an uncorrected portrait "
+          "phone photo (see _normalize_page_orientation's docstring for the "
+          "real-photo evidence: 9 real staff systems fragmented into 17 "
+          "unusable slivers).")
+    from PIL import Image
+    import io
+
+    img = Image.new("RGB", (30, 60), color=(255, 255, 255))
+    for x in range(10):
+        for y in range(10):
+            img.putpixel((x, y), (0, 0, 0))   # a black square in the top-left
+    exif = Image.Exif()
+    exif[274] = 6
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif)
+    raw_bytes = buf.getvalue()
+
+    result_bytes = w._normalize_page_orientation(raw_bytes)
+    result_img = Image.open(io.BytesIO(result_bytes))
+
+    check("a 90-degree orientation tag swaps width and height once applied "
+          "(30x60 input -> 60x30 output), matching PIL's own exif_transpose",
+          result_img.size == (60, 30), str(result_img.size))
+    check("the output no longer carries a pending (non-1) orientation tag — "
+          "the rotation was actually baked into the pixels, not re-declared",
+          (result_img.getexif().get(274) or 1) == 1,
+          str(result_img.getexif().get(274)))
+
+
+def test_normalize_page_orientation_noop_when_no_rotation_needed():
+    print("\n[175] a photo with no EXIF orientation tag (or an explicit "
+          "'normal', value 1) is returned completely BYTE-IDENTICAL, not "
+          "merely visually equivalent — re-encoding every page that never "
+          "needed correction would cost real JPEG quality for zero benefit "
+          "on what is the overwhelming majority of real-world uploads.")
+    from PIL import Image
+    import io
+
+    img = Image.new("RGB", (40, 20), color=(128, 64, 32))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")   # no EXIF at all
+    raw_bytes = buf.getvalue()
+
+    result_bytes = w._normalize_page_orientation(raw_bytes)
+    check("bytes are returned completely unchanged when there is nothing to correct",
+          result_bytes == raw_bytes, f"{len(result_bytes)} vs {len(raw_bytes)} bytes")
+
+
+def test_normalize_page_orientation_falls_back_on_undecodable_bytes():
+    print("\n[176] undecodable bytes (a PDF page, a corrupt download) never "
+          "raise out of this function — matching every other defensive "
+          "helper in this file (split_page_into_rows, dewarp_row, "
+          "_crop_row_background_columns all fail open the same way).")
+    result = w._normalize_page_orientation(b"not a real image, just garbage bytes")
+    check("undecodable input is returned unchanged rather than raising",
+          result == b"not a real image, just garbage bytes", str(result[:40]))
+
+
+def test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed():
+    print("\n[177] the real photo this bug was root-caused against: a "
+          "portrait iPhone photo of a clean, well-engraved clarinet part, "
+          "stored sensor-native landscape with EXIF orientation=6. Fed "
+          "DIRECTLY into split_page_into_rows (the pre-fix production "
+          "path), the page fragments into a double-digit pile of slivers "
+          "and not one of them clears 'poor' quality after the full "
+          "crop+dewarp+readability pipeline — matching exactly what was "
+          "observed on the take that surfaced this bug (17 rows, 0 of them "
+          "readable, Audiveris returning 0 measures on all 17). Normalizing "
+          "orientation FIRST, as production now does at download time, "
+          "recovers a sane row count with real, periodic staff-line "
+          "spacing detected on several rows.")
+    photo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "testdata", "real_photo_sideways_exif_portrait.jpg")
+    with open(photo_path, "rb") as f:
+        raw_bytes = f.read()
+
+    def _non_poor_row_count(page_bytes):
+        rows = w.split_page_into_rows(page_bytes)
+        count = 0
+        for row_bytes in rows:
+            cropped = w._crop_row_background_columns(row_bytes)
+            dewarped = w.dewarp_row(cropped)
+            if w.compute_row_readability(dewarped)["quality"] != "poor":
+                count += 1
+        return len(rows), count
+
+    raw_row_count, raw_non_poor = _non_poor_row_count(raw_bytes)
+    check("fed unrotated, this real photo reproduces the original bug: "
+          "every row stays 'poor' quality (no usable staff-line reading) — "
+          "this is the broken BEFORE state, proving the fixture actually "
+          "exercises the bug this fix addresses",
+          raw_non_poor == 0, f"{raw_non_poor} non-poor rows of {raw_row_count}")
+
+    fixed_bytes = w._normalize_page_orientation(raw_bytes)
+    fixed_row_count, fixed_non_poor = _non_poor_row_count(fixed_bytes)
+    check("after orientation correction, row count drops to a sane number "
+          "of systems (this page has 9 real staff systems) instead of "
+          "fragmenting into a double-digit pile of slivers",
+          fixed_row_count <= 10, str(fixed_row_count))
+    check("after orientation correction, several rows now get a real, "
+          "periodic staff-line spacing reading — the thing that was "
+          "completely absent before (0 of 17) and is what both Claude's "
+          "pitch reading and Audiveris's staff detection depend on",
+          fixed_non_poor >= 3, f"{fixed_non_poor} non-poor rows of {fixed_row_count}")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6351,7 +6464,11 @@ def main():
               test_dtw_align_to_reference_stamps_full_score_fields,
               test_dtw_align_to_reference_uses_open_end_traceback,
               test_reference_audio_refuses_vision_sourced_fallback_with_no_validation_markers,
-              test_reference_audio_accepts_music21_sourced_fallback_with_no_validation_markers):
+              test_reference_audio_accepts_music21_sourced_fallback_with_no_validation_markers,
+              test_normalize_page_orientation_rotates_a_sideways_portrait_photo,
+              test_normalize_page_orientation_noop_when_no_rotation_needed,
+              test_normalize_page_orientation_falls_back_on_undecodable_bytes,
+              test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

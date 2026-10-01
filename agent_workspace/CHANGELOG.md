@@ -1,5 +1,53 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-01 — Universal root cause of broken visual analysis: EXIF orientation never applied
+
+User reported visual analysis was "practically nonexistent" on a new real
+take (a portrait iPhone photo of a clean, well-engraved clarinet part —
+not a hard read for a human). Root-caused by direct reproduction against
+the actual photo rather than theorizing: `split_page_into_rows`
+fragmented the page's 9 real staff systems into 17 unusable slivers
+(64-118px tall, several missing their own staff lines entirely), and
+Audiveris returned zero measures on every one of the 17 rows.
+
+Traced to the real cause: the downloaded JPEG carried EXIF
+orientation=6. Phone cameras store portrait photos as sensor-native
+landscape pixel data plus an orientation tag telling a viewer to rotate
+for display — the pixels are never physically rotated. PIL's
+`Image.open()` does not apply that tag, and nothing in `worker.py` ever
+did either, so every pixel-axis-dependent algorithm (row splitting,
+dewarping, readability scoring, Audiveris, even the whole-page image
+sent to Claude/Gemini) was scanning along the wrong axis on an
+uncorrected portrait photo — the overwhelming majority of real-world
+uploads, not an edge case. Confirmed directly: applying
+`ImageOps.exif_transpose` before `split_page_into_rows` turned 17
+fragments into 8 properly-bounded rows with real, periodic staff-line
+spacing detected on several.
+
+**Fixed (commit `3c1832a`):** added `_normalize_page_orientation()`,
+called once at download time in `run_full_analysis` before a page's
+bytes enter the `pages` list — so every downstream consumer sees
+correctly-oriented pixels without each needing its own fix. No-ops
+(never re-encodes, never raises) when no correction is needed or the
+bytes aren't a PIL-decodable image (a PDF page, for instance).
+
+This was investigated as a brainstorming-skill architectural question
+("should we switch to OMR-first or a different vision vendor?"). Deep
+research (OMR state of the art, vision-LLM music-reading benchmarks,
+hybrid approaches) found real, structural, cross-vendor limitations in
+how well any current vision-LLM reads music notation — but also found
+this specific failure was dominated by a concrete, fixable pipeline bug
+rather than a model-capability ceiling. Recommendation: defer the larger
+architecture pivot until the fixed system's real failure rate is known;
+the research is preserved in this session's transcript for when that
+question is revisited.
+
+Verified red/green against a real fixture (`testdata/
+real_photo_sideways_exif_portrait.jpg`, a downsampled copy of the actual
+failing photo with its EXIF tag intact): unrotated, 0 of 11 fragmented
+rows clear "poor" quality; corrected, row count drops to 8 with 4
+reaching real periodic staff-line spacing. 660/660 tests passing (4 new).
+
 ## 2026-09-30 — Full pipeline audit: 5 real bugs fixed across visual/audio/reference-audio, 2 documented as deliberate non-fixes
 
 Requested as a full audit of the analysis pipeline (visual, audio,

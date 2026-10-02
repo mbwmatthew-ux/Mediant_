@@ -439,9 +439,18 @@ export default function NewRecordingModal({ open, onClose }) {
       const token  = session?.access_token
       const fnBase = supabase.supabaseUrl + '/functions/v1'
 
+      // Mirrors useReferenceAudio.js's identical fix: the score read
+      // cross-validates with 2-3 sequential vision calls plus a per-measure
+      // resolution pass (see read_score_notes_claude in worker.py), and the
+      // Modal backend's own timeout is 890s to give that room. 120 attempts
+      // (10 minutes) could — and on a real take, did — time out and show the
+      // user a false "failed" error on a job that was still legitimately
+      // running and went on to finish successfully a couple of minutes
+      // later. 200 attempts (~16.7 minutes) stays comfortably above the
+      // backend's own 890s budget.
       let finalResult = null
       const alreadyDone = jobResult?.status === 'done'
-      for (let attempt = 0; attempt < 120; attempt++) {
+      for (let attempt = 0; attempt < 200; attempt++) {
         if (!alreadyDone || attempt > 0) await new Promise(r => setTimeout(r, 5000))
         setProgress(p => Math.min(p + 0.37, 95))
         try {

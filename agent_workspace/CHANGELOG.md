@@ -1,5 +1,26 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-02 — Home screen removed; fixed a false "Analysis failed" error on legitimately slow takes
+
+**Home screen removed (commit `e5f0898`).** Deleted `Home.jsx`/
+`Home.module.css`, the `/home` route, and AppShell's entire `isHome`
+branch (the permanently-open 232px rail, no top bar, tip card, profile
+row) — every route now uses the single standard layout the rest of the
+app already runs. The Home nav item and icon are gone from both the
+desktop sidebar and mobile bottom nav. `/sessions` is now the landing
+destination everywhere `/home` used to be (post-auth redirects, logo/
+brand links, the dead `/record` redirect).
+
+**Fixed a false "Analysis failed: taking longer than expected" error
+(commit `ef1d2cc`).** Root-caused against a real failed take: the
+backend finished successfully in 12m20s — well within its own 890s/
+14.8min Modal timeout — but `NewRecordingModal.jsx`'s polling loop gave
+up after exactly 10 minutes (120 attempts x 5s) and showed the user a
+false failure on a job that was still legitimately running and went on
+to succeed. `useReferenceAudio.js` had already hit and fixed this exact
+bug (120 -> 200 attempts, same reasoning) — this sibling loop just never
+got the matching fix. Applied the identical change.
+
 ## 2026-10-01 — Universal root cause of broken visual analysis: EXIF orientation never applied
 
 User reported visual analysis was "practically nonexistent" on a new real

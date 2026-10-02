@@ -29,10 +29,10 @@ export default function Login() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) nav('/home', { replace: true })
+      if (session) nav('/sessions', { replace: true })
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) nav('/home', { replace: true })
+      if (session) nav('/sessions', { replace: true })
     })
     return () => subscription.unsubscribe()
   }, [nav])
@@ -41,7 +41,7 @@ export default function Login() {
     e.preventDefault()
     setError('')
     const result = await login(email, password)
-    if (result.ok) { nav('/home') } else { setError(result.error) }
+    if (result.ok) { nav('/sessions') } else { setError(result.error) }
   }
 
   async function handleGoogle() {

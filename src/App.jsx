@@ -23,7 +23,6 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import ConfirmEmail from './pages/ConfirmEmail'
 import Pricing from './pages/Pricing'
-import Home from './pages/Home'
 import Analysis from './pages/Analysis'
 import Sessions from './pages/Sessions'
 import Reports from './pages/Reports'
@@ -52,8 +51,7 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/demo"          element={<Analysis demo />} />
           <Route element={<RequireSubscription><RecordModalProvider><AppShell /></RecordModalProvider></RequireSubscription>}>
-            <Route path="/home"     element={<Home />} />
-            <Route path="/record"   element={<Navigate to="/home" replace />} />
+            <Route path="/record"   element={<Navigate to="/sessions" replace />} />
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/sessions" element={<Sessions />} />
             <Route path="/reports"  element={<Reports />} />

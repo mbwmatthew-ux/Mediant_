@@ -10,8 +10,7 @@
 > not look AI-generated.
 >
 > **Status: `Landing.jsx` and `Analysis.jsx` are converted. Every other page
-> still runs the older tokens below this notice (or, for `/home`, its own
-> scoped exploration — see the note beneath this one) until it gets its own
+> still runs the older tokens below this notice until it gets its own
 > conversion pass.** Do not assume the rest of the app matches this section
 > yet — check the individual page's CSS module before touching it.
 >
@@ -62,23 +61,14 @@
 >   the exact "rounded-lg everywhere" look this direction exists to move
 >   away from.
 
-> **2026-08-18 — Home screen is running a different palette on purpose.**
-> `/home` is an approved exploration of a new visual direction: sage green,
-> lavender, a serif display face, and an illustrated mascot. Those tokens are
-> declared **inside `Home.module.css`, scoped to `.page`** — deliberately NOT in
-> `index.css` — so the rest of the app still follows the rules below and the
-> exploration cannot leak.
->
-> Two rules below are knowingly broken *on that screen only*: the "no purple"
-> rule (the lavender "Up next" card) and the single-accent rule (coral, green
-> and lavender all appear). Do not "fix" the Home screen back to the cream/gold
-> palette — it is intentional and the user asked for it. If the direction is
-> adopted app-wide, move those tokens up into `:root` and rewrite this file.
->
-> `/home` has NOT been converted to Atelier. When it is, this note and the
-> Atelier note above both need updating.
+> **2026-10-02 — Home screen removed.** The `/home` route, its scoped sage/
+> lavender palette exploration, and the sidebar's permanently-open "Home rail"
+> layout are gone. `/sessions` is now the default post-login landing page and
+> uses the standard 72px hover rail + top bar every other route uses. The two
+> notes this replaces (2026-08-18 Home palette, 2026-08-20 Home rail) no
+> longer apply to anything in the codebase.
 
-Last updated: 2026-09-04
+Last updated: 2026-10-02
 
 This file is the source of truth for Mediant's visual system.
 Coding agents must read this before touching any UI file.

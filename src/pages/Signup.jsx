@@ -41,7 +41,7 @@ export default function Signup() {
     if (result.ok) {
       if (!result.user) { nav('/confirm-email', { state: { email } }); return }
       supabase.functions.invoke('send-welcome-email', { body: { name } }).catch(() => {})
-      nav('/home')
+      nav('/sessions')
     } else {
       const msg = result.error ?? ''
       if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {

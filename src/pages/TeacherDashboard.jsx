@@ -278,10 +278,10 @@ export default function TeacherDashboard() {
           </button>
         </form>
         <button
-          onClick={() => nav('/home')}
+          onClick={() => nav('/sessions')}
           style={{ marginTop: 14, background: 'none', border: 'none', color: 'var(--text-muted, #8a8070)', cursor: 'pointer', fontSize: '0.9rem' }}
         >
-          Go to Home
+          Go to Sessions
         </button>
       </div>
     )

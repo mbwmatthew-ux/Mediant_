@@ -91,7 +91,7 @@ export default function Pricing() {
 
       {user && (
         <div className={styles.backWrap}>
-          <Link to="/home" className={styles.backLink}>← Back to dashboard</Link>
+          <Link to="/sessions" className={styles.backLink}>← Back to sessions</Link>
         </div>
       )}
     </div>

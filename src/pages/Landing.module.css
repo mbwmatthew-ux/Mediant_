@@ -42,11 +42,11 @@
   border-bottom: 1px solid var(--line);
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  height: 64px;
+  height: 72px;
   padding: 0 clamp(20px, 4vw, 56px);
   position: sticky;
   top: 0;
-  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 450ms cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 100;
 }
 .navHidden { transform: translateY(-100%); }
@@ -58,21 +58,11 @@
   text-decoration: none;
 }
 
-.navLogoMark {
-  background: var(--teal-deep);
-  border-radius: 8px;
-  display: inline-block;
-  height: 32px;
-  mask: url('/logo-mark.png') center / contain no-repeat;
-  -webkit-mask: url('/logo-mark.png') center / contain no-repeat;
-  width: 32px;
-}
-
 .navWordmark {
   color: var(--ink);
   font-family: var(--font-display);
-  font-style: italic;
-  font-size: 1.2rem;
+  font-style: normal;
+  font-size: 1.55rem;
   font-weight: 400;
   letter-spacing: -0.01em;
 }
@@ -133,79 +123,66 @@
   position: relative;
 }
 
-/* A single oversized clef mark instead of a gradient blob — the generic
-   "hero with a soft blob behind it" look is exactly what this direction
-   exists to move away from. */
-.hero::before {
-  color: rgba(44, 74, 62, 0.05);
-  content: '\266A';
-  font: 400 32rem/1 var(--font-display);
-  font-style: italic;
-  inset: -6% -4% auto auto;
-  pointer-events: none;
-  position: absolute;
-}
+/* ── Staff-ribbon illustrations (HeroStaffRibbon, HowStaffRibbon, etc.) ──
+   A real 5-line staff that curves like a ribbon, carrying a treble clef,
+   real notated shapes, and measure marks — see agent_workspace/
+   DESIGN_RULES.md. Always an absolutely-positioned FIRST child of a
+   `position:relative` section, so plain DOM order — not z-index — puts
+   real content on top; see .sectionInner/.ctaInner/.heroInner below.
+   Static: no scroll/parallax motion, per design direction to keep this a
+   purely visual pass for now.
 
-/* ── Decorative music backdrop (MusicDeco) ──────────────────────────
-   Curved "staff lines" that drift on scroll (--scroll-y is written directly
-   to .page by useParallaxScroll, never through React state) plus note
-   glyphs that fade + slide in once when their section enters view. Always
-   an absolutely-positioned FIRST child of a `position:relative` section, so
-   plain DOM order — not z-index — puts real content on top; see
-   .sectionInner/.ctaInner/.heroInner below. */
-.deco {
+   Each illustration's viewBox height matches that section's real measured
+   height (via getBoundingClientRect on localhost, e.g. hero is 745), and
+   the wrapper fills the section exactly (inset:0, no aspect-ratio lock) so
+   the curve genuinely spans the whole section — through the copy, through
+   the card, not confined to a top or bottom margin strip. Opacity is kept
+   low enough that text crossed by a line stays legible. */
+.staffRibbon {
   color: var(--teal-deep);
   inset: 0;
-  overflow: hidden;
+  opacity: 0.13;
   pointer-events: none;
   position: absolute;
 }
 
-.decoCurveLayer {
-  height: 100%;
-  left: 0;
-  position: absolute;
-  top: 0;
-  transform: translateY(calc(var(--scroll-y, 0px) * var(--parallax, 0.05) * -1));
-  width: 100%;
-}
-
-.note {
-  font-family: var(--font-display);
-  font-style: italic;
-  opacity: 0;
-  position: absolute;
-  transform: translate(var(--slide-x, -16px), 16px) rotate(var(--rot, 0deg));
-  transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1), transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
-  transition-delay: var(--delay, 0ms);
-}
-.decoRevealed .note {
-  opacity: var(--note-op, 0.09);
-  transform: translate(0, 0) rotate(var(--rot, 0deg));
-}
-.noteInverted { color: var(--canvas); }
-
-/* ── Hero staff-ribbon illustration (HeroStaffRibbon) ────────────────
-   A real 5-line staff that curves like a ribbon, not the single gentle arcs
-   .deco uses elsewhere — see agent_workspace/DESIGN_RULES.md. Positioned to
-   the right of the headline column so it never crosses the text; the SVG's
-   own viewBox (0 0 1440 340) already routes the curve through x=560-1410,
-   so this wrapper only needs to size and place that box, not reposition
-   the artwork inside it. */
-.staffRibbon {
-  aspect-ratio: 1440 / 340;
+.sectionRibbon {
   color: var(--teal-deep);
-  left: 0;
-  opacity: 0.16;
+  inset: 0;
+  opacity: 0.08;
   pointer-events: none;
   position: absolute;
-  top: 60px;
-  width: 100%;
 }
+
+/* CTA strip's background is coral, not paper — the ribbon inverts to a
+   light line color, same idea as the old .noteInverted. */
+.ctaRibbon {
+  composes: sectionRibbon;
+  color: var(--canvas);
+  opacity: 0.18;
+}
+
 .noteHead { fill: currentColor; }
 .noteHeadHollow { fill: none; stroke: currentColor; stroke-width: 2.2; }
 .stem { stroke: currentColor; stroke-width: 2; }
-.beam { fill: currentColor; }
+.beam { stroke: currentColor; }
+
+/* Standalone floating note glyphs — independent of any staff ribbon, so
+   pricing/faq (which have no ribbon at all) and the ribboned sections alike
+   can carry a few scattered notes off the lines. Plain Unicode glyphs, not
+   the SVG notehead system — kept deliberately simple. */
+.floats {
+  color: var(--teal-deep);
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+.floatsInverted { color: var(--canvas); }
+.floatNote {
+  font-family: var(--font-display);
+  font-style: italic;
+  position: absolute;
+}
 
 .heroInner {
   align-items: center;
@@ -1008,16 +985,6 @@
   gap: 9px;
 }
 
-.footerLogoMark {
-  background: var(--teal);
-  border-radius: 6px;
-  display: inline-block;
-  height: 26px;
-  mask: url('/logo-mark.png') center / contain no-repeat;
-  -webkit-mask: url('/logo-mark.png') center / contain no-repeat;
-  width: 26px;
-}
-
 .footerWordmark {
   color: #fff;
   font-family: var(--font-display);
@@ -1082,7 +1049,7 @@
 @media (max-width: 1060px) {
   .heroInner { grid-template-columns: 1fr; }
   .heroVisual { display: none; }
-  .staffRibbon { display: none; }
+  .staffRibbon, .sectionRibbon, .ctaRibbon, .floats { display: none; }
   .featuresList { grid-template-columns: 1fr; }
   .featListItem:nth-child(odd)  { border-right: none; padding-right: 0; }
   .featListItem:nth-child(even) { padding-left: 0; }

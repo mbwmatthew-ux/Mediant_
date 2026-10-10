@@ -1,5 +1,37 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-09 — Fixed a second, deeper "Analysis failed" bug: backend self-heal watchdog was stuck at 5 minutes
+
+Same user-visible error as 2026-10-02's fix recurred, but a genuinely
+different and more serious root cause. Checked the actual stuck take in
+the DB: `job_status` was still `"processing"` 21+ minutes after it
+started. Modal's own log for that run showed `run_full_analysis` hit
+its 890s hard timeout and was forcibly cancelled mid-resolution-loop at
+14m55s — the job was dead, not just slow, and was left orphaned in
+`"processing"` forever because nothing ever polls `job-status` again
+once the frontend's own poll loop gives up or the user navigates away
+(self-heal logic lives only inside that endpoint).
+
+The deeper bug: `job-status/index.ts`'s self-heal threshold was still 5
+minutes — set before the score-reading pipeline started doing 2-3
+sequential vision reads plus a per-measure resolution pass, and before
+`run_full_analysis`'s own Modal timeout was raised to 890s. Any take
+genuinely taking 5-14.8 minutes (confirmed real, not rare: 12m20s
+success on Oct 2, 14m55s kill on Oct 9) would get self-healed to
+"failed" by this watchdog while the backend was still correctly
+working. `generate-reference-audio/index.ts` already hit and fixed this
+exact inconsistency (`STUCK_JOB_MS = 950 * 1000`) — `job-status`'s
+sibling self-heal never got the matching update. Applied the identical
+value. Also manually marked the one real orphaned take as failed in the
+DB (one-time cleanup). Deployed.
+
+**Open question, not resolved here:** should `run_full_analysis`'s own
+890s Modal timeout be raised further? The Oct 9 run was killed while
+mid-resolution-loop, close to finishing — a higher ceiling might let
+this class of job (long, disagreement-heavy scores) actually succeed
+instead of failing more honestly. Left for the owner: raising it has a
+real Modal compute-cost tradeoff this fix didn't decide unilaterally.
+
 ## 2026-10-02 — Home screen removed; fixed a false "Analysis failed" error on legitimately slow takes
 
 **Home screen removed (commit `e5f0898`).** Deleted `Home.jsx`/

@@ -5949,7 +5949,13 @@ def test_read_score_notes_claude_pdf_pages_get_no_audiveris_corroboration():
     read_b = {"measures": [pdf_measure], "key_signature": None,
               "time_signature": "4/4", "tempo_marking": None}
 
-    reads = [read_a, read_b]
+    # Three items, not two: all three reads are dispatched concurrently as
+    # of 2026-10-09 (see read_score_notes_claude's dispatch-site comment),
+    # not two sequentially with a third only conditional on disagreement —
+    # this is an agree case, so the third (discarded) read's content is
+    # irrelevant, but the mock queue still needs an item for it or all
+    # three concurrent calls racing on .pop(0) will empty the list.
+    reads = [read_a, read_b, dict(read_a)]
     with patch.object(w, "_prepare_score_rows", return_value=fake_prepared_pages), \
          patch.object(w, "_read_score_notes_claude_once", side_effect=lambda *a, **kw: reads.pop(0)):
         result = w.read_score_notes_claude([(b"pdf1", "application/pdf")], 1, "Clarinet", "4/4", "fake-key")
@@ -5981,7 +5987,11 @@ def test_read_score_notes_claude_agree_case_gets_audiveris_corroboration():
         {"number": 1, "notes": [{"pitch": "G4", "is_rest": False, "beat": 1.0, "duration_beats": 4.0}]}
     ], "source": "audiveris"}
 
-    reads = [read_a, read_b]
+    # Three items: all three reads are now dispatched concurrently (see
+    # read_score_notes_claude's dispatch-site comment, 2026-10-09) — this
+    # is an agree case, so the third (discarded) read's content doesn't
+    # matter, but the mock queue needs an item for it regardless.
+    reads = [read_a, read_b, dict(read_a)]
     with patch.object(w, "_prepare_score_rows", return_value=fake_prepared_pages), \
          patch.object(w.run_audiveris_on_row, "spawn",
                       return_value=MagicMock(get=MagicMock(return_value=audiveris_row_result))), \

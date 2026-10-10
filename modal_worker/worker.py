@@ -5192,8 +5192,20 @@ def read_score_notes_claude(
     THIRD independent read breaks the tie by majority vote (2 of 3) rather
     than arbitrarily preferring the first read — an arbitrary preference
     would silently throw away exactly the cases this function exists to
-    catch. The third read only runs when needed, so the common case (the two
-    reads already agree) costs 2x a single read, not 3x.
+    catch.
+
+    As of 2026-10-09, all three reads are dispatched in PARALLEL from the
+    very start of this function, not two sequentially with a third only
+    conditionally dispatched after confirming A and B disagree. This always
+    costs 3 Claude vision calls (the third is simply discarded, unused, when
+    A and B agree) — trading that against latency: a real production take
+    disagreed on every measure between every pair of reads, so the old
+    "common case costs 2x, not 3x" framing did not hold for it, and the old
+    sequential-then-conditional shape cost A+B+C summed in wall time
+    (confirmed: ~10m37s) wherever a third read was genuinely needed, instead
+    of max(A,B,C) (~4m47s on that same take). See the dispatch site's own
+    comment for the full reasoning and the explicit decision to accept the
+    added per-run cost.
 
     Beyond the two/three-way Claude cross-validation described above, this
     now also orchestrates the rest of the multi-signal pipeline built in
@@ -5241,8 +5253,28 @@ def read_score_notes_claude(
                 print(f"[read_score_notes_claude] Audiveris dispatch for row "
                       f"{(page_idx, row_idx)} failed: {e}")
 
-    read_a = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
-    read_b = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+    # Fire all three independent reads NOW, in parallel, rather than two
+    # sequentially and a third only after confirming A and B disagree. The
+    # old sequential-then-conditional shape cost A+B+C summed in wall time
+    # on any score where a third read is needed — and on a real production
+    # take, A, B, and C disagreed with each other on EVERY measure (51/51),
+    # not a rare case, so the "common case only costs 2x" framing in this
+    # function's own docstring did not hold for that take. Running all
+    # three concurrently costs max(A,B,C) instead of A+B+C — confirmed on
+    # that same take's real timings (A=2m09s, B=3m41s, C=4m47s): roughly
+    # 4m47s instead of 10m37s. The tradeoff: a score where A and B actually
+    # agree now always pays for a third Claude vision call it ends up
+    # discarding, trading money for latency — accepted deliberately (see
+    # CHANGELOG/AGENT_TASKS, 2026-10-09 speed pass) rather than assumed.
+    # future_c is retrieved (or discarded via _read_pool.shutdown below)
+    # further down, at the exact point the old code used to dispatch it.
+    from concurrent.futures import ThreadPoolExecutor
+    _read_pool = ThreadPoolExecutor(max_workers=3)
+    future_a = _read_pool.submit(_read_score_notes_claude_once, pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+    future_b = _read_pool.submit(_read_score_notes_claude_once, pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+    future_c = _read_pool.submit(_read_score_notes_claude_once, pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+    read_a = future_a.result()
+    read_b = future_b.result()
 
     # claude_agreement maps measure number -> "agree" | "disagree" |
     # "unavailable". Three states, never a boolean — see
@@ -5252,8 +5284,11 @@ def read_score_notes_claude(
     # M2: this early return happens BEFORE we collect Audiveris results —
     # on a total-failure read there is no use for them, and there is no
     # reason to block waiting on Modal handles this function is about to
-    # discard anyway.
+    # discard anyway. future_c is already running in the background
+    # regardless (its cost was paid the moment it was submitted above) —
+    # shutdown(wait=False) just stops THIS function from blocking on it.
     if read_a.get("error") and read_b.get("error"):
+        _read_pool.shutdown(wait=False)
         return read_a
 
     # Collect Audiveris results now — by this point Claude's own two
@@ -5280,6 +5315,7 @@ def read_score_notes_claude(
             print(f"[read_score_notes_claude] Audiveris row {row_key} failed or timed out: {e}")
 
     if read_a.get("error"):
+        _read_pool.shutdown(wait=False)  # one read already failed — read_c's tie-break role doesn't apply
         base_result = read_b
         # Only ONE read succeeded. There is no cross-validation signal at
         # all here — not agreement, not disagreement, just a single
@@ -5289,6 +5325,7 @@ def read_score_notes_claude(
         # matching reads.
         claude_agreement = {m["number"]: "unavailable" for m in read_b.get("measures", [])}
     elif read_b.get("error"):
+        _read_pool.shutdown(wait=False)
         base_result = read_a
         claude_agreement = {m["number"]: "unavailable" for m in read_a.get("measures", [])}
     else:
@@ -5300,6 +5337,7 @@ def read_score_notes_claude(
             if _measure_fingerprint(by_number_a.get(n, {})) != _measure_fingerprint(by_number_b.get(n, {}))
         ]
         if not disagreements:
+            _read_pool.shutdown(wait=False)  # A and B agreed — the speculative 3rd read goes unused
             print(f"[read_score_notes_claude] two independent reads agree on all "
                   f"{len(all_numbers)} measures — using read 1")
             base_result = read_a
@@ -5326,7 +5364,12 @@ def read_score_notes_claude(
                   f"{max(by_number_b) if by_number_b else None}, "
                   f"both={len(both)}; disagreement cause: {len(content_diff)} content, "
                   f"{len(coverage_only)} coverage-only {coverage_only[:20]}")
-            read_c = _read_score_notes_claude_once(pages, prepared_pages, start_measure, instrument, time_sig, anthropic_api_key)
+            # Already running since this function's very first lines — just
+            # collect it instead of dispatching it now (see the dispatch
+            # comment above for why firing it eagerly saves the A+B+C wall
+            # time that used to stack up only on this branch).
+            read_c = future_c.result()
+            _read_pool.shutdown(wait=False)
             by_number_c = {m["number"]: m for m in read_c.get("measures", [])} if not read_c.get("error") else {}
             # I2: the tie-break below needs a time signature to convert
             # durations for _cross_source_measure_match, and must NOT use
@@ -5480,6 +5523,10 @@ def read_score_notes_claude(
     first_measure_number = min(m["number"] for m in base_result["measures"])
 
     final_measures = []
+    # Measures that need a resolve_measure_disagreement call get queued here
+    # instead of resolved inline — see the parallel dispatch after this loop
+    # for why. Each entry is (measure, crop_for_resolution, is_first, is_last).
+    pending_resolutions = []
     unresolved_count = 0
     # C1: hard cap on resolution calls per read. A misread time signature
     # (this file's own docstrings record 2/4 vs 3/4 on different runs of
@@ -5563,15 +5610,11 @@ def read_score_notes_claude(
                         prepared_pages, page_idx)
                 if crop_for_resolution is not None:
                     resolution_calls_made += 1
-                    candidates = [measure]
-                    resolved = resolve_measure_disagreement(
-                        crop_for_resolution, candidates, instrument,
-                        resolved_time_sig, anthropic_api_key,
-                        is_first_measure=is_first, is_last_measure=is_last)
-                    resolved["number"] = measure["number"]
-                    resolved["page"] = measure.get("page", 1)
-                    resolved["row"] = measure.get("row", 1)
-                    measure = resolved
+                    # Queued, not called inline — see the parallel dispatch
+                    # below. This measure is appended to final_measures
+                    # there instead of here.
+                    pending_resolutions.append((measure, crop_for_resolution, is_first, is_last))
+                    continue
                 else:
                     measure = {**measure, "unresolved": True,
                                "issues": fusion["reasons"]}
@@ -5582,6 +5625,38 @@ def read_score_notes_claude(
                       f"{measure.get('issues')}")
 
             final_measures.append(measure)
+
+    # Dispatch every queued resolve_measure_disagreement call in parallel
+    # instead of one at a time. Each call resolves exactly ONE measure
+    # against its own crop and never references another measure's result —
+    # candidates is always [measure], a single-element list — so these were
+    # never sequential for a correctness reason, only because the loop that
+    # queued them happened to be. Confirmed on a real production take: ~19
+    # of these calls ran sequentially and took ~3 minutes; concurrent, wall
+    # time is bounded by the single slowest call, not their sum. Capped at
+    # _RESOLUTION_CALL_CAP (25) workers by construction — pending_resolutions
+    # can never exceed that, since resolution_calls_made gates queuing above.
+    # resolve_measure_disagreement never raises (see its own docstring) and
+    # creates its own Anthropic client per call, so this is safe to run
+    # concurrently with no shared mutable state between threads.
+    if pending_resolutions:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(pending_resolutions)) as pool:
+            resolved_list = list(pool.map(
+                lambda job: resolve_measure_disagreement(
+                    job[1], [job[0]], instrument, resolved_time_sig, anthropic_api_key,
+                    is_first_measure=job[2], is_last_measure=job[3]),
+                pending_resolutions,
+            ))
+        for (measure, _crop, _is_first, _is_last), resolved in zip(pending_resolutions, resolved_list):
+            resolved["number"] = measure["number"]
+            resolved["page"] = measure.get("page", 1)
+            resolved["row"] = measure.get("row", 1)
+            if resolved.get("unresolved"):
+                unresolved_count += 1
+                print(f"[read_score_notes_claude] m.{resolved['number']} UNRESOLVED: "
+                      f"{resolved.get('issues')}")
+            final_measures.append(resolved)
 
     final_measures = sorted(final_measures, key=lambda m: m["number"])
 

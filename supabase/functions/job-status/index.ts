@@ -42,14 +42,31 @@ serve(async (req: Request) => {
       })
     }
 
-    // Self-heal: if a take has been stuck in 'processing' for over 5 minutes the
-    // edge function that created it crashed without updating the DB. Mark it failed
-    // now so the frontend stops polling instead of waiting the full 4-minute timeout.
+    // Self-heal: if a take has been stuck in 'processing' for longer than the
+    // backend could ever legitimately still be running, mark it failed so the
+    // frontend stops polling instead of waiting forever on an orphaned row.
+    //
+    // Was 5 * 60 * 1000. read_score_notes_claude now cross-validates with 2-3
+    // sequential vision reads plus a per-measure resolution pass instead of 1
+    // (see that function's docstring in worker.py), and run_full_analysis's own
+    // Modal timeout is 890s to give that room — a self-heal window shorter than
+    // the job it's watching fires on every legitimately-still-running analysis,
+    // marking it "failed" while the backend is still correctly working and may
+    // well finish successfully seconds later. Confirmed live: a real take ran
+    // to Modal's own 890s timeout (killed mid-resolution-loop, logs show
+    // "hit its timeout of 890s" at 14m55s) and was left stuck in 'processing'
+    // forever, because nothing had polled job-status again after the frontend
+    // gave up — this 5-minute self-heal would have fired LONG before that,
+    // marking a still-healthy job "failed" out from under it on any take that
+    // happened to take 5-14.8 minutes. 950s mirrors generate-reference-audio/
+    // index.ts's identical fix (STUCK_JOB_MS) — comfortably above 890s, not
+    // equal to it, so ordinary scheduling jitter doesn't trip it early.
+    const STUCK_JOB_MS = 950 * 1000
     let effectiveStatus = take.job_status ?? 'done'
     let effectiveError  = take.job_error  ?? null
     if (effectiveStatus === 'processing' && take.job_started_at) {
       const ageMs = Date.now() - new Date(take.job_started_at).getTime()
-      if (ageMs > 5 * 60 * 1000) {
+      if (ageMs > STUCK_JOB_MS) {
         effectiveStatus = 'failed'
         effectiveError  = 'Analysis timed out — the server did not respond in time. Please try again.'
         const admin = createClient(

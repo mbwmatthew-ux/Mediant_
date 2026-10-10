@@ -3782,6 +3782,58 @@ def test_read_score_notes_claude_caps_resolution_fan_out():
           str(uncalled_unresolved))
 
 
+def test_read_score_notes_claude_prioritizes_the_played_range_within_the_resolution_cap():
+    print("\n[178] D2: root-caused on a real take (\"Procession of the Nobles\", m.20-37) — "
+          "the resolution-call cap was being spent on measures the student never played, "
+          "starving the measure(s) actually inside their declared range. Same fixture as "
+          "[134]: 30 measures (2-31), 28 of them (3-30) need resolution, cap=25. The "
+          "student's range here (28-30) is exactly the tail that page-scan order would "
+          "otherwise starve.")
+    measures_json = [
+        {"number": n, "pg": 1, "row": 1, "notes": [{"p": "E4", "b": 1.0, "d": 5.0}]}
+        for n in range(2, 32)
+    ]
+    _FakeClient = _fake_claude_read_stream(measures_json)
+
+    resolve_calls = []
+
+    def _fake_resolve(measure_crop_bytes, candidates, instrument, time_sig, anthropic_api_key,
+                       is_first_measure=False, is_last_measure=False):
+        resolve_calls.append(candidates[0]["number"])
+        return {"notes": [{"pitch": "G5", "is_rest": False, "beat": 1.0,
+                           "duration_beats": 1.0 + 0.1 * len(resolve_calls),
+                           "articulation": None, "dynamic": None}]}
+
+    pages = [(b"\x89PNG-page-one", "image/png")]  # undecodable -> single fallback row
+    import anthropic as _ac
+    _orig_ac = _ac.Anthropic
+    _orig_resolve = w.resolve_measure_disagreement
+    _ac.Anthropic = _FakeClient
+    w.resolve_measure_disagreement = _fake_resolve
+    try:
+        result = w.read_score_notes_claude(pages, 28, "clarinet", "4/4", "k", end_measure=30)
+    finally:
+        _ac.Anthropic = _orig_ac
+        w.resolve_measure_disagreement = _orig_resolve
+
+    check("the cap is still 25 total calls — prioritizing the played range costs nothing extra",
+          len(resolve_calls) == 25, f"calls={len(resolve_calls)} {resolve_calls}")
+    check("same total unresolved count as without prioritization (cost-neutral, just reordered)",
+          result.get("unresolved_measure_count") == 3, str(result.get("unresolved_measure_count")))
+    check("measures 28, 29, 30 (the student's declared range) all got a resolution call — "
+          "under the old page-scan order these were exactly the ones starved by the cap",
+          {28, 29, 30} <= set(resolve_calls), f"calls={resolve_calls}")
+    by_number = {m["number"]: m for m in result.get("measures", [])}
+    check("none of the student's own played measures (28-30) were left unresolved",
+          not any(by_number.get(n, {}).get("unresolved") for n in (28, 29, 30)),
+          str({n: by_number.get(n) for n in (28, 29, 30)}))
+    unresolved_numbers = {m["number"] for m in result.get("measures", []) if m.get("unresolved")}
+    check("the 3 measures that DO get starved by the cap are outside the student's played "
+          "range, not inside it",
+          unresolved_numbers and unresolved_numbers.isdisjoint({28, 29, 30}),
+          str(unresolved_numbers))
+
+
 def test_read_score_notes_claude_pdf_page_attempts_resolution():
     print("\n[135] I1: a PDF measure needing resolution gets a resolution call attempted "
           "against the rasterized page, instead of being marked unresolved with zero "
@@ -6424,6 +6476,7 @@ def main():
               test_read_score_notes_claude_surfaces_unresolved_measure_count,
               test_read_score_notes_claude_groups_by_page_and_row_not_page,
               test_read_score_notes_claude_caps_resolution_fan_out,
+              test_read_score_notes_claude_prioritizes_the_played_range_within_the_resolution_cap,
               test_read_score_notes_claude_pdf_page_attempts_resolution,
               test_read_score_notes_claude_multipage_pdf_refuses_whole_page_fallback,
               test_align_claude_to_measure_crops_refuses_non_contiguous_row,

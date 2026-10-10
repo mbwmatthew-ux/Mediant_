@@ -5172,6 +5172,7 @@ def read_score_notes_claude(
     pages: list[tuple[bytes, str]],
     start_measure: int, instrument: str, time_sig: str,
     anthropic_api_key: str,
+    end_measure: int | None = None,
 ) -> dict:
     """
     Reads the score TWICE independently via _read_score_notes_claude_once and
@@ -5224,9 +5225,19 @@ def read_score_notes_claude(
     and its aligned results feed both the reconciliation loop's tie-break
     step and this function's per-measure fuse_measure_confidence calls.
 
-    Signature and return shape are unchanged from the prior single-read
-    version — both call sites (read_score_notes_for_reference_audio, and the
-    main analysis pipeline's score-reading step) need no changes.
+    Return shape is unchanged from the prior single-read version. `end_measure`
+    is new and optional (default None, preserving the old call shape for
+    read_score_notes_for_reference_audio, which has no declared range): when
+    given, it is the student's own last played measure, and the resolution-call
+    budget below is spent on measures inside [start_measure, end_measure]
+    FIRST. Root-caused 2026-10-10 on a real take ("Procession of the Nobles",
+    m.20-37): the function reads the WHOLE photographed page (here, m.1-37)
+    and resolved disagreements in page-scan order against a fixed call cap
+    — so disagreements in measures the student never played (1-19) spent the
+    budget before the scan ever reached measure 37, the one measure that
+    actually mattered for that take. end_measure lets the same fixed budget
+    be spent on the part of the score the student actually played, at no
+    extra Claude-call cost.
     """
     prepared_pages = _prepare_score_rows(pages)
 
@@ -5544,6 +5555,13 @@ def read_score_notes_claude(
 
     # row_key may be None (unknown provenance), which can't be compared to
     # an int — sort those last rather than letting sorted() raise.
+    #
+    # Built once, in page-scan order, as a flat list — then REORDERED below
+    # before the fusion/resolution pass runs over it. Keeping the per-row
+    # crop/segmentation setup in this first pass (unchanged from before)
+    # means the reorder below is a pure priority change, not a second copy
+    # of this logic.
+    _candidates = []
     for (page_idx, row_idx), row_measures in sorted(
             measures_by_row.items(),
             key=lambda kv: (kv[0][0], float("inf") if kv[0][1] is None else kv[0][1])):
@@ -5565,66 +5583,81 @@ def read_score_notes_claude(
                      else None)
 
         for i, measure in enumerate(row_measures):
-            is_first = measure["number"] == first_measure_number
-            is_last = measure["number"] == last_measure_number
-            validation = validate_measure(
-                measure, instrument, resolved_time_sig,
-                is_first_measure=is_first, is_last_measure=is_last,
-            )
-            # Real Audiveris corroboration, when this measure's row could
-            # be confidently aligned (see _align_audiveris_measures) —
-            # None (never {}) for every measure it could not align,
-            # identical to the old permanently-unavailable behavior for
-            # exactly those measures.
-            oemer_measure = aligned_omr.get(measure["number"])
-            fusion = fuse_measure_confidence(
-                claude_agreement.get(measure["number"], "unavailable"),
-                measure, oemer_measure, validation, resolved_time_sig)
+            # Resolve against the tightest image available: this measure's
+            # own crop when segmentation was trustworthy, else the whole
+            # row. The whole-PAGE fallback (I1) only applies when this hint
+            # is still None once a measure actually needs resolution, so it
+            # stays lazy, below.
+            crop_hint = (crops[i] if crops is not None and i < len(crops)
+                        else (row["row_bytes"] if row else None))
+            _candidates.append((page_idx, measure, crop_hint))
 
-            if fusion["needs_resolution"]:
-                if resolution_calls_made >= _RESOLUTION_CALL_CAP:
-                    # C1: cap reached — do not place another call. See the
-                    # cap comment above for why refusing here is correct,
-                    # not merely cheap.
-                    measure = {**measure, "unresolved": True,
-                               "issues": fusion["reasons"] +
-                               [f"resolution call cap ({_RESOLUTION_CALL_CAP}) reached"]}
-                    final_measures.append(measure)
-                    unresolved_count += 1
-                    print(f"[read_score_notes_claude] m.{measure['number']} UNRESOLVED "
-                          f"(cap): {measure.get('issues')}")
-                    continue
+    # D2: resolve the student's OWN played range [start_measure, end_measure]
+    # first, ahead of the rest of the page, within the SAME fixed cap — zero
+    # extra Claude calls. Root-caused 2026-10-10 on a real take ("Procession
+    # of the Nobles", m.20-37): the old page-scan order spent the whole cap
+    # on disagreements in measures the student never played (here, m.1-19)
+    # before the scan ever reached measure 37, the one measure that actually
+    # mattered for that take — "unresolved (cap reached)" on exactly the
+    # measure the student's own report depended on. A stable sort keeps
+    # original page-scan order within each tier, so end_measure=None (the
+    # other call site, read_score_notes_for_reference_audio, which has no
+    # declared range) is byte-for-byte the old behavior.
+    if end_measure is not None:
+        _candidates.sort(key=lambda c: 0 if start_measure <= c[1]["number"] <= end_measure else 1)
 
-                # Resolve against the tightest image available: this
-                # measure's own crop when segmentation was trustworthy,
-                # then the whole row, then (I1) the whole page — a page is
-                # still a real attempt at resolution and is strictly better
-                # than giving up with zero calls made. Only PDFs and rows
-                # with unusable provenance (row is None) reach the page
-                # fallback in practice, since raster pages normally have a
-                # row.
-                crop_for_resolution = (crops[i] if crops is not None and i < len(crops)
-                                       else (row["row_bytes"] if row else None))
-                if crop_for_resolution is None:
-                    crop_for_resolution = _whole_page_crop_for_resolution(
-                        prepared_pages, page_idx)
-                if crop_for_resolution is not None:
-                    resolution_calls_made += 1
-                    # Queued, not called inline — see the parallel dispatch
-                    # below. This measure is appended to final_measures
-                    # there instead of here.
-                    pending_resolutions.append((measure, crop_for_resolution, is_first, is_last))
-                    continue
-                else:
-                    measure = {**measure, "unresolved": True,
-                               "issues": fusion["reasons"]}
+    for page_idx, measure, crop_hint in _candidates:
+        is_first = measure["number"] == first_measure_number
+        is_last = measure["number"] == last_measure_number
+        validation = validate_measure(
+            measure, instrument, resolved_time_sig,
+            is_first_measure=is_first, is_last_measure=is_last,
+        )
+        # Real Audiveris corroboration, when this measure's row could
+        # be confidently aligned (see _align_audiveris_measures) —
+        # None (never {}) for every measure it could not align,
+        # identical to the old permanently-unavailable behavior for
+        # exactly those measures.
+        oemer_measure = aligned_omr.get(measure["number"])
+        fusion = fuse_measure_confidence(
+            claude_agreement.get(measure["number"], "unavailable"),
+            measure, oemer_measure, validation, resolved_time_sig)
 
-            if measure.get("unresolved"):
+        if fusion["needs_resolution"]:
+            if resolution_calls_made >= _RESOLUTION_CALL_CAP:
+                # C1: cap reached — do not place another call. See the
+                # cap comment above for why refusing here is correct,
+                # not merely cheap.
+                measure = {**measure, "unresolved": True,
+                           "issues": fusion["reasons"] +
+                           [f"resolution call cap ({_RESOLUTION_CALL_CAP}) reached"]}
+                final_measures.append(measure)
                 unresolved_count += 1
-                print(f"[read_score_notes_claude] m.{measure['number']} UNRESOLVED: "
-                      f"{measure.get('issues')}")
+                print(f"[read_score_notes_claude] m.{measure['number']} UNRESOLVED "
+                      f"(cap): {measure.get('issues')}")
+                continue
 
-            final_measures.append(measure)
+            crop_for_resolution = crop_hint
+            if crop_for_resolution is None:
+                crop_for_resolution = _whole_page_crop_for_resolution(
+                    prepared_pages, page_idx)
+            if crop_for_resolution is not None:
+                resolution_calls_made += 1
+                # Queued, not called inline — see the parallel dispatch
+                # below. This measure is appended to final_measures
+                # there instead of here.
+                pending_resolutions.append((measure, crop_for_resolution, is_first, is_last))
+                continue
+            else:
+                measure = {**measure, "unresolved": True,
+                           "issues": fusion["reasons"]}
+
+        if measure.get("unresolved"):
+            unresolved_count += 1
+            print(f"[read_score_notes_claude] m.{measure['number']} UNRESOLVED: "
+                  f"{measure.get('issues')}")
+
+        final_measures.append(measure)
 
     # Dispatch every queued resolve_measure_disagreement call in parallel
     # instead of one at a time. Each call resolves exactly ONE measure
@@ -9613,7 +9646,8 @@ def run_full_analysis(payload: dict) -> None:
                 if not res.get("error") and res.get("measures"):
                     s = res
             elif kind == "visual" and anthropic_key:
-                res = read_score_notes_claude(pages, start_measure, instrument, time_sig, anthropic_key)
+                res = read_score_notes_claude(pages, start_measure, instrument, time_sig, anthropic_key,
+                                               end_measure=end_measure)
                 if res.get("measures"):
                     s = res
                     ps_notes = res

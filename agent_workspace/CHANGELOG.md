@@ -1,5 +1,36 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-10 — Resolution-call budget now prioritizes the student's own played range
+
+User reported losing feedback on the final measure(s) of a take
+("Procession of the Nobles", m.20-37) despite the visual read working
+well overall. Root-caused with real evidence, not a guess: pulled the
+take's `analysis_quality.coverage` and `pipeline_debug` from the DB,
+found `measures_analysed: [20, 35]` (should have reached 37), then had
+the user resubmit the identical take with live Modal logs capturing
+the exact trace: `m.37: disagreement ... resolution call cap (25)
+reached`. `read_score_notes_claude` reads the WHOLE photographed page
+(here, 37 measures) and resolves Claude-disagreement in page-scan
+order against a fixed cap — so disagreements in measures the student
+never played (1-19) spent the entire budget before the scan reached
+measure 37, the one measure the student's own report depended on.
+
+**Shipped:** `read_score_notes_claude` takes a new optional
+`end_measure` param (default `None`, so
+`read_score_notes_for_reference_audio`'s call site — no declared range
+— is byte-for-byte unchanged). When given, the resolution-call queue is
+stable-sorted so measures inside `[start_measure, end_measure]` are
+attempted first, within the SAME 25-call cap — zero added Claude-call
+cost, explicitly chosen over raising the cap because the user flagged
+wanting to avoid wasting credits on repeated resubmissions. Threaded
+through from `run_full_analysis`'s existing `end_measure`. New
+regression test ([178]) reuses the existing cap-fan-out fixture (30
+measures, 28 disputed, cap 25) with a played range (28-30) chosen to
+be exactly the tail page-scan order would otherwise starve — red
+without the fix (`TypeError` on the missing kwarg, confirmed via
+`git stash`), green with it. 665/665 tests passing. Deployed
+(`modal deploy modal_worker/worker.py`).
+
 ## 2026-10-09 (2) — Parallelized score-reading: ~15min analyses should drop to roughly 5-7min
 
 User pushback after the self-heal fix: "that single attempt took nearly

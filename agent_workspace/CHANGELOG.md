@@ -1,5 +1,42 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-09 (2) — Parallelized score-reading: ~15min analyses should drop to roughly 5-7min
+
+User pushback after the self-heal fix: "that single attempt took nearly
+15 minutes, that is crazy." Used the real timing breakdown already in
+hand (from root-causing the self-heal bug) to find the actual latency
+drivers in `read_score_notes_claude`, rather than guessing: two
+independent Claude score-reads ran sequentially (~6min) with a third
+tie-break read only starting after that (~5min more, and on the real
+take in question, always needed — it disagreed with the other two on
+every single measure), then up to 25 individual measure-resolution
+calls ran one at a time (~3min) despite being fully independent of each
+other. None of this was sequential for a correctness reason — only
+because the code happened to dispatch it that way.
+
+Presented the two safe, zero-added-cost wins (parallelize the reads;
+parallelize the resolution calls) plus one cost/latency tradeoff
+(always fire the third read speculatively instead of waiting to see if
+it's needed) as an explicit choice; owner approved all three.
+
+**Shipped:** all three Claude score-reads now dispatch concurrently via
+a ThreadPoolExecutor from the start of the function (previously two
+sequential + a conditional third); the up-to-25-call resolution loop
+now queues every measure needing resolution during its existing
+row/measure walk and dispatches them all concurrently once the walk
+completes, instead of one Claude call at a time. Both are safe: every
+read is independent, and every resolution call creates its own
+Anthropic client with no shared state. 660/660 tests passing (two
+pre-existing mocks updated to supply a third response, since production
+now always makes 3 read calls, not 2-then-conditionally-3). Deployed.
+
+Estimated against the real take's own numbers: dispatch stage ~10m37s
+summed -> ~4m47s (bounded by the slowest of the three, not their sum);
+resolution stage ~3min summed -> bounded by the single slowest call.
+**Not yet confirmed by a live run** — this is a wall-clock claim a test
+suite can verify is functionally correct but cannot itself measure;
+needs one real take submission to confirm actual savings.
+
 ## 2026-10-09 — Fixed a second, deeper "Analysis failed" bug: backend self-heal watchdog was stuck at 5 minutes
 
 Same user-visible error as 2026-10-02's fix recurred, but a genuinely

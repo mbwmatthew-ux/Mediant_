@@ -80,7 +80,12 @@ image = (
         "pretty_midi==0.2.10",
         "pyFluidSynth==1.3.3",
         # Utilities
-        "fastapi[standard]",
+        # Floor + major-version ceiling, same reasoning as the anthropic/torch
+        # pins below/above: an unbounded fastapi[standard] is the exact
+        # unpinned-dependency shape that silently broke anthropic on a
+        # routine rebuild (2026-09-10) — closing the same gap here before it
+        # bites the same way.
+        "fastapi[standard]>=0.115,<1.0",
         "requests==2.31.0",
         "httpx==0.27.0",
         # AI SDKs (used in async full-pipeline)

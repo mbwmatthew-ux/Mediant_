@@ -1,5 +1,59 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-11 — Full-product audit: real findings, not reassurance
+
+Owner asked for a full scrutiny of the product's accuracy and launch
+readiness, with a direct verdict. Investigated against the live
+database and current code rather than the (5-month-stale) planning
+docs:
+
+- **RLS is correctly configured** on every sensitive table (`takes`,
+  `songs`, `profiles`, etc.), all scoped to `auth.uid()` — the old
+  "unconfirmed" note in the product-state doc was wrong.
+- **199 completed takes exist, across a real instrument mix** — Cello
+  (60) and Violin (12) are actually the MOST real-world-tested
+  instruments, more than Clarinet (40). Ran the accuracy-baseline
+  harvesting query from `ACCURACY_BASELINE.md`: **zero teacher
+  annotations exist on any of the 199 takes.** The entire precision/
+  recall pipeline (`replay.py`, `score_against_annotations.py`,
+  TeacherDashboard annotation UI) is built and tested and has never
+  been fed one real data point — there is no measured accuracy number
+  for this product, anywhere, only architecture and single-user spot
+  checks.
+- **Stripe code is deployed but not operational** —
+  `create-checkout-session`/`stripe-webhook` exist but no
+  `STRIPE_SECRET_KEY` or price IDs are set in Supabase secrets; they'd
+  hard-fail if called. `RequireSubscription.jsx` still only checks
+  login, not plan.
+- **`cleanup-storage` is deployed but nothing schedules it** — no
+  pg_cron (extension isn't even installed), no workflow calls it.
+  Recordings accumulate forever right now. Deliberately NOT wired up
+  as part of this pass — it permanently deletes user media, which is a
+  retention-policy decision for the owner, not a code fix to make
+  unilaterally.
+
+**Fixed (no decision needed, zero risk):**
+- Pinned `fastapi[standard]>=0.115,<1.0` in the Modal image — the last
+  unpinned dependency from the audit the `anthropic` incident
+  (2026-09-10) itself called for.
+- Deleted `src/pages/Record.jsx` (930 lines, zero imports, `/record`
+  already redirects without rendering it).
+- Deleted the fully-dead teacher-annotation code path in
+  `Analysis.jsx` (`submitAnnotation`/`deleteAnnotation` plus their
+  state — `annotations`/`activeAnnot`/`annotLoading`/`rejectReason`) —
+  confirmed zero live callers or reads before removing. The real
+  annotation UI is `TeacherDashboard.jsx`; this path was dead weight
+  that would have quietly corrupted the ground-truth pipeline if ever
+  revived without a `flagKey`.
+
+665/665 worker tests passing, build clean, lint net -8 problems (dead
+code), zero regressions.
+
+**Verdict: not yet launch-ready, and the biggest gap isn't a bug — it's
+the absence of any measured accuracy number.** See the Completed entry
+below (2026-10-11) and `AGENT_TASKS.md`'s "Current Goal" for the full
+picture and the owner's remaining decisions.
+
 ## 2026-10-10 (2) — Whole-performance flags no longer pile up on the first measure
 
 User noticed flag counts decreasing steadily from the first measure

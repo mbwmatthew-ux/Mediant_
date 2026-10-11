@@ -535,12 +535,6 @@ const videoRef    = useRef(null)
   const [noteSaving, setNoteSaving] = useState(false)
   const [noteSaved, setNoteSaved]   = useState(false)
   const [reanalyzing, setReanalyzing] = useState(false)
-
-  // Teacher annotation state (only active when profile.role === 'teacher')
-  const [annotations,    setAnnotations]    = useState({}) // flagIndex → annotation row
-  const [activeAnnot,    setActiveAnnot]    = useState(null) // { flagIndex, action }
-  const [annotLoading,   setAnnotLoading]   = useState({}) // flagIndex → bool
-  const [rejectReason,   setRejectReason]   = useState('wrong_measure')
   const [editedTitle,    setEditedTitle]    = useState('')
   const [editedDetail,   setEditedDetail]   = useState('')
   const [analysisAuthToken, setAnalysisAuthToken] = useState(null)
@@ -812,27 +806,6 @@ const videoRef    = useRef(null)
   useEffect(() => {
     setInSummaryView(false)
   }, [take?.id])
-
-  // Load annotations when teacher views a take (must be after `take` is declared above)
-  useEffect(() => {
-    if (profile?.role !== 'teacher' || !take?.id || isDemo) {
-      setAnnotations({})
-      return
-    }
-    const takeId = take.id
-    if (String(takeId).startsWith('mock') || String(takeId) === 'demo') { setAnnotations({}); return }
-    if (!analysisAuthToken) return
-
-    fetch(
-      `${supabase.supabaseUrl}/functions/v1/annotate-flags?takeId=${encodeURIComponent(takeId)}`,
-      { headers: { Authorization: `Bearer ${analysisAuthToken}` } },
-    ).then(r => r.json()).then(data => {
-      const map = {}
-      for (const a of (data.annotations ?? [])) map[a.flag_index] = a
-      setAnnotations(map)
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.role, take?.id, analysisAuthToken, isDemo])
 
   // Load the active take's saved AI-context note into the editor
   useEffect(() => {
@@ -1212,34 +1185,6 @@ const videoRef    = useRef(null)
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [])
-
-  // Teacher annotation helpers
-  async function submitAnnotation(flagIndex, action, extras = {}) {
-    if (!analysisAuthToken || !take?.id) return
-    setAnnotLoading(prev => ({ ...prev, [flagIndex]: true }))
-    try {
-      const originalFlag = take.flags?.[flagIndex] ?? null
-      const body = { takeId: take.id, flagIndex: action === 'add' ? null : flagIndex, action, originalFlag, ...extras }
-      const res = await fetch(
-        `${supabase.supabaseUrl}/functions/v1/annotate-flags`,
-        { method: 'POST', headers: { Authorization: `Bearer ${analysisAuthToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
-      )
-      const data = await res.json()
-      if (data.error) return
-      setAnnotations(prev => ({ ...prev, [flagIndex ?? 'added']: data.annotation }))
-      setActiveAnnot(null)
-    } catch { /* ignore */ }
-    finally { setAnnotLoading(prev => ({ ...prev, [flagIndex]: false })) }
-  }
-
-  async function deleteAnnotation(flagIndex) {
-    if (!analysisAuthToken || !take?.id) return
-    await fetch(
-      `${supabase.supabaseUrl}/functions/v1/annotate-flags?takeId=${encodeURIComponent(take.id)}&flagIndex=${flagIndex}`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${analysisAuthToken}` } },
-    ).catch(() => {})
-    setAnnotations(prev => { const n = { ...prev }; delete n[flagIndex]; return n })
-  }
 
   // Generate Session Summary
   async function generateSummary() {

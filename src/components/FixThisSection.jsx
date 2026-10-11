@@ -9,9 +9,17 @@ const TICK_MS = 25
 const SPEEDS = [0.5, 0.75, 1]
 
 // Cluster flags by measure proximity, score by count + low confidence, return worst cluster.
+//
+// Whole-performance observations (posture, overall tempo/intonation tendency —
+// see worker.py's `global` flag) are anchored at the student's FIRST played
+// measure as a display convention, not because anything is actually wrong
+// there. Letting them into this clustering silently biased "the section to
+// work on" toward the opening of every take, regardless of where the real
+// mistakes were — excluded here, not just hidden from the per-measure list.
 function findWorstSection(flags) {
-  if (!flags?.length) return null
-  const sorted = [...flags].sort((a, b) => (a.measure ?? 0) - (b.measure ?? 0))
+  const localFlags = (flags ?? []).filter(f => !f.global)
+  if (!localFlags.length) return null
+  const sorted = [...localFlags].sort((a, b) => (a.measure ?? 0) - (b.measure ?? 0))
 
   const groups = []
   let cur = [sorted[0]]

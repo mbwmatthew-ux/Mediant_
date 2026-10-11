@@ -259,6 +259,17 @@
   font-size: 0.72rem; font-weight: 700; padding: 1px 7px;
 }
 
+/* Separates whole-performance observations (posture, overall tempo/intonation
+   tendency) from the per-measure issue list above it — these aren't tied to
+   any one measure, so they get their own labeled group instead of a measure
+   badge that would misrepresent where the issue actually is. */
+.issuesSectionDivider {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--text-muted); text-transform: uppercase;
+  padding: 14px 16px 6px; margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
 /* scoreColumn is the grid cell; the card (.scorePanel) fills it edge to edge.
    The page arrows now live INSIDE the card, absolutely positioned within its
    left/right padding gutters (see .scorePanelBody's 62px horizontal padding,

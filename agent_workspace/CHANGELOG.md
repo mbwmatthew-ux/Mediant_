@@ -1,5 +1,45 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-10 (2) — Whole-performance flags no longer pile up on the first measure
+
+User noticed flag counts decreasing steadily from the first measure
+onward ("first measure there's like 3-4 flags... less and less as you
+progress") and didn't want that inconsistency. Checked whether it was
+real or an artifact by pulling the flag-measure distribution across
+several recent takes of DIFFERENT pieces, not just one — the smoking
+gun was a take starting at measure 114 (not 20) showing the exact same
+pile-up AT measure 114, which rules out "this piece's opening was
+genuinely rough" and points at something keyed on `start_measure`
+itself.
+
+Root cause: the backend already tags several categories as whole-
+performance observations with no single relevant measure — posture,
+technique, overall intonation tendency, overall tempo vs. marking/
+declared, overall timing drift (`global: true` in the flag JSON,
+`worker.py`'s `_played_lo`/`measure_lo` anchoring). It anchors all of
+them on the student's first played measure as a display convention,
+with a `measure_end` spanning the full piece to mark them as whole-take
+facts. `Analysis.jsx` and `FixThisSection.jsx` never read `global` at
+all — every flag was counted, highlighted, and clustered identically,
+so 5-8 whole-take notes visually stacked onto one measure's card every
+single take, and `FixThisSection`'s "section to work on" picker (which
+scores by flag count per measure-cluster) was systematically biased
+toward recommending the opening measures regardless of where real
+mistakes were.
+
+**Shipped (frontend only — zero new analysis, applies retroactively to
+every already-stored take):** `Analysis.jsx`'s "DETECTED ISSUES" list
+now stable-sorts `global` flags to their own "Overall performance"
+group below the per-measure list (original flag index preserved for
+annotations/Loop/keyboard-nav, which key off it); the sheet-music
+marker overlay no longer draws a pin for a `global` flag (it isn't
+really "at" that measure); the header's flag-density waveform indicator
+excludes them too. `FixThisSection.jsx`'s worst-section clustering now
+filters `global` flags out before scoring. Build clean, lint unchanged
+(67/67 pre-existing findings in both touched files, verified via
+`git stash` diff) — no test suite covers this (frontend-only, no
+worker.py change).
+
 ## 2026-10-10 — Resolution-call budget now prioritizes the student's own played range
 
 User reported losing feedback on the final measure(s) of a take

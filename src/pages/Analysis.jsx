@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -1806,7 +1806,10 @@ const videoRef    = useRef(null)
 
   // Compute flagged bar indices from actual flag measures (scaled to bar count)
   const flaggedBarIndices = useMemo(() => {
-    const flags = take?.flags ?? []
+    // Whole-performance observations are anchored at the first played
+    // measure as a display convention — including them here would always
+    // cluster this indicator at the very start of the bar.
+    const flags = (take?.flags ?? []).filter(f => !f.global)
     if (!flags.length) return [6, 7, 14, 15, 22, 23]
     const maxMeasure = Math.max(...flags.map(f => f.measure ?? 0), 30)
     return flags.map(f => Math.round(((f.measure ?? 1) / maxMeasure) * (HEADER_WAVE_BARS.length - 1)))
@@ -2125,6 +2128,12 @@ const videoRef    = useRef(null)
                   // measure_end); grouped occurrences → a single-measure point each.
                   const markerSpecs = []
                   flags.forEach((f, fi) => {
+                    // Whole-performance observations (posture, overall tempo/
+                    // intonation tendency) are anchored at the first played
+                    // measure as a display convention, not because that measure
+                    // is actually where the issue is — drawing a score marker
+                    // for them would highlight a measure that isn't at fault.
+                    if (f.global) return
                     if (f.grouped && f.occurrences?.length) {
                       f.occurrences.forEach(occ => {
                         markerSpecs.push({ flagIdx: fi, flagId: `flag_${fi}`, label: occ.label, measureStart: occ.measure, measureEnd: occ.measure })
@@ -2287,20 +2296,39 @@ const videoRef    = useRef(null)
             {issueCount === 0 ? (
               <div className={aStyles.noIssues}>✓ No issues detected — clean performance.</div>
             ) : (
-              (take?.flags ?? []).map((f, i) => {
+              // Whole-performance observations (posture, overall tempo/
+              // intonation tendency — worker.py's `global` flag) are anchored
+              // at the student's first played measure as a display
+              // convention, not because anything is wrong there specifically.
+              // A stable sort keeps every other flag in its original order and
+              // moves only these to their own group at the end, so they stop
+              // looking like a pile-up on one measure. Original array index
+              // `i` is preserved per entry (flagId/annotations/keyboard nav
+              // all key off it) — only the display position `idx` and badge
+              // number are affected by the reorder.
+              (take?.flags ?? [])
+                .map((f, i) => ({ f, i }))
+                .sort((a, b) => (a.f.global ? 1 : 0) - (b.f.global ? 1 : 0))
+                .map(({ f, i }, idx, ordered) => {
                 const flagId = `flag_${i}`
                 const isAct = activeFlag === flagId
                 const isThisLooping = isLooping && loopRef.current?.start === Number(f.timestamp_start)
+                const isFirstGlobal = f.global && (idx === 0 || !ordered[idx - 1].f.global)
+                const divider = isFirstGlobal && (
+                  <div className={aStyles.issuesSectionDivider}>Overall performance</div>
+                )
 
                 if (f.grouped && f.occurrences?.length) {
                   // ── Grouped flag: multiple occurrences of the same issue ──
                   return (
-                    <div key={flagId} className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
+                    <Fragment key={flagId}>
+                      {divider}
+                      <div className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
                       <button className={aStyles.issueCardRow}
                         onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}>
                         <span className={aStyles.issueNum}
                           style={{ background: isAct ? 'var(--accent)' : '#241E15' }}>
-                          {i + 1}
+                          {idx + 1}
                         </span>
                         <div className={aStyles.issueInfo}>
                           <span className={aStyles.issueMeta}>
@@ -2362,7 +2390,7 @@ const videoRef    = useRef(null)
                                 <div key={occ.label} className={aStyles.occurrenceRow}>
                                   <span className={aStyles.occurrenceLabel}
                                     style={{ background: occLooping ? 'var(--accent)' : '#241E15' }}>
-                                    {i + 1}{occ.label}
+                                    {idx + 1}{occ.label}
                                   </span>
                                   <div className={aStyles.occurrenceInfo}>
                                     <span className={aStyles.issueMeta}>M. {occ.measure}</span>
@@ -2395,18 +2423,21 @@ const videoRef    = useRef(null)
                           </div>
                         </div>
                       )}
-                    </div>
+                      </div>
+                    </Fragment>
                   )
                 }
 
                 // ── Single flag (existing rendering) ──
                 return (
-                  <div key={flagId} className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
+                  <Fragment key={flagId}>
+                    {divider}
+                    <div className={`${aStyles.issueCard} ${isAct ? aStyles.issueCardOpen : ''}`}>
                     <button className={aStyles.issueCardRow}
                       onClick={() => { playTick(); setActiveFlag(isAct ? null : flagId) }}>
                       <span className={aStyles.issueNum}
                         style={{ background: isAct ? 'var(--accent)' : '#241E15' }}>
-                        {i + 1}
+                        {idx + 1}
                       </span>
                       <div className={aStyles.issueInfo}>
                         <span className={aStyles.issueMeta}>
@@ -2482,7 +2513,8 @@ const videoRef    = useRef(null)
                         </div>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  </Fragment>
                 )
               })
             )}

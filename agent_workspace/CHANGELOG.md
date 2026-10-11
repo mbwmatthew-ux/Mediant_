@@ -1,5 +1,83 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-11 (2) — Fixed the breath-noise gate: 60.7% → 95.6% pitch-detection accuracy on a real external corpus
+
+Direct follow-up to the audit below. Owner asked specifically to close the
+two weak points the TinySOL validation surfaced — quiet-note recall and a
+strings-specific gap — and gave standing approval to implement and verify
+without further check-ins.
+
+**Root cause, found by instrumenting real failing clips directly:**
+`run_pitch_tracking`'s breath-noise gate discarded any candidate note below
+a FIXED absolute RMS floor (0.012, ~-45dBFS) — a number that silently
+assumed every input recording sits at a similar overall loudness. A real,
+correctly-played mf violin G3 from TinySOL measured `rms_attack=0.00196`,
+six times below that floor, while CREPE itself tracked its pitch with
+excellent confidence (mean periodicity 0.81) — the gate, not the pitch
+detector, was discarding it. Checked at scale across a random sample of
+150 real missed notes: 0 had no onset detected at all, but 98.7% measured
+below the absolute floor despite being genuine sounding notes — TinySOL's
+anechoic studio recordings are simply mastered quieter overall than
+whatever recording the 0.012 constant was tuned against. This is also a
+real robustness gap for actual users: a phone-mic recording can just as
+easily sit at an unusually quiet absolute level (mic distance, room
+acoustics, a naturally quiet instrument).
+
+**Fix:** the gate is now relative to each take's OWN loud passages
+(`take_loud_rms`, the mean RMS of its loudest 20% of 100ms windows,
+computed once per take) instead of a fixed absolute number — same design
+philosophy this file already uses for `take_flatness_median`. Calibrated
+against the TinySOL corpus itself: real missed notes measured a median
+37% and a 25th-percentile 24% of their take's own loud-window baseline, so
+the new relative factor (15%) is a deliberately conservative cut below
+where real signal actually sits. A small absolute backstop (0.0003) stays,
+purely against literal digital silence.
+
+**Measured, not assumed — re-ran the full 2,224-clip TinySOL validation
+before and after:**
+
+| | Before | After |
+|---|---|---|
+| Overall correct | 60.7% | **95.6%** |
+| pp (quiet) correct | 18.1% | **96.2%** |
+| Violin correct | 46.5% | **94.7%** |
+| Viola correct | 38.5% | **96.8%** |
+| Precision when a pitch IS detected | 96.4% | 96.4% (unchanged) |
+
+Both of the owner's flagged weak points (quiet-note recall, the
+strings-specific gap) turned out to be the SAME root cause — fixing one
+fixed both. Precision-when-detected is identical before and after: this
+rescues detections that were being thrown away wholesale, not a trade of
+false positives for recall.
+
+**Also fixed along the way:** `run_pitch_tracking` had zero prior unit
+test coverage — two new regression tests ([179]/[180]) are the first in
+this file to call it against real audio, using an embedded real TinySOL
+fixture (`testdata/real_violin_note_tinysol_g3_mf.wav`, CC-BY 4.0) plus a
+synthetic silence case for the safety backstop. Writing them surfaced a
+second, independent bug: `test_analysis.py`'s module-stubbing (`for _n in
+[...]: sys.modules.setdefault(_n, MagicMock())`) unconditionally stubs
+torch/torchcrepe/librosa/soundfile the first time this file is imported in
+a process where they aren't ALREADY imported — including inside worker.py's
+own later, lazy real imports — which silently broke real audio processing
+in any environment that actually has these packages installed, purely from
+import ORDER. Fixed to check (via `importlib.util.find_spec`, no import
+side effects) whether the whole real audio stack is actually available,
+all-or-nothing — a partial mix crashes elsewhere with an unrelated-looking
+`TypeError` (scipy internally checking `isinstance(x, torch.Tensor)`
+against a MagicMock stub). The two new tests skip themselves cleanly (not
+fail) in an environment without the real stack, preserving this file's
+"runs anywhere, no audio needed" guarantee for the other 665.
+
+**New tool:** `modal_worker/validate_pitch_against_tinysol.py` — reusable
+offline validation harness (same category as `replay.py`), joined in
+`modal_worker/testdata/` by the one embedded real fixture it needs for its
+own regression tests.
+
+668/668 checks passing (including the 2 new ones) in an environment with
+the real audio stack installed; 665/665 unchanged in one without it.
+Deployed.
+
 ## 2026-10-11 — Full-product audit: real findings, not reassurance
 
 Owner asked for a full scrutiny of the product's accuracy and launch

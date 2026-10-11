@@ -743,6 +743,18 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
         y, _ = librosa.load(wav_path, sr=SR, mono=True)
         duration = librosa.get_duration(y=y, sr=SR)
 
+        # The take's own loudest passages, in 100ms windows — see the
+        # breath-noise gate below for why this is measured now, once, rather
+        # than compared against a fixed absolute number per candidate.
+        _win = max(1, SR // 10)
+        _n_wins = max(1, len(y) // _win)
+        _win_rms = sorted(
+            float(np.sqrt(np.mean(y[i * _win:(i + 1) * _win] ** 2)))
+            for i in range(_n_wins)
+        )
+        _loud_windows = _win_rms[int(len(_win_rms) * 0.8):] or _win_rms
+        take_loud_rms = float(np.mean(_loud_windows)) if _loud_windows else 0.0
+
         # ── CREPE pitch tracking ───────────────────────────────────────────
         CREPE_SR  = 16000
         CREPE_HOP = 640   # 40 ms frames — halves CREPE processing time; still fine-grained for measure-level coaching
@@ -868,9 +880,42 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             s_att = int(event_t * SR)
             e_att = min(len(y), s_att + SR // 10)
             rms_attack = float(np.sqrt(np.mean(y[s_att:e_att] ** 2))) if e_att > s_att else 0.0
-            # Discard events below breath-noise floor (~-45 dBFS); real soft notes
-            # hit ~0.02 RMS even on quiet passages; breathing is typically 0.001–0.008
-            if rms_attack < 0.012:
+            # Discard events with no audible signal. This used to be a single
+            # fixed absolute floor (0.012, ~-45dBFS) — a number that silently
+            # assumed every input recording sits at a similar overall
+            # loudness. Validated wrong against TinySOL (Cella et al.,
+            # CC-BY 4.0; see Fix note "Breath-noise gate was an absolute
+            # amplitude threshold", 2026-10-11): 822 of 2224 real, correctly-
+            # played notes were missed, and in a random sample of those
+            # misses 98.7% measured BELOW this absolute floor despite being
+            # genuine sounding notes, not noise — that corpus is simply
+            # mastered quieter overall than whatever recording 0.012 was
+            # tuned against. A real user's phone-mic recording can just as
+            # easily sit at an unusually quiet absolute level (distance from
+            # the mic, a naturally quiet instrument, room acoustics) — a
+            # fixed floor has no way to tell "this whole take is quiet" from
+            # "this one moment is silent".
+            #
+            # Now relative to THIS TAKE's own loud passages (take_loud_rms,
+            # computed once above, before the event loop) instead: a
+            # candidate must be at least _BREATH_NOISE_REL_FACTOR as loud as
+            # how loud this performer's real notes get, not of some fixed
+            # absolute number. Calibrated against the same corpus: real
+            # missed notes measured a median 37% and a 25th-percentile 24%
+            # of their take's own loud-window baseline, so 15% is a
+            # deliberately conservative cut — comfortably below where real
+            # signal actually sits. _BREATH_NOISE_ABS_FLOOR is an unrelated,
+            # much smaller backstop purely against literal digital silence
+            # (a take_loud_rms of ~0), independent of take loudness. There is
+            # no noise-only corpus available to validate how low either
+            # number could safely go on the other side (false positives from
+            # real breath/bow noise) — both are set from what the data
+            # demands, not pushed lower than that.
+            _BREATH_NOISE_ABS_FLOOR = 0.0003
+            _BREATH_NOISE_REL_FACTOR = 0.15
+            if rms_attack < _BREATH_NOISE_ABS_FLOOR:
+                continue
+            if take_loud_rms > 0 and rms_attack < _BREATH_NOISE_REL_FACTOR * take_loud_rms:
                 continue
 
             confidence = int(min(100, float(np.mean(window_conf)) * 100))

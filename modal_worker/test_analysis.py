@@ -31,8 +31,46 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# _REAL_AUDIO_MODULES are left alone (real import, no stub) when ALL of
+# them are actually installed; otherwise every one of them is stubbed, same
+# as before. This has to be all-or-nothing, not a per-module setdefault:
+# torch/scipy/librosa/soundfile/torchcrepe cross-check each other's types
+# internally (e.g. scipy.stats calling `issubclass(x, torch.Tensor)`), so a
+# MIX of real and MagicMock-stubbed modules among them crashes somewhere
+# inside that cross-checking with an unrelated-looking TypeError — not a
+# clean ImportError pointing at the actual gap. `importlib.util.find_spec`
+# only checks whether a package is installed, with no import side effects,
+# so checking all five first is safe even on an environment (this repo's
+# plain dev checkout) where none of them are installed at all.
+#
+# Everything else keeps the unconditional stub-if-absent behavior (plain
+# setdefault) regardless — those modules' REAL behavior is deliberately
+# never exercised by any test ([64]'s generate_reference_audio_smoke etc.
+# are written and verified against pretty_midi/fluidsynth being mocked, not
+# against real native synthesis, which needs a system libfluidsynth most
+# dev environments don't have), so switching them to a real import on a
+# machine that happens to have the pure-Python package installed would
+# break tests that were never designed to run against the real thing.
+#
+# [179]/[180] (test_run_pitch_tracking_*) are the one exception needing the
+# real audio stack: the first tests in this file to call real audio code.
+# Root-caused 2026-10-11: with a bare setdefault, whichever of these wasn't
+# ALREADY imported by the time this file is imported got permanently
+# stubbed as a MagicMock in sys.modules — including inside worker.py's own
+# later, lazy `import librosa`/`import soundfile` calls — even in an
+# environment that has the real packages installed. [179] failed with "not
+# enough values to unpack" from deep inside librosa.load, traced to
+# soundfile.read being a MagicMock purely because of import ORDER, not
+# anything either test did. On an environment missing the real audio stack
+# entirely, [179]/[180] skip themselves (see their own SKIP checks) rather
+# than running against stubs that can't produce a real pitch reading.
+import importlib.util as _ilu
+_REAL_AUDIO_MODULES = ("torch", "torchcrepe", "librosa", "soundfile", "scipy")
+REAL_AUDIO_STACK_AVAILABLE = all(_ilu.find_spec(_n) is not None for _n in _REAL_AUDIO_MODULES)
 for _n in ["modal", "torch", "torchcrepe", "librosa", "soundfile", "music21",
            "requests", "scipy", "scipy.signal", "pretty_midi", "mido", "httpx"]:
+    if REAL_AUDIO_STACK_AVAILABLE and (_n in _REAL_AUDIO_MODULES or _n == "scipy.signal"):
+        continue
     sys.modules.setdefault(_n, MagicMock())
 import numpy as np                                    # noqa: E402
 sys.modules["numpy"] = np
@@ -6357,6 +6395,71 @@ def test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed():
           fixed_non_poor >= 3, f"{fixed_non_poor} non-poor rows of {fixed_row_count}")
 
 
+def test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed():
+    print("\n[179] root-caused 2026-10-11 against TinySOL (Cella et al., "
+          "Zenodo doi:10.5281/zenodo.3685367, CC-BY 4.0): run_pitch_tracking "
+          "had NO prior unit coverage at all — this is the first test to "
+          "call it against real audio. The breath-noise gate used to be a "
+          "single fixed absolute RMS floor (0.012), which silently assumed "
+          "every input recording sits at a similar overall loudness. "
+          "Validated wrong at scale: 822 of 2224 real, correctly-played "
+          "TinySOL notes were missed, 98.7% of a sampled subset of those "
+          "misses measuring BELOW 0.012 despite being genuine sounding "
+          "notes. This fixture (a real mf violin G3) is one of them: "
+          "CREPE itself tracks it with excellent confidence (mean periodicity "
+          "0.81) — it was the OLD gate, not the pitch detector, discarding "
+          "it outright.")
+    if not REAL_AUDIO_STACK_AVAILABLE:
+        print("  SKIP  torch/torchcrepe/librosa/soundfile/scipy not all installed "
+              "in this environment — run_pitch_tracking needs the real stack, "
+              "not a stub, to mean anything")
+        return
+    wav_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_violin_note_tinysol_g3_mf.wav")
+    with open(wav_path, "rb") as f:
+        wav_bytes = f.read()
+
+    events = w.run_pitch_tracking(wav_bytes, instrument="Violin")
+    check("at least one note event is detected — the old absolute floor "
+          "(0.012) discarded this real note outright (confirmed via git "
+          "stash: zero events with the prior gate)",
+          len(events) > 0, f"{len(events)} events")
+
+    detected_raws = [e["midi_raw"] for e in events if e.get("midi_raw") is not None]
+    # G3 = midi 55. A real bowed note can sit a few cents off true pitch —
+    # within one semitone is the same bar read_score_notes_claude's own
+    # wrong-note comparison uses for midi_raw elsewhere in this file.
+    check("the detected pitch matches the real note played (G3, midi 55) "
+          "within a semitone",
+          detected_raws and abs(sorted(detected_raws)[len(detected_raws) // 2] - 55) <= 1,
+          str(detected_raws))
+
+
+def test_run_pitch_tracking_still_rejects_true_silence():
+    print("\n[180] the breath-noise gate's redesign (relative to the take's "
+          "own loud passages, not a fixed absolute number — see [179]) "
+          "must not accidentally let pure silence through just because "
+          "0.15x of 'very quiet' is still a small number. A synthetic "
+          "all-zero buffer has take_loud_rms == 0, which could divide by "
+          "zero or vacuously pass a naive relative check; the absolute "
+          "backstop (_BREATH_NOISE_ABS_FLOOR) and the take_loud_rms > 0 "
+          "guard both exist specifically for this case.")
+    if not REAL_AUDIO_STACK_AVAILABLE:
+        print("  SKIP  torch/torchcrepe/librosa/soundfile/scipy not all installed "
+              "in this environment")
+        return
+    import numpy as np
+    import soundfile as sf
+    import io
+    silence = np.zeros(22050 * 3, dtype=np.float32)  # 3s of true digital silence
+    buf = io.BytesIO()
+    sf.write(buf, silence, 22050, format="WAV")
+    events = w.run_pitch_tracking(buf.getvalue(), instrument="Violin")
+    check("pure digital silence produces zero note events, not a crash or "
+          "a spurious detection",
+          events == [], str(events))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6531,7 +6634,9 @@ def main():
               test_normalize_page_orientation_rotates_a_sideways_portrait_photo,
               test_normalize_page_orientation_noop_when_no_rotation_needed,
               test_normalize_page_orientation_falls_back_on_undecodable_bytes,
-              test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed):
+              test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed,
+              test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed,
+              test_run_pitch_tracking_still_rejects_true_silence):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

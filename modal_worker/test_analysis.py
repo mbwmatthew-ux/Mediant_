@@ -6460,6 +6460,64 @@ def test_run_pitch_tracking_still_rejects_true_silence():
           events == [], str(events))
 
 
+def test_cluster_sustained_events():
+    print("\n[181] _cluster_sustained_events groups spurious same-pitch re-sampling")
+
+    def ev(t, midi, sound_end):
+        return {"time_sec": t, "midi_raw": midi, "sound_end": sound_end}
+
+    # Two events, same pitch, no release between them -> one cluster of two.
+    clusters = w._cluster_sustained_events([ev(0.0, 60, 0.30), ev(0.20, 60, 0.50)])
+    check("same pitch + no release -> one cluster",
+          len(clusters) == 1 and len(clusters[0]) == 2, f"{[len(c) for c in clusters]}")
+
+    # Same pitch, but a real release (next onset is AFTER sound_end) -> two clusters.
+    clusters = w._cluster_sustained_events([ev(0.0, 60, 0.10), ev(0.20, 60, 0.50)])
+    check("same pitch + real release -> two clusters",
+          len(clusters) == 2 and all(len(c) == 1 for c in clusters), f"{[len(c) for c in clusters]}")
+
+    # Pitch differs by 2+ semitones -> two clusters, even with no detected release.
+    clusters = w._cluster_sustained_events([ev(0.0, 60, 0.30), ev(0.20, 62, 0.50)])
+    check("pitch differs by 2+ -> two clusters even without a release",
+          len(clusters) == 2, f"{[len(c) for c in clusters]}")
+
+    # Pitch differs by exactly 1 (the tolerance boundary), no release -> one cluster.
+    clusters = w._cluster_sustained_events([ev(0.0, 60, 0.30), ev(0.20, 61, 0.50)])
+    check("pitch differs by exactly 1 -> one cluster (boundary is inclusive)",
+          len(clusters) == 1 and len(clusters[0]) == 2, f"{[len(c) for c in clusters]}")
+
+    # Three events chaining together (1-2 joins, 2-3 joins) -> one cluster of three.
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.30), ev(0.20, 60, 0.50), ev(0.40, 60, 0.70)])
+    check("a chain of three same-pitch events -> one cluster of three",
+          len(clusters) == 1 and len(clusters[0]) == 3, f"{[len(c) for c in clusters]}")
+
+    # Gradual drift: 60 -> 61 -> 62. Each STEP is within tolerance (diff 1), but the
+    # total drift (60 to 62) is 2 semitones. No release anywhere. Chaining against
+    # the PREVIOUS event (not a fixed first-event anchor) must keep these together —
+    # this is the exact bug the spec review caught before any code was written.
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.30), ev(0.20, 61, 0.50), ev(0.40, 62, 0.70)])
+    check("gradual drift across a continuous sustain stays one cluster",
+          len(clusters) == 1 and len(clusters[0]) == 3, f"{[len(c) for c in clusters]}")
+
+    # Empty input -> empty output.
+    check("empty input -> empty output", w._cluster_sustained_events([]) == [])
+
+    # Single event -> one cluster of one.
+    clusters = w._cluster_sustained_events([ev(0.0, 60, 0.30)])
+    check("single event -> one cluster of one",
+          len(clusters) == 1 and len(clusters[0]) == 1, f"{[len(c) for c in clusters]}")
+
+    # Missing midi_raw/sound_end entirely (matches real ad-hoc test fixtures
+    # elsewhere in this file) must not crash, and must never cluster — see
+    # Task 1's design note on defensive field access.
+    bare = [{"time_sec": 0.0, "pitches": ["C4"]}, {"time_sec": 0.05, "pitches": ["C4"]}]
+    clusters = w._cluster_sustained_events(bare)
+    check("events missing midi_raw/sound_end never crash and never cluster",
+          len(clusters) == 2, f"{[len(c) for c in clusters]}")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6636,7 +6694,8 @@ def main():
               test_normalize_page_orientation_falls_back_on_undecodable_bytes,
               test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed,
               test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed,
-              test_run_pitch_tracking_still_rejects_true_silence):
+              test_run_pitch_tracking_still_rejects_true_silence,
+              test_cluster_sustained_events):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

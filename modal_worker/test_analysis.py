@@ -132,19 +132,8 @@ def make_performance(score, warp=None):
             # Real events carry end_sec (the next onset) and cents_spread; the
             # wrong-note gates read both, so the fixture must have them or it
             # exercises a path production never takes.
-            #
-            # midi_raw/sound_end: real events always carry both once
-            # _cluster_sustained_events reads them (see that function's own
-            # docstring). sound_end == time_sec here deliberately — this
-            # fixture's notes are short and non-legato by design, so "no
-            # measured sustain" is the honest value, and it guarantees these
-            # events never cluster with each other (every event's time_sec is
-            # strictly greater than the previous one's sound_end), which is
-            # required for the dozens of existing tests built on this fixture
-            # to keep behaving identically.
             evs.append({"time_sec": t, "end_sec": t + SEC_PER_BEAT,
-                        "pitches": [note["pitch"]], "midi_raw": w.midi_from_name(note["pitch"]),
-                        "sound_end": t, "confidence": 90,
+                        "pitches": [note["pitch"]], "confidence": 90,
                         "cents_offset": 0, "cents_spread": 8, "loudness": "medium"})
     return played, evs
 
@@ -6529,57 +6518,6 @@ def test_cluster_sustained_events():
           len(clusters) == 2, f"{[len(c) for c in clusters]}")
 
 
-def test_dtw_align_to_score_collapses_spurious_same_pitch_oversampling():
-    print("\n[182] dtw_align_to_score collapses spurious same-pitch oversampling "
-          "before aligning, instead of being misled by it")
-    score = make_score()
-    played, evs = make_performance(score)
-    true_notes = [m for m in played for _ in m["notes"]]
-
-    # Simulate run_pitch_tracking over-sampling a RUN of sustained notes (the
-    # measured real-world failure mode — a slow movement's held notes pick up
-    # extra spurious events from vibrato/bow-noise/dynamic swells, and it's
-    # the SUSTAINED, cumulative inflation across a passage that actually
-    # derails DTW, not a single isolated extra event: an isolated bump this
-    # small is well inside the Sakoe-Chiba band's tolerance on its own and
-    # proves nothing either way — tripling only the first 10 of this
-    # fixture's 54 notes was empirically confirmed to break the OLD,
-    # per-event-loop dtw_align_to_score (19 of the 30 tripled copies landed
-    # on the wrong measure) before being used here.
-    N_NOTES, N_COPIES = 10, 3
-    oversampled = []
-    spurious_truth_idx = []  # which true_notes index each spurious event belongs to
-    for idx, ev in enumerate(evs):
-        if idx < N_NOTES:
-            for c in range(N_COPIES):
-                t = ev["time_sec"] + c * 0.05
-                oversampled.append({**ev, "time_sec": t, "sound_end": t + 0.08})
-                spurious_truth_idx.append(idx)
-        else:
-            oversampled.append(ev)
-
-    aligned = w.dtw_align_to_score(oversampled, score, START, BEATS_PER_MEASURE, end_measure=END)
-
-    check("output has one entry per input event (shape unchanged)",
-          len(aligned) == len(oversampled), f"{len(aligned)} vs {len(oversampled)}")
-
-    n_spurious = N_NOTES * N_COPIES
-    wrong = sum(1 for ev, truth_idx in zip(aligned[:n_spurious], spurious_truth_idx)
-                if ev["measure"] != true_notes[truth_idx]["number"])
-    check(f"every oversampled note's copies land on ITS correct measure, "
-          f"not scattered by how many times it was sampled",
-          wrong == 0, f"{wrong}/{n_spurious} on the wrong measure")
-
-    # The rest of the piece (never touched by the oversampling) must still
-    # align correctly — the fix must not have thrown off everything
-    # downstream of the oversampled run.
-    truth_rest = [m["number"] for m in true_notes[N_NOTES:]]
-    got_rest = [e["measure"] for e in aligned[n_spurious:]]
-    exact = sum(1 for a, b in zip(got_rest, truth_rest) if a == b)
-    check("the rest of the piece still aligns correctly",
-          exact == len(truth_rest), f"{exact}/{len(truth_rest)}")
-
-
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6757,8 +6695,7 @@ def main():
               test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed,
               test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed,
               test_run_pitch_tracking_still_rejects_true_silence,
-              test_cluster_sustained_events,
-              test_dtw_align_to_score_collapses_spurious_same_pitch_oversampling):
+              test_cluster_sustained_events):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

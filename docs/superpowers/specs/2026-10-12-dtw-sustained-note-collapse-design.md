@@ -106,12 +106,23 @@ def _cluster_sustained_events(events: list[dict]) -> list[list[dict]]:
     how many times run_pitch_tracking happened to sample it.
 
     An event joins the current cluster when BOTH hold:
-      - its pitch is within 1 semitone of the cluster's anchor (the
-        cluster's first event) — `midi_raw`, the unclamped value already
-        used for wrong-note comparison elsewhere in this file;
+      - its pitch is within 1 semitone of the PREVIOUS event already in
+        the cluster (chained, not compared against the cluster's fixed
+        first event) — `midi_raw`, the unclamped value already used for
+        wrong-note comparison elsewhere in this file;
       - its onset falls at or before the cluster's running `sound_end` —
         i.e. run_pitch_tracking's own release-walk never detected the
         sound actually stopping before this next sample started.
+
+    Chaining against the previous event, not a fixed anchor, matters: a
+    continuous portamento/wide-vibrato sustain can drift gradually by
+    more than 1 semitone in total while never exceeding 1 semitone
+    step-to-step and never triggering a detected release. Comparing
+    against a fixed first-event anchor would wrongly split that one
+    continuous sound into several clusters partway through the drift;
+    chaining keeps it together, which is correct — `sound_end`
+    continuity, not a pitch ceiling, is what actually defines "one
+    physical sound" here.
 
     Otherwise it starts a new cluster. A genuinely re-articulated note
     of the same pitch (a real tongued repeat, not a vibrato artifact)
@@ -135,9 +146,9 @@ def _cluster_sustained_events(events: list[dict]) -> list[list[dict]]:
         return []
     clusters: list[list[dict]] = [[events[0]]]
     cluster_sound_end = events[0]["sound_end"]
-    anchor_midi = events[0]["midi_raw"]
     for ev in events[1:]:
-        same_pitch = abs(ev["midi_raw"] - anchor_midi) <= 1
+        prev_midi = clusters[-1][-1]["midi_raw"]
+        same_pitch = abs(ev["midi_raw"] - prev_midi) <= 1
         no_release_yet = ev["time_sec"] <= cluster_sound_end
         if same_pitch and no_release_yet:
             clusters[-1].append(ev)
@@ -145,7 +156,6 @@ def _cluster_sustained_events(events: list[dict]) -> list[list[dict]]:
         else:
             clusters.append([ev])
             cluster_sound_end = ev["sound_end"]
-            anchor_midi = ev["midi_raw"]
     return clusters
 ```
 
@@ -261,6 +271,12 @@ No caller of `dtw_align_to_score` changes. No caller of
      tolerance is inclusive).
    - Three events forming a chain (1-2 joins, 2-3 joins) → one cluster
      of three, not two separate pairs.
+   - Three events with a gradual drift — midi_raw 60, then 61 (diff 1
+     from event 1), then 62 (diff 1 from event 2, but diff 2 from event
+     1) — all with no release between any of them → one cluster of
+     three. This is the specific case chaining-against-previous exists
+     for; comparing against a fixed first-event anchor would wrongly
+     split it after the second event.
    - Empty input → `[]`.
    - Single event → one cluster of one.
 

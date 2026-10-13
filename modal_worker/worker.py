@@ -1970,9 +1970,17 @@ def dtw_align_to_score(
         print(f"[dtw_align] score has <4 pitched notes — declining, caller should fall back")
         return []
 
+    # Collapse spurious same-pitch re-sampling of one sustained note (vibrato,
+    # bow noise, dynamic swells) into one representative per real sound BEFORE
+    # building the audio pitch sequence, so DTW aligns against how many notes
+    # were actually PLAYED, not how many times run_pitch_tracking happened to
+    # sample one of them. See _cluster_sustained_events and the design spec.
+    clusters = _cluster_sustained_events(events)
+    representatives = [c[0] for c in clusters]
+
     # Build audio sequence: MIDI pitch per event (use the primary pitch)
     audio_midis: list[int | None] = []
-    for ev in events:
+    for ev in representatives:
         pitches = ev.get("pitches", [])
         midi = midi_from_name(pitches[0]) if pitches else None
         audio_midis.append(midi)
@@ -2045,23 +2053,26 @@ def dtw_align_to_score(
     # two (exactly what adding the played-range window introduces) would have
     # attributed every residual to the wrong note.
     result = []
-    for idx, ev in enumerate(events):
+    for idx, cluster in enumerate(clusters):
         score_idx = path_audio_to_score[idx]
         sn = score_notes[score_idx]
-        result.append({
-            **ev,
-            "measure":          sn["measure"],
-            "score_idx":        score_idx,
-            "score_beat":       sn["beat"],
-            "score_dur_beats":  sn["dur_beats"],
-            "score_abs_beat":   sn["abs_beat"],
-            "score_pitch":      sn["pitch"],
-            "score_artic":      sn.get("artic") or "",
-        })
+        match_fields = {
+            "measure":         sn["measure"],
+            "score_idx":       score_idx,
+            "score_beat":      sn["beat"],
+            "score_dur_beats": sn["dur_beats"],
+            "score_abs_beat":  sn["abs_beat"],
+            "score_pitch":     sn["pitch"],
+            "score_artic":     sn.get("artic") or "",
+        }
+        for ev in cluster:
+            result.append({**ev, **match_fields})
 
     # Sanity check: count how many distinct measures were assigned
     measures_hit = len({ev["measure"] for ev in result})
     total_score_measures = len(measures)
+    print(f"[dtw_align] {len(events)} raw events collapsed to {len(representatives)} "
+          f"alignment nodes ({len(events) - len(representatives)} collapsed)")
     print(f"[dtw_align] {n} audio events → {measures_hit}/{total_score_measures} score measures covered")
     return result
 

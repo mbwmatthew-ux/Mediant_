@@ -132,8 +132,19 @@ def make_performance(score, warp=None):
             # Real events carry end_sec (the next onset) and cents_spread; the
             # wrong-note gates read both, so the fixture must have them or it
             # exercises a path production never takes.
+            #
+            # midi_raw/sound_end/from_probe: real events always carry all
+            # three once _cluster_sustained_events reads them. sound_end ==
+            # time_sec and from_probe == False here deliberately — this
+            # fixture's notes are real, separately-timed notes (never
+            # oversampling), so "no measured sustain" and "not a probe
+            # sample" are both the honest values, and together they
+            # guarantee these events never cluster with each other, which
+            # is required for the dozens of existing tests built on this
+            # fixture to keep behaving identically.
             evs.append({"time_sec": t, "end_sec": t + SEC_PER_BEAT,
-                        "pitches": [note["pitch"]], "confidence": 90,
+                        "pitches": [note["pitch"]], "midi_raw": w.midi_from_name(note["pitch"]),
+                        "sound_end": t, "from_probe": False, "confidence": 90,
                         "cents_offset": 0, "cents_spread": 8, "loudness": "medium"})
     return played, evs
 
@@ -6555,6 +6566,90 @@ def test_cluster_sustained_events():
           len(clusters) == 2, f"{[len(c) for c in clusters]}")
 
 
+def test_dtw_align_to_score_collapses_spurious_same_pitch_oversampling():
+    print("\n[183] dtw_align_to_score collapses PROBE-origin oversampling "
+          "before aligning, instead of being misled by it")
+    score = make_score()
+    played, evs = make_performance(score)
+    true_notes = [m for m in played for _ in m["notes"]]
+
+    # Empirically confirmed (not guessed) to robustly break the OLD
+    # per-event loop: 19/30 spurious copies landed on the wrong measure.
+    N_NOTES, N_COPIES = 10, 3
+    oversampled = []
+    spurious_truth_idx = []
+    for idx, ev in enumerate(evs):
+        if idx < N_NOTES:
+            for c in range(N_COPIES):
+                t = ev["time_sec"] + c * 0.05
+                # from_probe True for every copy except the first — the
+                # first IS the real attack; the rest are the spurious
+                # mid-sustain re-samples being simulated.
+                oversampled.append({**ev, "time_sec": t, "sound_end": t + 0.08,
+                                     "from_probe": c > 0})
+                spurious_truth_idx.append(idx)
+        else:
+            oversampled.append(ev)
+
+    aligned = w.dtw_align_to_score(oversampled, score, START, BEATS_PER_MEASURE, end_measure=END)
+
+    check("output has one entry per input event (shape unchanged)",
+          len(aligned) == len(oversampled), f"{len(aligned)} vs {len(oversampled)}")
+
+    n_spurious = N_NOTES * N_COPIES
+    wrong = sum(1 for ev, truth_idx in zip(aligned[:n_spurious], spurious_truth_idx)
+                if ev["measure"] != true_notes[truth_idx]["number"])
+    check("every oversampled note's copies land on ITS correct measure, "
+          "not scattered by how many times it was sampled",
+          wrong == 0, f"{wrong}/{n_spurious} on the wrong measure")
+
+    truth_rest = [m["number"] for m in true_notes[N_NOTES:]]
+    got_rest = [e["measure"] for e in aligned[n_spurious:]]
+    exact = sum(1 for a, b in zip(got_rest, truth_rest) if a == b)
+    check("the rest of the piece still aligns correctly",
+          exact == len(truth_rest), f"{exact}/{len(truth_rest)}")
+
+
+def test_dtw_align_to_score_never_collapses_a_real_ornament():
+    print("\n[184] dtw_align_to_score never collapses real, different "
+          "attacks played close together with no detected release between "
+          "them, even though that's the exact shape the old mechanism "
+          "mistook for one sustained note")
+    score = make_score()
+    played, evs = make_performance(score)
+    true_notes = [m for m in played for _ in m["notes"]]
+
+    # The fixture's own first 4 notes are already different, real,
+    # separately-articulated pitches: G4(67), A4(69), B4(71), C5(72) — a
+    # 2/2/1-semitone gap sequence. The LAST pair (B4->C5, index 2->3) is
+    # the genuine stress case: exactly 1 semitone apart, which is where
+    # the old, reverted mechanism's tolerance actually triggered (the
+    # first two pairs, 2 semitones apart, would never have been
+    # candidates for merging under either mechanism — they don't
+    # discriminate old from new, but they don't hurt either). Compress
+    # all 4 into a tight, legato-fast run with each one's sound_end
+    # overlapping the next's onset, all from_probe=False (real attacks,
+    # not oversampling). This is the reduced shape of the actual MusicNet
+    # piece 2202 failure (A5,G#5,G#5,A5,A5) that broke the first, reverted
+    # attempt.
+    ornament = []
+    for i, ev in enumerate(evs[:4]):
+        t = i * 0.08
+        ornament.append({**ev, "time_sec": t, "sound_end": t + 0.12, "from_probe": False})
+    with_ornament = ornament + evs[4:]
+
+    aligned = w.dtw_align_to_score(with_ornament, score, START, BEATS_PER_MEASURE, end_measure=END)
+
+    check("output has one entry per input event (shape unchanged)",
+          len(aligned) == len(with_ornament), f"{len(aligned)} vs {len(with_ornament)}")
+
+    exact = sum(1 for ev, truth in zip(aligned[:4], true_notes[:4])
+                if ev["measure"] == truth["number"])
+    check("each of the 4 close-together real notes keeps its OWN correct "
+          "measure, none collapsed into a shared one",
+          exact == 4, f"{exact}/4")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6733,7 +6828,9 @@ def main():
               test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed,
               test_run_pitch_tracking_still_rejects_true_silence,
               test_run_pitch_tracking_tags_event_provenance,
-              test_cluster_sustained_events):
+              test_cluster_sustained_events,
+              test_dtw_align_to_score_collapses_spurious_same_pitch_oversampling,
+              test_dtw_align_to_score_never_collapses_a_real_ornament):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

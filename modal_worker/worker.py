@@ -823,18 +823,27 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
             if seg_end - seg_start >= 0.08:
                 voiced_segments.append((float(seg_start), float(seg_end)))
 
+        probe_times: list[float] = []  # only the deliberately-inserted dense mid-sustain samples
         for seg_start, seg_end in voiced_segments:
             if not any((seg_start - 0.03) <= t <= (seg_end + 0.03) for t in candidate_times):
                 candidate_times.append(seg_start)
             probe = seg_start + 0.35
             while probe < seg_end - 0.10:
                 candidate_times.append(probe)
+                probe_times.append(probe)
                 probe += 0.35
 
         candidate_times = _dedupe_times(
             [t for t in candidate_times if 0 <= t <= max(duration, frame_times[-1] if len(frame_times) else 0)],
             min_separation=0.05,
         )
+        # Per final (post-dedup) candidate time, was its nearest source a probe
+        # insertion rather than a real onset/guide/voiced-segment-start? Reuses
+        # the same 0.05s tolerance _dedupe_times itself already uses to decide
+        # two raw times are "the same" candidate.
+        candidate_is_probe = [
+            any(abs(t - p) < 0.05 for p in probe_times) for t in candidate_times
+        ]
 
         events: list[dict] = []
         for i, event_t in enumerate(candidate_times):
@@ -1026,6 +1035,7 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 centroid_hz = flatness = None
 
             events.append({
+                "from_probe":  candidate_is_probe[i],
                 "time_sec":    float(event_t),
                 "end_sec":     float(next_t),
                 "sound_end":   round(sound_end, 3),

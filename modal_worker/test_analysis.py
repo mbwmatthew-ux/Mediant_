@@ -6460,6 +6460,24 @@ def test_run_pitch_tracking_still_rejects_true_silence():
           events == [], str(events))
 
 
+def test_run_pitch_tracking_tags_event_provenance():
+    print("\n[181] every event carries from_probe: True for a dense mid-sustain "
+          "sample, False for a believed real attack")
+    if not REAL_AUDIO_STACK_AVAILABLE:
+        print("  SKIP  torch/torchcrepe/librosa/soundfile/scipy not all installed "
+              "in this environment")
+        return
+    wav_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_violin_note_tinysol_g3_mf.wav")
+    with open(wav_path, "rb") as f:
+        wav_bytes = f.read()
+    events = w.run_pitch_tracking(wav_bytes, instrument="Violin")
+    check("every event has a from_probe key", events and all("from_probe" in e for e in events),
+          f"{len(events)} events")
+    check("from_probe is always a bool, never missing or None",
+          all(isinstance(e["from_probe"], bool) for e in events))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6636,7 +6654,8 @@ def main():
               test_normalize_page_orientation_falls_back_on_undecodable_bytes,
               test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed,
               test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed,
-              test_run_pitch_tracking_still_rejects_true_silence):
+              test_run_pitch_tracking_still_rejects_true_silence,
+              test_run_pitch_tracking_tags_event_provenance):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

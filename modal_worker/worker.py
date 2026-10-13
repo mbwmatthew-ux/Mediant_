@@ -1847,6 +1847,82 @@ def collect_rest_windows(score: dict, beats_per_measure: int) -> list[dict]:
     return out
 
 
+def _cluster_sustained_events(events: list[dict]) -> list[list[dict]]:
+    """
+    Groups PROBE-ORIGIN events (run_pitch_tracking's deliberately dense,
+    0.35s-spaced mid-sustain samples — see that function's `from_probe`
+    tag) into the preceding cluster when they're almost certainly a
+    repeated sample of the SAME physical sound, so DTW aligns against one
+    representative per real sound instead of being misled by how many
+    times a sustained note happened to get re-sampled.
+
+    An event joins the current cluster when ALL of:
+      - it is probe-origin (`from_probe` is True) — an event
+        run_pitch_tracking itself believes was a real detected attack
+        (`from_probe` False or absent) NEVER joins anything, regardless
+        of pitch or timing. This is the one change from an earlier,
+        reverted design, which allowed ANY same-pitch, no-release pair to
+        merge and consequently merged real, distinct, close-interval
+        notes (a 5-note ornament on a real recording, A5,G#5,G#5,A5,A5,
+        got treated as one sustained note).
+      - its pitch is within 1 semitone of the PREVIOUS event already in
+        the cluster (chained, not a fixed anchor — a continuous
+        portamento/wide-vibrato sustain can drift gradually by more than
+        1 semitone in total while never exceeding 1 semitone step-to-step
+        and never triggering a detected release; comparing against a
+        fixed first-event anchor would wrongly split that one continuous
+        sound partway through the drift).
+      - its onset falls at or before the cluster's running `sound_end` —
+        run_pitch_tracking's own release-walk never detected the sound
+        actually stopping before this next sample started. Kept as a
+        secondary, necessary-but-not-sufficient condition alongside
+        provenance: provenance alone would also collapse a probe sample
+        that lands on a genuinely different note the onset detector
+        happened to miss entirely (a known, separately-tracked residual
+        gap — see the design spec's Non-Goals).
+
+    `from_probe`/`midi_raw`/`sound_end` are read defensively, not
+    required: a missing `from_probe` defaults to False (never collapse —
+    unknown provenance must never cause MORE collapsing than the safe
+    default), a missing `midi_raw` derives a pitch from `pitches[0]` via
+    `midi_from_name`, and a missing `sound_end` defaults to the event's
+    own `time_sec` (so it can never pull a later event into its cluster).
+    This keeps every pre-existing event shape in this codebase behaving
+    exactly as it did before this function existed.
+
+    Input must be pre-sorted by time_sec (dtw_align_to_score already
+    receives/produces events in that order). Returns a list of clusters
+    in the same order, each a non-empty list of events in time order.
+    """
+    def _midi(ev):
+        if "midi_raw" in ev:
+            return ev["midi_raw"]
+        pitches = ev.get("pitches") or []
+        return midi_from_name(pitches[0]) if pitches else None
+
+    def _sound_end(ev):
+        return ev.get("sound_end", ev["time_sec"])
+
+    if not events:
+        return []
+    clusters: list[list[dict]] = [[events[0]]]
+    cluster_sound_end = _sound_end(events[0])
+    for ev in events[1:]:
+        prev_midi = _midi(clusters[-1][-1])
+        this_midi = _midi(ev)
+        is_probe = ev.get("from_probe", False)
+        same_pitch = (prev_midi is not None and this_midi is not None
+                      and abs(this_midi - prev_midi) <= 1)
+        no_release_yet = ev["time_sec"] <= cluster_sound_end
+        if is_probe and same_pitch and no_release_yet:
+            clusters[-1].append(ev)
+            cluster_sound_end = max(cluster_sound_end, _sound_end(ev))
+        else:
+            clusters.append([ev])
+            cluster_sound_end = _sound_end(ev)
+    return clusters
+
+
 def dtw_align_to_score(
     events: list[dict],
     score: dict,

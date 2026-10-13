@@ -6478,6 +6478,83 @@ def test_run_pitch_tracking_tags_event_provenance():
           all(isinstance(e["from_probe"], bool) for e in events))
 
 
+def test_cluster_sustained_events():
+    print("\n[182] _cluster_sustained_events only collapses PROBE-origin events, "
+          "never a believed-real attack")
+
+    def ev(t, midi, sound_end, from_probe):
+        return {"time_sec": t, "midi_raw": midi, "sound_end": sound_end, "from_probe": from_probe}
+
+    # Same pitch, no release, SECOND event is probe-origin -> one cluster.
+    # This is the case that SHOULD still collapse (genuine vibrato/dynamic-
+    # swell resampling of one sustained note).
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.30, False), ev(0.20, 60, 0.50, True)])
+    check("same pitch + no release + probe origin -> one cluster",
+          len(clusters) == 1 and len(clusters[0]) == 2, f"{[len(c) for c in clusters]}")
+
+    # Same pitch, no release, but SECOND event is NOT probe-origin -> two
+    # clusters. This is the exact case that broke the reverted first attempt:
+    # a believed-real re-articulation must never merge, regardless of pitch
+    # or timing.
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.30, False), ev(0.20, 60, 0.50, False)])
+    check("same pitch + no release + NOT probe origin -> two clusters (never merges a real attack)",
+          len(clusters) == 2 and all(len(c) == 1 for c in clusters), f"{[len(c) for c in clusters]}")
+
+    # Real release (next onset after sound_end) -> two clusters even if probe.
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.10, False), ev(0.20, 60, 0.50, True)])
+    check("real release -> two clusters even for a probe-origin event",
+          len(clusters) == 2, f"{[len(c) for c in clusters]}")
+
+    # Pitch differs by 2+ -> two clusters even if probe and no release.
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.30, False), ev(0.20, 62, 0.50, True)])
+    check("pitch differs by 2+ -> two clusters even for a probe-origin event",
+          len(clusters) == 2, f"{[len(c) for c in clusters]}")
+
+    # Pitch differs by exactly 1 (tolerance boundary), no release, probe -> one cluster.
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.30, False), ev(0.20, 61, 0.50, True)])
+    check("pitch differs by exactly 1 + probe origin -> one cluster (boundary inclusive)",
+          len(clusters) == 1 and len(clusters[0]) == 2, f"{[len(c) for c in clusters]}")
+
+    # Gradual drift across a continuous sustain, all probe-origin after the
+    # first -> stays one cluster (chaining against the previous event, not a
+    # fixed anchor, carried over unchanged from the reverted first attempt).
+    clusters = w._cluster_sustained_events(
+        [ev(0.0, 60, 0.30, False), ev(0.20, 61, 0.50, True), ev(0.40, 62, 0.70, True)])
+    check("gradual drift, all probe-origin, stays one cluster",
+          len(clusters) == 1 and len(clusters[0]) == 3, f"{[len(c) for c in clusters]}")
+
+    # A real 4-note ornament: different adjacent pitches, ALL believed real
+    # attacks (from_probe=False), close in time, no detected release between
+    # any of them. This is piece 2202's actual A5,G#5,G#5,A5,A5 case from the
+    # MusicNet validation, reduced to the essential shape. None may collapse.
+    ornament = [ev(0.0, 69, 0.23, False), ev(0.19, 68, 0.35, False),
+                ev(0.27, 68, 0.41, False), ev(0.34, 69, 0.52, False)]
+    clusters = w._cluster_sustained_events(ornament)
+    check("a real ornament of different adjacent-semitone pitches, all "
+          "real attacks, never collapses even once",
+          len(clusters) == 4, f"{[len(c) for c in clusters]}")
+
+    # Empty input -> empty output.
+    check("empty input -> empty output", w._cluster_sustained_events([]) == [])
+
+    # Single event -> one cluster of one.
+    clusters = w._cluster_sustained_events([ev(0.0, 60, 0.30, False)])
+    check("single event -> one cluster of one",
+          len(clusters) == 1 and len(clusters[0]) == 1, f"{[len(c) for c in clusters]}")
+
+    # Missing from_probe/midi_raw/sound_end entirely (matches real ad-hoc test
+    # fixtures elsewhere in this file) must not crash, and must never cluster.
+    bare = [{"time_sec": 0.0, "pitches": ["C4"]}, {"time_sec": 0.05, "pitches": ["C4"]}]
+    clusters = w._cluster_sustained_events(bare)
+    check("events missing from_probe/midi_raw/sound_end never crash and never cluster",
+          len(clusters) == 2, f"{[len(c) for c in clusters]}")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6655,7 +6732,8 @@ def main():
               test_split_page_into_rows_recovers_real_systems_once_orientation_is_fixed,
               test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed,
               test_run_pitch_tracking_still_rejects_true_silence,
-              test_run_pitch_tracking_tags_event_provenance):
+              test_run_pitch_tracking_tags_event_provenance,
+              test_cluster_sustained_events):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-13 — Score-alignment fix, second attempt: provenance-gated event collapse (first attempt reverted after real-corpus validation)
+
+Follow-up to the MusicNet score-alignment validation (2026-10-11 session,
+below the pitch-detection entry) — that validation found `dtw_align_to_score`
+catastrophically wrong (0-3% correct) on 9 of 20 real Bach solo pieces, all
+slow/sustained movements, because `run_pitch_tracking` over-samples sustained
+notes and the pure-pitch DTW has no way to recover once the audio-to-score
+event ratio drifts from 1:1.
+
+**First attempt (reverted):** clustered same-pitch events using `sound_end`
+(the release-walk's own continuity signal). Passed every unit test, got
+committed, and the real-corpus MusicNet re-run AFTER that commit found it
+badly regressed 8 previously-good pieces (one dropped 67.8% → 0%) — the
+tolerance that rides through vibrato wobble also rides across real half-step
+melodic transitions (E-F, B-C, any neighbor-tone ornament), and a real
+5-note ornament on piece 2202 got merged into one false cluster. Reverted
+(commits `1e84878`/`d7dd909`).
+
+**Second attempt (shipped):** `run_pitch_tracking` now tags each event with
+`from_probe` — was it a deliberately-inserted dense mid-sustain sample, or a
+believed real attack? `dtw_align_to_score`'s clustering only ever collapses
+a `from_probe=True` event into a preceding cluster; a believed-real attack
+never merges, regardless of pitch or timing. Validated against the full
+MusicNet corpus via a throwaway, uncommitted spike **before** writing the
+spec, and again on the real implementation **before** committing the wiring
+(the one structural process fix from the first attempt): all 8
+previously-good pieces land within 5 points of baseline (worst case -2.2
+points), and 5 of 9 previously-catastrophic pieces improved substantially
+(2221 0.8%→87.3%, 2222 0.1%→32.2%, 2242 1.5%→10.6%, 2288 2.3%→95.8%, 2293
+1.9%→82.0%). A documented, scoped-out residual gap remains on 6 pieces
+(2204, 2220, 2241, 2296, 2186, 2297) where onset detection misses the
+transient between two real sustained low notes — see Backlog. 685/685
+checks passing with the real audio stack, 680/680 without. Deployed.
+
+See `docs/superpowers/specs/2026-10-13-dtw-provenance-based-collapse-design.md`
+and the matching plan, and the Obsidian vault's Sessions notes for both
+attempts (2026-10-12 reverted, 2026-10-13 shipped) for the full root-cause
+narrative.
+
 ## 2026-10-11 (2) — Fixed the breath-noise gate: 60.7% → 95.6% pitch-detection accuracy on a real external corpus
 
 Direct follow-up to the audit below. Owner asked specifically to close the

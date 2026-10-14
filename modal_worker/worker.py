@@ -1923,6 +1923,191 @@ def _cluster_sustained_events(events: list[dict]) -> list[list[dict]]:
     return clusters
 
 
+def _dtw_path(audio_midis: list, score_midis: list) -> list[int]:
+    """
+    Pure-pitch DTW between one sub-sequence of audio events and one
+    sub-sequence of score notes: builds the semitone-distance cost matrix,
+    accumulates it under a Sakoe-Chiba band, and tracebacks from the
+    best-scoring column of the last row (open-end — see dtw_align_to_score's
+    own docstring for why). Factored out so dtw_align_to_score can run it
+    once on the whole piece OR multiple times, once per rest-anchored
+    segment — the algorithm itself is identical either way.
+    """
+    import numpy as np
+
+    n, m_len = len(audio_midis), len(score_midis)
+    if n == 0 or m_len == 0:
+        return []
+
+    SILENCE_COST = 6.0
+    cost = np.full((n, m_len), SILENCE_COST, dtype=np.float32)
+    for i, a_midi in enumerate(audio_midis):
+        if a_midi is not None:
+            cost[i] = np.abs(np.array(score_midis, dtype=np.float32) - a_midi)
+            # Octave confusion (12 semitones) is common — halve its penalty
+            cost[i] = np.minimum(cost[i], np.abs(cost[i] - 12) + 3.0)
+
+    band = max(4, int(max(n, m_len) * 0.25))
+    acc = np.full((n, m_len), np.inf, dtype=np.float32)
+    acc[0, 0] = cost[0, 0]
+    for i in range(1, n):
+        j_lo = max(0, i - band)
+        j_hi = min(m_len - 1, i + band)
+        for j in range(j_lo, j_hi + 1):
+            candidates = [acc[i - 1, j]]
+            if j > 0:
+                candidates.append(acc[i - 1, j - 1])
+                candidates.append(acc[i,     j - 1])
+            acc[i, j] = cost[i, j] + min(candidates)
+
+    last_row = acc[n - 1]
+    j_end = int(np.argmin(last_row)) if np.isfinite(last_row).any() else m_len - 1
+    path: list[int] = [0] * n
+    i, j = n - 1, j_end
+    while i > 0 or j > 0:
+        path[i] = j
+        if i == 0:
+            j -= 1
+        elif j == 0:
+            i -= 1
+        else:
+            prev = min(
+                (acc[i - 1, j - 1], 0),
+                (acc[i - 1, j],     1),
+                (acc[i,     j - 1], 2),
+            )
+            if prev[1] == 0:
+                i -= 1; j -= 1
+            elif prev[1] == 1:
+                i -= 1
+            else:
+                j -= 1
+    path[0] = j
+    return path
+
+
+# Tuning for _find_rest_anchor_checkpoints — see that function's docstring
+# for why each threshold is shaped the way it is. Confirmed against real
+# MusicNet audio (not guessed): these values gave checkpoints on every
+# previously-good piece that still matched (no regressions, mostly
+# fallback-to-no-checkpoints) and real, substantial gains on 6 of 9
+# catastrophic pieces, after an earlier, wider time window (15% of total
+# piece duration) was found to admit unrelated gaps 30-48 seconds away as
+# false-positive candidates.
+_REST_ANCHOR_MIN_GAP_SEC         = 0.35
+_REST_ANCHOR_TIME_TOLERANCE_BEATS = 12.0
+_REST_ANCHOR_DUR_RATIO_LO         = 0.4
+_REST_ANCHOR_DUR_RATIO_HI         = 2.5
+
+
+def _find_rest_anchor_checkpoints(
+    score: dict, score_notes: list[dict], beats_per_measure: int,
+    clusters: list[list[dict]],
+) -> list[tuple[int, int, int]]:
+    """
+    Finds hard resync checkpoints by matching written score rests
+    (collect_rest_windows — already used by the rest-violation detector,
+    reused here rather than re-deriving rest positions) to real silence in
+    the detected audio, so dtw_align_to_score can run as several bounded
+    sub-problems instead of one long path.
+
+    Why: a single long pure-pitch DTW path has no way to recover once a
+    missed onset (run_pitch_tracking's known onset-detection gap) shifts it
+    off the true diagonal — confirmed on real MusicNet audio, the offset
+    just grows for the rest of the piece. Three earlier attempts at fixing
+    this by biasing the DTW cost with a modeled tempo line each failed
+    differently (see docs/superpowers or the Obsidian session notes for
+    2026-10-13's "time-anchor" attempts) — every variant either got fooled
+    by a single bad anchor point or got outvoted once more than half the
+    piece had already drifted. A checkpoint derived from a REST, not a
+    tempo guess, sidesteps both failure modes: it doesn't model tempo at
+    all, and it only ever activates where the evidence (an audible silence
+    where the score says there should be one) is independently confirmed on
+    both the score side and the audio side.
+
+    Returns a list of (score_idx_before, score_idx_after, cluster_idx)
+    tuples, sorted and filtered to be strictly monotonic in BOTH the score
+    and audio dimensions — a real performance plays rests in order, so a
+    checkpoint that would go backward in either dimension relative to the
+    previous one is a false match, not a real resync point. Returns []
+    whenever there's nothing confident to anchor on (too few notes, no
+    rests, no audio gaps, or no plausible match) — dtw_align_to_score then
+    falls back to exactly today's single whole-piece DTW, unchanged.
+    """
+    if len(score_notes) < 8 or len(clusters) < 8:
+        return []
+
+    rests = collect_rest_windows(score, beats_per_measure)
+    if not rests:
+        return []
+
+    first_m = min(sn["measure"] for sn in score_notes)
+    rest_bounds = []
+    for r in rests:
+        s = (r["measure"] - first_m) * beats_per_measure + (r["start_beat"] - 1.0)
+        e = (r["measure"] - first_m) * beats_per_measure + (r["end_beat"] - 1.0)
+        before = [i for i, sn in enumerate(score_notes) if sn["abs_beat"] < s]
+        after  = [i for i, sn in enumerate(score_notes) if sn["abs_beat"] >= e]
+        if not before or not after:
+            continue
+        idx_before, idx_after = before[-1], after[0]
+        if idx_after <= idx_before:
+            continue
+        rest_bounds.append({"score_idx_before": idx_before, "score_idx_after": idx_after,
+                             "abs_beat_start": s, "rest_beats": r["beats"]})
+    if not rest_bounds:
+        return []
+
+    gaps = []
+    for i in range(len(clusters) - 1):
+        end_i = clusters[i][-1].get("sound_end", clusters[i][-1]["time_sec"])
+        start_next = clusters[i + 1][0]["time_sec"]
+        g = start_next - end_i
+        if g >= _REST_ANCHOR_MIN_GAP_SEC:
+            gaps.append({"after_cluster_idx": i, "gap_sec": g, "gap_start": end_i})
+    if not gaps:
+        return []
+
+    rep_times = [c[0]["time_sec"] for c in clusters]
+    total_time = rep_times[-1] - rep_times[0]
+    total_beats = score_notes[-1]["abs_beat"] - score_notes[0]["abs_beat"]
+    if total_time <= 0 or total_beats <= 0:
+        return []
+    rough_spb = total_time / total_beats
+
+    matches = []
+    for rb in rest_bounds:
+        target_time = rep_times[0] + rb["abs_beat_start"] * rough_spb
+        expected_dur = rb["rest_beats"] * rough_spb
+        time_tolerance = _REST_ANCHOR_TIME_TOLERANCE_BEATS * rough_spb
+        best, best_score = None, None
+        for g in gaps:
+            time_diff = abs(g["gap_start"] - target_time)
+            if time_diff > time_tolerance:
+                continue
+            dur_ratio = g["gap_sec"] / expected_dur if expected_dur > 0 else 0
+            if not (_REST_ANCHOR_DUR_RATIO_LO <= dur_ratio <= _REST_ANCHOR_DUR_RATIO_HI):
+                continue
+            # Within this tight a window, closest-in-time is the right
+            # tie-break (an earlier version picked the best duration match
+            # instead, which backfired: on a wide time window it preferred a
+            # coincidentally well-matched gap in a completely different part
+            # of the piece over the real, nearby one).
+            if best is None or time_diff < best_score:
+                best, best_score = g, time_diff
+        if best is not None:
+            matches.append((rb, best))
+
+    matches.sort(key=lambda m: m[0]["abs_beat_start"])
+    checkpoints: list[tuple[int, int, int]] = []
+    last_score_idx, last_cluster_idx = -1, -1
+    for rb, g in matches:
+        if rb["score_idx_before"] > last_score_idx and g["after_cluster_idx"] > last_cluster_idx:
+            checkpoints.append((rb["score_idx_before"], rb["score_idx_after"], g["after_cluster_idx"]))
+            last_score_idx, last_cluster_idx = rb["score_idx_after"], g["after_cluster_idx"]
+    return checkpoints
+
+
 def dtw_align_to_score(
     events: list[dict],
     score: dict,
@@ -1952,8 +2137,6 @@ def dtw_align_to_score(
     []) if the score has fewer than 4 usable pitched notes; the caller should
     fall back to beat-grid alignment in that case.
     """
-    import numpy as np
-
     measures = score.get("measures", [])
     if not measures or not events:
         return events
@@ -1988,59 +2171,33 @@ def dtw_align_to_score(
     n, m_len = len(audio_midis), len(score_seq)
     score_midis = [s[0] for s in score_seq]
 
-    # Cost matrix: semitone distance between each audio event and each score note.
-    # Unpitched/silent events get a high fixed cost (don't penalize alignment).
-    SILENCE_COST = 6.0
-    cost = np.full((n, m_len), SILENCE_COST, dtype=np.float32)
-    for i, a_midi in enumerate(audio_midis):
-        if a_midi is not None:
-            cost[i] = np.abs(np.array(score_midis, dtype=np.float32) - a_midi)
-            # Octave confusion (12 semitones) is common — halve its penalty
-            cost[i] = np.minimum(cost[i], np.abs(cost[i] - 12) + 3.0)
+    # Rest-anchored segmentation: run DTW as several independent, bounded
+    # sub-problems between checkpoints instead of one long path, when real
+    # score rests and real audio silence confidently agree on where those
+    # checkpoints are. See _find_rest_anchor_checkpoints's docstring for why
+    # this replaces the pure-pitch path's inability to recover from drift.
+    # With no checkpoints (the common case — most rest-free or rest-sparse
+    # pieces), this reduces to exactly one segment spanning the whole piece,
+    # i.e. identical behavior to a single whole-piece DTW call.
+    checkpoints = _find_rest_anchor_checkpoints(score, score_notes, beats_per_measure, clusters)
+    segments: list[tuple[int, int, int, int]] = []
+    prev_c, prev_s = 0, 0
+    for score_idx_before, score_idx_after, cluster_idx in checkpoints:
+        segments.append((prev_c, cluster_idx + 1, prev_s, score_idx_before + 1))
+        prev_c, prev_s = cluster_idx + 1, score_idx_after
+    segments.append((prev_c, n, prev_s, m_len))
 
-    # Standard DTW accumulated cost with slope constraint (Sakoe-Chiba band)
-    # band_ratio limits how far the path can deviate from the diagonal.
-    band = max(4, int(max(n, m_len) * 0.25))
-    acc  = np.full((n, m_len), np.inf, dtype=np.float32)
-    acc[0, 0] = cost[0, 0]
-    for i in range(1, n):
-        j_lo = max(0, i - band)
-        j_hi = min(m_len - 1, i + band)
-        for j in range(j_lo, j_hi + 1):
-            candidates = [acc[i - 1, j]]
-            if j > 0:
-                candidates.append(acc[i - 1, j - 1])
-                candidates.append(acc[i,     j - 1])
-            acc[i, j] = cost[i, j] + min(candidates)
-
-    # Open-END traceback: begin from the best-scoring column of the last row
-    # rather than forcing the path onto the score's final note. A take that stops
-    # partway (or an end_measure we could not determine) would otherwise be
-    # stretched to cover every remaining measure, which is exactly what smeared
-    # the measure numbers across the whole score.
-    last_row = acc[n - 1]
-    j_end = int(np.argmin(last_row)) if np.isfinite(last_row).any() else m_len - 1
     path_audio_to_score: list[int] = [0] * n
-    i, j = n - 1, j_end
-    while i > 0 or j > 0:
-        path_audio_to_score[i] = j
-        if i == 0:
-            j -= 1
-        elif j == 0:
-            i -= 1
-        else:
-            prev = min(
-                (acc[i - 1, j - 1], 0),
-                (acc[i - 1, j],     1),
-                (acc[i,     j - 1], 2),
-            )
-            if prev[1] == 0:
-                i -= 1; j -= 1
-            elif prev[1] == 1:
-                i -= 1
-            else:
-                j -= 1
-    path_audio_to_score[0] = j
+    for c_start, c_end, s_start, s_end in segments:
+        if c_end <= c_start:
+            continue
+        local_path = _dtw_path(audio_midis[c_start:c_end], score_midis[s_start:s_end])
+        for k, p in enumerate(local_path):
+            path_audio_to_score[c_start + k] = s_start + p
+
+    if checkpoints:
+        print(f"[dtw_align] {len(checkpoints)} rest-anchored checkpoint(s) found — "
+              f"ran DTW as {len(segments)} segment(s) instead of one whole-piece path")
 
     # Map each audio event to a measure number via the score alignment.
     # score_idx is kept too: it indexes flatten_score_notes(score), which carries

@@ -6650,6 +6650,140 @@ def test_dtw_align_to_score_never_collapses_a_real_ornament():
           exact == 4, f"{exact}/4")
 
 
+def _make_score_with_one_rest_measure(rest_measure_number, n_before, n_after):
+    """
+    A score shaped like make_score() (same repeating 8-note SCALE, same
+    3/4 time, same tempo convention) but with ONE measure replaced by a
+    full-measure rest, flanked by n_before and n_after normal measures.
+    Only used by the rest-anchored-checkpoint tests below — the shared
+    make_score() fixture deliberately has no rests, since the dozens of
+    other tests built on it need that NOT to change.
+    """
+    numbers = list(range(1, n_before + 1)) + [rest_measure_number] + \
+        list(range(rest_measure_number + 1, rest_measure_number + 1 + n_after))
+    measures = []
+    note_i = 0
+    for n in numbers:
+        if n == rest_measure_number:
+            measures.append({"number": n, "notes": [
+                {"pitch": None, "is_rest": True, "beat": 1.0, "duration_beats": float(BEATS_PER_MEASURE)}]})
+        else:
+            notes = []
+            for b in range(BEATS_PER_MEASURE):
+                notes.append({"pitch": SCALE[note_i % 8], "is_rest": False,
+                              "beat": float(b + 1), "duration_beats": 1.0})
+                note_i += 1
+            measures.append({"number": n, "notes": notes})
+    return {"time_signature": "3/4", "measures": measures}
+
+
+def _make_performance_for_score(score, dropped_range=None):
+    """
+    Events for EVERY pitched note in `score`, laid out at the shared
+    fixture's steady tempo, continuous through rests (a rest consumes real
+    time but produces no event — exactly like a real player's silence).
+    `dropped_range` removes a contiguous slice of events (simulating
+    missed onsets) while leaving every surviving event's real timestamp
+    untouched, the same technique test_dtw_align_to_score_time_anchor_
+    recovers_from_a_missed_onset_run used (that test's mechanism was later
+    abandoned; this scenario — a run of missed onsets early in a piece —
+    is real and still worth guarding, now via rest-anchored checkpoints
+    instead).
+    """
+    true_notes, evs = [], []
+    t = 0.0
+    for m in score["measures"]:
+        for note in m["notes"]:
+            if note["is_rest"]:
+                t += note["duration_beats"] * SEC_PER_BEAT
+                continue
+            evs.append({"time_sec": t, "end_sec": t + SEC_PER_BEAT,
+                        "pitches": [note["pitch"]], "midi_raw": w.midi_from_name(note["pitch"]),
+                        "sound_end": t, "from_probe": False, "confidence": 90,
+                        "cents_offset": 0, "cents_spread": 8, "loudness": "medium"})
+            true_notes.append({"number": m["number"]})
+            t += SEC_PER_BEAT
+    if dropped_range:
+        lo, hi = dropped_range
+        evs = evs[:lo] + evs[hi:]
+        true_notes = true_notes[:lo] + true_notes[hi:]
+    return true_notes, evs
+
+
+def test_find_rest_anchor_checkpoints_is_empty_on_a_rest_free_score():
+    print("\n[185] a score with no rests never produces a checkpoint — the "
+          "shared fixture every other DTW test relies on must keep behaving "
+          "exactly as before")
+    score = make_score()
+    played, evs = make_performance(score)
+    score_notes = w.flatten_score_notes(score, START, END, BEATS_PER_MEASURE)
+    clusters = w._cluster_sustained_events(evs)
+    checkpoints = w._find_rest_anchor_checkpoints(score, score_notes, BEATS_PER_MEASURE, clusters)
+    check("no checkpoints on a score with zero rests",
+          checkpoints == [], f"{checkpoints}")
+
+
+def test_find_rest_anchor_checkpoints_ignores_an_unnotated_pause():
+    print("\n[186] a real silence in the audio with no matching score rest "
+          "never creates a false checkpoint, and dtw_align_to_score still "
+          "aligns correctly across it")
+    score = make_score()
+    played, evs = make_performance(score)
+    true_notes = [m for m in played for _ in m["notes"]]
+    # A 3-second unnotated pause (breath, bow change, hesitation) inserted
+    # after event 10 — nothing in the SCORE says a rest belongs here.
+    paused = evs[:10] + [{**ev, "time_sec": ev["time_sec"] + 3.0} for ev in evs[10:]]
+
+    score_notes = w.flatten_score_notes(score, START, END, BEATS_PER_MEASURE)
+    clusters = w._cluster_sustained_events(paused)
+    checkpoints = w._find_rest_anchor_checkpoints(score, score_notes, BEATS_PER_MEASURE, clusters)
+    check("an audio pause with no corresponding score rest creates no checkpoint",
+          checkpoints == [], f"{checkpoints}")
+
+    aligned = w.dtw_align_to_score(paused, score, START, BEATS_PER_MEASURE, end_measure=END)
+    got = [e["measure"] for e in aligned]
+    truth = [t["number"] for t in true_notes]
+    exact = sum(1 for a, b in zip(got, truth) if a == b)
+    check("alignment is unaffected by the unnotated pause",
+          exact == len(truth), f"{exact}/{len(truth)}")
+
+
+def test_dtw_align_to_score_rest_anchored_checkpoint_bounds_drift_to_its_segment():
+    print("\n[187] a rest-anchored checkpoint keeps a run of missed onsets "
+          "from derailing measures on the OTHER side of the rest — bounded "
+          "by segment instead of needing a tempo model")
+    # 10 measures, a full-measure rest at measure 11, then 9 more measures —
+    # same repeating 8-note SCALE as the shared fixture, so the pre-rest
+    # section has the same pitch-tie ambiguity that let a missed-onset run
+    # cause permanent drift in a single whole-piece DTW (see the abandoned
+    # time-anchor attempts' session notes).
+    score = _make_score_with_one_rest_measure(rest_measure_number=11, n_before=10, n_after=9)
+    true_notes, evs = _make_performance_for_score(score)
+
+    # Drop 8 contiguous events (one full scale cycle) early in the PRE-rest
+    # section — the same magnitude confirmed (test [185], now removed along
+    # with the abandoned mechanism) to cause lasting drift under pure-pitch
+    # DTW with no recovery mechanism.
+    dropped_true_notes, dropped_evs = _make_performance_for_score(score, dropped_range=(10, 18))
+
+    score_notes = w.flatten_score_notes(score, 1, None, BEATS_PER_MEASURE)
+    clusters = w._cluster_sustained_events(dropped_evs)
+    checkpoints = w._find_rest_anchor_checkpoints(score, score_notes, BEATS_PER_MEASURE, clusters)
+    check("the rest produces exactly one checkpoint",
+          len(checkpoints) == 1, f"{checkpoints}")
+
+    aligned = w.dtw_align_to_score(dropped_evs, score, 1, BEATS_PER_MEASURE, end_measure=None)
+    got = [e["measure"] for e in aligned]
+    truth = [t["number"] for t in dropped_true_notes]
+
+    post_rest_got = [g for g, b in zip(got, truth) if b > 11]
+    post_rest_truth = [b for b in truth if b > 11]
+    exact = sum(1 for a, b in zip(post_rest_got, post_rest_truth) if a == b)
+    check("every measure AFTER the rest is exactly correct, regardless of "
+          "what the missed-onset run did before it",
+          exact == len(post_rest_truth), f"{exact}/{len(post_rest_truth)}")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6830,7 +6964,10 @@ def main():
               test_run_pitch_tracking_tags_event_provenance,
               test_cluster_sustained_events,
               test_dtw_align_to_score_collapses_spurious_same_pitch_oversampling,
-              test_dtw_align_to_score_never_collapses_a_real_ornament):
+              test_dtw_align_to_score_never_collapses_a_real_ornament,
+              test_find_rest_anchor_checkpoints_is_empty_on_a_rest_free_score,
+              test_find_rest_anchor_checkpoints_ignores_an_unnotated_pause,
+              test_dtw_align_to_score_rest_anchored_checkpoint_bounds_drift_to_its_segment):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

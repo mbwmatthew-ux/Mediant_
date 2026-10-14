@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-13 — Score-alignment fix, third round: rest-anchored DTW segmentation
+
+Same-day follow-up to the provenance-collapse fix below, targeting the
+residual gap it left documented: `dtw_align_to_score`'s pure-pitch DTW has
+no way to recover once a missed onset shifts the path off the true
+diagonal — confirmed on real MusicNet audio, the predicted/true measure
+offset grows monotonically for the rest of the piece once it starts (e.g.
+piece 2297: -2 to -107 measures).
+
+**Three "time-anchor" variants tried and abandoned first** (bias the DTW
+cost toward a modeled tempo line) — each validated against real audio,
+each failed differently: a global 2-point secant was net NEGATIVE overall
+(55.7%→52.9% correct) while badly breaking previously-good pieces 2219/2293;
+a full-path robust fit no-op'd on exactly the catastrophic pieces it
+targeted (drifted notes become the outlier-trimming's statistical
+majority); an early-window fit broke almost everything. All reverted,
+nothing shipped from that line.
+
+**Shipped instead: rest-anchored segmentation (commit `c25e332`).** Matches
+written score rests (`collect_rest_windows`, already used by the
+rest-violation detector) to real silence in the detected audio within a
+tight beat-based window, uses confident matches as hard resync checkpoints,
+and runs DTW as independent bounded sub-problems between them instead of
+one long path — no tempo model, only activates where score and audio
+independently agree a rest happened, and falls back to exactly the old
+single whole-piece DTW otherwise (the common case for rest-sparse pieces).
+Two false-positive matching bugs were found and fixed via real-data
+diagnosis before this passed the full-corpus gate (see Obsidian session
+note for the tuning history).
+
+**Validated against the real 20-piece MusicNet corpus:** overall
+exact-measure-match correct 55.7%→60.1%. Six catastrophic pieces
+meaningfully improved: 2204 +24.2pts (8.6%→32.8%), 2242 +35.9pts
+(10.7%→46.6%), 2297 +12.5pts (0%→12.5%), 2220 +5.4pts, 2222 +5.3pts, 2296
++5.5pts. Every previously-good piece held within noise (worst: 2293
+-1.1pt). Three pieces remain weak (2186, 2217, 2241) — too few usable
+rest/audio-gap matches in those specific pieces; tracked in
+`AGENT_TASKS.md`'s Backlog, not a regression.
+
 ## 2026-10-13 — Score-alignment fix, second attempt: provenance-gated event collapse (first attempt reverted after real-corpus validation)
 
 Follow-up to the MusicNet score-alignment validation (2026-10-11 session,

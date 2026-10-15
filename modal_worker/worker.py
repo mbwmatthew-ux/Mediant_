@@ -711,6 +711,74 @@ def note_body_window(event_t: float, sound_end: float | None, next_t: float | No
     return s, e
 
 
+_PITCH_JUMP_MEDIAN_FRAMES  = 3     # ~120ms at the 40ms CREPE hop — kills lone-frame octave glitches
+_PITCH_JUMP_SEMITONES      = 2.5   # comfortably above typical vibrato depth, well below a real leap
+_PITCH_JUMP_SUSTAIN_FRAMES = 3     # the new pitch must hold, not just blip, to count as a real attack
+
+
+def _detect_within_segment_pitch_jumps(
+    pitch_np, frame_times, voiced_segments: list[tuple[float, float]],
+) -> list[float]:
+    """
+    Finds real note changes HIDING inside one continuously-voiced CREPE
+    segment — confirmed on real audio (MusicNet piece 2217) to be a genuine,
+    common failure mode: a legato passage where CREPE's confidence never
+    dips and librosa.onset.onset_detect never fires a transient, yet the
+    measured pitch jumps by well over an octave and stays there for several
+    consecutive frames (a real new note, not noise) before jumping again.
+    One inspected segment spanned 19 semitones total and contained at least
+    three distinct sustained pitch levels that the rest of the pipeline was
+    treating as one note.
+
+    Deliberately NOT a model/decoder change (that path — CREPE "full" model,
+    Viterbi decoding — was tried and reverted: real but costly ~17x slower,
+    for a small, mixed accuracy result). This is pure post-processing over
+    pitch_np, already computed for the "tiny" model's own output —
+    negligible added compute (a median filter and a linear scan over a few
+    thousand frames) regardless of which CREPE model is in use.
+
+    Method: median-filter the segment's pitch trace (kills lone-frame
+    glitches, like a single frame reading an octave off — confirmed on the
+    same real segment above), then walk it looking for a point where the
+    short window AFTER differs from the short window BEFORE by more than
+    _PITCH_JUMP_SEMITONES and the new level holds for
+    _PITCH_JUMP_SUSTAIN_FRAMES — long enough to rule out vibrato wobble,
+    which oscillates back rather than holding a new level.
+
+    Returns candidate attack times (NOT tagged from_probe — these are
+    believed-real new attacks, same as a librosa onset or a guide time, so
+    _cluster_sustained_events will never merge them away regardless of
+    pitch proximity to a neighbor).
+    """
+    import numpy as np
+
+    jump_times: list[float] = []
+    half = _PITCH_JUMP_MEDIAN_FRAMES // 2
+    for seg_start_t, seg_end_t in voiced_segments:
+        mask = (frame_times >= seg_start_t) & (frame_times <= seg_end_t)
+        idxs = np.nonzero(mask)[0]
+        if len(idxs) < 2 * _PITCH_JUMP_SUSTAIN_FRAMES + _PITCH_JUMP_MEDIAN_FRAMES:
+            continue
+
+        hz = pitch_np[idxs]
+        midi = np.where(hz > 0, 69 + 12 * np.log2(np.maximum(hz, 1e-6) / 440.0), np.nan)
+        smoothed = np.array([
+            np.nanmedian(midi[max(0, i - half):min(len(midi), i + half + 1)])
+            for i in range(len(midi))
+        ])
+
+        last_jump_i = -_PITCH_JUMP_SUSTAIN_FRAMES
+        for i in range(_PITCH_JUMP_SUSTAIN_FRAMES, len(smoothed) - _PITCH_JUMP_SUSTAIN_FRAMES):
+            before = smoothed[i - _PITCH_JUMP_SUSTAIN_FRAMES:i]
+            after  = smoothed[i:i + _PITCH_JUMP_SUSTAIN_FRAMES]
+            if np.isnan(before).any() or np.isnan(after).any():
+                continue
+            if abs(np.median(after) - np.median(before)) >= _PITCH_JUMP_SEMITONES and i - last_jump_i >= _PITCH_JUMP_SUSTAIN_FRAMES:
+                jump_times.append(float(frame_times[idxs[i]]))
+                last_jump_i = i
+    return jump_times
+
+
 def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None, instrument: str = "") -> list[dict]:
     """
     Detect note events using CREPE (neural pitch tracking) + librosa onset detection.
@@ -832,6 +900,14 @@ def run_pitch_tracking(wav_bytes: bytes, guide_times: list[float] | None = None,
                 candidate_times.append(probe)
                 probe_times.append(probe)
                 probe += 0.35
+
+        # Real note changes hiding inside one continuously-voiced segment —
+        # see _detect_within_segment_pitch_jumps's docstring. NOT added to
+        # probe_times: these are believed-real attacks, so they must never
+        # be collapsed by _cluster_sustained_events regardless of pitch.
+        candidate_times.extend(
+            _detect_within_segment_pitch_jumps(pitch_np, frame_times, voiced_segments)
+        )
 
         candidate_times = _dedupe_times(
             [t for t in candidate_times if 0 <= t <= max(duration, frame_times[-1] if len(frame_times) else 0)],

@@ -6784,6 +6784,74 @@ def test_dtw_align_to_score_rest_anchored_checkpoint_bounds_drift_to_its_segment
           exact == len(post_rest_truth), f"{exact}/{len(post_rest_truth)}")
 
 
+def _hz(midi):
+    return 440.0 * (2.0 ** ((midi - 69) / 12.0))
+
+
+def _synthetic_pitch_track(midi_by_frame, hop_sec=0.04):
+    """A pitch_np/frame_times pair at CREPE's real hop, from a flat list of
+    per-frame MIDI values (None = unvoiced)."""
+    n = len(midi_by_frame)
+    frame_times = np.arange(n) * hop_sec
+    pitch_np = np.array([_hz(m) if m is not None else 0.0 for m in midi_by_frame])
+    return pitch_np, frame_times
+
+
+def test_detect_within_segment_pitch_jumps_finds_a_real_sustained_change():
+    print("\n[188] a real note change hiding inside one continuously-voiced "
+          "CREPE segment is found — the exact shape confirmed on real audio "
+          "(MusicNet piece 2217): a segment CREPE/librosa never split "
+          "contained a sustained jump of well over an octave")
+    # 20 frames (0.8s) at midi 60, then 20 frames (0.8s) at midi 48 (-12
+    # semitones) — one continuous voiced segment the rest of the pipeline
+    # would otherwise treat as a single note.
+    midi_track = [60] * 20 + [48] * 20
+    pitch_np, frame_times = _synthetic_pitch_track(midi_track)
+    jumps = w._detect_within_segment_pitch_jumps(pitch_np, frame_times, [(0.0, frame_times[-1])])
+    check("exactly one jump found", len(jumps) == 1, f"{jumps}")
+    if jumps:
+        check("jump lands at the real transition (0.8s +/- 2 frames)",
+              abs(jumps[0] - 0.8) <= 0.08, f"{jumps[0]:.3f}s")
+
+
+def test_detect_within_segment_pitch_jumps_ignores_a_lone_glitch_frame():
+    print("\n[189] a single-frame octave glitch — CREPE's characteristic "
+          "failure mode — never registers as a real note change")
+    # Same real shape confirmed on MusicNet 2217: one frame drops an octave
+    # and a half below, surrounded on both sides by the same steady pitch.
+    midi_track = [60] * 15 + [42] + [60] * 15
+    pitch_np, frame_times = _synthetic_pitch_track(midi_track)
+    jumps = w._detect_within_segment_pitch_jumps(pitch_np, frame_times, [(0.0, frame_times[-1])])
+    check("no jump from a single stray frame", jumps == [], f"{jumps}")
+
+
+def test_detect_within_segment_pitch_jumps_ignores_vibrato():
+    print("\n[190] vibrato — oscillating back and forth rather than holding "
+          "a new level — never registers as a real note change")
+    # +/-1 semitone oscillation every 3 frames (120ms, a plausible vibrato
+    # rate), well under the 2.5-semitone jump threshold on its own, but
+    # checked here specifically against the SUSTAIN requirement: even if a
+    # single swing briefly exceeded the threshold, oscillating back within
+    # a few frames must not count as a held new level.
+    base = 60
+    midi_track = []
+    for i in range(40):
+        midi_track.append(base + (1 if (i // 3) % 2 == 0 else -1))
+    pitch_np, frame_times = _synthetic_pitch_track(midi_track)
+    jumps = w._detect_within_segment_pitch_jumps(pitch_np, frame_times, [(0.0, frame_times[-1])])
+    check("no jump from vibrato wobble", jumps == [], f"{jumps}")
+
+
+def test_detect_within_segment_pitch_jumps_finds_multiple_levels_in_one_segment():
+    print("\n[191] multiple real note changes inside one long voiced segment "
+          "are all found — the exact shape of the real MusicNet 2217 "
+          "segment (three distinct sustained levels CREPE never split)")
+    midi_track = [60] * 15 + [43] * 15 + [60] * 15 + [48] * 15
+    pitch_np, frame_times = _synthetic_pitch_track(midi_track)
+    jumps = w._detect_within_segment_pitch_jumps(pitch_np, frame_times, [(0.0, frame_times[-1])])
+    check("all three real transitions found", len(jumps) == 3, f"{jumps}")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -6967,7 +7035,11 @@ def main():
               test_dtw_align_to_score_never_collapses_a_real_ornament,
               test_find_rest_anchor_checkpoints_is_empty_on_a_rest_free_score,
               test_find_rest_anchor_checkpoints_ignores_an_unnotated_pause,
-              test_dtw_align_to_score_rest_anchored_checkpoint_bounds_drift_to_its_segment):
+              test_dtw_align_to_score_rest_anchored_checkpoint_bounds_drift_to_its_segment,
+              test_detect_within_segment_pitch_jumps_finds_a_real_sustained_change,
+              test_detect_within_segment_pitch_jumps_ignores_a_lone_glitch_frame,
+              test_detect_within_segment_pitch_jumps_ignores_vibrato,
+              test_detect_within_segment_pitch_jumps_finds_multiple_levels_in_one_segment):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

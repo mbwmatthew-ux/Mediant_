@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-15 — Pitch-tracker fix: within-segment jump detection (two CREPE model/decoder swaps tried and reverted first)
+
+Follow-up to the DTW alignment work below. After rest-anchored
+segmentation took real-corpus (MusicNet) alignment accuracy to 60.1%,
+the remaining weak pieces were root-caused to the pitch tracker itself:
+under-detection in sustained low-register legato (CREPE's voicing never
+dips between two genuinely different notes, so no onset fires) and
+over-counting from vibrato/pitch noise in other pieces.
+
+**Two CREPE model/decoder changes tried and reverted** — both explicit
+speed-for-accuracy compromises already in `run_pitch_tracking`
+(`model="tiny"`, `decoder=weighted_argmax`), tempting to flip back:
+Viterbi decoding returns a near-degenerate periodicity value (median 0.0
+on a real piece vs 0.8+ under the current decoder) incompatible with
+every voicing threshold — dropped accuracy from 60.1% to 39.1%, reverted
+immediately. The full model alone gave a healthy confidence distribution
+but only +1.8pt overall with one real regression, at a ~17x CREPE
+latency/cost increase (4.7 hours to validate the 24-piece corpus) — the
+user explicitly rejected this trade ahead of production launch.
+
+**Shipped instead (commit `25dd6ef`): `_detect_within_segment_pitch_jumps`.**
+Stays on CREPE "tiny" entirely — a cheap post-processing pass over its
+EXISTING pitch output. Confirmed on real audio (MusicNet piece 2217)
+that a single CREPE voiced segment can span 19 semitones across 3+
+distinct sustained pitch levels, because neither CREPE's confidence nor
+librosa's onset detector registers the transition. The new function
+median-filters each voiced segment (kills CREPE's characteristic
+lone-frame octave glitches) and flags a real attack wherever pitch steps
+≥2.5 semitones and HOLDS for several frames (ruling out vibrato, which
+oscillates back). Negligible added compute: confirmed 118s for the full
+24-piece validation corpus, matching the original tiny-model baseline.
+
+**Validated against the real 20-piece MusicNet corpus:** overall 60.1%
+→ 63.7%. Two large gains: 2186 +53.1pts (15.8%→68.9%), 2217 +24.4pts
+(21.4%→45.8%). Smaller gains: 2242/2293/2297. One honest, bounded
+regression: 2220 -6.2pts (6.6%→0.4%) — traced directly to this detector
+adding candidate events to an already over-counting piece; the other
+over-counting pieces held flat.
+
 ## 2026-10-13 — Score-alignment fix, third round: rest-anchored DTW segmentation
 
 Same-day follow-up to the provenance-collapse fix below, targeting the

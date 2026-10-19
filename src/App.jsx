@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Analytics } from '@vercel/analytics/react'
 import { AuthProvider } from './context/AuthContext'
 import { RecordModalProvider } from './context/RecordModalContext'
 
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </HashRouter>
+      <Analytics />
     </AuthProvider>
     </ErrorBoundary>
     <Analytics />

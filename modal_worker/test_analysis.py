@@ -6852,6 +6852,65 @@ def test_detect_within_segment_pitch_jumps_finds_multiple_levels_in_one_segment(
     check("all three real transitions found", len(jumps) == 3, f"{jumps}")
 
 
+def test_detect_within_segment_pitch_jumps_finds_a_small_legato_step():
+    print("\n[192] a small legato step (1.2 semitones, below the 2.5-semitone "
+          "real-leap threshold) that HOLDS at its new level is found — the "
+          "under-detection gap in low-register legato passages (MusicNet "
+          "2186/2217/2297) that the real-leap check alone cannot see")
+    midi_track = [60.0] * 20 + [61.2] * 20
+    pitch_np, frame_times = _synthetic_pitch_track(midi_track)
+    jumps = w._detect_within_segment_pitch_jumps(pitch_np, frame_times, [(0.0, frame_times[-1])])
+    check("exactly one legato step found", len(jumps) == 1, f"{jumps}")
+    if jumps:
+        check("step lands at the real transition (0.8s +/- 2 frames)",
+              abs(jumps[0] - 0.8) <= 0.08, f"{jumps[0]:.3f}s")
+
+
+def test_detect_within_segment_pitch_jumps_ignores_vibrato_with_legato_sized_swings():
+    print("\n[193] vibrato whose single swing is as large as a real legato "
+          "step (+/-0.6 semitones, a 1.2-semitone swing — same magnitude as "
+          "the real step in [192]) at a realistic ~4.2Hz rate still never "
+          "registers, because the swing reverts within one vibrato cycle "
+          "instead of holding")
+    base = 60.0
+    midi_track = []
+    for i in range(40):
+        midi_track.append(base + (0.6 if (i // 3) % 2 == 0 else -0.6))
+    pitch_np, frame_times = _synthetic_pitch_track(midi_track)
+    jumps = w._detect_within_segment_pitch_jumps(pitch_np, frame_times, [(0.0, frame_times[-1])])
+    check("no legato step from legato-sized vibrato wobble", jumps == [], f"{jumps}")
+
+
+# NOTE: a test asserting that a fast ascending/descending scale run (several
+# distinct real notes climbing one direction) is NOT mistaken for one held
+# legato step was deliberately NOT added here, even though that false
+# positive is real and was confirmed on real audio (MusicNet 2222, a quick
+# Bach Gigue, -8.7pts). A closeness-band check that rejects it also rejects
+# most of the real legato catches driving MusicNet 2297's +42.8pt win — the
+# "good" and "bad" candidates' distributions overlap on every discriminator
+# tried (closeness-band magnitude, time-clustering density, segment
+# duration). The floor-only check below is kept as shipped specifically
+# because real-corpus validation showed it net-beneficial despite this known
+# false-positive mode — see worker.py's _detect_within_segment_pitch_jumps
+# "KNOWN FALSE-POSITIVE MODE" comment. A unit test asserting the scale-run
+# case must NOT fire would conflict with the code actually shipped; do not
+# add one back without first finding a discriminator that improves the
+# real-corpus result, not just a synthetic case.
+
+
+def test_detect_within_segment_pitch_jumps_declines_a_small_step_too_close_to_segment_end():
+    print("\n[194] a small step with too few frames after it to confirm "
+          "whether the new level holds (near the end of a voiced segment) "
+          "is declined rather than guessed at")
+    # Only 5 frames follow the step — fewer than SUSTAIN_FRAMES(3) +
+    # CONFIRM_FRAMES(10) = 13 needed to confirm it holds rather than reverts.
+    midi_track = [60.0] * 20 + [61.2] * 5
+    pitch_np, frame_times = _synthetic_pitch_track(midi_track)
+    jumps = w._detect_within_segment_pitch_jumps(pitch_np, frame_times, [(0.0, frame_times[-1])])
+    check("no legato step forced without enough data to confirm it",
+          jumps == [], f"{jumps}")
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -7039,7 +7098,10 @@ def main():
               test_detect_within_segment_pitch_jumps_finds_a_real_sustained_change,
               test_detect_within_segment_pitch_jumps_ignores_a_lone_glitch_frame,
               test_detect_within_segment_pitch_jumps_ignores_vibrato,
-              test_detect_within_segment_pitch_jumps_finds_multiple_levels_in_one_segment):
+              test_detect_within_segment_pitch_jumps_finds_multiple_levels_in_one_segment,
+              test_detect_within_segment_pitch_jumps_finds_a_small_legato_step,
+              test_detect_within_segment_pitch_jumps_ignores_vibrato_with_legato_sized_swings,
+              test_detect_within_segment_pitch_jumps_declines_a_small_step_too_close_to_segment_end):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

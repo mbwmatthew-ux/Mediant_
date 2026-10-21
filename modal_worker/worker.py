@@ -715,6 +715,24 @@ _PITCH_JUMP_MEDIAN_FRAMES  = 3     # ~120ms at the 40ms CREPE hop — kills lone
 _PITCH_JUMP_SEMITONES      = 2.5   # comfortably above typical vibrato depth, well below a real leap
 _PITCH_JUMP_SUSTAIN_FRAMES = 3     # the new pitch must hold, not just blip, to count as a real attack
 
+# A second, smaller-threshold check for real legato steps too small to clear
+# _PITCH_JUMP_SEMITONES (confirmed under-detection on MusicNet 2186/2217/2297:
+# CREPE's voicing never dips between two real adjacent-semitone notes in a
+# low-register legato passage, so neither librosa onset detection nor the
+# real-leap check above ever fires). A magnitude-only threshold this low
+# would reopen the exact vibrato ambiguity _PITCH_JUMP_SEMITONES exists to
+# avoid, so a small candidate step is only confirmed if the new level HOLDS
+# past a full vibrato-cycle-length window rather than reverting — vibrato
+# oscillates back toward its center; a real note change does not.
+_LEGATO_JUMP_SEMITONES        = 1.0   # floor for a candidate small step
+# Deliberately NOT a clean multiple of a typical vibrato period (~4-7Hz, i.e.
+# 3.5-6.25 frames at the 40ms hop): a confirm window landing exactly one
+# period later aliases back into the SAME phase as "after" and looks like a
+# hold instead of a reversion. 10 frames (400ms) safely exceeds any single
+# period in that range, so the window always spans into the opposite phase.
+_LEGATO_CONFIRM_FRAMES        = 10
+_LEGATO_REVERSION_TOLERANCE   = 0.5   # semitones of give-back still counted as "held"
+
 
 def _detect_within_segment_pitch_jumps(
     pitch_np, frame_times, voiced_segments: list[tuple[float, float]],
@@ -773,7 +791,54 @@ def _detect_within_segment_pitch_jumps(
             after  = smoothed[i:i + _PITCH_JUMP_SUSTAIN_FRAMES]
             if np.isnan(before).any() or np.isnan(after).any():
                 continue
-            if abs(np.median(after) - np.median(before)) >= _PITCH_JUMP_SEMITONES and i - last_jump_i >= _PITCH_JUMP_SUSTAIN_FRAMES:
+            if i - last_jump_i < _PITCH_JUMP_SUSTAIN_FRAMES:
+                continue
+            near_diff = np.median(after) - np.median(before)
+            if abs(near_diff) >= _PITCH_JUMP_SEMITONES:
+                jump_times.append(float(frame_times[idxs[i]]))
+                last_jump_i = i
+                continue
+            if abs(near_diff) < _LEGATO_JUMP_SEMITONES:
+                continue
+            far_start, far_end = i + _PITCH_JUMP_SUSTAIN_FRAMES, i + _PITCH_JUMP_SUSTAIN_FRAMES + _LEGATO_CONFIRM_FRAMES
+            if far_end > len(smoothed):
+                continue  # not enough data after the step to confirm it holds — decline
+            far = smoothed[far_start:far_end]
+            if np.isnan(far).any():
+                continue
+            far_diff = np.median(far) - np.median(before)
+            # Held, not reverted: the far window must still show at least
+            # as much net displacement from "before" as it would if the
+            # step had given back _LEGATO_REVERSION_TOLERANCE semitones of
+            # its own near_diff, in the same direction as near_diff.
+            #
+            # KNOWN FALSE-POSITIVE MODE, kept deliberately: a floor-only
+            # check like this also accepts a fast scale run (several real,
+            # DIFFERENT notes climbing/falling in one direction) as if it
+            # were one held note, since "kept moving the same way" also
+            # satisfies "at least as far as holding would". Confirmed on
+            # real audio (MusicNet 2222, a quick Bach Gigue): -8.7pts on
+            # that one piece. Tried a tighter closeness-band check
+            # (|far_diff - near_diff| <= tolerance, rejecting continued
+            # movement, not just reversal) and two other discriminators
+            # (candidate time-clustering density, voiced-segment duration)
+            # to separate this from the real legato catches driving
+            # MusicNet 2297's +42.8pt win — all three failed: the "good"
+            # and "bad" candidates' distributions genuinely overlap on
+            # every one of those signals, and the closeness-band fix's
+            # real-corpus result was NET WORSE overall (63.0% vs this
+            # floor-only version's 65.3%, baseline 63.4%) because it threw
+            # away most of 2297's real win along with 2222's false ones.
+            # Kept as-is on real-corpus evidence: the net gain across the
+            # corpus is real and larger than this one piece's cost — same
+            # standard already applied to the shipped pitch-jump fix's
+            # 2220 regression. Do not re-attempt a per-candidate scalar
+            # discriminator here without a genuinely new signal; three
+            # have already been tried and failed on this exact pair of
+            # pieces.
+            held = (far_diff >= near_diff - _LEGATO_REVERSION_TOLERANCE) if near_diff > 0 \
+                else (far_diff <= near_diff + _LEGATO_REVERSION_TOLERANCE)
+            if held:
                 jump_times.append(float(frame_times[idxs[i]]))
                 last_jump_i = i
     return jump_times

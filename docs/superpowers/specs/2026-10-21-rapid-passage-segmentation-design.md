@@ -186,23 +186,34 @@ ship a threshold from arithmetic alone):
   `PENALTY` is below that total cost divided by `k` — real examples this
   session suggest a ceiling around **7–8**.
 
-These two constraints leave a real, non-empty window (roughly
-`PENALTY ≈ 6–7`) — a structurally different situation from every
-magnitude-only threshold tried earlier this session, because `PENALTY`
-interacts with frame count and transition count, not pitch magnitude
-alone. **Before implementation locks in an exact value**, compute the
-DP's actual output (not the simplified arithmetic above) against the
-specific real examples already pulled this session:
+These two constraints leave a real, non-empty window — a structurally
+different situation from every magnitude-only threshold tried earlier
+this session, because `PENALTY` interacts with frame count and transition
+count, not pitch magnitude alone.
 
-- Piece 2242 `t≈7.2–7.6s` and `t≈0.2–1.8s` (the two known glitch regions,
-  dumped in this session's diagnosis) — must NOT split off the glitch
-  frames as their own segments.
-- Piece 2186 `t≈118.9–119.6s` (the known bariolage passage, dumped this
-  session) — must split into roughly one segment per real ground-truth
-  note.
+**Measured against real data (2026-10-21, before implementation):** swept
+`PENALTY` from 0.5 to 8.0 against piece 2242's known glitch region
+(`t=0.2–1.8s`), its known attack-transient region (`t=7.1–7.6s`), and
+piece 2186's known bariolage region (`t=118.0–120.2s`). Found a sharp
+safety cliff between `1.0` (both 2242 regions break — the glitch region
+splits off the 86.0 octave-error blips as their own segments, and the
+transient region fires separately on both 91.0 and 72.3) and `1.5` (both
+become clean — 1 segment for the glitch region, exactly 2 clean segments
+for the transient region, landing at R=62.3, matching the real settled
+note 62.2). Bariolage coverage does NOT drop going from `1.0` to `1.5`
+(15 segments either way) — so there's no coverage cost to clearing the
+cliff with margin.
 
-Sweep `PENALTY` across the 2.5–8 range against both regions before
-picking a value; do not guess a single number and move on.
+A synthetic unit test (a clean ±0.6-semitone square-wave vibrato — the
+same depth already used as a realistic vibrato case elsewhere in this
+file) then caught a gap the real-audio sweep missed: `PENALTY = 2.0`
+(and `2.5`) still split this clean oscillation. Raised to **`PENALTY =
+3.0`** — clean on the vibrato unit test, with no coverage loss on the
+real bariolage region versus `2.5` (still 12 segments), and still clean
+on both 2242 regions. Final value notably different from the ~6–7
+suggested by the arithmetic estimate — real measurement (both real-audio
+regions AND a synthetic adversarial case the real audio sample didn't
+happen to contain) is the authority here, not the estimate.
 
 ## Error handling / edge cases
 

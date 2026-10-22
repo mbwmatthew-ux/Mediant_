@@ -761,6 +761,45 @@ def test_pitch_measurement_is_unbiased():
           f"median {1200.0 * np.log2(hz_o / A4):+.1f}¢ vs mean {mean_err:+.1f}¢")
 
 
+def test_measure_note_pitch_rejects_a_local_outlier_in_a_short_window():
+    print("\n[195] a transient misread inside the trimmed core — confidence "
+          "DIPPING relative to both neighbours, pitch far from where they "
+          "already agree — is rejected before computing the spread "
+          "statistic, not just outvoted by the median. The median was "
+          "already fairly robust to a single minority outlier (it takes "
+          "count/weight, not neighbour context, to resist one bad value) — "
+          "the real gap this closes is the SPREAD reading, which the "
+          "median doesn't protect at all: one transient frame surviving "
+          "inside the core inflates the measured spread enough to read as "
+          "'wide vibrato / unstable pitch', a false flag on an otherwise "
+          "perfectly steady note. Confirmed real shape (MusicNet 2293, "
+          "2026-10-22): a one-frame CREPE misread during an attack, at "
+          "lower confidence than its neighbours either side.")
+    import numpy as np
+    A4 = 440.0
+    # 7 frames -> core trims to the middle 5 (indices 1-5). One local-dip
+    # outlier at core-internal position 1 (overall index 2).
+    hz   = np.array([A4, A4, A4 / 2, A4, A4, A4, A4])
+    conf = np.array([0.85, 0.80, 0.45, 0.82, 0.86, 0.83, 0.80])
+    midi, hz_out, spread = w.measure_note_pitch(hz, conf)
+    cents = 1200.0 * np.log2(hz_out / A4)
+    check("pitch still centred correctly (median was already robust here)",
+          abs(cents) < 2.0, f"{cents:+.1f}¢")
+    check("spread is NOT falsely inflated by the rejected transient",
+          spread < 50.0, f"{spread:.0f}¢ spread")
+
+    # Control: the SAME magnitude deviation, but WITHOUT a confidence dip
+    # (comparable confidence to its neighbours) — e.g. a real, fast
+    # adjacent note, not a transient misread. Must NOT be rejected purely
+    # for disagreeing in pitch; confidence is the discriminator.
+    hz2   = np.array([A4, A4, A4 / 2, A4, A4, A4, A4])
+    conf2 = np.array([0.85, 0.80, 0.83, 0.82, 0.86, 0.83, 0.80])
+    _, _, spread2 = w.measure_note_pitch(hz2, conf2)
+    check("no confidence dip -> not rejected (spread correctly reflects "
+          "the real disagreement)",
+          spread2 > 50.0, f"{spread2:.0f}¢ spread")
+
+
 def test_tuning_center_normalisation():
     print("\n[17] a sharp-tuned instrument is one tuning note, not a flag per bar")
     # Every note 14¢ sharp of A=440 but perfectly in tune with itself — a player
@@ -6925,6 +6964,7 @@ def main():
               test_transposing_instrument_not_flagged_as_wrong_notes,
               test_form_time_signature_wins,
               test_pitch_measurement_is_unbiased,
+              test_measure_note_pitch_rejects_a_local_outlier_in_a_short_window,
               test_tuning_center_normalisation,
               test_wrong_notes_reject_false_positives,
               test_bflat_clarinet_transposition,

@@ -504,6 +504,14 @@ def _instrument_pitch_bounds(instrument: str) -> tuple[float, float]:
     return 32.70, 2093.0          # safe default covering cello–violin range
 
 
+# Tuning for measure_note_pitch's local-outlier rejection — see that
+# function's docstring point 4. To be calibrated against real audio
+# (MusicNet 2293) before trusting these values.
+_PITCH_OUTLIER_NEIGHBOR_AGREE_SEMITONES = 1.0
+_PITCH_OUTLIER_SEMITONES                = 3.0
+_PITCH_OUTLIER_CONF_DIP_FRACTION        = 0.7
+
+
 def measure_note_pitch(hz_frames, conf_frames):
     """Reduce a note's CREPE frames to one pitch reading.
 
@@ -526,10 +534,39 @@ def measure_note_pitch(hz_frames, conf_frames):
        true centre. This one is correctness housekeeping, not a bug fix — the
        bias is only ~0.2¢ at ±40¢ vibrato and does not reach the flag
        threshold. It matters at extreme swings, and it costs nothing.
+    4. Reject LOCAL outliers before trimming/median, for windows too short
+       for the median alone to stay robust. Confirmed on real audio
+       (MusicNet 2293, 2026-10-22): a transient CREPE misread during an
+       attack (one frame reading a wrong pitch, often an octave-ish
+       artifact, at moderate confidence) can still tip a WEIGHTED median
+       when the window only has a handful of frames — the median rejects
+       outliers by COUNT, but a confidence-weighted median can still be
+       swayed by one badly-weighted frame among few. A frame is dropped
+       here only if it disagrees with BOTH of its immediate neighbours in
+       the same way a transient would: pitch far from where its neighbours
+       already agree, AND confidence lower than either neighbour's — a
+       frame that's simply part of a real, fast, multi-note passage won't
+       show a confidence DIP relative to its own neighbours the way a
+       genuine misread does.
     """
     import numpy as np
     hz_v   = np.asarray(hz_frames,   dtype=float)
     conf_v = np.asarray(conf_frames, dtype=float)
+
+    if len(hz_v) >= 3:
+        midi_all = 12.0 * np.log2(hz_v / 440.0) + 69.0
+        keep = np.ones(len(hz_v), dtype=bool)
+        for i in range(1, len(hz_v) - 1):
+            neighbour_midi = np.array([midi_all[i - 1], midi_all[i + 1]])
+            neighbour_conf = np.array([conf_v[i - 1], conf_v[i + 1]])
+            agree = abs(neighbour_midi[0] - neighbour_midi[1]) <= _PITCH_OUTLIER_NEIGHBOR_AGREE_SEMITONES
+            far_from_neighbors = min(abs(midi_all[i] - neighbour_midi[0]),
+                                      abs(midi_all[i] - neighbour_midi[1])) >= _PITCH_OUTLIER_SEMITONES
+            conf_dip = conf_v[i] < neighbour_conf.min() * _PITCH_OUTLIER_CONF_DIP_FRACTION
+            if agree and far_from_neighbors and conf_dip:
+                keep[i] = False
+        if keep.sum() >= 2:  # never reject down to nothing usable
+            hz_v, conf_v = hz_v[keep], conf_v[keep]
 
     n_v = len(hz_v)
     if n_v >= 5:

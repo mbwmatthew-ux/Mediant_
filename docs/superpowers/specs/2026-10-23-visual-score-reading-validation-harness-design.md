@@ -194,11 +194,20 @@ is reproducible run to run.
 New file: `modal_worker/validate_score_reading_against_corpus.py`.
 Calls the real `read_score_notes_claude` (same function production
 uses — not a mock, not a simplified reader) against each corpus image,
-using real Claude + Gemini + Audiveris. Requires real API keys in the
-validation venv's environment (same credential pattern as
-`validate_alignment_against_musicnet.py` already uses for Claude/Gemini
-elsewhere in that script, if any — otherwise document the required env
-vars in the plan).
+using real Claude + Gemini + Audiveris. Requires real API keys supplied
+locally — confirmed by direct inspection that none are retrievable by
+tooling available in this environment: `worker.py` takes
+`anthropic_api_key`/`gemini_key` as plain function/payload arguments,
+never reads them from an env var or a Modal secret itself (`modal secret
+list` returns zero secrets); the actual keys live only in Supabase
+project secrets (`ANTHROPIC_API_KEY`, and whatever the Gemini key's name
+is there — not found in any `supabase/functions/*` source, so it may be
+named differently or passed through another path), which this session
+has no read access to, the same constraint hit earlier with the
+storage service-role key. **The plan must have the user supply both
+keys locally** (e.g. exported in the validation venv's shell
+environment before running Stage 3) — this is not resolvable by further
+investigation.
 
 For each piece/tier:
 

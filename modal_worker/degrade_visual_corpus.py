@@ -54,14 +54,14 @@ def perspective_warp(img: "Image.Image", corner_displacement_frac: float, rng: "
     def jitter(x, y):
         return x + rng.randint(-dx, dx), y + rng.randint(-dy, dy)
 
-    src = [(0, 0), (w, 0), (w, h), (0, h)]
+    # PIL's Image.QUAD expects corners in the order UL, LL, LR, UR. Passing
+    # them in TL/TR/BR/BL order (clockwise) produces a bow-tie distortion
+    # even at zero displacement, so this order is load-bearing.
+    src = [(0, 0), (0, h), (w, h), (w, 0)]
     dst = [jitter(*p) for p in src]
 
-    # PIL's QUAD transform maps a quadrilateral in the SOURCE image to
-    # the output rectangle — the coefficients need the quad expressed as
-    # the 4 corners (counter-clockwise from top-left) that should map to
-    # the full output rectangle, i.e. `dst` describes where to SAMPLE
-    # FROM, so warping the output means passing `dst` as the quad.
+    # `dst` is the quad in the SOURCE image that gets sampled to fill the
+    # output rectangle.
     return img.transform((w, h), Image.QUAD, sum(dst, ()), fillcolor="white")
 
 

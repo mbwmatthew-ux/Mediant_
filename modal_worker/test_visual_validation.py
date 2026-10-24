@@ -292,6 +292,46 @@ def test_recompress_jpeg_changes_the_bytes():
           "anywhere in the image", drifted)
 
 
+def _count_differing_pixels(a, b):
+    return sum(1 for x in range(a.size[0]) for y in range(a.size[1])
+               if a.getpixel((x, y)) != b.getpixel((x, y)))
+
+
+def test_perspective_warp_is_identity_at_zero_displacement():
+    print("\n[10] perspective_warp with zero corner displacement is a "
+          "(near-)identity transform. Guards the Image.QUAD corner-order "
+          "bug: passing corners in TL/TR/BR/BL order produced a bow-tie "
+          "distortion even at zero displacement. Small edge-interpolation "
+          "differences are tolerated; a wrong corner order would change "
+          "far more pixels than the tolerance allows.")
+    # _make_test_image() is too symmetric to catch the corner-order bug (the
+    # old TL/TR/BR/BL order maps its square back onto itself), so add a
+    # red stripe in the top-right to make any corner mix-up visible.
+    img = _make_test_image()
+    for x in range(150, 200):
+        for y in range(0, 20):
+            img.putpixel((x, y), (255, 0, 0))
+    warped = dvc.perspective_warp(img, corner_displacement_frac=0.0,
+                                  rng=random.Random(1))
+    mismatches = _count_differing_pixels(img, warped)
+    tolerance = int(0.01 * img.size[0] * img.size[1])  # 1% of pixels
+    check("zero-displacement warp matches input within 1% of pixels",
+          mismatches <= tolerance,
+          f"{mismatches} differing pixels (tolerance {tolerance})")
+
+
+def test_perspective_warp_with_displacement_actually_moves_content():
+    print("\n[11] perspective_warp with nonzero corner displacement "
+          "actually changes the image (not a pass-through), using a seeded "
+          "RNG so the result is deterministic.")
+    img = _make_test_image()
+    warped = dvc.perspective_warp(img, corner_displacement_frac=0.1,
+                                  rng=random.Random(1))
+    mismatches = _count_differing_pixels(img, warped)
+    check("displaced warp output is not pixel-identical to the input",
+          mismatches > 0, f"{mismatches} differing pixels")
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
@@ -304,7 +344,9 @@ def main():
               test_rotate_no_exif_actually_rotates_the_pixels,
               test_lighting_gradient_is_asymmetric,
               test_gaussian_blur_reduces_sharp_edges,
-              test_recompress_jpeg_changes_the_bytes):
+              test_recompress_jpeg_changes_the_bytes,
+              test_perspective_warp_is_identity_at_zero_displacement,
+              test_perspective_warp_with_displacement_actually_moves_content):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

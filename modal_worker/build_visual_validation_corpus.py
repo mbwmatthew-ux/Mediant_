@@ -193,3 +193,60 @@ def build_corpus_entry(piece_id: str, midi_path: str, metadata_row: dict, out_di
         print(f"[build_visual_validation_corpus] piece {piece_id}: "
               f"FAILED ({type(e).__name__}: {e}), skipping")
         return None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", default="/Users/matthewwu/.cache/mediant_validation/data",
+                         help="Directory containing midis/ and musicnet_metadata.csv")
+    parser.add_argument("--out-dir", default="/Users/matthewwu/.cache/mediant_validation/visual_corpus",
+                         help="Directory to write clean/ and ground_truth.json into")
+    parser.add_argument("--limit", type=int, default=None,
+                         help="Only process the first N pieces (for fast iteration)")
+    args = parser.parse_args()
+
+    data_dir = Path(args.data_dir)
+    out_dir = Path(args.out_dir) / "clean"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    metadata_by_id = {}
+    with open(data_dir / "musicnet_metadata.csv") as f:
+        for row in csv.DictReader(f):
+            metadata_by_id[row["id"]] = row
+
+    midi_paths = sorted((data_dir / "midis").glob("*.mid"))
+    if args.limit:
+        midi_paths = midi_paths[:args.limit]
+
+    ground_truth = {}
+    n_ok, n_failed = 0, 0
+    for midi_path in midi_paths:
+        piece_id = midi_path.stem
+        metadata_row = metadata_by_id.get(piece_id)
+        if metadata_row is None:
+            print(f"[build_visual_validation_corpus] piece {piece_id}: "
+                  f"no metadata row, skipping")
+            n_failed += 1
+            continue
+        entry = build_corpus_entry(piece_id, str(midi_path), metadata_row, out_dir)
+        if entry is None:
+            n_failed += 1
+            continue
+        ground_truth[piece_id] = entry
+        n_ok += 1
+        print(f"[build_visual_validation_corpus] piece {piece_id}: "
+              f"OK ({entry['n_pages']} pages, {len(entry['measures'])} measures)")
+
+    gt_path = Path(args.out_dir) / "ground_truth.json"
+    gt_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(gt_path, "w") as f:
+        json.dump(ground_truth, f, indent=2)
+
+    print(f"\n{n_ok} pieces built, {n_failed} skipped. "
+          f"Ground truth written to {gt_path}")
+    return 0 if n_ok > 0 else 1
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

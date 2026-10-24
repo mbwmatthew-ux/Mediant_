@@ -30,7 +30,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import worker as w  # noqa: E402 — needs the REAL modal/music21/etc. stack; run in the validation venv.
 
-REQUIRED_ENV_VARS = ("ANTHROPIC_API_KEY", "GEMINI_API_KEY")
+REQUIRED_ENV_VARS = ("ANTHROPIC_API_KEY",)
 
 # Hardcoded for fast, comparable day-to-day iteration — the shortest
 # piece from each of the 3 solo instruments in the corpus, plus 2 more
@@ -74,7 +74,7 @@ def aggregate_scores(per_piece_results: dict) -> dict:
 
 
 def run_validation_for_piece_tier(piece_id: str, tier_dir: Path, ground_truth_entry: dict,
-                                   anthropic_key: str, gemini_key: str) -> tuple:
+                                   anthropic_key: str) -> tuple:
     """
     Runs read_score_notes_claude against every page of `piece_id` in
     `tier_dir`, then scores the combined result's measures against
@@ -145,7 +145,6 @@ def main():
               f"env var(s): {', '.join(missing)} — set them and re-run.")
         return 1
     anthropic_key = os.environ["ANTHROPIC_API_KEY"]
-    gemini_key = os.environ["GEMINI_API_KEY"]
 
     corpus_dir = Path(args.corpus_dir)
     with open(corpus_dir / "ground_truth.json") as f:
@@ -166,7 +165,7 @@ def main():
                 print(f"  [{tier_name}/{piece_id}] no ground truth, skipping")
                 continue
             n_correct, n_total = run_validation_for_piece_tier(
-                piece_id, tier_dir, ground_truth[piece_id], anthropic_key, gemini_key)
+                piece_id, tier_dir, ground_truth[piece_id], anthropic_key)
             per_piece_results[piece_id] = (n_correct, n_total)
             print(f"  [{tier_name}/{piece_id}] {n_correct}/{n_total} measures correct")
         results_by_tier[tier_name] = aggregate_scores(per_piece_results)

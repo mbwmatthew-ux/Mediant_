@@ -91,3 +91,86 @@ def recompress_jpeg(img: "Image.Image", quality: int) -> "Image.Image":
     img.convert("RGB").save(buf, format="JPEG", quality=quality)
     buf.seek(0)
     return Image.open(buf).convert("RGB")
+
+
+def degrade_mild(img: "Image.Image", rng: "random.Random") -> "Image.Image":
+    """
+    Mild tier: small rotation (3-7 degrees, random sign), mild
+    perspective warp (2% corner displacement), mild lighting gradient
+    (0.85x-1.15x). Simulates a reasonably careful phone photo: slightly
+    off-angle, slightly uneven lighting.
+    """
+    degrees = rng.uniform(3, 7) * rng.choice([-1, 1])
+    img = rotate_no_exif(img, degrees)
+    img = perspective_warp(img, corner_displacement_frac=0.02, rng=rng)
+    img = lighting_gradient(img, dark_factor=0.85, light_factor=1.15)
+    return img
+
+
+def degrade_severe(img: "Image.Image", rng: "random.Random") -> "Image.Image":
+    """
+    Severe tier: larger rotation (15-25 degrees, random sign), with a
+    25% chance of a full 90/180/270-degree rotation instead (the exact
+    EXIF-bug shape, at full severity), stronger perspective warp (6%
+    corner displacement), harsher lighting gradient (0.6x-1.3x), mild
+    blur, and JPEG recompression at quality 60.
+    """
+    if rng.random() < 0.25:
+        degrees = rng.choice([90, 180, 270])
+    else:
+        degrees = rng.uniform(15, 25) * rng.choice([-1, 1])
+    img = rotate_no_exif(img, degrees)
+    img = perspective_warp(img, corner_displacement_frac=0.06, rng=rng)
+    img = lighting_gradient(img, dark_factor=0.6, light_factor=1.3)
+    img = gaussian_blur(img, radius=1.5)
+    img = recompress_jpeg(img, quality=60)
+    return img
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--corpus-dir", default="/Users/matthewwu/.cache/mediant_validation/visual_corpus")
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    corpus_dir = Path(args.corpus_dir)
+    clean_dir = corpus_dir / "clean"
+    clean_pngs = sorted(clean_dir.glob("*.png"))
+    if not clean_pngs:
+        print(f"[degrade_visual_corpus] no clean PNGs found in {clean_dir} "
+              f"— run build_visual_validation_corpus.py first")
+        return 1
+
+    for tier_name, tier_fn in [("mild", degrade_mild), ("severe", degrade_severe)]:
+        tier_dir = corpus_dir / "degraded" / tier_name
+        tier_dir.mkdir(parents=True, exist_ok=True)
+        rng = random.Random(args.seed)
+        for clean_path in clean_pngs:
+            img = Image.open(clean_path)
+            if img.mode == "RGBA":
+                # The clean corpus's rendered PNGs are RGBA with a fully
+                # TRANSPARENT background (alpha=0) whose underlying RGB is
+                # (0, 0, 0), not (255, 255, 255) — it only *looks* white
+                # because viewers composite transparency onto a white
+                # canvas. A plain .convert("RGB") drops the alpha channel
+                # and keeps that raw black RGB, turning the entire page
+                # background solid black (confirmed: every pixel of a
+                # real degraded output was (0, 0, 0)). Must flatten onto
+                # an actual white background first.
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[3])
+                img = background
+            else:
+                img = img.convert("RGB")
+            degraded = tier_fn(img, rng)
+            out_path = tier_dir / clean_path.name
+            degraded.convert("RGB").save(out_path, format="PNG")
+        print(f"[degrade_visual_corpus] {tier_name}: "
+              f"{len(clean_pngs)} pages written to {tier_dir}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

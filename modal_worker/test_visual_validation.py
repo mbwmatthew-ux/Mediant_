@@ -332,6 +332,27 @@ def test_perspective_warp_with_displacement_actually_moves_content():
           mismatches > 0, f"{mismatches} differing pixels")
 
 
+def test_degrade_mild_and_severe_are_deterministic_given_a_seed():
+    print("\n[10] degrade_mild/degrade_severe are fully deterministic "
+          "given the same random.Random seed — so the degraded corpus "
+          "is reproducible run to run, not a fresh random draw every "
+          "time the CLI is invoked.")
+    img = _make_test_image()
+    out_a = dvc.degrade_mild(img.copy(), random.Random(42))
+    out_b = dvc.degrade_mild(img.copy(), random.Random(42))
+    check("same seed produces byte-identical mild output",
+          list(out_a.getdata()) == list(out_b.getdata()))
+
+    out_c = dvc.degrade_severe(img.copy(), random.Random(42))
+    out_d = dvc.degrade_severe(img.copy(), random.Random(42))
+    check("same seed produces byte-identical severe output",
+          list(out_c.getdata()) == list(out_d.getdata()))
+
+    out_e = dvc.degrade_mild(img.copy(), random.Random(43))
+    check("a different seed produces different mild output",
+          list(out_a.getdata()) != list(out_e.getdata()))
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
@@ -346,7 +367,8 @@ def main():
               test_gaussian_blur_reduces_sharp_edges,
               test_recompress_jpeg_changes_the_bytes,
               test_perspective_warp_is_identity_at_zero_displacement,
-              test_perspective_warp_with_displacement_actually_moves_content):
+              test_perspective_warp_with_displacement_actually_moves_content,
+              test_degrade_mild_and_severe_are_deterministic_given_a_seed):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

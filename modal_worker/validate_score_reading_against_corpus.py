@@ -71,3 +71,117 @@ def aggregate_scores(per_piece_results: dict) -> dict:
         total_measures += n_total
     overall = round(100.0 * total_correct / total_measures, 4) if total_measures else 0.0
     return {"per_piece": per_piece, "overall": overall}
+
+
+def run_validation_for_piece_tier(piece_id: str, tier_dir: Path, ground_truth_entry: dict,
+                                   anthropic_key: str, gemini_key: str) -> tuple:
+    """
+    Runs read_score_notes_claude against every page of `piece_id` in
+    `tier_dir`, then scores the combined result's measures against
+    ground truth. Returns (n_correct, n_total).
+
+    `instrument`/`time_sig` are passed as read_score_notes_claude's
+    own hints to the vision prompt, not used for scoring — "Violin" is
+    a reasonable stand-in for every piece here (MusicNet's instruments
+    are Violin/Cello/Flute; read_score_notes_claude's prompt does not
+    change its note-extraction schema based on this hint, only its
+    guidance text) rather than threading the real per-piece instrument
+    through, since scoring only ever checks the extracted notes, not
+    whether the instrument hint was used correctly — that is a
+    different, not-yet-built type of test.
+    """
+    page_paths = sorted(tier_dir.glob(f"{piece_id}_page*.png"))
+    if not page_paths:
+        print(f"  [{piece_id}] no page images found in {tier_dir}, counted as a full miss")
+        return 0, len(ground_truth_entry["measures"])
+
+    pages = []
+    for p in page_paths:
+        with open(p, "rb") as f:
+            pages.append((f.read(), "image/png"))
+
+    result = _call_read_score_notes_with_one_retry(pages, anthropic_key, piece_id)
+    if result is None:
+        return 0, len(ground_truth_entry["measures"])
+
+    predicted_measures = result.get("measures") or []
+    return score_measures(predicted_measures, ground_truth_entry["measures"])
+
+
+def _call_read_score_notes_with_one_retry(pages: list, anthropic_key: str, label: str) -> dict | None:
+    """
+    Calls read_score_notes_claude, retrying ONCE on any exception before
+    giving up — per the spec's error-handling rule: "a transient-looking
+    API error (timeout, rate limit) ... gets one retry before being
+    counted as a real failure." This does not try to classify transient
+    vs. permanent errors precisely (the spec doesn't define that
+    boundary either); one retry on any failure is the simple version of
+    that rule, and a second consecutive failure is treated as real.
+    Returns None if both attempts fail.
+    """
+    for attempt in (1, 2):
+        try:
+            with w.app.run():
+                return w.read_score_notes_claude(
+                    pages=pages, start_measure=1, instrument="Violin",
+                    time_sig="4/4", anthropic_api_key=anthropic_key)
+        except Exception as e:                                   # noqa: BLE001
+            print(f"  [{label}] attempt {attempt} raised "
+                  f"{type(e).__name__}: {e}"
+                  + (" — retrying once" if attempt == 1 else " — counted as a full miss"))
+    return None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--corpus-dir", default="/Users/matthewwu/.cache/mediant_validation/visual_corpus")
+    parser.add_argument("--full", action="store_true",
+                         help="Score all 24 pieces instead of the fast-iteration subset")
+    args = parser.parse_args()
+
+    missing = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
+    if missing:
+        print(f"[validate_score_reading_against_corpus] missing required "
+              f"env var(s): {', '.join(missing)} — set them and re-run.")
+        return 1
+    anthropic_key = os.environ["ANTHROPIC_API_KEY"]
+    gemini_key = os.environ["GEMINI_API_KEY"]
+
+    corpus_dir = Path(args.corpus_dir)
+    with open(corpus_dir / "ground_truth.json") as f:
+        ground_truth = json.load(f)
+
+    piece_ids = sorted(ground_truth.keys()) if args.full else FAST_ITERATION_SUBSET
+    tiers = {
+        "clean": corpus_dir / "clean",
+        "mild": corpus_dir / "degraded" / "mild",
+        "severe": corpus_dir / "degraded" / "severe",
+    }
+
+    results_by_tier = {}
+    for tier_name, tier_dir in tiers.items():
+        per_piece_results = {}
+        for piece_id in piece_ids:
+            if piece_id not in ground_truth:
+                print(f"  [{tier_name}/{piece_id}] no ground truth, skipping")
+                continue
+            n_correct, n_total = run_validation_for_piece_tier(
+                piece_id, tier_dir, ground_truth[piece_id], anthropic_key, gemini_key)
+            per_piece_results[piece_id] = (n_correct, n_total)
+            print(f"  [{tier_name}/{piece_id}] {n_correct}/{n_total} measures correct")
+        results_by_tier[tier_name] = aggregate_scores(per_piece_results)
+
+    print("\n" + "=" * 70)
+    print("Visual score-reading validation — % correct-measure-match")
+    print("=" * 70)
+    for tier_name, agg in results_by_tier.items():
+        print(f"\n{tier_name}:")
+        for piece_id, pct in agg["per_piece"].items():
+            print(f"  {piece_id}: {pct}%")
+        print(f"  OVERALL ({tier_name}): {agg['overall']}%")
+    print("=" * 70)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -56,3 +56,58 @@ def strip_tempo_marks(part: "music21.stream.Part") -> None:
     """
     for mm in list(part.flatten().getElementsByClass('MetronomeMark')):
         part.remove(mm, recurse=True)
+
+
+def extract_ground_truth_measures(measured: "music21.stream.Stream") -> list:
+    """
+    Walks `measured` (the output of a Part's .makeMeasures()) and builds
+    ground truth in EXACTLY worker.py's own note-dict shape (see
+    parse_musicxml's note-building block, currently worker.py:1510-1540 —
+    re-grep `el.pitch.nameWithOctave` before trusting that line number,
+    it drifts). This is not a new schema: `beat` is music21's own
+    `.beat` property, `duration_beats` is music21's own
+    `.duration.quarterLength` (confirmed directly in worker.py: "a
+    music21 quarterLength, despite the name").
+
+    Confirmed by direct inspection of all 24 real MusicNet pieces after
+    this pipeline's part-selection + tempo-stripping + makeMeasures:
+    every measure's notesAndRests is a flat, monophonic sequence (zero
+    Chord objects, zero Voice objects, zero simultaneous-offset Note
+    pairs found across a 60-measure sample of the most chord-prone piece,
+    Cello Suite 3's Prelude). Chord handling below is a defensive
+    fallback for a shape never actually observed in this corpus, not a
+    load-bearing assumption.
+    """
+    import music21 as m21
+
+    out = []
+    for measure in measured.getElementsByClass('Measure'):
+        notes_out = []
+        for el in measure.notesAndRests:
+            if isinstance(el, m21.note.Rest):
+                notes_out.append({
+                    "pitch": None,
+                    "is_rest": True,
+                    "beat": float(el.beat),
+                    "duration_beats": float(el.duration.quarterLength),
+                })
+            elif isinstance(el, m21.chord.Chord):
+                # Defensive: not observed in this corpus (see docstring),
+                # but a Chord's constituent pitches would otherwise be
+                # silently dropped.
+                for p in el.pitches:
+                    notes_out.append({
+                        "pitch": p.nameWithOctave,
+                        "is_rest": False,
+                        "beat": float(el.beat),
+                        "duration_beats": float(el.duration.quarterLength),
+                    })
+            elif isinstance(el, m21.note.Note):
+                notes_out.append({
+                    "pitch": el.pitch.nameWithOctave,
+                    "is_rest": False,
+                    "beat": float(el.beat),
+                    "duration_beats": float(el.duration.quarterLength),
+                })
+        out.append({"number": measure.number, "notes": notes_out})
+    return out

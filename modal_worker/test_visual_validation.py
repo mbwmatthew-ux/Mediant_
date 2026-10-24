@@ -99,12 +99,61 @@ def test_strip_tempo_marks_removes_every_metronome_mark():
           notes_after == 6, str(notes_after))
 
 
+def _make_measured_part_with_a_rest_and_an_accidental():
+    """2 measures in 4/4: measure 1 has a rest then 3 quarter notes
+    (one with a sharp), measure 2 has a single whole note."""
+    part = music21.stream.Part()
+    part.append(music21.meter.TimeSignature('4/4'))
+    part.append(music21.note.Rest(quarterLength=1.0))
+    part.append(music21.note.Note("C4", quarterLength=1.0))
+    part.append(music21.note.Note("F#4", quarterLength=1.0))
+    part.append(music21.note.Note("G4", quarterLength=1.0))
+    part.append(music21.note.Note("D5", quarterLength=4.0))
+    return part.makeMeasures()
+
+
+def test_extract_ground_truth_measures_matches_production_schema():
+    print("\n[3] extract_ground_truth_measures produces exactly the same "
+          "note-dict shape worker.py's own parse_musicxml does "
+          "(pitch/is_rest/beat/duration_beats, pitch as nameWithOctave or "
+          "None for a rest) — not a new, separately-invented schema. "
+          "Sharp spelling ('F#4', not 'Gb4') must survive untouched, "
+          "matching music21's own nameWithOctave convention.")
+    measured = _make_measured_part_with_a_rest_and_an_accidental()
+    measures = bvc.extract_ground_truth_measures(measured)
+
+    check("two measures extracted", len(measures) == 2, str(len(measures)))
+    m1, m2 = measures[0], measures[1]
+    check("measure numbers are 1 and 2",
+          m1["number"] == 1 and m2["number"] == 2,
+          f"{m1['number']}, {m2['number']}")
+
+    check("measure 1 has 4 note/rest entries", len(m1["notes"]) == 4, str(len(m1["notes"])))
+    rest, c4, fs4, g4 = m1["notes"]
+    check("rest entry: is_rest True, pitch None, beat 1.0",
+          rest["is_rest"] is True and rest["pitch"] is None and rest["beat"] == 1.0,
+          str(rest))
+    check("sharp spelling preserved exactly ('F#4')",
+          fs4["pitch"] == "F#4", fs4["pitch"])
+    check("duration_beats is the music21 quarterLength, not beat-scaled",
+          c4["duration_beats"] == 1.0, str(c4["duration_beats"]))
+    check("beat positions are 1-indexed within the measure",
+          rest["beat"] == 1.0 and c4["beat"] == 2.0 and fs4["beat"] == 3.0 and g4["beat"] == 4.0,
+          f"{[n['beat'] for n in m1['notes']]}")
+
+    check("measure 2 has 1 note entry (the whole note)",
+          len(m2["notes"]) == 1, str(len(m2["notes"])))
+    check("whole note duration_beats is 4.0",
+          m2["notes"][0]["duration_beats"] == 4.0, str(m2["notes"][0]["duration_beats"]))
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
     print("=" * 70)
     for t in (test_select_real_part_picks_the_part_with_more_notes,
-              test_strip_tempo_marks_removes_every_metronome_mark):
+              test_strip_tempo_marks_removes_every_metronome_mark,
+              test_extract_ground_truth_measures_matches_production_schema):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

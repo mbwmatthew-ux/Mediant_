@@ -19,6 +19,9 @@ for why this corpus/approach exists.
 """
 import sys
 import os
+import csv
+import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -148,13 +151,78 @@ def test_extract_ground_truth_measures_matches_the_fields_measure_fingerprint_co
           m2["notes"][0]["duration_beats"] == 4.0, str(m2["notes"][0]["duration_beats"]))
 
 
+def test_render_musicxml_to_pngs_produces_legible_nonempty_pages():
+    print("\n[4] render_musicxml_to_pngs actually produces image files — "
+          "a smoke test, not a pixel-content check (verovio+resvg-py's "
+          "rendering fidelity was already confirmed by eye during "
+          "spec-writing: /tmp/2186_page1_clean.png). This only proves "
+          "the wiring (verovio load -> renderToSVG -> resvg_py "
+          "svg_to_bytes -> file write) works end to end.")
+    part = music21.stream.Part()
+    part.append(music21.meter.TimeSignature('4/4'))
+    for name in ["C4", "D4", "E4", "F4"]:
+        part.append(music21.note.Note(name, quarterLength=1.0))
+    measured = part.makeMeasures()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mxl_path = os.path.join(tmp, "test.musicxml")
+        measured.write("musicxml", fp=mxl_path)
+        out_prefix = os.path.join(tmp, "test")
+        pngs = bvc.render_musicxml_to_pngs(mxl_path, out_prefix)
+
+        check("at least one page rendered", len(pngs) >= 1, str(len(pngs)))
+        for p in pngs:
+            check(f"page file exists and is non-trivially sized: {os.path.basename(p)}",
+                  os.path.exists(p) and os.path.getsize(p) > 1000,
+                  f"{os.path.getsize(p) if os.path.exists(p) else 'MISSING'} bytes")
+
+
+def test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece():
+    print("\n[5] build_corpus_entry runs the full Stage-1 pipeline on a "
+          "REAL MusicNet piece (2191, the shortest solo-violin piece, "
+          "539 notes) — part selection, tempo-mark stripping, "
+          "makeMeasures, MusicXML write, rendering, and ground-truth "
+          "extraction, in one call. This is the piece-level unit the "
+          "corpus-build CLI (Task 4) loops over.")
+    data_dir = os.environ.get(
+        "VISUAL_VALIDATION_DATA_DIR",
+        "/Users/matthewwu/.cache/mediant_validation/data")
+    midi_path = os.path.join(data_dir, "midis", "2191.mid")
+    if not os.path.exists(midi_path):
+        check("SKIPPED (MusicNet corpus not present at " + data_dir + ")", True)
+        return
+
+    metadata_row = None
+    with open(os.path.join(data_dir, "musicnet_metadata.csv")) as f:
+        for row in csv.DictReader(f):
+            if row["id"] == "2191":
+                metadata_row = row
+                break
+    check("metadata row found for piece 2191", metadata_row is not None)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        entry = bvc.build_corpus_entry("2191", midi_path, metadata_row, Path(tmp))
+        check("entry was built (not None)", entry is not None)
+        check("at least one measure extracted", len(entry["measures"]) > 0,
+              str(len(entry.get("measures", []))))
+        check("n_pages matches the number of rendered PNGs on disk",
+              entry["n_pages"] == len(list(Path(tmp).glob("2191_page*.png"))),
+              f"n_pages={entry['n_pages']}, files={list(Path(tmp).glob('2191_page*.png'))}")
+        check("no measure has zero notes AND zero rests "
+              "(a genuinely empty measure would signal a broken extraction)",
+              all(len(m["notes"]) > 0 for m in entry["measures"]),
+              str([m["number"] for m in entry["measures"] if not m["notes"]]))
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
     print("=" * 70)
     for t in (test_select_real_part_picks_the_part_with_more_notes,
               test_strip_tempo_marks_removes_every_metronome_mark,
-              test_extract_ground_truth_measures_matches_the_fields_measure_fingerprint_compares):
+              test_extract_ground_truth_measures_matches_the_fields_measure_fingerprint_compares,
+              test_render_musicxml_to_pngs_produces_legible_nonempty_pages,
+              test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

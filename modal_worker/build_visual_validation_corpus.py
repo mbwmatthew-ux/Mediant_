@@ -23,6 +23,8 @@ import os
 from pathlib import Path
 
 import music21
+import verovio
+import resvg_py
 
 
 def select_real_part(score: "music21.stream.Score") -> "music21.stream.Part":
@@ -114,3 +116,80 @@ def extract_ground_truth_measures(measured: "music21.stream.Stream") -> list:
                 })
         out.append({"number": measure.number, "notes": notes_out})
     return out
+
+
+def render_musicxml_to_pngs(musicxml_path: str, out_prefix: str) -> list:
+    """
+    Renders every page of `musicxml_path` to `{out_prefix}_page{N}.png`
+    (1-indexed), returning the written paths.
+
+    verovio only renders to SVG natively (confirmed: no renderToPNG/
+    renderToBitmap method exists on its toolkit); resvg-py does the
+    SVG->PNG step. Both install as prebuilt wheels with zero system
+    library dependencies (confirmed on this machine) — cairosvg was
+    tried first and rejected for needing a system libcairo that isn't
+    present.
+    """
+    tk = verovio.toolkit()
+    ok = tk.loadFile(musicxml_path)
+    if not ok:
+        return []
+    paths = []
+    for page_num in range(1, tk.getPageCount() + 1):
+        svg = tk.renderToSVG(page_num)
+        png_bytes = bytes(resvg_py.svg_to_bytes(svg_string=svg))
+        out_path = f"{out_prefix}_page{page_num}.png"
+        with open(out_path, "wb") as f:
+            f.write(png_bytes)
+        paths.append(out_path)
+    return paths
+
+
+def build_corpus_entry(piece_id: str, midi_path: str, metadata_row: dict, out_dir: "Path") -> dict | None:
+    """
+    Runs the full Stage-1 pipeline for one MusicNet piece:
+      1. Parse the MIDI.
+      2. Select the real part (select_real_part).
+      3. Strip tempo-automation events (strip_tempo_marks).
+      4. Build measures (.makeMeasures()).
+      5. Set title/composer on the result's metadata, from
+         `metadata_row` (musicnet_metadata.csv's own columns:
+         composer/composition/movement) — cosmetic, but verovio
+         defaults to a placeholder title ("1 Fragment") otherwise.
+      6. Write MusicXML to `{out_dir}/{piece_id}.musicxml`.
+      7. Render every page to `{out_dir}/{piece_id}_page{N}.png`.
+      8. Extract ground truth from the SAME measured Stream that was
+         written and rendered (not a re-parse of the written file) —
+         image and ground truth are self-consistent by construction.
+
+    Returns {"n_pages": int, "measures": [...]} on success, or None on
+    any failure — the caller (Task 4's CLI loop) is responsible for
+    logging and skipping, matching the "one bad piece must not abort
+    the whole corpus build" error-handling rule from the spec.
+    """
+    try:
+        score = music21.converter.parse(midi_path)
+        real_part = select_real_part(score)
+        strip_tempo_marks(real_part)
+        measured = real_part.makeMeasures()
+
+        measured.metadata = music21.metadata.Metadata()
+        measured.metadata.title = f"{metadata_row['composition']} - {metadata_row['movement']}"
+        measured.metadata.composer = metadata_row['composer']
+
+        mxl_path = str(out_dir / f"{piece_id}.musicxml")
+        measured.write('musicxml', fp=mxl_path)
+
+        out_prefix = str(out_dir / piece_id)
+        pngs = render_musicxml_to_pngs(mxl_path, out_prefix)
+        if not pngs:
+            print(f"[build_visual_validation_corpus] piece {piece_id}: "
+                  f"verovio produced zero pages, skipping")
+            return None
+
+        measures = extract_ground_truth_measures(measured)
+        return {"n_pages": len(pngs), "measures": measures}
+    except Exception as e:                                       # noqa: BLE001
+        print(f"[build_visual_validation_corpus] piece {piece_id}: "
+              f"FAILED ({type(e).__name__}: {e}), skipping")
+        return None

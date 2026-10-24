@@ -61,13 +61,16 @@ def strip_tempo_marks(part: "music21.stream.Part") -> None:
 def extract_ground_truth_measures(measured: "music21.stream.Stream") -> list:
     """
     Walks `measured` (the output of a Part's .makeMeasures()) and builds
-    ground truth in EXACTLY worker.py's own note-dict shape (see
-    parse_musicxml's note-building block, currently worker.py:1510-1540 —
-    re-grep `el.pitch.nameWithOctave` before trusting that line number,
-    it drifts). This is not a new schema: `beat` is music21's own
-    `.beat` property, `duration_beats` is music21's own
-    `.duration.quarterLength` (confirmed directly in worker.py: "a
-    music21 quarterLength, despite the name").
+    ground truth containing the 4 fields (`pitch`/`is_rest`/`beat`/
+    `duration_beats`) that worker.py's `_measure_fingerprint` actually
+    compares — not a full copy of worker.py's richer note dict (see
+    parse_musicxml's note-building block, re-grep `el.pitch.nameWithOctave`
+    for its current line, it drifts). That richer dict also carries
+    `articulation`/`dynamic`; those are deliberately omitted here because
+    `_measure_fingerprint` itself ignores them (see that function's own
+    docstring in worker.py). `beat` is music21's own `.beat` property,
+    `duration_beats` is music21's own `.duration.quarterLength` (confirmed
+    directly in worker.py: "a music21 quarterLength, despite the name").
 
     Confirmed by direct inspection of all 24 real MusicNet pieces after
     this pipeline's part-selection + tempo-stripping + makeMeasures:

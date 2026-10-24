@@ -112,11 +112,12 @@ def _make_measured_part_with_a_rest_and_an_accidental():
     return part.makeMeasures()
 
 
-def test_extract_ground_truth_measures_matches_production_schema():
-    print("\n[3] extract_ground_truth_measures produces exactly the same "
-          "note-dict shape worker.py's own parse_musicxml does "
-          "(pitch/is_rest/beat/duration_beats, pitch as nameWithOctave or "
-          "None for a rest) — not a new, separately-invented schema. "
+def test_extract_ground_truth_measures_matches_the_fields_measure_fingerprint_compares():
+    print("\n[3] extract_ground_truth_measures produces the 4 fields "
+          "(pitch/is_rest/beat/duration_beats) that worker.py's "
+          "_measure_fingerprint compares, using the same encoding "
+          "parse_musicxml uses (pitch as nameWithOctave or None for a rest). "
+          "It is not a full copy of parse_musicxml's richer note dict. "
           "Sharp spelling ('F#4', not 'Gb4') must survive untouched, "
           "matching music21's own nameWithOctave convention.")
     measured = _make_measured_part_with_a_rest_and_an_accidental()
@@ -153,7 +154,7 @@ def main():
     print("=" * 70)
     for t in (test_select_real_part_picks_the_part_with_more_notes,
               test_strip_tempo_marks_removes_every_metronome_mark,
-              test_extract_ground_truth_measures_matches_production_schema):
+              test_extract_ground_truth_measures_matches_the_fields_measure_fingerprint_compares):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

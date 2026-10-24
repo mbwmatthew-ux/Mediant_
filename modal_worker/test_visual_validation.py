@@ -60,8 +60,13 @@ def _make_two_part_score_with_tempo_marks():
         mm = music21.tempo.MetronomeMark(number=bpm)
         artifact_part.insert(beat_offset, mm)
 
-    score.insert(0, real_part)
     score.insert(0, artifact_part)
+    score.insert(0, real_part)
+    # Precondition: the artifact part must sit at parts[0], otherwise the
+    # selection test below would pass even for a buggy "return parts[0]"
+    # implementation and guard nothing.
+    assert score.parts[0] is artifact_part, \
+        "fixture must put the artifact part first, or this test doesn't guard anything"
     return score, real_part, artifact_part
 
 

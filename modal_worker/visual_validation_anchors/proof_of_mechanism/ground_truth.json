@@ -1,0 +1,156 @@
+{
+  "measures": [
+    {
+      "number": 1,
+      "notes": [
+        {
+          "pitch": "B4",
+          "is_rest": false,
+          "beat": 1.0,
+          "duration_beats": 1.0
+        },
+        {
+          "pitch": "E4",
+          "is_rest": false,
+          "beat": 1.0,
+          "duration_beats": 1.0
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "notes": [
+        {
+          "pitch": "C#5",
+          "is_rest": false,
+          "beat": 1.0,
+          "duration_beats": 1.0
+        },
+        {
+          "pitch": "A4",
+          "is_rest": false,
+          "beat": 1.0,
+          "duration_beats": 1.0
+        },
+        {
+          "pitch": "A4",
+          "is_rest": false,
+          "beat": 2.0,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "B4",
+          "is_rest": false,
+          "beat": 2.5,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "C#5",
+          "is_rest": false,
+          "beat": 3.0,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "E-5",
+          "is_rest": false,
+          "beat": 3.5,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "E5",
+          "is_rest": false,
+          "beat": 4.0,
+          "duration_beats": 1.0
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "notes": [
+        {
+          "pitch": "G#4",
+          "is_rest": false,
+          "beat": 1.0,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "B4",
+          "is_rest": false,
+          "beat": 1.5,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "E5",
+          "is_rest": false,
+          "beat": 2.0,
+          "duration_beats": 1.0
+        },
+        {
+          "pitch": "E5",
+          "is_rest": false,
+          "beat": 3.0,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "E-5",
+          "is_rest": false,
+          "beat": 3.5,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "E5",
+          "is_rest": false,
+          "beat": 4.0,
+          "duration_beats": 1.0
+        }
+      ]
+    },
+    {
+      "number": 4,
+      "notes": [
+        {
+          "pitch": "F#4",
+          "is_rest": false,
+          "beat": 1.0,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "G#4",
+          "is_rest": false,
+          "beat": 1.5,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "A4",
+          "is_rest": false,
+          "beat": 2.0,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "B4",
+          "is_rest": false,
+          "beat": 2.5,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "C#5",
+          "is_rest": false,
+          "beat": 3.0,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "A4",
+          "is_rest": false,
+          "beat": 3.5,
+          "duration_beats": 0.5
+        },
+        {
+          "pitch": "B4",
+          "is_rest": false,
+          "beat": 4.0,
+          "duration_beats": 1.0
+        }
+      ]
+    }
+  ]
+}

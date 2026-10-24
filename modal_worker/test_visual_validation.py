@@ -391,6 +391,23 @@ def test_aggregate_scores_computes_per_piece_and_overall_percentages():
     check("overall is 11/20 = 55%", result["overall"] == 55.0, str(result["overall"]))
 
 
+def test_load_anchor_cases_finds_the_proof_of_mechanism_fixture():
+    print("\n[13] load_anchor_cases discovers every subdirectory under "
+          "visual_validation_anchors/ that has both a ground_truth.json "
+          "and at least one page image, and loads them by name — the "
+          "mechanism this plan commits to proving, even though the real "
+          "clarinet-photo anchor's ground truth is explicitly deferred.")
+    anchors_dir = Path(os.path.dirname(os.path.abspath(__file__))) / "visual_validation_anchors"
+    anchors = vsrac.load_anchor_cases(anchors_dir)
+    check("proof_of_mechanism anchor was discovered",
+          "proof_of_mechanism" in anchors, str(list(anchors.keys())))
+    entry = anchors["proof_of_mechanism"]
+    check("it has at least one page image", len(entry["pages"]) >= 1, str(entry["pages"]))
+    check("its ground truth has at least one measure",
+          len(entry["ground_truth"]["measures"]) > 0,
+          str(len(entry["ground_truth"].get("measures", []))))
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
@@ -408,7 +425,8 @@ def main():
               test_perspective_warp_with_displacement_actually_moves_content,
               test_degrade_mild_and_severe_are_deterministic_given_a_seed,
               test_score_measures_counts_exact_fingerprint_matches,
-              test_aggregate_scores_computes_per_piece_and_overall_percentages):
+              test_aggregate_scores_computes_per_piece_and_overall_percentages,
+              test_load_anchor_cases_finds_the_proof_of_mechanism_fixture):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

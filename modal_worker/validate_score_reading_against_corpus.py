@@ -170,6 +170,23 @@ def main():
             print(f"  [{tier_name}/{piece_id}] {n_correct}/{n_total} measures correct")
         results_by_tier[tier_name] = aggregate_scores(per_piece_results)
 
+    anchors_dir = Path(os.path.dirname(os.path.abspath(__file__))) / "visual_validation_anchors"
+    anchors = load_anchor_cases(anchors_dir)
+    anchor_results = {}
+    for name, anchor in anchors.items():
+        pages = []
+        for p in anchor["pages"]:
+            with open(p, "rb") as f:
+                pages.append((f.read(), "image/png"))
+        result = _call_read_score_notes_with_one_retry(pages, anthropic_key, f"anchor/{name}")
+        if result is None:
+            n_correct, n_total = 0, len(anchor["ground_truth"]["measures"])
+        else:
+            n_correct, n_total = score_measures(result.get("measures") or [], anchor["ground_truth"]["measures"])
+        pct = round(100.0 * n_correct / n_total, 4) if n_total else 0.0
+        anchor_results[name] = pct
+        print(f"  [anchor/{name}] {n_correct}/{n_total} measures correct ({pct}%)")
+
     print("\n" + "=" * 70)
     print("Visual score-reading validation — % correct-measure-match")
     print("=" * 70)
@@ -178,8 +195,34 @@ def main():
         for piece_id, pct in agg["per_piece"].items():
             print(f"  {piece_id}: {pct}%")
         print(f"  OVERALL ({tier_name}): {agg['overall']}%")
+
+    print("\nanchors:")
+    for name, pct in anchor_results.items():
+        print(f"  {name}: {pct}%")
     print("=" * 70)
     return 0
+
+
+def load_anchor_cases(anchors_dir: Path) -> dict:
+    """
+    Discovers every subdirectory of `anchors_dir` containing a
+    ground_truth.json and at least one page{N}.png, and loads them.
+    Returns {anchor_name: {"pages": [Path, ...], "ground_truth": {...}}}.
+    """
+    anchors = {}
+    if not anchors_dir.exists():
+        return anchors
+    for sub in sorted(anchors_dir.iterdir()):
+        if not sub.is_dir():
+            continue
+        gt_path = sub / "ground_truth.json"
+        pages = sorted(sub.glob("page*.png"))
+        if not gt_path.exists() or not pages:
+            continue
+        with open(gt_path) as f:
+            ground_truth = json.load(f)
+        anchors[sub.name] = {"pages": pages, "ground_truth": ground_truth}
+    return anchors
 
 
 if __name__ == "__main__":

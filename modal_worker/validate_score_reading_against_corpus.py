@@ -3,10 +3,11 @@ Stage 3 of the visual score-reading validation harness: runs the real
 read_score_notes_claude against Stage 1/2's corpus images and scores the
 result against ground truth.
 
-NOT part of the production Modal image. Requires real API keys (see
+NOT part of the production Modal image. Requires a real API key (see
 module-level REQUIRED_ENV_VARS below) and dispatches real Audiveris
-calls against the deployed `mediant-worker` Modal app via `with
-w.app.run():` — confirmed necessary by direct test: a bare
+calls via `with w.app.run():` — this starts a temporary EPHEMERAL Modal
+run from local source, NOT a call into the already-deployed
+`mediant-worker` Modal app. Confirmed necessary by direct test: a bare
 `w.run_audiveris_on_row.spawn(...)` call outside that context fails
 with "Function has not been hydrated...because the App it is defined
 on is not running."
@@ -16,10 +17,9 @@ for the full design.
 
 Usage:
     export ANTHROPIC_API_KEY=...
-    export GEMINI_API_KEY=...
     python3 validate_score_reading_against_corpus.py \\
         --corpus-dir /Users/matthewwu/.cache/mediant_validation/visual_corpus \\
-        --subset            # fast-iteration subset (5 pieces); omit for --full
+        # fast-iteration subset (5 pieces) by default; pass --full for all 24
 """
 import argparse
 import json
@@ -32,28 +32,50 @@ import worker as w  # noqa: E402 — needs the REAL modal/music21/etc. stack; ru
 
 REQUIRED_ENV_VARS = ("ANTHROPIC_API_KEY",)
 
-# Hardcoded for fast, comparable day-to-day iteration — the shortest
-# piece from each of the 3 solo instruments in the corpus, plus 2 more
-# for a little breadth. Checkpoint/gate runs use --full (all 24 pieces)
-# instead. See the spec's "Cost policy" section for why this exists:
-# every validation run here costs real Claude+Gemini+Audiveris API
-# calls, unlike the audio side's fully-local CREPE harness.
-FAST_ITERATION_SUBSET = ["2191", "2204", "2298", "2659", "2203"]
+# Hardcoded for fast, comparable day-to-day iteration — the 4 CONFIRMED
+# single-page pieces in the corpus (2204=Flute, 2220=Cello, 2243=Violin,
+# 2296=Cello — verified directly against ground_truth.json's "n_pages"
+# field, not assumed), plus one more single-instrument-diverse piece
+# (2191, Violin, 2 pages — the cheapest way to get a second Violin
+# piece once the 4 single-page candidates are exhausted) for breadth.
+# Total: 6 pages across 5 pieces. The previous subset
+# (["2191","2204","2298","2659","2203"]) totaled ~10 pages — roughly
+# double the intended cost per run — because it was never checked
+# against actual per-piece page counts. Checkpoint/gate runs use --full
+# (all 24 pieces) instead. See the spec's "Cost policy" section for why
+# this exists: every validation run here costs real Claude+Audiveris
+# API calls, unlike the audio side's fully-local CREPE harness.
+FAST_ITERATION_SUBSET = ["2204", "2220", "2243", "2296", "2191"]
 
 
-def score_measures(predicted: list, ground_truth: list) -> tuple:
+def score_measures(predicted: list, ground_truth: list, time_sig: str) -> tuple:
     """
     Returns (n_correct, n_total). `n_total` is the number of ground-truth
     measures. A ground-truth measure number with no matching entry in
     `predicted` counts as incorrect, not excluded — a failure to produce
     an answer is a wrong answer, matching the audio side's convention.
+
+    Uses `w._cross_source_measure_match`, NOT `w._measure_fingerprint`
+    (final-review C1 fix). `_measure_fingerprint` compares raw pitch
+    strings and raw duration units, which is correct only for comparing
+    two SAME-SOURCE Claude reads against each other. Here `predicted`
+    (Claude's vision read) and `ground_truth` (music21-derived) are two
+    INDEPENDENT sources that do not share a pitch-spelling convention
+    ("Bb4" vs music21's "B-4" — never equal under raw-string comparison)
+    or a duration-unit convention (Claude reports notated beats;
+    music21's `duration_beats` is a quarterLength — they only coincide
+    in simple time, diverging in 6/8, 12/8, etc.). `_cross_source_
+    measure_match` normalizes both (pitch via `midi_from_name`,
+    duration by dividing the ground-truth side by
+    `quarter_lengths_per_beat(time_sig)`) before comparing, and never
+    matches an empty/missing measure against another empty one.
     """
     predicted_by_number = {m["number"]: m for m in predicted}
     n_correct = 0
     for gt_measure in ground_truth:
         pred_measure = predicted_by_number.get(gt_measure["number"])
         if pred_measure is not None and \
-                w._measure_fingerprint(pred_measure) == w._measure_fingerprint(gt_measure):
+                w._cross_source_measure_match(pred_measure, gt_measure, time_sig):
             n_correct += 1
     return n_correct, len(ground_truth)
 
@@ -96,35 +118,56 @@ def run_validation_for_piece_tier(piece_id: str, tier_dir: Path, ground_truth_en
         return 0, len(ground_truth_entry["measures"])
 
     pages = []
-    for p in page_paths:
-        with open(p, "rb") as f:
-            pages.append((f.read(), "image/png"))
+    try:
+        for p in page_paths:
+            with open(p, "rb") as f:
+                pages.append((f.read(), "image/png"))
+    except OSError as e:
+        print(f"  [{piece_id}] failed to read page image(s) from {tier_dir} "
+              f"({type(e).__name__}: {e}), counted as a full miss")
+        return 0, len(ground_truth_entry["measures"])
 
     result = _call_read_score_notes_with_one_retry(pages, anthropic_key, piece_id)
     if result is None:
         return 0, len(ground_truth_entry["measures"])
 
     predicted_measures = result.get("measures") or []
-    return score_measures(predicted_measures, ground_truth_entry["measures"])
+    return score_measures(predicted_measures, ground_truth_entry["measures"],
+                           ground_truth_entry["time_signature"])
 
 
 def _call_read_score_notes_with_one_retry(pages: list, anthropic_key: str, label: str) -> dict | None:
     """
-    Calls read_score_notes_claude, retrying ONCE on any exception before
-    giving up — per the spec's error-handling rule: "a transient-looking
-    API error (timeout, rate limit) ... gets one retry before being
-    counted as a real failure." This does not try to classify transient
-    vs. permanent errors precisely (the spec doesn't define that
-    boundary either); one retry on any failure is the simple version of
-    that rule, and a second consecutive failure is treated as real.
+    Calls read_score_notes_claude, retrying ONCE before giving up — per
+    the spec's error-handling rule: "a transient-looking API error
+    (timeout, rate limit) ... gets one retry before being counted as a
+    real failure." This does not try to classify transient vs.
+    permanent errors precisely (the spec doesn't define that boundary
+    either); one retry on any failure is the simple version of that
+    rule, and a second consecutive failure is treated as real.
+
+    Retries on TWO distinct failure shapes (final-review M1 fix): the
+    function RAISING, and the function returning normally with an
+    error-shaped result (`{"error": "...", ...}` and no usable
+    "measures" key) — read_score_notes_claude can fail either way, and
+    the spec's retry rule doesn't distinguish between them.
+
     Returns None if both attempts fail.
     """
+    def _is_error_shaped(result: dict) -> bool:
+        return bool(result.get("error")) and not result.get("measures")
+
     for attempt in (1, 2):
         try:
             with w.app.run():
-                return w.read_score_notes_claude(
+                result = w.read_score_notes_claude(
                     pages=pages, start_measure=1, instrument="Violin",
                     time_sig="4/4", anthropic_api_key=anthropic_key)
+            if not _is_error_shaped(result):
+                return result
+            print(f"  [{label}] attempt {attempt} returned an error-shaped "
+                  f"result ({result.get('error')!r})"
+                  + (" — retrying once" if attempt == 1 else " — counted as a full miss"))
         except Exception as e:                                   # noqa: BLE001
             print(f"  [{label}] attempt {attempt} raised "
                   f"{type(e).__name__}: {e}"
@@ -182,7 +225,9 @@ def main():
         if result is None:
             n_correct, n_total = 0, len(anchor["ground_truth"]["measures"])
         else:
-            n_correct, n_total = score_measures(result.get("measures") or [], anchor["ground_truth"]["measures"])
+            n_correct, n_total = score_measures(
+                result.get("measures") or [], anchor["ground_truth"]["measures"],
+                anchor["ground_truth"]["time_signature"])
         pct = round(100.0 * n_correct / n_total, 4) if n_total else 0.0
         anchor_results[name] = pct
         print(f"  [anchor/{name}] {n_correct}/{n_total} measures correct ({pct}%)")

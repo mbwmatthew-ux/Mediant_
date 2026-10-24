@@ -1,5 +1,91 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-23 — Visual score-reading validation harness: final-branch-review fix wave (2 Critical, 3 Important, 1 Minor)
+
+Fixed every finding from the final whole-branch review of the visual
+score-reading validation harness (spec:
+`.superpowers/sdd/2026-10-23-visual-score-reading-validation-harness/`),
+both independently confirmed by the controller before any fix landed.
+
+**C1 (Critical):** `validate_score_reading_against_corpus.py`'s
+`score_measures` was comparing Claude's vision-read measures against
+music21 ground truth using `w._measure_fingerprint` — a SAME-SOURCE
+comparison function that compares raw pitch strings and raw duration
+units. Across independent sources this silently breaks on every
+flat-spelled note ("Bb4" vs music21's "B-4" — never equal as raw
+strings) and every compound-time measure (Claude reports notated beats;
+music21 reports quarterLengths — they diverge in 6/8, 12/8, etc.).
+Switched to `w._cross_source_measure_match(predicted, ground_truth,
+time_sig)`, which normalizes both before comparing. This required adding
+a `"time_signature"` field (music21's `ratioString`) to every ground-truth
+entry in `build_visual_validation_corpus.py`, threaded through every call
+site. Confirmed this isn't academic: piece 2243 in the real corpus is
+genuinely in 12/8.
+
+**C2 (Critical):** `render_musicxml_to_pngs`'s raw `resvg_py.svg_to_bytes`
+output is RGBA with a fully transparent background whose underlying RGB
+is `(0,0,0)`. `read_score_notes_claude`'s own pipeline drops alpha via a
+plain `.convert()`, so every clean-tier page and the anchor's page1.png
+would have been read as solid black. Confirmed directly:
+`Image.open(...).convert("L")` on the old clean/2191_page1.png gave mean
+pixel value 0.0. Fixed by flattening RGBA onto a white canvas (same
+pattern Task 6 already used for the degraded tiers) before writing to
+disk. Post-fix spot check: mean pixel value 236.25.
+
+**I1 (Important):** ground truth was extracted from the pre-write
+`measured` stream, but `measured.write('musicxml', ...)` runs music21's
+own export clean-up, which can change measure content afterward (72/2421
+measures differed in the real corpus). Fixed by re-parsing the written
+file and extracting ground truth (and the time signature) from that
+re-parsed stream instead.
+
+**I2/I3/I4/M1** (bundled, same files): corrected a false docstring claim
+("zero simultaneous-offset Note pairs" — actually 116 measures have
+them); fixed stale `GEMINI_API_KEY`/`--subset` usage docs and the
+"deployed Modal app" wording (`with w.app.run()` is an ephemeral local
+run); replaced `FAST_ITERATION_SUBSET` (was ~10 pages) with the 4
+confirmed single-page pieces plus one more for instrument breadth (6
+pages total); made `_call_read_score_notes_with_one_retry` also retry on
+an error-shaped (non-raising) result, not just a raised exception.
+
+Rebuilt the real corpus and anchor from scratch after the C2/I1 fixes
+(both change what gets written to disk): 24 pieces built/0 skipped, 54
+mild + 54 severe degraded pages (unchanged counts), anchor regenerated
+with a `time_signature` field. `test_visual_validation.py`: 46/46 checks
+passing. `test_analysis.py`: 697/697 (unaffected, worker.py untouched).
+Full report:
+`.superpowers/sdd/2026-10-23-visual-score-reading-validation-harness/final-fix-report.md`.
+
+## 2026-10-23 — Visual score-reading validation harness, Task 6: degradation tiers + CLI, real-run RGBA bug found and fixed
+
+Task 6 of the visual-score-reading validation harness (spec:
+`.superpowers/sdd/2026-10-23-visual-score-reading-validation-harness/`).
+Added `degrade_mild`/`degrade_severe` to `modal_worker/degrade_visual_corpus.py`,
+composing Task 5's 5 pixel-transform primitives (rotation, perspective warp,
+lighting gradient, blur, JPEG recompression) into two severity tiers, plus a
+`main()` CLI that runs them against Task 4's real clean corpus on disk.
+
+**Real bug found only by running the CLI for real, not by unit tests:** the
+clean corpus's rendered PNGs are RGBA with a fully transparent background whose
+underlying RGB channel data is `(0, 0, 0)` — it only *looks* white because
+viewers composite transparency onto white by default. A plain
+`Image.open(path).convert("RGB")` drops the alpha channel and keeps that raw
+black RGB, which turned the degraded output into a solid black rectangle on the
+first real run (confirmed: every background pixel sampled was `(0,0,0,0)` RGBA
+→ `(0,0,0)` after a naive convert). Invisible to unit tests because the existing
+test fixture (`_make_test_image()`) is plain RGB with no alpha channel. Fixed by
+flattening RGBA onto an actual white canvas using the alpha channel as a paste
+mask before degrading. Re-verified by eye after the fix: both `degraded/mild/`
+and `degraded/severe/` pages are legible sheet-music photos with the intended
+degradation visible, not black squares.
+
+31/31 checks passing. Real run: 54 mild + 54 severe pages written (matches the
+clean corpus's real PNG count — the brief's prose said "78 PNGs" but `clean/`
+is actually 54 PNGs + 24 `.musicxml` files = 78 total entries; the glob pattern
+`*.png` was correct regardless). See the full report for exact output:
+`.superpowers/sdd/2026-10-23-visual-score-reading-validation-harness/task-6-report.md`.
+Commit `8dcedca`.
+
 ## 2026-10-15 — Pitch-tracker fix: within-segment jump detection (two CREPE model/decoder swaps tried and reverted first)
 
 Follow-up to the DTW alignment work below. After rest-anchored

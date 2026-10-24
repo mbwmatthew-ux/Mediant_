@@ -43,11 +43,16 @@ def check(name, ok, detail=""):
 
 def _make_two_part_score_with_tempo_marks():
     """
-    A tiny Score with 2 parts: part 0 has 6 notes (the "real" line), part 1
-    has 2 notes (a sparse artifact track) plus 3 MetronomeMark events on
-    EACH part — mirroring exactly what was found on real MusicNet piece
-    2186 (1375 vs 265 notes, both parts carrying the identical 66 tempo
-    events).
+    A tiny Score with 2 parts: the "real" line has 6 notes, the sparse
+    artifact track has 2 notes, plus 3 MetronomeMark events on EACH part
+    — mirroring exactly what was found on real MusicNet piece 2186 (1375
+    vs 265 notes, both parts carrying the identical 66 tempo events).
+
+    Described by ROLE, not by `score.parts` index, on purpose: the
+    artifact part is inserted first but ends up at `score.parts[0]`
+    (asserted below) — an earlier version of this docstring said "part
+    0 has 6 notes (real), part 1 has 2 notes (artifact)", which was
+    backwards relative to the actual insertion order in the code below.
     """
     score = music21.stream.Score()
 
@@ -181,6 +186,40 @@ def test_render_musicxml_to_pngs_produces_legible_nonempty_pages():
                   f"{os.path.getsize(p) if os.path.exists(p) else 'MISSING'} bytes")
 
 
+def test_render_musicxml_to_pngs_background_is_not_black():
+    print("\n[4b] render_musicxml_to_pngs's output PNG has a real WHITE "
+          "background, not solid black (final-review C2 fix). "
+          "resvg_py.svg_to_bytes's raw output is RGBA with a fully "
+          "transparent background whose underlying RGB is (0,0,0) — "
+          "confirmed directly this session: before the fix, "
+          "Image.open(...).convert('L') gave mean pixel value 0.0 on a "
+          "real clean-tier page. read_score_notes_claude's own pipeline "
+          "converts to 'L'/'RGB' with plain .convert(), which drops "
+          "alpha without compositing, so every clean-tier page would "
+          "have been read as blank black. This is the Minor finding "
+          "the review elevated specifically because it's what would "
+          "have caught C2.")
+    part = music21.stream.Part()
+    part.append(music21.meter.TimeSignature('4/4'))
+    for name in ["C4", "D4", "E4", "F4"]:
+        part.append(music21.note.Note(name, quarterLength=1.0))
+    measured = part.makeMeasures()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mxl_path = os.path.join(tmp, "test.musicxml")
+        measured.write("musicxml", fp=mxl_path)
+        out_prefix = os.path.join(tmp, "test")
+        pngs = bvc.render_musicxml_to_pngs(mxl_path, out_prefix)
+        check("at least one page rendered", len(pngs) >= 1, str(len(pngs)))
+        for p in pngs:
+            gray = Image.open(p).convert("L")
+            pixels = list(gray.getdata())
+            max_val = max(pixels)
+            check(f"page {os.path.basename(p)} is NOT all-black "
+                  f"(max pixel value > 200, i.e. a real white background)",
+                  max_val > 200, f"max pixel value {max_val}")
+
+
 def test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece():
     print("\n[5] build_corpus_entry runs the full Stage-1 pipeline on a "
           "REAL MusicNet piece (2191, the shortest solo-violin piece, "
@@ -216,6 +255,13 @@ def test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece():
               "(a genuinely empty measure would signal a broken extraction)",
               all(len(m["notes"]) > 0 for m in entry["measures"]),
               str([m["number"] for m in entry["measures"] if not m["notes"]]))
+        check("entry carries a time_signature string (final-review C1.1 fix)",
+              isinstance(entry.get("time_signature"), str) and "/" in entry["time_signature"],
+              str(entry.get("time_signature")))
+        page1 = sorted(Path(tmp).glob("2191_page1.png"))
+        check("page1.png's background is not solid black (final-review C2 fix)",
+              bool(page1) and max(Image.open(page1[0]).convert("L").getdata()) > 200,
+              str(max(Image.open(page1[0]).convert("L").getdata())) if page1 else "MISSING")
 
 
 def _make_test_image():
@@ -356,11 +402,11 @@ def test_degrade_mild_and_severe_are_deterministic_given_a_seed():
 
 def test_score_measures_counts_exact_fingerprint_matches():
     print("\n[11] score_measures counts a measure as correct only when "
-          "its predicted note list's _measure_fingerprint matches the "
-          "ground truth's exactly — reusing worker.py's own comparison "
-          "function (the same one the production pipeline uses to "
-          "reconcile its own two independent Claude reads), not a new, "
-          "separately-invented comparison.")
+          "w._cross_source_measure_match (not w._measure_fingerprint — "
+          "final-review C1 fix) says the predicted note list matches "
+          "the ground truth's, under a 4/4 time signature where the two "
+          "comparison functions happen to agree on plain, unspelled "
+          "pitches.")
     ground_truth = [
         {"number": 1, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
         {"number": 2, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
@@ -371,9 +417,56 @@ def test_score_measures_counts_exact_fingerprint_matches():
         {"number": 2, "notes": [{"pitch": "D#4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},  # wrong pitch
         # measure 3 entirely missing from the predicted result
     ]
-    n_correct, n_total = vsrac.score_measures(predicted, ground_truth)
+    n_correct, n_total = vsrac.score_measures(predicted, ground_truth, "4/4")
     check("1 of 3 ground-truth measures matched exactly",
           n_correct == 1 and n_total == 3, f"{n_correct}/{n_total}")
+
+
+def test_score_measures_matches_across_pitch_spelling_conventions():
+    print("\n[11b] score_measures matches a Claude-spelled 'Bb4' against "
+          "a music21-spelled 'B-4' ground truth — same pitch, different "
+          "spelling convention. This is exactly the case that was "
+          "silently broken under the old w._measure_fingerprint "
+          "comparison (raw-string equality: 'Bb4' != 'B-4', always), "
+          "and is the regression final-review C1 fixes.")
+    ground_truth = [
+        {"number": 1, "notes": [{"pitch": "B-4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
+    ]
+    predicted = [
+        {"number": 1, "notes": [{"pitch": "Bb4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
+    ]
+    # Sanity: prove the OLD comparison would have missed this (raw-string
+    # fingerprints never equal across spelling conventions).
+    check("w._measure_fingerprint on these two measures is NOT equal "
+          "(proves the old comparison was broken for this exact case)",
+          vsrac.w._measure_fingerprint(predicted[0]) != vsrac.w._measure_fingerprint(ground_truth[0]))
+    n_correct, n_total = vsrac.score_measures(predicted, ground_truth, "4/4")
+    check("'Bb4' matches 'B-4' under the new cross-source comparison",
+          n_correct == 1 and n_total == 1, f"{n_correct}/{n_total}")
+
+
+def test_score_measures_normalizes_compound_time_duration_units():
+    print("\n[11c] score_measures matches a predicted note whose "
+          "duration_beats is in NOTATED-BEAT units against a "
+          "ground-truth note whose duration_beats is a quarterLength, "
+          "once normalized by quarter_lengths_per_beat('6/8') — the "
+          "compound-time duration-unit bug final-review C1 also fixes.")
+    qlpb = vsrac.w.quarter_lengths_per_beat("6/8")
+    check("quarter_lengths_per_beat('6/8') is 1.5 (one dotted-quarter beat)",
+          qlpb == 1.5, str(qlpb))
+    # A note that is 1 full notated beat long in 6/8 (Claude's unit) is
+    # 1.5 quarterLengths (music21/ground-truth's unit) — known-correct
+    # math: a 6/8 beat IS a dotted quarter, i.e. 1.5 quarterLengths.
+    ground_truth = [
+        {"number": 1, "notes": [{"pitch": "G4", "is_rest": False, "beat": 1.0, "duration_beats": 1.5}]},
+    ]
+    predicted = [
+        {"number": 1, "notes": [{"pitch": "G4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
+    ]
+    n_correct, n_total = vsrac.score_measures(predicted, ground_truth, "6/8")
+    check("1-notated-beat predicted duration matches 1.5-quarterLength "
+          "ground truth once normalized for 6/8",
+          n_correct == 1 and n_total == 1, f"{n_correct}/{n_total}")
 
 
 def test_aggregate_scores_computes_per_piece_and_overall_percentages():
@@ -416,6 +509,7 @@ def main():
               test_strip_tempo_marks_removes_every_metronome_mark,
               test_extract_ground_truth_measures_matches_the_fields_measure_fingerprint_compares,
               test_render_musicxml_to_pngs_produces_legible_nonempty_pages,
+              test_render_musicxml_to_pngs_background_is_not_black,
               test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece,
               test_rotate_no_exif_actually_rotates_the_pixels,
               test_lighting_gradient_is_asymmetric,
@@ -425,6 +519,8 @@ def main():
               test_perspective_warp_with_displacement_actually_moves_content,
               test_degrade_mild_and_severe_are_deterministic_given_a_seed,
               test_score_measures_counts_exact_fingerprint_matches,
+              test_score_measures_matches_across_pitch_spelling_conventions,
+              test_score_measures_normalizes_compound_time_duration_units,
               test_aggregate_scores_computes_per_piece_and_overall_percentages,
               test_load_anchor_cases_finds_the_proof_of_mechanism_fixture):
         try:

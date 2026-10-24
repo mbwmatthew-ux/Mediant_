@@ -18,6 +18,7 @@ Usage:
 """
 import argparse
 import csv
+import io
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ from pathlib import Path
 import music21
 import verovio
 import resvg_py
+from PIL import Image
 
 
 def select_real_part(score: "music21.stream.Score") -> "music21.stream.Part":
@@ -62,26 +64,33 @@ def strip_tempo_marks(part: "music21.stream.Part") -> None:
 
 def extract_ground_truth_measures(measured: "music21.stream.Stream") -> list:
     """
-    Walks `measured` (the output of a Part's .makeMeasures()) and builds
-    ground truth containing the 4 fields (`pitch`/`is_rest`/`beat`/
-    `duration_beats`) that worker.py's `_measure_fingerprint` actually
-    compares — not a full copy of worker.py's richer note dict (see
-    parse_musicxml's note-building block, re-grep `el.pitch.nameWithOctave`
-    for its current line, it drifts). That richer dict also carries
-    `articulation`/`dynamic`; those are deliberately omitted here because
-    `_measure_fingerprint` itself ignores them (see that function's own
-    docstring in worker.py). `beat` is music21's own `.beat` property,
+    Walks `measured` (a Part-like stream containing Measures — either
+    the direct output of .makeMeasures(), or a re-parsed-from-disk
+    equivalent) and builds ground truth containing the 4 fields
+    (`pitch`/`is_rest`/`beat`/`duration_beats`) that worker.py's
+    `_cross_source_measure_match` (and, for same-source comparisons,
+    `_measure_fingerprint`) actually compare — not a full copy of
+    worker.py's richer note dict (see parse_musicxml's note-building
+    block, re-grep `el.pitch.nameWithOctave` for its current line, it
+    drifts). That richer dict also carries `articulation`/`dynamic`;
+    those are deliberately omitted here because both comparison
+    functions ignore them. `beat` is music21's own `.beat` property,
     `duration_beats` is music21's own `.duration.quarterLength` (confirmed
     directly in worker.py: "a music21 quarterLength, despite the name").
 
-    Confirmed by direct inspection of all 24 real MusicNet pieces after
-    this pipeline's part-selection + tempo-stripping + makeMeasures:
-    every measure's notesAndRests is a flat, monophonic sequence (zero
-    Chord objects, zero Voice objects, zero simultaneous-offset Note
-    pairs found across a 60-measure sample of the most chord-prone piece,
-    Cello Suite 3's Prelude). Chord handling below is a defensive
-    fallback for a shape never actually observed in this corpus, not a
-    load-bearing assumption.
+    CORRECTION (final-review I2): an earlier version of this docstring
+    claimed "zero Chord objects, zero Voice objects, zero simultaneous-
+    offset Note pairs" were found across the corpus. That claim was
+    false — the final review found 116 measures with simultaneous
+    events across the real 24-piece corpus (e.g. piece 2191's opening
+    double stops). Simultaneous/chord-like content (double stops, etc.)
+    DOES occur here; the Chord-handling branch below is load-bearing,
+    not defensive. `_cross_source_measure_match` (like
+    `_measure_fingerprint` before it) compares notes in LIST ORDER, not
+    sorted by pitch/offset — this is an inherited characteristic of the
+    production function being reused here, not a new limitation, so no
+    additional sorting/normalization is added in this module beyond
+    whatever `_cross_source_measure_match` itself does.
     """
     import music21 as m21
 
@@ -129,6 +138,18 @@ def render_musicxml_to_pngs(musicxml_path: str, out_prefix: str) -> list:
     library dependencies (confirmed on this machine) — cairosvg was
     tried first and rejected for needing a system libcairo that isn't
     present.
+
+    (C2 fix) `resvg_py.svg_to_bytes`'s output is RGBA with a fully
+    TRANSPARENT background whose underlying RGB is (0, 0, 0), not
+    (255, 255, 255) — confirmed directly: `Image.open(...).convert("L")`
+    on a raw write of these bytes gives mean pixel value 0.0, i.e. every
+    pixel black. It only *looks* white in a viewer that composites
+    transparency onto a white canvas. `read_score_notes_claude`'s own
+    pipeline converts to "L"/"RGB" with plain `.convert()`, which drops
+    alpha without compositing, so every page would be read as solid
+    black. Must flatten onto a real white RGB canvas before writing —
+    same pattern degrade_visual_corpus.py's main() already uses for the
+    degraded tiers.
     """
     tk = verovio.toolkit()
     ok = tk.loadFile(musicxml_path)
@@ -138,9 +159,15 @@ def render_musicxml_to_pngs(musicxml_path: str, out_prefix: str) -> list:
     for page_num in range(1, tk.getPageCount() + 1):
         svg = tk.renderToSVG(page_num)
         png_bytes = bytes(resvg_py.svg_to_bytes(svg_string=svg))
+        img = Image.open(io.BytesIO(png_bytes))
+        if img.mode == "RGBA":
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3])
+            img = background
+        else:
+            img = img.convert("RGB")
         out_path = f"{out_prefix}_page{page_num}.png"
-        with open(out_path, "wb") as f:
-            f.write(png_bytes)
+        img.save(out_path, format="PNG")
         paths.append(out_path)
     return paths
 
@@ -158,14 +185,27 @@ def build_corpus_entry(piece_id: str, midi_path: str, metadata_row: dict, out_di
          defaults to a placeholder title ("1 Fragment") otherwise.
       6. Write MusicXML to `{out_dir}/{piece_id}.musicxml`.
       7. Render every page to `{out_dir}/{piece_id}_page{N}.png`.
-      8. Extract ground truth from the SAME measured Stream that was
-         written and rendered (not a re-parse of the written file) —
-         image and ground truth are self-consistent by construction.
+      8. Re-parse the just-written MusicXML file and extract ground
+         truth (including time signature) from THAT re-parsed stream,
+         not from the pre-write `measured` object (final-review I1 fix:
+         `measured.write('musicxml', ...)` runs music21's own export
+         clean-up — splitting rests/durations, building voices — which
+         can change a measure's content after the point ground truth
+         used to be extracted from it; 72 of 2421 measures differed
+         across the real corpus under the old approach). Re-parsing
+         guarantees ground truth matches exactly what verovio actually
+         rendered, since verovio reads the same file being re-parsed.
 
-    Returns {"n_pages": int, "measures": [...]} on success, or None on
-    any failure — the caller (Task 4's CLI loop) is responsible for
-    logging and skipping, matching the "one bad piece must not abort
-    the whole corpus build" error-handling rule from the spec.
+    Returns {"n_pages": int, "measures": [...], "time_signature": str}
+    on success, or None on any failure — the caller (Task 4's CLI loop)
+    is responsible for logging and skipping, matching the "one bad
+    piece must not abort the whole corpus build" error-handling rule
+    from the spec. `time_signature` is music21's own `ratioString`
+    (e.g. "4/4", "12/8"), taken from the first TimeSignature found in
+    the re-parsed stream — every piece in this corpus carries a
+    consistent signature throughout (possibly with a pickup-measure
+    variant at the very start), matching how `.makeMeasures()` itself
+    already uses the embedded signature.
     """
     try:
         score = music21.converter.parse(midi_path)
@@ -187,8 +227,16 @@ def build_corpus_entry(piece_id: str, midi_path: str, metadata_row: dict, out_di
                   f"verovio produced zero pages, skipping")
             return None
 
-        measures = extract_ground_truth_measures(measured)
-        return {"n_pages": len(pngs), "measures": measures}
+        # Re-parse the written file so ground truth matches exactly what
+        # was rendered (I1 fix) — see docstring above.
+        reparsed_score = music21.converter.parse(mxl_path)
+        reparsed_part = reparsed_score.parts[0]
+
+        time_sigs = reparsed_part.flatten().getElementsByClass('TimeSignature')
+        time_signature = time_sigs[0].ratioString if time_sigs else None
+
+        measures = extract_ground_truth_measures(reparsed_part)
+        return {"n_pages": len(pngs), "measures": measures, "time_signature": time_signature}
     except Exception as e:                                       # noqa: BLE001
         print(f"[build_visual_validation_corpus] piece {piece_id}: "
               f"FAILED ({type(e).__name__}: {e}), skipping")

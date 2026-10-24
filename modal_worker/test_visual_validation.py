@@ -30,6 +30,7 @@ import music21
 from PIL import Image
 import build_visual_validation_corpus as bvc
 import degrade_visual_corpus as dvc
+import validate_score_reading_against_corpus as vsrac
 
 RESULTS = []
 
@@ -353,6 +354,43 @@ def test_degrade_mild_and_severe_are_deterministic_given_a_seed():
           list(out_a.getdata()) != list(out_e.getdata()))
 
 
+def test_score_measures_counts_exact_fingerprint_matches():
+    print("\n[11] score_measures counts a measure as correct only when "
+          "its predicted note list's _measure_fingerprint matches the "
+          "ground truth's exactly — reusing worker.py's own comparison "
+          "function (the same one the production pipeline uses to "
+          "reconcile its own two independent Claude reads), not a new, "
+          "separately-invented comparison.")
+    ground_truth = [
+        {"number": 1, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
+        {"number": 2, "notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
+        {"number": 3, "notes": [{"pitch": "E4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},
+    ]
+    predicted = [
+        {"number": 1, "notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},  # correct
+        {"number": 2, "notes": [{"pitch": "D#4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0}]},  # wrong pitch
+        # measure 3 entirely missing from the predicted result
+    ]
+    n_correct, n_total = vsrac.score_measures(predicted, ground_truth)
+    check("1 of 3 ground-truth measures matched exactly",
+          n_correct == 1 and n_total == 3, f"{n_correct}/{n_total}")
+
+
+def test_aggregate_scores_computes_per_piece_and_overall_percentages():
+    print("\n[12] aggregate_scores rolls up per-piece (n_correct, "
+          "n_total) pairs into % correct-measure-match per piece and "
+          "overall — the same metric name/convention as the audio "
+          "side's headline number.")
+    per_piece = {
+        "2191": (8, 10),
+        "2204": (3, 10),
+    }
+    result = vsrac.aggregate_scores(per_piece)
+    check("piece 2191 is 80%", result["per_piece"]["2191"] == 80.0, str(result["per_piece"]["2191"]))
+    check("piece 2204 is 30%", result["per_piece"]["2204"] == 30.0, str(result["per_piece"]["2204"]))
+    check("overall is 11/20 = 55%", result["overall"] == 55.0, str(result["overall"]))
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
@@ -368,7 +406,9 @@ def main():
               test_recompress_jpeg_changes_the_bytes,
               test_perspective_warp_is_identity_at_zero_displacement,
               test_perspective_warp_with_displacement_actually_moves_content,
-              test_degrade_mild_and_severe_are_deterministic_given_a_seed):
+              test_degrade_mild_and_severe_are_deterministic_given_a_seed,
+              test_score_measures_counts_exact_fingerprint_matches,
+              test_aggregate_scores_computes_per_piece_and_overall_percentages):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

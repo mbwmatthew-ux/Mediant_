@@ -20,13 +20,16 @@ for why this corpus/approach exists.
 import sys
 import os
 import csv
+import random
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import music21
+from PIL import Image
 import build_visual_validation_corpus as bvc
+import degrade_visual_corpus as dvc
 
 RESULTS = []
 
@@ -214,6 +217,81 @@ def test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece():
               str([m["number"] for m in entry["measures"] if not m["notes"]]))
 
 
+def _make_test_image():
+    """A 200x200 white image with a black square in the top-left quadrant
+    — enough asymmetry to detect rotation/warp/lighting effects by eye
+    (via pixel sampling) without needing real sheet-music content."""
+    img = Image.new("RGB", (200, 200), "white")
+    for x in range(20, 80):
+        for y in range(20, 80):
+            img.putpixel((x, y), (0, 0, 0))
+    return img
+
+
+def test_rotate_no_exif_actually_rotates_the_pixels():
+    print("\n[6] rotate_no_exif rotates the IMAGE CONTENT (not just an "
+          "EXIF tag) — this is what makes the mild/severe tiers reproduce "
+          "the real EXIF-orientation bug's failure shape: a page that is "
+          "genuinely sideways in its pixel data, with no corrective tag "
+          "to undo it, exactly like the real clarinet photo "
+          "(real_photo_sideways_exif_portrait.jpg).")
+    img = _make_test_image()
+    rotated = dvc.rotate_no_exif(img, 90.0)
+    # A 90-degree rotation of a top-left black square moves it toward the
+    # top-right (PIL's rotate() is counter-clockwise by default).
+    check("rotated image has no unexpected EXIF orientation tag",
+          rotated.getexif().get(274) in (None, 1),
+          str(rotated.getexif().get(274)))
+    top_left_now_white = rotated.getpixel((40, 40)) == (255, 255, 255) \
+        or sum(rotated.getpixel((40, 40))) > 600
+    check("the black square is no longer in the top-left after a 90-degree rotation",
+          top_left_now_white, str(rotated.getpixel((40, 40))))
+
+
+def test_lighting_gradient_is_asymmetric():
+    print("\n[7] lighting_gradient darkens one side and brightens the "
+          "other — simulating a phone photo taken under an angled light "
+          "or a lamp, not a uniform brightness shift (a uniform shift "
+          "would not stress the pipeline's readability scoring the same "
+          "way a real uneven-lighting photo does).")
+    img = Image.new("RGB", (200, 200), (128, 128, 128))
+    graded = dvc.lighting_gradient(img, dark_factor=0.5, light_factor=1.5)
+    left = graded.getpixel((10, 100))
+    right = graded.getpixel((190, 100))
+    check("left and right edges differ in brightness",
+          sum(left) != sum(right), f"left={left} right={right}")
+
+
+def test_gaussian_blur_reduces_sharp_edges():
+    print("\n[8] gaussian_blur actually softens a sharp edge (not a "
+          "no-op) — simulating an out-of-focus phone photo.")
+    img = _make_test_image()
+    blurred = dvc.gaussian_blur(img, radius=3.0)
+    # Sample a pixel right on the square's edge: sharp = pure black or
+    # white, blurred = somewhere in between.
+    edge_val = sum(blurred.getpixel((80, 50))) / 3
+    check("the square's edge is no longer pure black or pure white",
+          20 < edge_val < 235, str(edge_val))
+
+
+def test_recompress_jpeg_changes_the_bytes():
+    print("\n[9] recompress_jpeg actually re-encodes through JPEG "
+          "(introducing real compression artifacts), not a pass-through.")
+    img = _make_test_image()
+    recompressed = dvc.recompress_jpeg(img, quality=60)
+    check("recompressed image decodes to the same size",
+          recompressed.size == img.size, str(recompressed.size))
+    # JPEG is lossy even on a simple two-tone image at quality 60 — some
+    # pixel must differ from the original. The artifacts land on the 8x8
+    # blocks straddling the square's edge; blocks fully inside the flat
+    # black interior encode exactly, so the drift check must scan the
+    # whole image, not only the interior.
+    drifted = any(recompressed.getpixel((x, y)) != img.getpixel((x, y))
+                  for x in range(200) for y in range(200))
+    check("JPEG compression introduced at least some pixel drift "
+          "anywhere in the image", drifted)
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
@@ -222,7 +300,11 @@ def main():
               test_strip_tempo_marks_removes_every_metronome_mark,
               test_extract_ground_truth_measures_matches_the_fields_measure_fingerprint_compares,
               test_render_musicxml_to_pngs_produces_legible_nonempty_pages,
-              test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece):
+              test_build_corpus_entry_end_to_end_on_a_real_musicnet_piece,
+              test_rotate_no_exif_actually_rotates_the_pixels,
+              test_lighting_gradient_is_asymmetric,
+              test_gaussian_blur_reduces_sharp_edges,
+              test_recompress_jpeg_changes_the_bytes):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

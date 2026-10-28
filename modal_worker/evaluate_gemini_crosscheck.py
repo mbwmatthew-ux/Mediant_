@@ -45,7 +45,14 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
     unconditional, whole-score measure crosscheck (not targeted at specific
     measures -- see module docstring for why). Returns
     {"measures": [...], "input_tokens": int, "output_tokens": int} on
-    success, {"error": ...} on failure.
+    success. On failure returns {"error": ..., "input_tokens": int,
+    "output_tokens": int} -- the token counts are real (non-zero) whenever
+    Gemini actually billed a response before the failure (e.g. a JSON
+    parse error on truncated output), and 0 only when nothing was ever
+    billed (e.g. the HTTP request itself failed, or a network error struck
+    before any response came back). Callers must always read
+    input_tokens/output_tokens from the result, success or failure, to
+    keep spend accounting accurate.
     """
     import httpx
 
@@ -70,23 +77,42 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
                 f"gemini-2.5-flash:generateContent?key={api_key}",
                 json={
                     "contents": [{"parts": parts}],
-                    "generationConfig": {"temperature": 0, "maxOutputTokens": 8192,
+                    "generationConfig": {"temperature": 0, "maxOutputTokens": 16384,
                                           "responseMimeType": "application/json"},
                 },
             )
         if not resp.is_success:
-            return {"error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+            # Request itself failed -- nothing was billed.
+            return {"error": f"HTTP {resp.status_code}: {resp.text[:300]}",
+                    "input_tokens": 0, "output_tokens": 0}
         data = resp.json()
+        # Capture usage from the already-billed response BEFORE attempting
+        # to parse the model's text as JSON, so a parse failure (e.g.
+        # truncation on a measure-dense piece) never loses track of a real,
+        # billed spend -- see the Task 4 review fix note in the module
+        # docstring's sibling fix report for why this ordering matters.
         usage = data.get("usageMetadata", {})
+        input_tokens = usage.get("promptTokenCount", 0)
+        output_tokens = usage.get("candidatesTokenCount", 0)
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         parsed = json.loads(text)
         return {
             "measures": parsed.get("measures", []),
-            "input_tokens": usage.get("promptTokenCount", 0),
-            "output_tokens": usage.get("candidatesTokenCount", 0),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
         }
     except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}"}
+        # If this fired after a successful HTTP response (e.g. json.loads
+        # failed on truncated/malformed text), input_tokens/output_tokens
+        # are already bound to the real, billed usage from that response --
+        # include them so the caller still records real spend. If it fired
+        # before any response came back (network error, etc.), they were
+        # never bound, so fall back to 0 -- nothing was billed.
+        return {
+            "error": f"{type(e).__name__}: {e}",
+            "input_tokens": locals().get("input_tokens", 0),
+            "output_tokens": locals().get("output_tokens", 0),
+        }
 
 
 def main():
@@ -106,8 +132,11 @@ def main():
         ground_truth = json.load(f)
 
     guard = BudgetGuard(cap_dollars=2.00)
-    # Conservative per-call estimate: ~5000 input tokens (2 pages), ~4000
-    # output tokens -- refined after the first real call's actual usage.
+    # Fixed, pre-computed estimate: ~5000 input tokens (2 pages), ~4000
+    # output tokens. Not dynamically refined from real usage -- the guard
+    # always checks real per-call cost too (via record_spend after every
+    # call, success or failure), so a conservative fixed estimate here is
+    # just the up-front gate before each call's actual cost is known.
     estimated_call_cost = 5000 * GEMINI_FLASH_INPUT_PER_TOKEN + 4000 * GEMINI_FLASH_OUTPUT_PER_TOKEN
 
     for piece_id in FAST_ITERATION_SUBSET:
@@ -121,12 +150,18 @@ def main():
         if not page_paths:
             continue
         result = crosscheck_score_with_gemini(page_paths, api_key)
-        if "error" in result:
-            print(f"  [{piece_id}] error: {result['error']}")
-            continue
-        real_cost = (result["input_tokens"] * GEMINI_FLASH_INPUT_PER_TOKEN +
-                     result["output_tokens"] * GEMINI_FLASH_OUTPUT_PER_TOKEN)
+        # Record real spend unconditionally, BEFORE checking for an error --
+        # a response can be successfully billed by Gemini and still fail to
+        # parse (e.g. truncated JSON on a measure-dense piece). Counting
+        # that as $0 spent would undermine the $2 hard cap once a real key
+        # is used.
+        real_cost = (result.get("input_tokens", 0) * GEMINI_FLASH_INPUT_PER_TOKEN +
+                     result.get("output_tokens", 0) * GEMINI_FLASH_OUTPUT_PER_TOKEN)
         guard.record_spend(real_cost)
+        if "error" in result:
+            print(f"  [{piece_id}] error: {result['error']}, "
+                  f"cost=${real_cost:.4f}, running total=${guard.total_spent:.4f}")
+            continue
         n_correct, n_total = score_measures(
             result["measures"], ground_truth[piece_id]["measures"],
             ground_truth[piece_id]["time_signature"])

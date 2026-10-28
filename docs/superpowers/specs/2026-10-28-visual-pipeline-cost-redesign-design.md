@@ -1,19 +1,20 @@
 # Visual Pipeline Cost & Accuracy Redesign — Design
 
-**Status:** Revised after external technical review. The reviewer's verdict —
-approved for the validation phase, revision required before production
-migration — is adopted as this document's status. Nothing in Sections 3-4
-below is a committed production change; each is a candidate pending the
-acceptance criteria in Section 6.
+**Status:** Revised after two rounds of external technical review. Current
+decision, per the reviewer's own table: content-hash cache (keep as-is),
+Audiveris (keep), SMT integration (approved for experimental validation
+only), calibrated reconciliation / localized vision fallback / Gemini
+cross-check extension (design approved, each still needs its own
+controlled experiment), Haiku 5.5 coaching (approved for A/B evaluation).
+**Immediate production migration is explicitly not yet approved.** Nothing
+in Sections 3-4 is a committed production change; each is a candidate
+pending the acceptance criteria in Section 6 and, beyond that, the shadow
+deployment in Section 11.
 
-**Revision note:** this version corrects several factual errors the external
-reviewer caught (pricing, an internal inconsistency about score caching, and
-overstated certainty about SMT's role) and adopts most of their architectural
-suggestions, after independently verifying each one against this codebase or
-official pricing pages rather than taking either the original draft or the
-review at face value. Section 12 at the end records what was verified, what
-was corrected, and the one point where the available evidence didn't support
-the review as written.
+**Revision note:** this version incorporates a second round of review,
+focused on experimental rigor and deployment safety rather than factual
+corrections (the first round's pricing/caching corrections already landed).
+Section 13 at the end records the full revision history from both rounds.
 
 ## 0. What Mediant is, for context
 
@@ -212,15 +213,27 @@ scores — that remains an explicitly pending, unapproved product decision
      exists for Claude-internal disagreement (`_whole_page_crop_for_resolution`,
      the `_RESOLUTION_CALL_CAP`-bounded resolution calls), rather than
      building new cropping infrastructure.
-   - **Try extending the Gemini call already being made, first.**
-     `evaluate_with_gemini` already receives every score page alongside the
-     video. Before paying for any new vision call, test whether that
-     existing call's response schema can be extended with additional
-     fields (e.g. `score_crosscheck`, `uncertain_measures`) covering just
-     the uncertain measures, at no extra API call. This might degrade
-     flag-authoring quality if the added task competes with it in the same
-     prompt — that's exactly why it's a controlled experiment, not an
-     assumed win.
+   - **Try extending the Gemini call already being made, first — but
+     respecting the real execution order (round 2 review, adopted).** The
+     first draft of this bullet assumed Gemini could be told exactly which
+     measures Audiveris/SMT found uncertain and cross-check just those.
+     That's not how the pipeline actually runs: `_gemini_pipeline` and
+     `_score_pipeline` are dispatched in the same `ThreadPoolExecutor` batch,
+     in parallel, specifically to cut total latency ~50%
+     (`run_full_analysis`, "Steps 2-4 in parallel"). Reconciliation's
+     uncertain-measure list doesn't exist yet when Gemini's call is
+     dispatched, so Gemini can't be targeted at it without either adding a
+     sequential dependency (losing that latency win) or restructuring the
+     pipeline. The approach to test instead: have Gemini return a
+     **broader, unconditional** score-crosscheck of every page it already
+     sees (not targeted at specific measures), independent of
+     Audiveris/SMT, and reconcile the two results afterward — both are
+     already available by the time `compare_and_coach_claude` runs, after
+     all three branches join. This preserves parallel execution and needs
+     no pipeline restructuring. Also worth stating plainly: no new API
+     *call* doesn't mean no new *cost* — a longer prompt and a richer
+     response both add tokens to a call that's already happening, which
+     needs measuring, not assumed to be free.
    - **Only if that doesn't produce a usable signal:** crop just the
      uncertain system/measures and send that crop (not the full page) to a
      vision fallback, then merge the result back into the full score.
@@ -308,9 +321,21 @@ degradation tiers and real music21-derived ground truth, scored via
 `_cross_source_measure_match`. This spec extends it rather than replacing
 it, and adds explicit pass/fail criteria the original draft lacked.
 
+**Threshold-setting methodology (round 2 review, adopted):** the acceptance
+criteria below must not be set by looking at the same data they're then
+evaluated against — picking a threshold after seeing how SMT scores on the
+full corpus risks unconsciously choosing a number that happens to pass.
+Split the corpus into a **calibration set** (used only to pick the
+numeric thresholds) and a separate **held-out test set** (used only for
+the actual accept/reject measurement), and never let a threshold be
+adjusted after seeing the held-out set's results. Honest caveat: at 24
+synthetic pieces, splitting further for calibration leaves few pieces per
+side — the real-photo set (Section 6, step 3) and any corpus expansion
+should be sized with this split in mind, not just as validation volume.
+
 **Explicit acceptance criteria (reviewer's point 4, adopted) — SMT is
 promoted from candidate to production primary reader only if, measured
-against the full validation corpus including the real-photo set below:**
+against the held-out test set (never the calibration set):**
 
 - End-to-end measure-localization accuracy does not fall by more than a
   threshold to be set from the zero-shot measurement itself (not guessed in
@@ -379,6 +404,19 @@ data generators (not just eval data), and fine-tuning targets SMT
 specifically (lighter and more tractable to self-host than LEGATO's
 Llama-3.2-11B-Vision backbone) on exactly the gaps measured.
 
+**Train/eval separation (round 2 review, adopted) — split by piece, not by
+image.** The existing corpus generates multiple page images and several
+degradation variants (clean/mild/severe) per underlying piece. A split that
+randomly assigns individual *images* to train vs. eval risks putting one
+degraded variant of a piece in training and another variant of the *same*
+piece in evaluation — fine-tuning could then look like it generalizes when
+it's partly just recognizing that specific score. The split must happen at
+the **piece/edition level, before** degradation variants are generated:
+every variant of a given piece goes entirely to one side. This applies to
+the real-photo set from Section 6 too — if a real photo and a piece already
+in the synthetic corpus are the same underlying composition/edition, they
+count as the same piece for split purposes, not independent data points.
+
 ## 8. Cost model
 
 | Call | Today | Candidate |
@@ -414,6 +452,28 @@ fires; that fails → today's existing error-shaped result, `{"error": ...,
 existing design rationale: every failure mode already degrades to a
 known-safe behavior by construction.
 
+**Three-state status, in structured data — not just prose (round 2 review,
+adopted).** Today, a measure the score reader can't confidently read is
+silently dropped before it reaches the coaching prompt (`unresolved_measures`
+suppresses it at flag emission — see Section 4). That collapses what should
+be three distinct outcomes into one silent gap:
+
+- **Verified** — reliable score alignment; feedback given with full
+  confidence.
+- **Partial** — some measures couldn't be evaluated; feedback is still
+  given for every measure that *could* be verified, and the specific
+  unreadable measure numbers are identified explicitly.
+- **Unavailable** — score extraction failed badly enough that no
+  measure-linked feedback can be given at all for that take.
+
+This status, and the specific unreadable measure numbers in the partial
+case, must be carried as a **structured field** on the analysis result
+(alongside the existing per-measure confidence data), not left solely to
+whatever the coaching model's prose happens to mention — prose can be
+reworded, summarized, or dropped by a model; a structured field can't. The
+frontend and any future consumer of the analysis result then both read the
+same authoritative signal instead of parsing it out of generated text.
+
 ## 10. Testing strategy
 
 - Score-reading cascade: extend the existing harness (Section 6) rather
@@ -427,7 +487,33 @@ known-safe behavior by construction.
 - Regression: the existing `test_analysis.py` suite and the existing
   Audiveris cross-validation tests must stay green throughout.
 
-## 11. Open questions for review
+## 11. Shadow deployment and rollout (round 2 review, adopted)
+
+Clearing Section 6's acceptance criteria on the validation corpus is
+necessary but not sufficient to flip every production analysis onto the
+new cascade — a synthetic-plus-real-photo offline corpus, however good,
+is still not live production traffic. Before any user-visible switch:
+
+1. **Shadow mode.** Run the candidate cascade (Audiveris + SMT +
+   calibrated reconciliation + Gemini-extension/localized fallback)
+   alongside the current pipeline on a representative sample of real
+   analyses, computing its answer but never showing it to the user —
+   the current pipeline stays the sole user-visible authority. Measure,
+   against real traffic: agreement with the current pipeline, localization
+   accuracy where ground truth exists (the held-out test set, plus any
+   DTW-alignment-success signal available without ground truth), fallback
+   utilization rate, latency, and real dollar cost.
+2. **Gradual rollout.** Only after shadow-mode results look acceptable,
+   introduce the new cascade to real users incrementally (not a full
+   switch), with an explicit **rollback mechanism** — a way to revert to
+   the current pipeline quickly if quality or reliability degrades in
+   production in a way the offline validation didn't predict.
+
+This matters more for a subscription product promising consistent
+analysis quality than it would for a one-off tool: a regression here is a
+regression every subscriber notices, not a contained experiment.
+
+## 12. Open questions for review
 
 1. Does SMT's architecture, trained on different repertoire, actually
    transfer to Mediant's real solo-instrument corpus well enough to be
@@ -439,11 +525,13 @@ known-safe behavior by construction.
    nonzero) cost? (Section 10.)
 3. What specific numeric thresholds (accuracy drop, catastrophic-failure
    rate, fallback-utilization rate) gate SMT's promotion to production
-   primary? Not yet set — this needs real disagreement-rate and accuracy
-   data from Section 6, not a guess made in advance.
+   primary? Set from the calibration split (Section 6), not guessed in
+   advance, and not set by looking at the held-out test set.
 4. Does extending the existing Gemini call's response schema (Section 3)
-   actually work without degrading flag-authoring quality? Unknown until
-   the controlled experiment runs.
+   actually work — as a broader unconditional crosscheck, not a
+   targeted-to-uncertain-measures one — without degrading flag-authoring
+   quality or adding more token cost than it saves? Unknown until the
+   controlled experiment runs.
 5. What target gross margin should the cost model in Section 2 actually be
    built around? The $0.03-0.04/analysis figure here assumes 70% — this is
    a business decision, not a technical one, and needs your confirmation.
@@ -453,7 +541,9 @@ known-safe behavior by construction.
    cost is actually a per-piece cost or closer to a per-take cost in
    practice.
 
-## 12. What changed in this revision, and why
+## 13. Revision history
+
+### Round 1 (factual corrections)
 
 Verified directly (not taken on the reviewer's word, and not left as the
 original draft had it):
@@ -491,3 +581,26 @@ math (70% margin → ~$0.035/analysis) is arithmetically right, but the 70%
 margin and 60-analyses-per-month inputs are business assumptions, not
 established facts — presented here as pending your confirmation rather than
 as settled.
+
+### Round 2 (experimental rigor and deployment safety)
+
+No factual disputes this round — the reviewer's own second-review message
+confirmed the Haiku 5.5 model ID and pricing independently, matching
+Round 1's verification. All five points were methodological/architectural
+and adopted:
+
+- **Calibration/held-out split** for setting SMT's acceptance thresholds
+  (Section 6), so the same data can't both pick the threshold and pass it.
+- **Gemini cross-check reframed** from "targeted at uncertain measures"
+  (which silently assumed a sequential dependency the real parallel
+  pipeline doesn't have) to "broader unconditional crosscheck, reconciled
+  after both branches join" (Section 3) — verified against
+  `run_full_analysis`'s actual parallel-dispatch structure, confirming the
+  reviewer's architectural reading was correct.
+- **Piece-level train/eval split** for any future fine-tuning data
+  (Section 7), to prevent degraded variants of the same piece leaking
+  across the split.
+- **Three-state status in structured data** (verified/partial/unavailable,
+  Section 9), not left to coaching prose.
+- **Shadow deployment and gradual rollout** (new Section 11) before any
+  user-visible switch, regardless of how well the offline validation goes.

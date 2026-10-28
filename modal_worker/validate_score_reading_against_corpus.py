@@ -102,15 +102,24 @@ def run_validation_for_piece_tier(piece_id: str, tier_dir: Path, ground_truth_en
     `tier_dir`, then scores the combined result's measures against
     ground truth. Returns (n_correct, n_total).
 
-    `instrument`/`time_sig` are passed as read_score_notes_claude's
-    own hints to the vision prompt, not used for scoring — "Violin" is
-    a reasonable stand-in for every piece here (MusicNet's instruments
-    are Violin/Cello/Flute; read_score_notes_claude's prompt does not
-    change its note-extraction schema based on this hint, only its
-    guidance text) rather than threading the real per-piece instrument
-    through, since scoring only ever checks the extracted notes, not
-    whether the instrument hint was used correctly — that is a
-    different, not-yet-built type of test.
+    `instrument` is passed as read_score_notes_claude's own hint to the
+    vision prompt, not used for scoring — "Violin" is a reasonable
+    stand-in for every piece here (MusicNet's instruments are
+    Violin/Cello/Flute; read_score_notes_claude's prompt does not change
+    its note-extraction schema based on this hint, only its guidance
+    text) rather than threading the real per-piece instrument through,
+    since scoring only ever checks the extracted notes, not whether the
+    instrument hint was used correctly — that is a different,
+    not-yet-built type of test.
+
+    `time_sig`, however, IS threaded through from `ground_truth_entry`
+    (not hardcoded) — unlike instrument, a wrong time-signature hint can
+    change how Claude reads beaming/grouping on the 5 compound-meter
+    pieces (2222, 2243, 2244, 2298, 2659 — 3/8, 12/8, 9/8), biasing the
+    very accuracy number this harness exists to measure. Fixed per the
+    final-review residual finding rather than left deferred, since it
+    was zero-cost (the value was already sitting in ground_truth_entry)
+    and this piece set includes a 12/8 piece (2243).
     """
     page_paths = sorted(tier_dir.glob(f"{piece_id}_page*.png"))
     if not page_paths:
@@ -127,7 +136,9 @@ def run_validation_for_piece_tier(piece_id: str, tier_dir: Path, ground_truth_en
               f"({type(e).__name__}: {e}), counted as a full miss")
         return 0, len(ground_truth_entry["measures"])
 
-    result = _call_read_score_notes_with_one_retry(pages, anthropic_key, piece_id)
+    time_sig_hint = ground_truth_entry.get("time_signature") or "4/4"
+    result = _call_read_score_notes_with_one_retry(
+        pages, anthropic_key, piece_id, time_sig=time_sig_hint)
     if result is None:
         return 0, len(ground_truth_entry["measures"])
 
@@ -136,7 +147,8 @@ def run_validation_for_piece_tier(piece_id: str, tier_dir: Path, ground_truth_en
                            ground_truth_entry["time_signature"])
 
 
-def _call_read_score_notes_with_one_retry(pages: list, anthropic_key: str, label: str) -> dict | None:
+def _call_read_score_notes_with_one_retry(pages: list, anthropic_key: str, label: str,
+                                           time_sig: str = "4/4") -> dict | None:
     """
     Calls read_score_notes_claude, retrying ONCE before giving up — per
     the spec's error-handling rule: "a transient-looking API error
@@ -162,7 +174,7 @@ def _call_read_score_notes_with_one_retry(pages: list, anthropic_key: str, label
             with w.app.run():
                 result = w.read_score_notes_claude(
                     pages=pages, start_measure=1, instrument="Violin",
-                    time_sig="4/4", anthropic_api_key=anthropic_key)
+                    time_sig=time_sig, anthropic_api_key=anthropic_key)
             if not _is_error_shaped(result):
                 return result
             print(f"  [{label}] attempt {attempt} returned an error-shaped "
@@ -221,7 +233,9 @@ def main():
         for p in anchor["pages"]:
             with open(p, "rb") as f:
                 pages.append((f.read(), "image/png"))
-        result = _call_read_score_notes_with_one_retry(pages, anthropic_key, f"anchor/{name}")
+        anchor_time_sig = anchor["ground_truth"].get("time_signature") or "4/4"
+        result = _call_read_score_notes_with_one_retry(
+            pages, anthropic_key, f"anchor/{name}", time_sig=anchor_time_sig)
         if result is None:
             n_correct, n_total = 0, len(anchor["ground_truth"]["measures"])
         else:

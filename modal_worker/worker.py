@@ -7044,6 +7044,10 @@ If matched_candidate is not null, "notes" may be empty — the matched candidate
             ]}],
         ) as stream:
             msg = stream.get_final_message()
+        usage = getattr(msg, "usage", None)
+        if usage is not None:
+            print(f"[cost] resolve_measure_disagreement model=claude-sonnet-5 "
+                  f"input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}")
         # See _call_claude_score_batch: adaptive thinking can put a thinking
         # block before the text block, so filter by type rather than index.
         raw = "".join(block.text for block in msg.content if block.type == "text")

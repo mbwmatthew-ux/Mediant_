@@ -3260,6 +3260,46 @@ def test_resolve_measure_disagreement_sends_crop_and_candidates():
           not result.get("unresolved"), str(result))
 
 
+def test_resolve_measure_disagreement_logs_cost_when_usage_present():
+    print("\n[196] resolve_measure_disagreement logs [cost] when the SDK response has usage data")
+    import types, json as _json, io, contextlib
+
+    class _FakeStream:
+        def __init__(self, payload): self._payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn",
+                usage=types.SimpleNamespace(input_tokens=321, output_tokens=45))
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            return _FakeStream(_json.dumps({"notes": [{"p": "C4", "b": 1.0, "d": 3.0}]}))
+
+    class _FakeAnthropicClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    candidates = [
+        {"notes": [{"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+        {"notes": [{"pitch": "D4", "is_rest": False, "beat": 1.0, "duration_beats": 3.0}]},
+    ]
+
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeAnthropicClient
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            w.resolve_measure_disagreement(b"\x89PNG-fake-crop", candidates, "clarinet", "3/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    check("logs a [cost] line with the fake usage's exact token counts",
+          "[cost] resolve_measure_disagreement model=claude-sonnet-5 "
+          "input_tokens=321 output_tokens=45" in buf.getvalue(), buf.getvalue()[:2000])
+
+
 def test_resolve_measure_disagreement_marks_unresolved_on_failure():
     print("\n[100] resolution marks a measure unresolved rather than silently returning candidate 1 when the call fails")
     candidates = [
@@ -7141,6 +7181,7 @@ def main():
               test_fuse_measure_confidence_two_empty_measures_never_fuse_high_i5,
               test_fuse_measure_confidence_disagree_omr_broke_tie,
               test_resolve_measure_disagreement_sends_crop_and_candidates,
+              test_resolve_measure_disagreement_logs_cost_when_usage_present,
               test_resolve_measure_disagreement_marks_unresolved_on_failure,
               test_resolve_measure_disagreement_marks_unresolved_when_result_still_invalid,
               test_resolve_measure_disagreement_accepts_a_legitimate_pickup_measure,

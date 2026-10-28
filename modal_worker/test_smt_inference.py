@@ -75,10 +75,47 @@ def test_decode_smt_output_parses_a_real_vocabulary_note_atom():
               str(notes))
 
 
+def test_decode_smt_output_incipit_marker_is_not_a_measure_boundary():
+    print("\n[4] _decode_smt_output does not treat bekern's '=-' data-start "
+          "incipit marker (real Step 1 output: it appears right after the "
+          "time-signature tokens, before any content) as a measure "
+          "boundary -- real content that follows it must land on measure "
+          "1, not measure 2 (review fix)")
+    # '=-' (incipit, no-op) -> '8F#L>' (real note, real vocab id 2) ->
+    # '=' (the first REAL barline, closing measure 1).
+    tokens = ['*clefG2', '<b>', '=-', '<b>', '8F#L>', '<b>', '=', '<b>']
+    measures = si._decode_smt_output(tokens)
+    check("produced exactly one measure (not two)", len(measures) == 1, str(measures))
+    if measures:
+        check("the real note landed on measure number 1",
+              measures[0]["number"] == 1, str(measures[0]["number"]))
+        check("the real note's pitch survived ('=-' consumed nothing)",
+              measures[0]["notes"] and measures[0]["notes"][0]["pitch"] == "F#3",
+              str(measures[0]["notes"]))
+
+
+def test_quarter_lengths_per_beat_local_matches_worker_for_compound_meter():
+    print("\n[5] _quarter_lengths_per_beat_local('6/8') matches the real "
+          "worker.quarter_lengths_per_beat exactly (1.5, a dotted-quarter "
+          "beat) -- review fix: this value feeds every predicted note's "
+          "beat/duration under exact-equality scoring, so a factor-of-2 "
+          "arithmetic error here would silently fail every correct "
+          "compound-meter transcription")
+    qlpb_6_8 = si._quarter_lengths_per_beat_local("6/8")
+    check("6/8 -> 1.5 (not 0.75)", qlpb_6_8 == 1.5, str(qlpb_6_8))
+    qlpb_6_4 = si._quarter_lengths_per_beat_local("6/4")
+    check("6/4 -> 1.0 (simple meter, denom < 8, not misclassified as compound)",
+          qlpb_6_4 == 1.0, str(qlpb_6_4))
+    qlpb_4_4 = si._quarter_lengths_per_beat_local("4/4")
+    check("4/4 -> 1.0 (unaffected, sanity check)", qlpb_4_4 == 1.0, str(qlpb_4_4))
+
+
 def main():
     test_transcribe_with_smt_returns_measures_shape()
     test_decode_smt_output_real_observed_header_shape()
     test_decode_smt_output_parses_a_real_vocabulary_note_atom()
+    test_decode_smt_output_incipit_marker_is_not_a_measure_boundary()
+    test_quarter_lengths_per_beat_local_matches_worker_for_compound_meter()
     passed = sum(1 for r in RESULTS if r)
     total = len(RESULTS)
     print(f"\n{'='*70}\n{passed}/{total} checks passed\n{'='*70}")

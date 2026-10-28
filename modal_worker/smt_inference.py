@@ -385,7 +385,19 @@ def _decode_smt_output(raw_output) -> list[dict]:
 
     for ln in lines:
         cells = ln.split("\t")
-        if any(c.startswith("=") for c in cells):
+        barline_cells = [c for c in cells if c.startswith("=")]
+        if barline_cells:
+            # "=-" is bekern's data-start/incipit marker (confirmed in the
+            # real Step 1 output: it appears right after the time-signature
+            # tokens, before any real content), not a real barline -- it
+            # must NOT close a measure or advance current_number, or a
+            # future non-empty run's real first measure would land on
+            # "measure 2", and score_measures's exact-number lookup would
+            # never find it. Only treat this row as a real barline close if
+            # at least one cell is a genuine barline token ("=", "=1",
+            # "=:|!", etc.), not exclusively the incipit marker.
+            if all(c == "=-" for c in barline_cells):
+                continue
             current_number += 1
             _flush_measure()
             column_positions = [0.0, 0.0]
@@ -427,6 +439,13 @@ def _quarter_lengths_per_beat_local(time_sig: str | None) -> float:
     signature via worker.py for scoring; this is only used while decoding
     SMT's own output, where the time signature it reports (e.g. "*M3/4")
     may legitimately differ from, or be absent from, what it transcribed.
+
+    Must match worker.py:quarter_lengths_per_beat's `is_compound` condition
+    exactly (num % 3 == 0 and num // 3 >= 2 and denom >= 8, times 3.0, not
+    1.5) -- an earlier version of this function used `num > 3` and `* 1.5`,
+    which gave 6/8 a factor-of-2-wrong 0.75 instead of 1.5 and misclassified
+    6/4 as compound (review fix: this value feeds every predicted note's
+    beat/duration, compared under exact equality against ground truth).
     """
     import re
     m = re.match(r'^(\d+)\s*/\s*(\d+)$', (time_sig or "").strip())
@@ -435,5 +454,6 @@ def _quarter_lengths_per_beat_local(time_sig: str | None) -> float:
     num, denom = int(m.group(1)), int(m.group(2))
     if denom <= 0:
         return 1.0
-    unit = 4.0 / denom
-    return unit * 1.5 if (num % 3 == 0 and num > 3) else unit
+    unit = 4.0 / denom                      # quarterLengths in one denominator unit
+    is_compound = num % 3 == 0 and num // 3 >= 2 and denom >= 8
+    return unit * 3.0 if is_compound else unit

@@ -356,14 +356,31 @@ output — a standalone SMT-vs-Sonnet comparison (Section 6, step 2) is a
 useful diagnostic for understanding *why* the cascade performs the way it
 does, but it is explicitly not the promotion gate by itself.
 
+**Two independent ceilings on acceptable accuracy loss, not one (round 4
+review, adopted).** A threshold set purely from the zero-shot measurement
+risks calibrating acceptability to whatever the candidate happens to
+achieve, rather than to what the product actually requires. Mediant is a
+paid subscription promising consistent analysis quality — "regression"
+needs a ceiling grounded in that promise, independent of the experiment's
+own results, not just a data-driven one:
+
+- **Product-required ceiling**, set *before* looking at SMT's results, from
+  what a paying user's feedback quality needs to stay trustworthy (e.g. a
+  maximum acceptable drop in correct-flagged-measure rate, chosen as a
+  product requirement). This number must exist before Phase 2's
+  experiments run, not be backed into afterward.
+- **Data-driven ceiling** from the zero-shot measurement, used for
+  exploratory calibration as already described.
+
+Promotion requires clearing the **stricter** of the two, not just one.
+
 **Explicit acceptance criteria — SMT is promoted from candidate to
 production primary reader only if, measured end-to-end for the full
 cascade against the held-out test set (never the calibration set):**
 
-- End-to-end measure-localization accuracy does not fall by more than a
-  threshold to be set from the zero-shot measurement itself (not guessed in
-  advance of having any data), reported with confidence intervals and
-  per-instrument breakdowns.
+- End-to-end measure-localization accuracy does not fall by more than the
+  stricter of the product-required ceiling and the data-driven threshold
+  above, reported with confidence intervals and per-instrument breakdowns.
 - The rate of catastrophic score-read failures (not "imperfect," but
   unusable — e.g. wrong time signature cascading into wrong measure
   numbers throughout) stays below an explicit ceiling, checked
@@ -586,6 +603,39 @@ violin/cello/flute is poor enough, the cascade's shape itself may need to
 change before Phase 3 can even be scoped) and are better planned once that
 data exists, not speculatively now.
 
+**Binding conditions on the Phase 1-2 implementation plan (round 4 review,
+adopted — approval for Phases 1-2 is conditioned on these):**
+
+1. **Explicit API-spending limits.** Phase 2's Gemini and Haiku A/B
+   comparisons spend real (small, bounded) Anthropic/Google API dollars —
+   the implementation plan must state a hard cap up front, not an
+   open-ended "run some comparisons."
+2. **Existing production behavior is preserved, unconditionally.** Nothing
+   in Phases 1-2 changes what a real user's analysis receives — baseline
+   instrumentation and independent experiments observe and measure
+   production inputs/outputs, they do not alter the live decision path.
+3. **Experimental code stays separate from the production execution
+   path.** Phase 1-2 code (corpus tooling, SMT inference, the Gemini
+   schema-extension experiment, the Haiku A/B harness) lives alongside
+   `modal_worker/worker.py` the way this session's existing validation
+   harness already does (`modal_worker/build_visual_validation_corpus.py`
+   and siblings) — imported from, never merged into, the function that
+   serves real traffic — until Phase 3/4 explicitly promotes something.
+
+**Five concrete deliverables Phases 1-2 must produce (round 4 review,
+adopted):**
+
+1. A measured baseline: real cost, latency, accuracy, and cache
+   effectiveness for the current pipeline.
+2. SMT zero-shot accuracy results, broken down by instrument (violin,
+   cello, flute, piano).
+3. A controlled evaluation of Gemini's expanded cross-check output.
+4. A Sonnet 5 vs. Haiku 5.5 vs. deterministic-template coaching
+   comparison.
+5. A consolidated report stating, from 1-4, whether the proposed cascade
+   architecture warrants building out Phases 3-4 at all — the actual
+   decision this entire validation phase exists to produce.
+
 ## 13. Open questions for review
 
 1. Does SMT's architecture, trained on different repertoire, actually
@@ -707,3 +757,15 @@ the design's completeness is now assessed as strong; whether the proposed
 cascade actually works and is actually cheaper remains unproven until the
 experiments run. That is Phase 1 and 2's job, not another revision of this
 document.
+
+**Round 4** (final clarification, then explicit approval to begin
+implementation): added a product-required accuracy-regression ceiling,
+set before looking at results, alongside the data-driven zero-shot
+threshold — promotion now requires clearing the stricter of the two, not
+a threshold calibrated solely to what the candidate happens to achieve.
+Phases 1-2 approved, conditioned on explicit API-spending limits,
+unconditional preservation of existing production behavior, and
+experimental code staying separate from the production execution path
+until a later phase explicitly promotes it. Five concrete deliverables
+specified for Phases 1-2. Reviewer's verdict: "the next step is
+engineering execution, not another architecture review."

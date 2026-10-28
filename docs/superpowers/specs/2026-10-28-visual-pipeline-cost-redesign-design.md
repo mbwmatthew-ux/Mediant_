@@ -14,7 +14,8 @@ deployment in Section 11.
 **Revision note:** this version incorporates a second round of review,
 focused on experimental rigor and deployment safety rather than factual
 corrections (the first round's pricing/caching corrections already landed).
-Section 13 at the end records the full revision history from both rounds.
+Section 14 at the end records the full revision history across all three
+review rounds.
 
 ## 0. What Mediant is, for context
 
@@ -333,16 +334,40 @@ synthetic pieces, splitting further for calibration leaves few pieces per
 side — the real-photo set (Section 6, step 3) and any corpus expansion
 should be sized with this split in mind, not just as validation volume.
 
-**Explicit acceptance criteria (reviewer's point 4, adopted) — SMT is
-promoted from candidate to production primary reader only if, measured
-against the held-out test set (never the calibration set):**
+**Report confidence intervals and instrument-specific breakdowns, not just
+an aggregate (round 3 review, adopted).** A small sample split further for
+calibration is exactly the condition under which an aggregate accuracy
+number can hide a real problem — a small aggregate improvement could
+conceal a large regression confined to one instrument (e.g. piano's
+grand-staff layout, the one layout with the least evidence SMT handles
+well). Every reported accuracy figure in this validation must come with a
+confidence interval and a per-instrument (violin/cello/flute/piano)
+breakdown, not an aggregate alone.
+
+**The gate is the complete cascade's accuracy, not SMT's accuracy in
+isolation (round 3 review, adopted — sharpened from round 2's wording).**
+SMT can score worse than Sonnet 5 in a standalone, reader-vs-reader
+comparison while the combined Audiveris + SMT + Gemini-crosscheck +
+localized-fallback system still matches or beats the current pipeline
+end-to-end, because the cascade's fallback step exists precisely to catch
+SMT's individual mistakes. The acceptance criteria below are evaluated
+against the **full cascade's output**, never against SMT's standalone
+output — a standalone SMT-vs-Sonnet comparison (Section 6, step 2) is a
+useful diagnostic for understanding *why* the cascade performs the way it
+does, but it is explicitly not the promotion gate by itself.
+
+**Explicit acceptance criteria — SMT is promoted from candidate to
+production primary reader only if, measured end-to-end for the full
+cascade against the held-out test set (never the calibration set):**
 
 - End-to-end measure-localization accuracy does not fall by more than a
   threshold to be set from the zero-shot measurement itself (not guessed in
-  advance of having any data).
+  advance of having any data), reported with confidence intervals and
+  per-instrument breakdowns.
 - The rate of catastrophic score-read failures (not "imperfect," but
   unusable — e.g. wrong time signature cascading into wrong measure
-  numbers throughout) stays below an explicit ceiling.
+  numbers throughout) stays below an explicit ceiling, checked
+  per-instrument, not only in aggregate.
 - Fallback utilization (how often the cascade needs the expensive path)
   stays low enough that the blended cost target in Section 2 is actually
   met — this is a product/cost criterion, not just an accuracy one.
@@ -503,6 +528,15 @@ is still not live production traffic. Before any user-visible switch:
    accuracy where ground truth exists (the held-out test set, plus any
    DTW-alignment-success signal available without ground truth), fallback
    utilization rate, latency, and real dollar cost.
+   **The current pipeline is not ground truth (round 3 review, adopted)**
+   — it has its own known failure modes (that's the entire reason this
+   project built a validation harness in the first place). When shadow and
+   current disagree, don't automatically score that as the candidate being
+   wrong: route a sample of disagreements to independent adjudication
+   against real ground truth (manual review, or the held-out test set's
+   verified data where the disagreement happens to fall on a piece it
+   covers) instead of silently treating "matches the current pipeline" as
+   the success metric.
 2. **Gradual rollout.** Only after shadow-mode results look acceptable,
    introduce the new cascade to real users incrementally (not a full
    switch), with an explicit **rollback mechanism** — a way to revert to
@@ -513,7 +547,46 @@ This matters more for a subscription product promising consistent
 analysis quality than it would for a one-off tool: a regression here is a
 regression every subscriber notices, not a contained experiment.
 
-## 12. Open questions for review
+## 12. Implementation sequence (round 3 review, adopted)
+
+Three rounds of review in, both reviewers converge on the same point: this
+spec's remaining question is empirical, not architectural, and no further
+design revision can answer it. The reviewer's four-phase sequence maps
+directly onto work this document already specifies — restated here as the
+concrete order of operations, since this is what the implementation plan
+gets built from:
+
+1. **Establish the baseline.** Measure what today's pipeline actually
+   costs and does — real Sonnet 5 vision cost per distinct score file,
+   real coaching cost, real score-cache hit rate, real accuracy, real
+   latency. Several of these are named as unmeasured throughout this
+   document (Section 2, Section 1's caching discussion, open questions 5
+   and 6) — this phase is what turns those into real numbers instead of
+   assumptions, and requires no new code beyond instrumentation.
+2. **Independent experiments.** SMT zero-shot (Section 6, steps 1-2),
+   Gemini cross-check extension (Section 3's fallback bullet), and Haiku
+   5.5 coaching (Section 4) — each evaluated separately against the
+   current pipeline before anything is combined. Zero Anthropic API cost
+   for the SMT piece; a small, bounded cost for the Gemini and Haiku A/B
+   comparisons.
+3. **Combined cascade evaluation.** Only after Phase 2's individual
+   results exist: assemble the full cascade and measure it end-to-end —
+   accuracy (with confidence intervals and instrument breakdowns, per
+   Section 6), fallback utilization, cost, and latency, on the held-out
+   test set. This is the actual gate from Section 6, not Phase 2's
+   individual-component results.
+4. **Shadow test and controlled rollout** (Section 11) — only after Phase
+   3 clears the acceptance criteria, and still without a user-visible
+   switch until shadow-mode results hold up.
+
+Phases 1-2 need no production code changes and no shadow-deployment risk
+— they're the natural scope for a first implementation plan. Phases 3-4
+depend on what 1-2 actually find (if SMT's zero-shot accuracy on solo
+violin/cello/flute is poor enough, the cascade's shape itself may need to
+change before Phase 3 can even be scoped) and are better planned once that
+data exists, not speculatively now.
+
+## 13. Open questions for review
 
 1. Does SMT's architecture, trained on different repertoire, actually
    transfer to Mediant's real solo-instrument corpus well enough to be
@@ -541,7 +614,7 @@ regression every subscriber notices, not a contained experiment.
    cost is actually a per-piece cost or closer to a per-take cost in
    practice.
 
-## 13. Revision history
+## 14. Revision history
 
 ### Round 1 (factual corrections)
 
@@ -604,3 +677,33 @@ and adopted:
   Section 9), not left to coaching prose.
 - **Shadow deployment and gradual rollout** (new Section 11) before any
   user-visible switch, regardless of how well the offline validation goes.
+
+### Round 3 (testing-protocol refinements; reviewer's verdict: stop
+revising architecture, begin validation)
+
+No architectural objections this round — explicitly framed by the
+reviewer as refinements to the testing protocol. Adopted:
+
+- **Confidence intervals and per-instrument breakdowns** required on every
+  accuracy figure (Section 6), not an aggregate alone — a small corpus
+  split further for calibration is exactly the condition where an
+  aggregate can hide a regression confined to one instrument.
+- **The promotion gate is the full cascade's end-to-end accuracy, not
+  SMT's standalone accuracy** (Section 6, sharpened from Round 2's
+  wording) — SMT can lose a standalone comparison to Sonnet 5 while the
+  combined system with fallback still wins; a standalone comparison is a
+  diagnostic, not the gate.
+- **Shadow-mode disagreements get independently adjudicated, not scored
+  against the current pipeline as if it were ground truth** (Section 11)
+  — the current pipeline has its own known failure modes.
+- **Four-phase implementation sequence** (new Section 12) — baseline
+  measurement, independent component experiments, combined-cascade
+  evaluation, then shadow test and rollout — restated from the reviewer's
+  own sequence since it maps directly onto work this document already
+  specifies, and is the structure the implementation plan gets built from.
+
+The reviewer's own closing framing is worth preserving verbatim in spirit:
+the design's completeness is now assessed as strong; whether the proposed
+cascade actually works and is actually cheaper remains unproven until the
+experiments run. That is Phase 1 and 2's job, not another revision of this
+document.

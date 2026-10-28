@@ -5137,6 +5137,10 @@ def _call_claude_score_batch(vision_parts: list, prompt: str, anthropic_api_key:
             messages=[{"role": "user", "content": [*vision_parts, {"type": "text", "text": prompt}]}],
         ) as stream:
             msg = stream.get_final_message()
+        usage = getattr(msg, "usage", None)
+        if usage is not None:
+            print(f"[cost] read_score_notes_claude_once model=claude-sonnet-5 "
+                  f"input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}")
         # Sonnet 5 runs adaptive thinking by default even when `thinking` is
         # omitted, so a `thinking` block can precede the `text` block in
         # msg.content — content[0] is not reliably the text. Filter by type
@@ -9628,6 +9632,10 @@ Return JSON only (no markdown):
             model=CLAUDE_MODEL, max_tokens=16000,
             messages=[{"role": "user", "content": coach_prompt}],
         )
+        usage = getattr(msg, "usage", None)
+        if usage is not None:
+            print(f"[cost] compare_and_coach_claude model={CLAUDE_MODEL} "
+                  f"input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}")
         # See _call_claude_score_batch: adaptive thinking can put a thinking
         # block before the text block, so filter by type rather than index.
         coach_raw = "".join(block.text for block in msg.content if block.type == "text")

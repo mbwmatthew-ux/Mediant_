@@ -1358,6 +1358,8 @@ serve(async (req: Request) => {
           if (cacheRow?.parsed_notes) {
             cachedScoreNotes = cacheRow.parsed_notes
             console.log('[analyze-performance] score cache hit for', scoreCacheKey)
+          } else {
+            console.log('[analyze-performance] score cache miss for', scoreCacheKey)
           }
         }
 

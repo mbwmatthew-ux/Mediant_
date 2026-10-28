@@ -1791,6 +1791,91 @@ def test_score_reader_sends_every_page():
     check("each measure records its page", pgs == [1, 2], str(pgs))
 
 
+def test_read_score_notes_claude_once_logs_cost_when_usage_present():
+    print("\n[44] _read_score_notes_claude_once logs [cost] when the SDK response has usage data")
+    import types, json as _json, io, contextlib
+
+    class _FakeStream:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(type="text", text=_json.dumps({
+                    "key_signature": "C major", "time_signature": "4/4",
+                    "tempo_marking": None,
+                    "measures": [{"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}],
+                }))],
+                stop_reason="end_turn",
+                usage=types.SimpleNamespace(input_tokens=1234, output_tokens=567))
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            return _FakeStream()
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    pages = [(b"\x89PNG-page-one", "image/png")]
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    finally:
+        _ac.Anthropic = _orig
+
+    out = buf.getvalue()
+    check("logs a [cost] line with the fake usage's exact token counts",
+          "[cost] read_score_notes_claude_once model=claude-sonnet-5 "
+          "input_tokens=1234 output_tokens=567" in out, out[:2000])
+
+
+def test_read_score_notes_claude_once_cost_logging_is_defensive_when_usage_absent():
+    print("\n[45] _read_score_notes_claude_once does not crash when a fake/mocked "
+          "response has no usage attribute (every OTHER existing test's fakes rely on this)")
+    import types, json as _json, io, contextlib
+
+    class _FakeStream:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self):
+            # Deliberately no `usage=` kwarg — matches every pre-existing fake
+            # in this file (e.g. test_score_reader_sends_every_page).
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(type="text", text=_json.dumps({
+                    "key_signature": "C major", "time_signature": "4/4",
+                    "tempo_marking": None, "measures": [],
+                }))],
+                stop_reason="end_turn")
+
+    class _FakeMessages:
+        def stream(self, **kw):
+            return _FakeStream()
+
+    class _FakeClient:
+        def __init__(self, **kw): self.messages = _FakeMessages()
+
+    pages = [(b"\x89PNG-page-one", "image/png")]
+    import anthropic as _ac
+    _orig = _ac.Anthropic
+    _ac.Anthropic = _FakeClient
+    buf = io.StringIO()
+    raised = False
+    try:
+        with contextlib.redirect_stdout(buf):
+            w.read_score_notes_claude(pages, 1, "clarinet", "4/4", "k")
+    except AttributeError:
+        raised = True
+    finally:
+        _ac.Anthropic = _orig
+
+    check("no AttributeError when usage is absent", not raised, "raised=" + str(raised))
+    check("no [cost] line printed when usage is absent (nothing to report)",
+          "[cost] read_score_notes_claude_once" not in buf.getvalue(), buf.getvalue()[:500])
+
+
 def _make_synthetic_page(system_count=4, width=800, height=1000):
     """A page with `system_count` fake staff systems, evenly spaced, for
     testing row/system splitting without a real photo. Each system is 5
@@ -6992,6 +7077,8 @@ def main():
               test_flag_keys_are_stable_and_unique,
               test_evidence_reset_survives_container_reuse,
               test_score_reader_sends_every_page,
+              test_read_score_notes_claude_once_logs_cost_when_usage_present,
+              test_read_score_notes_claude_once_cost_logging_is_defensive_when_usage_absent,
               test_split_page_into_rows_finds_distinct_systems,
               test_split_page_into_rows_falls_back_on_a_single_system,
               test_split_page_into_rows_falls_back_on_undecodable_bytes,

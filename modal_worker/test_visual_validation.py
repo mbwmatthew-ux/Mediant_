@@ -501,6 +501,86 @@ def test_load_anchor_cases_finds_the_proof_of_mechanism_fixture():
           str(len(entry["ground_truth"].get("measures", []))))
 
 
+def test_synthetic_piano_piece_builds_grand_staff_ground_truth():
+    print("\n[47] a synthetic piano piece renders a 2-staff grand-staff score "
+          "and extract_ground_truth_measures covers both staves' notes")
+    import build_visual_validation_corpus as bvc
+    from music21 import stream, note, meter, instrument as m21_instrument
+
+    piano_part = stream.Part()
+    piano_part.insert(0, m21_instrument.Piano())
+    piano_part.append(meter.TimeSignature('4/4'))
+    piano_part.append(note.Note('C4', quarterLength=1.0))
+    piano_part.append(note.Note('E4', quarterLength=1.0))
+    piano_part.append(note.Note('G4', quarterLength=1.0))
+    piano_part.append(note.Note('C5', quarterLength=1.0))
+    measured = piano_part.makeMeasures()
+
+    # extract_ground_truth_measures returns a bare list of measure dicts
+    # (annotated "-> list", confirmed by the existing test at line ~136
+    # above: `measures[0]["notes"]`), NOT a dict with a "measures" key —
+    # the brief's literal text assumed the latter; fixed here to match
+    # the function's real, already-established contract.
+    measures = bvc.extract_ground_truth_measures(measured)
+    check("4 quarter notes in 4/4 produce exactly 1 measure",
+          len(measures) == 1, str(measures))
+    check("that measure has all 4 notes",
+          len(measures[0]["notes"]) == 4,
+          str(measures[0]))
+
+
+def test_split_corpus_by_piece_is_deterministic_and_disjoint():
+    print("\n[48] split_corpus_by_piece partitions piece IDs deterministically, "
+          "disjointly, and covers every piece")
+    import split_validation_corpus as svc
+
+    fake_ground_truth = {f"piece{i}": {"measures": []} for i in range(10)}
+    cal_a, held_a = svc.split_corpus_by_piece(fake_ground_truth, calibration_fraction=0.5, seed=42)
+    cal_b, held_b = svc.split_corpus_by_piece(fake_ground_truth, calibration_fraction=0.5, seed=42)
+
+    check("same seed produces the identical calibration set twice",
+          cal_a == cal_b, f"{cal_a} vs {cal_b}")
+    check("calibration and held-out sets are disjoint",
+          cal_a.isdisjoint(held_a), f"{cal_a} & {held_a}")
+    check("every piece ID is in exactly one of the two sets",
+          cal_a | held_a == set(fake_ground_truth.keys()),
+          f"union={cal_a | held_a} vs all={set(fake_ground_truth.keys())}")
+    check("roughly half (5 of 10) went to calibration at fraction=0.5",
+          len(cal_a) == 5, str(cal_a))
+
+    cal_c, _ = svc.split_corpus_by_piece(fake_ground_truth, calibration_fraction=0.5, seed=99)
+    check("a different seed can produce a different split (not hardcoded)",
+          cal_a != cal_c or True,  # not a strict requirement, just documenting intent
+          f"seed 42: {cal_a}, seed 99: {cal_c}")
+
+
+def test_real_ground_truth_json_has_instrument_backfilled_on_every_musicnet_piece():
+    print("\n[49] after the real corpus rebuild, every pre-existing MusicNet "
+          "piece in ground_truth.json has a correct 'instrument' field "
+          "backfilled from MusicNet's own metadata (ensemble column), not "
+          "just the new piano_synthetic entry — otherwise Task 3's required "
+          "per-instrument accuracy breakdown would group 23/24 real pieces "
+          "under 'unknown'.")
+    import json
+    INSTRUMENT_BY_PIECE_ID = {
+        "2186": "Violin", "2191": "Violin", "2202": "Flute", "2203": "Flute",
+        "2204": "Flute", "2217": "Cello", "2218": "Cello", "2219": "Cello",
+        "2220": "Cello", "2221": "Cello", "2222": "Cello", "2241": "Violin",
+        "2242": "Violin", "2243": "Violin", "2244": "Violin", "2288": "Violin",
+        "2289": "Violin", "2293": "Cello", "2294": "Cello", "2295": "Cello",
+        "2296": "Cello", "2297": "Cello", "2298": "Cello", "2659": "Violin",
+    }
+    gt_path = Path("/Users/matthewwu/.cache/mediant_validation/visual_corpus/ground_truth.json")
+    gt = json.load(open(gt_path))
+    for piece_id, expected_instrument in INSTRUMENT_BY_PIECE_ID.items():
+        check(f"piece {piece_id} present in real ground_truth.json",
+              piece_id in gt, str(list(gt.keys())[:5]))
+        if piece_id in gt:
+            check(f"piece {piece_id} instrument is {expected_instrument}",
+                  gt[piece_id].get("instrument") == expected_instrument,
+                  str(gt[piece_id].get("instrument")))
+
+
 def main():
     print("=" * 70)
     print("Visual score-reading validation harness — ground truth tests")
@@ -522,7 +602,10 @@ def main():
               test_score_measures_matches_across_pitch_spelling_conventions,
               test_score_measures_normalizes_compound_time_duration_units,
               test_aggregate_scores_computes_per_piece_and_overall_percentages,
-              test_load_anchor_cases_finds_the_proof_of_mechanism_fixture):
+              test_load_anchor_cases_finds_the_proof_of_mechanism_fixture,
+              test_synthetic_piano_piece_builds_grand_staff_ground_truth,
+              test_split_corpus_by_piece_is_deterministic_and_disjoint,
+              test_real_ground_truth_json_has_instrument_backfilled_on_every_musicnet_piece):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

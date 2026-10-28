@@ -172,6 +172,59 @@ def render_musicxml_to_pngs(musicxml_path: str, out_prefix: str) -> list:
     return paths
 
 
+def build_synthetic_piano_entry(out_dir: "Path") -> dict:
+    """
+    Builds ONE synthetic piano (grand-staff) piece, since MusicNet (confirmed
+    via direct inspection of all 24 rows this session) contains zero piano
+    pieces — every piece is solo violin/cello/flute. Reuses the exact same
+    render_musicxml_to_pngs pipeline every other corpus entry uses, so this
+    piece is scored identically, not through a parallel code path.
+
+    Returns {"n_pages": int, "measures": [...], "time_signature": str,
+    "instrument": "Piano"} — the same shape build_corpus_entry returns,
+    plus "instrument". (Deviation from the task brief's literal code: the
+    brief had this function return `extract_ground_truth_measures(...)`
+    directly and then assign `entry["n_pages"]`/`entry["instrument"]` onto
+    it, which assumes that function returns a dict with a "measures" key.
+    It actually returns a bare list of measure dicts — confirmed by its
+    own "-> list" annotation and by build_corpus_entry's own usage just
+    below, which wraps that list into a dict itself. Fixed here to match
+    the real, already-established contract instead of reintroducing that
+    mismatch.)
+    """
+    from music21 import stream, note, meter, instrument as m21_instrument, metadata
+
+    piano_part = stream.Part()
+    piano_part.insert(0, m21_instrument.Piano())
+    piano_part.append(meter.TimeSignature('4/4'))
+    pitches = ['C4', 'E4', 'G4', 'C5', 'B4', 'G4', 'E4', 'C4'] * 4
+    for p in pitches:
+        piano_part.append(note.Note(p, quarterLength=1.0))
+    measured = piano_part.makeMeasures()
+    measured.metadata = metadata.Metadata()
+    measured.metadata.title = "Synthetic Piano Grand-Staff Test Piece"
+    measured.metadata.composer = "Mediant validation harness"
+
+    musicxml_path = out_dir / "piano_synthetic.musicxml"
+    measured.write('musicxml', fp=str(musicxml_path))
+
+    pngs = render_musicxml_to_pngs(str(musicxml_path), str(out_dir / "piano_synthetic"))
+
+    reparsed = music21.converter.parse(str(musicxml_path))
+    reparsed_part = reparsed.parts[0] if reparsed.parts else reparsed
+
+    time_sigs = reparsed_part.flatten().getElementsByClass('TimeSignature')
+    time_signature = time_sigs[0].ratioString if time_sigs else None
+
+    measures = extract_ground_truth_measures(reparsed_part)
+    return {
+        "n_pages": len(pngs),
+        "measures": measures,
+        "time_signature": time_signature,
+        "instrument": "Piano",
+    }
+
+
 def build_corpus_entry(piece_id: str, midi_path: str, metadata_row: dict, out_dir: "Path") -> dict | None:
     """
     Runs the full Stage-1 pipeline for one MusicNet piece:

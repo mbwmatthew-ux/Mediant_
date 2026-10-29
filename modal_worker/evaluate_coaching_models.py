@@ -127,6 +127,17 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-haiku-5-5": (0.10, 0.50),
 }
 
+# Must match the `max_tokens=` passed to `client.messages.create` in
+# coach_with_model above -- this is the real worst-case output length the
+# API is allowed to return, so it is also the right number to gate the
+# pre-call budget check against (see estimated_cost in main()). Both models
+# run adaptive thinking by default, and thinking tokens are billed as
+# output and counted in usage.output_tokens, so a real call can land far
+# above a small average-case estimate. Keeping one constant for both means
+# they can't silently drift apart again (same pattern as
+# evaluate_gemini_crosscheck.py's WORST_CASE_OUTPUT_TOKENS).
+WORST_CASE_OUTPUT_TOKENS = 4000
+
 
 def main():
     import os
@@ -156,7 +167,14 @@ def main():
 
         for model_id in ("claude-sonnet-5", "claude-haiku-5-5"):
             in_price, out_price = PRICING_PER_MILLION_TOKENS[model_id]
-            estimated_cost = 500 * in_price / 1_000_000 + 200 * out_price / 1_000_000
+            # Fixed, pre-computed WORST-CASE estimate -- not an average --
+            # so the pre-call gate can never let a call through that could
+            # blow the cap: ~700 input tokens (the real prompt measures
+            # roughly 600-700 tokens) plus the full WORST_CASE_OUTPUT_TOKENS
+            # (the real max_tokens= ceiling passed to the API, which the
+            # model could legitimately use all of via adaptive thinking).
+            estimated_cost = (700 * in_price / 1_000_000
+                               + WORST_CASE_OUTPUT_TOKENS * out_price / 1_000_000)
             if not guard.can_spend(estimated_cost):
                 print(f"  [{model_id}] skipped: would exceed ${guard.cap_dollars} cap")
                 continue

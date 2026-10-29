@@ -43,6 +43,10 @@ GEMINI_FLASH_OUTPUT_PER_TOKEN = 2.50 / 1_000_000
 # length the model is allowed to produce, so it is also the right number to
 # gate the pre-call budget check against (see estimated_call_cost in main()).
 # Keeping one constant for both means they can't silently drift apart again.
+# `maxOutputTokens` is the real API cap on TOTAL output tokens, including
+# thinking tokens (thoughtsTokenCount) -- not just the visible candidates
+# text -- so this constant already bounds the worst case correctly with no
+# separate thinking-budget term needed.
 WORST_CASE_OUTPUT_TOKENS = 16384
 
 
@@ -107,7 +111,15 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
         # means a parse failure below never loses track of that real spend.
         usage = data.get("usageMetadata", {})
         input_tokens = usage.get("promptTokenCount", 0)
-        output_tokens = usage.get("candidatesTokenCount", 0)
+        # gemini-2.5-flash runs thinking by default. Thinking tokens are
+        # billed at the output rate but reported separately in
+        # thoughtsTokenCount -- NOT included in candidatesTokenCount -- so
+        # they must be folded into output_tokens here, or both the running
+        # BudgetGuard total and the per-piece cost figures this script
+        # prints (which the report transcribes verbatim) understate real
+        # spend.
+        thoughts_tokens = usage.get("thoughtsTokenCount", 0)
+        output_tokens = usage.get("candidatesTokenCount", 0) + thoughts_tokens
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         parsed = json.loads(text)
         return {

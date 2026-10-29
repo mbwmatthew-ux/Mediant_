@@ -1805,7 +1805,7 @@ def test_read_score_notes_claude_once_logs_cost_when_usage_present():
                     "tempo_marking": None,
                     "measures": [{"number": 1, "pg": 1, "notes": [{"p": "C4", "b": 1.0, "d": 1.0}]}],
                 }))],
-                stop_reason="end_turn",
+                stop_reason="end_turn", model="claude-sonnet-5",
                 usage=types.SimpleNamespace(input_tokens=1234, output_tokens=567))
 
     class _FakeMessages:
@@ -1828,7 +1828,8 @@ def test_read_score_notes_claude_once_logs_cost_when_usage_present():
 
     out = buf.getvalue()
     check("logs a [cost] line with the fake usage's exact token counts",
-          "[cost] read_score_notes_claude_once model=claude-sonnet-5 "
+          "[cost] _call_claude_score_batch model=claude-sonnet-5 "
+          "(per batch, sum for per-analysis total) "
           "input_tokens=1234 output_tokens=567" in out, out[:2000])
 
 
@@ -1873,7 +1874,7 @@ def test_read_score_notes_claude_once_cost_logging_is_defensive_when_usage_absen
 
     check("no AttributeError when usage is absent", not raised, "raised=" + str(raised))
     check("no [cost] line printed when usage is absent (nothing to report)",
-          "[cost] read_score_notes_claude_once" not in buf.getvalue(), buf.getvalue()[:500])
+          "[cost] _call_claude_score_batch" not in buf.getvalue(), buf.getvalue()[:500])
 
 
 def _make_synthetic_page(system_count=4, width=800, height=1000):
@@ -3271,6 +3272,7 @@ def test_resolve_measure_disagreement_logs_cost_when_usage_present():
         def get_final_message(self):
             return types.SimpleNamespace(
                 content=[types.SimpleNamespace(type="text", text=self._payload)], stop_reason="end_turn",
+                model="claude-sonnet-5",
                 usage=types.SimpleNamespace(input_tokens=321, output_tokens=45))
 
     class _FakeMessages:

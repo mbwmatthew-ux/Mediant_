@@ -5139,7 +5139,8 @@ def _call_claude_score_batch(vision_parts: list, prompt: str, anthropic_api_key:
             msg = stream.get_final_message()
         usage = getattr(msg, "usage", None)
         if usage is not None:
-            print(f"[cost] read_score_notes_claude_once model=claude-sonnet-5 "
+            print(f"[cost] _call_claude_score_batch model={msg.model} "
+                  f"(per batch, sum for per-analysis total) "
                   f"input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}")
         # Sonnet 5 runs adaptive thinking by default even when `thinking` is
         # omitted, so a `thinking` block can precede the `text` block in
@@ -7046,7 +7047,7 @@ If matched_candidate is not null, "notes" may be empty — the matched candidate
             msg = stream.get_final_message()
         usage = getattr(msg, "usage", None)
         if usage is not None:
-            print(f"[cost] resolve_measure_disagreement model=claude-sonnet-5 "
+            print(f"[cost] resolve_measure_disagreement model={msg.model} "
                   f"input_tokens={usage.input_tokens} output_tokens={usage.output_tokens}")
         # See _call_claude_score_batch: adaptive thinking can put a thinking
         # block before the text block, so filter by type rather than index.

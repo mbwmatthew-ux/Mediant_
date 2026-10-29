@@ -436,7 +436,8 @@ def _quarter_lengths_per_beat_local(time_sig: str | None) -> float:
     imported, to keep this file importable standalone without pulling in
     worker.py's full dependency surface for a four-line calculation).
     `evaluate_smt_zero_shot.py` still uses the real ground-truth time
-    signature via worker.py for scoring; this is only used while decoding
+    signature via validate_score_reading_against_corpus.score_measures for
+    scoring; this is only used while decoding
     SMT's own output, where the time signature it reports (e.g. "*M3/4")
     may legitimately differ from, or be absent from, what it transcribed.
 

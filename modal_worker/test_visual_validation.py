@@ -548,11 +548,6 @@ def test_split_corpus_by_piece_is_deterministic_and_disjoint():
     check("roughly half (5 of 10) went to calibration at fraction=0.5",
           len(cal_a) == 5, str(cal_a))
 
-    cal_c, _ = svc.split_corpus_by_piece(fake_ground_truth, calibration_fraction=0.5, seed=99)
-    check("a different seed can produce a different split (not hardcoded)",
-          cal_a != cal_c or True,  # not a strict requirement, just documenting intent
-          f"seed 42: {cal_a}, seed 99: {cal_c}")
-
 
 def test_real_ground_truth_json_has_instrument_backfilled_on_every_musicnet_piece():
     print("\n[49] after the real corpus rebuild, every pre-existing MusicNet "
@@ -571,6 +566,9 @@ def test_real_ground_truth_json_has_instrument_backfilled_on_every_musicnet_piec
         "2296": "Cello", "2297": "Cello", "2298": "Cello", "2659": "Violin",
     }
     gt_path = Path("/Users/matthewwu/.cache/mediant_validation/visual_corpus/ground_truth.json")
+    if not gt_path.exists():
+        print("  SKIP  no local ground_truth.json cache found -- run Task 2 first")
+        return
     gt = json.load(open(gt_path))
     for piece_id, expected_instrument in INSTRUMENT_BY_PIECE_ID.items():
         check(f"piece {piece_id} present in real ground_truth.json",

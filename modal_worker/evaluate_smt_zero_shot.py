@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-import worker as w  # noqa: E402
 import smt_inference as si  # noqa: E402
 import split_validation_corpus as svc  # noqa: E402
 from validate_score_reading_against_corpus import score_measures  # noqa: E402

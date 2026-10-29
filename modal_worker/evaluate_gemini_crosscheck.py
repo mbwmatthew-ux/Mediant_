@@ -38,6 +38,13 @@ class BudgetGuard:
 GEMINI_FLASH_INPUT_PER_TOKEN = 0.30 / 1_000_000
 GEMINI_FLASH_OUTPUT_PER_TOKEN = 2.50 / 1_000_000
 
+# Must match the `maxOutputTokens` passed to the API in
+# crosscheck_score_with_gemini below -- this is the real worst-case output
+# length the model is allowed to produce, so it is also the right number to
+# gate the pre-call budget check against (see estimated_call_cost in main()).
+# Keeping one constant for both means they can't silently drift apart again.
+WORST_CASE_OUTPUT_TOKENS = 16384
+
 
 def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
     """
@@ -55,6 +62,12 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
     keep spend accounting accurate.
     """
     import httpx
+
+    # Bound to 0 up front so that if an exception fires before the response
+    # is parsed (e.g. a network error, before any usage was ever billed),
+    # the except block below still has a defined, correct value to return.
+    # Overwritten with the real billed counts once a response comes back.
+    input_tokens = output_tokens = 0
 
     parts = []
     for p in page_paths:
@@ -77,7 +90,8 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
                 f"gemini-2.5-flash:generateContent?key={api_key}",
                 json={
                     "contents": [{"parts": parts}],
-                    "generationConfig": {"temperature": 0, "maxOutputTokens": 16384,
+                    "generationConfig": {"temperature": 0,
+                                          "maxOutputTokens": WORST_CASE_OUTPUT_TOKENS,
                                           "responseMimeType": "application/json"},
                 },
             )
@@ -87,10 +101,10 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
                     "input_tokens": 0, "output_tokens": 0}
         data = resp.json()
         # Capture usage from the already-billed response BEFORE attempting
-        # to parse the model's text as JSON, so a parse failure (e.g.
-        # truncation on a measure-dense piece) never loses track of a real,
-        # billed spend -- see the Task 4 review fix note in the module
-        # docstring's sibling fix report for why this ordering matters.
+        # to parse the model's text as JSON. Gemini bills for the response
+        # whether or not its text turns out to be valid JSON (e.g. output
+        # got truncated on a measure-dense piece), so reading usage first
+        # means a parse failure below never loses track of that real spend.
         usage = data.get("usageMetadata", {})
         input_tokens = usage.get("promptTokenCount", 0)
         output_tokens = usage.get("candidatesTokenCount", 0)
@@ -102,16 +116,16 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
             "output_tokens": output_tokens,
         }
     except Exception as e:
-        # If this fired after a successful HTTP response (e.g. json.loads
-        # failed on truncated/malformed text), input_tokens/output_tokens
-        # are already bound to the real, billed usage from that response --
-        # include them so the caller still records real spend. If it fired
-        # before any response came back (network error, etc.), they were
-        # never bound, so fall back to 0 -- nothing was billed.
+        # input_tokens/output_tokens were initialized to 0 above and only
+        # overwritten once a response was actually billed. If this fired
+        # after that point (e.g. json.loads failed on truncated/malformed
+        # text), they hold the real billed values; if it fired before any
+        # response came back (network error, etc.), they are still 0 --
+        # correctly reporting that nothing was billed.
         return {
             "error": f"{type(e).__name__}: {e}",
-            "input_tokens": locals().get("input_tokens", 0),
-            "output_tokens": locals().get("output_tokens", 0),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
         }
 
 
@@ -132,12 +146,16 @@ def main():
         ground_truth = json.load(f)
 
     guard = BudgetGuard(cap_dollars=2.00)
-    # Fixed, pre-computed estimate: ~5000 input tokens (2 pages), ~4000
-    # output tokens. Not dynamically refined from real usage -- the guard
-    # always checks real per-call cost too (via record_spend after every
-    # call, success or failure), so a conservative fixed estimate here is
-    # just the up-front gate before each call's actual cost is known.
-    estimated_call_cost = 5000 * GEMINI_FLASH_INPUT_PER_TOKEN + 4000 * GEMINI_FLASH_OUTPUT_PER_TOKEN
+    # Fixed, pre-computed WORST-CASE estimate -- not an average -- so the
+    # pre-call gate can never let a call through that could blow the cap:
+    # ~5000 input tokens (2 pages) plus the full WORST_CASE_OUTPUT_TOKENS
+    # (the real maxOutputTokens ceiling passed to the API; the model could
+    # legitimately use all of it). Not dynamically refined from real usage
+    # -- the guard always records real per-call cost too (via record_spend
+    # after every call, success or failure), so this estimate only needs to
+    # be a safe upper bound for the gate, not a precise prediction.
+    estimated_call_cost = (5000 * GEMINI_FLASH_INPUT_PER_TOKEN
+                            + WORST_CASE_OUTPUT_TOKENS * GEMINI_FLASH_OUTPUT_PER_TOKEN)
 
     for piece_id in FAST_ITERATION_SUBSET:
         if piece_id not in ground_truth:

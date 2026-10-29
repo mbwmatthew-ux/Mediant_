@@ -90,7 +90,7 @@ Return JSON only (no markdown):
     try:
         client = ac.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model=model_id, max_tokens=4000,
+            model=model_id, max_tokens=WORST_CASE_OUTPUT_TOKENS,
             messages=[{"role": "user", "content": coach_prompt}],
         )
         # Capture usage immediately after the billed call returns, BEFORE
@@ -127,14 +127,13 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-haiku-5-5": (0.10, 0.50),
 }
 
-# Must match the `max_tokens=` passed to `client.messages.create` in
-# coach_with_model above -- this is the real worst-case output length the
-# API is allowed to return, so it is also the right number to gate the
-# pre-call budget check against (see estimated_cost in main()). Both models
-# run adaptive thinking by default, and thinking tokens are billed as
-# output and counted in usage.output_tokens, so a real call can land far
-# above a small average-case estimate. Keeping one constant for both means
-# they can't silently drift apart again (same pattern as
+# Passed directly as `max_tokens=` in coach_with_model's API call above, and
+# also used below to gate the pre-call budget check (see estimated_cost in
+# main()) -- one shared constant for both, so they can't drift apart. Both
+# models run adaptive thinking by default, and thinking tokens are billed
+# as output and counted in usage.output_tokens, so a real call can land far
+# above a small average-case estimate; this is why the gate must use the
+# real worst case, not an average (same pattern as
 # evaluate_gemini_crosscheck.py's WORST_CASE_OUTPUT_TOKENS).
 WORST_CASE_OUTPUT_TOKENS = 4000
 

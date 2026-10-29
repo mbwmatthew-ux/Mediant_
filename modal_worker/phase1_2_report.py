@@ -160,7 +160,10 @@ instrument and both splits (calibration 0/1090, held-out 0/1339,
 including Piano 0/8) on clean-tier whole-page input. **SMT scored 0% on
 whole-page input; untested on the row-cropped input shape it was
 actually trained for and that Audiveris already produces via
-`_prepare_score_rows`.**
+`_prepare_score_rows`.** Also run with generation capped at 150 of the
+checkpoint's native 1281 tokens, for CPU feasibility; no run in this
+corpus ever emitted a single note token, so the note-decoding path
+itself was never exercised end to end.
 
 **Root-cause note on how this run was produced:** an earlier pass at this
 section ran `evaluate_smt_zero_shot.py` with a bare `python3` interpreter
@@ -254,6 +257,10 @@ any further than that:
     it was actually trained for and that Audiveris already produces via
     `_prepare_score_rows` -- that input shape was never tested, here or
     in Task 3's original run; both only ever fed the model whole pages.
+  - Also run with generation capped at 150 of the checkpoint's native
+    1281 tokens, for CPU feasibility; no run in this corpus ever emitted
+    a single note token, so the note-decoding path itself was never
+    exercised end to end.
   - It does NOT mean the overall cascade redesign should be abandoned.
     The Audiveris-cascade path and the Haiku-coaching-swap path are
     independent of SMT and remain completely untested by anything in

@@ -28,6 +28,36 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **Track A: production score-reading accuracy benchmark (compound-meter fix shipped; pitch-accuracy problem open, investigation paused on API credit).**
+  Real-cost probe (`modal_worker/probe_production_accuracy_cost.py`) ran the actual
+  production `read_score_notes_claude` against one real piece (2243, 12/8 Violin,
+  $0.98-$1.11/run). Found and fixed a real bug: the score-reading prompt never defined
+  the compound-meter "beat" convention, causing systematic 1.5x duration overshoots.
+  **Fix is committed (`0b7889d`) and deployed live** (`modal deploy worker.py`,
+  2026-10-30) — duration-overshoot false positives went 11→0, unresolved-measure count
+  18→5. This is a validation-reliability fix only; it does NOT move accuracy.
+
+  Built `modal_worker/score_detailed_metrics.py` (note-level Levenshtein scoring,
+  zero API cost — reuses already-collected probe data) because the existing
+  exact-measure-match metric was hiding signal: piece 2243 is 0/20 exact-measure but
+  **30.7% pitch accuracy / 21.6% rhythm accuracy** at note level, errors concentrated
+  in substitutions/deletions on dense passages, not insertions.
+
+  **Real, previously-undiagnosed finding**: the deterministic row-segmentation step
+  that's supposed to give `resolve_measure_disagreement` a tight single-measure crop
+  has confidence 0.21-0.36 (well below its own 0.6 gate) on this piece's dense rows,
+  so resolution silently falls back to whole-row crops — the "give it a tighter crop"
+  fix path mentor round 3 proposed has never actually been tried on these measures.
+
+  **Blocked:** `modal_worker/experiment_crop_tightness.py` (written, dry-run verified
+  against real segmentation data, zero cost so far) tests real crop tightness vs.
+  pitch accuracy on this piece's 3 worst measures — but the Anthropic key hit
+  `credit balance too low` before any call succeeded. Paused here per owner's
+  explicit choice (2026-10-30), not for a technical reason. Resume by topping up the
+  key and re-running that script as-is.
+
+  See Obsidian Fixes/Gotchas/Decisions for full diagnostic history.
+
 - [ ] **Reference-audio recognition pipeline — PIPELINE IS NOW WIRED AND LIVE.**
   Branch `task-11-13` (3 feature + 3 fix commits on top of `main`), 566/566 checks green,
   NOT merged and NOT deployed. Spec and plan:

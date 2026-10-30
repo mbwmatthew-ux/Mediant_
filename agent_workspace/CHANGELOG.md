@@ -1,5 +1,45 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — Compound-meter beat-convention fix deployed; Track A production-accuracy benchmark underway
+
+**Deployed to production** (`modal deploy modal_worker/worker.py`): the
+score-reading prompt now defines the compound-meter (6/8, 9/8, 12/8) beat
+convention explicitly — one beat = one dotted quarter note, not a plain
+quarter note. Fixes a real, confirmed bug (Claude was defaulting to the
+simple-time convention even in compound meters), measured via a real
+production probe on piece 2243: duration-sum false positives in
+`validate_measure` went 11→0, unresolved-measure count 18→5, across two
+independent post-fix runs. **This is a validation-reliability fix only —
+it does not move measured pitch-transcription accuracy**, which stayed at
+0/20 exact-measure both before and after.
+
+Added `modal_worker/test_analysis.py::test_validate_measure_duration_sum_compound_meter`
+(4 meters covered: 12/8, 9/8, 6/8, 4/4-unaffected). Full suite: 913/913.
+
+**New tooling, both zero-marginal-cost (reuse already-collected probe data,
+no new API calls):**
+- `modal_worker/score_detailed_metrics.py` — note-level Levenshtein alignment
+  scoring (pitch accuracy / rhythm accuracy / substitution-insertion-deletion
+  breakdown) on top of the existing binary exact-measure-match metric, which
+  was hiding real signal (piece 2243: 0/20 exact-measure but 30.7% pitch
+  accuracy, 21.6% rhythm accuracy at note level).
+- `modal_worker/experiment_crop_tightness.py` — tests whether tight
+  single-measure crops (vs. the whole-row fallback) change pitch accuracy on
+  the worst measures. Written and dry-run verified; blocked on exhausted
+  Anthropic API credit before any real call ran (zero cost incurred). Paused
+  per owner's explicit choice, not for a technical reason.
+
+**Real finding surfaced while verifying the experiment's premise (before
+spending anything):** the deterministic row-segmentation step that's
+supposed to supply `resolve_measure_disagreement`'s tight crops has
+confidence 0.21–0.36 (its own gate requires ≥0.6) on piece 2243's dense
+rows — so resolution has been silently falling back to whole-row crops on
+exactly the measures this investigation cares about. Previously
+undiagnosed; not yet root-caused further.
+
+See `agent_workspace/AGENT_TASKS.md` ("Track A" entry, In Progress) and the
+Obsidian vault's Fixes/Gotchas/Decisions for the full diagnostic history.
+
 ## 2026-10-23 — Visual score-reading validation harness: final-branch-review fix wave (2 Critical, 3 Important, 1 Minor)
 
 Fixed every finding from the final whole-branch review of the visual

@@ -1,5 +1,33 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — Track B closed; security incident remediated and pushed; research comparison for Polytune/LadderSym delivered
+
+Owner accepted Task 4B's recommendation to stop pursuing Gemini as the
+primary mistake detector. Before pushing, ran a full security pass per the
+owner's explicit checklist: confirmed the previously leaked Gemini key is
+permanently dead (now returns `400 INVALID_ARGUMENT`, not even recognized
+as a key shape), confirmed the replacement key appears nowhere in the
+repo or pending commit, scanned all of git history for other credential
+patterns (clean beyond the one known key — one false positive was a
+third-party `node_modules/zod` test fixture, not a Mediant secret),
+confirmed `.env`/`mobile/.env` are gitignored and untracked, reran the
+full regression suite fresh (7/7 pass), and pushed commit `4ed94cd` to
+`origin/main` with a normal push (no force, no history rewrite). The
+owner's decision to leave the dead key in historical git objects (rather
+than rewrite public repo history) is documented at
+`agent_workspace/SECURITY_INCIDENT_2026-10-30_GEMINI_KEY.md`, pushed as
+`8002763`.
+
+Delivered a research-only comparison of Polytune and LadderSym (specialized
+score-conditioned mistake-detection transformers) against Mediant's current
+pipeline, at `agent_workspace/TRACK_B_RESEARCH_POLYTUNE_LADDERSYM.md` — no
+implementation, no model download, no API spend. Recommends LadderSym
+(ICLR 2026, MIT license, both cover flute/violin/cello) over Polytune (its
+predecessor, same datasets, worse reported accuracy) if pursued, with a
+proposed smallest experiment that reuses Track B's existing held-out
+MusicNet benchmark and injection tooling rather than building anything new.
+Parked in Backlog pending owner go/no-go approval.
+
 ## 2026-10-30 — Task 4B: production-faithful Gemini evaluation (score image + short clips don't fix it)
 
 Owner-approved, budget-capped ($1.50/9 calls) follow-up to Task 4A, testing

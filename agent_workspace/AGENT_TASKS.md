@@ -58,6 +58,10 @@ _Nothing pending — all approved tasks have been completed._
 
   See Obsidian Fixes/Gotchas/Decisions for full diagnostic history.
 
+- [ ] **Track B: audio-pipeline benchmark (score-reading-agnostic).** Read-only
+  audit done, plan at `docs/superpowers/plans/2026-10-30-audio-pipeline-benchmark.md`,
+  findings at `agent_workspace/AUDIO_PIPELINE_AUDIT.md`. Not yet started executing.
+
 - [ ] **Reference-audio recognition pipeline — PIPELINE IS NOW WIRED AND LIVE.**
   Branch `task-11-13` (3 feature + 3 fix commits on top of `main`), 566/566 checks green,
   NOT merged and NOT deployed. Spec and plan:

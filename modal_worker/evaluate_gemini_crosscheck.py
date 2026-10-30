@@ -101,6 +101,16 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
                 json={
                     "contents": [{"parts": parts}],
                     "generationConfig": {"temperature": 0,
+                                          # Confirmed root cause of the second real run's
+                                          # universal MAX_TOKENS truncation at only ~1800
+                                          # chars: gemini-2.5-flash runs thinking by default,
+                                          # and thinking tokens are drawn from the SAME
+                                          # maxOutputTokens budget as the visible answer --
+                                          # leaving almost nothing for the actual JSON. This
+                                          # is deterministic extraction, not creative
+                                          # reasoning, so disabling thinking entirely frees
+                                          # the whole budget for real output.
+                                          "thinkingConfig": {"thinkingBudget": 0},
                                           "maxOutputTokens": WORST_CASE_OUTPUT_TOKENS,
                                           "responseMimeType": "application/json"},
                 },

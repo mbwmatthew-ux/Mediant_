@@ -1,0 +1,161 @@
+{
+  "tolerance_sec": 0.05199999999999962,
+  "pieces": {
+    "2203": {
+      "instrument": "Flute",
+      "n_notes": 891,
+      "render_time_sec": 0.22721195220947266,
+      "peak_mem_mb": 60.688681,
+      "real_duration_sec": 156.1861224489796,
+      "sample_rate": 16000,
+      "duration_sec": 156.9445,
+      "peak_amplitude": 1.0,
+      "clipped": true,
+      "rms": 0.26206066012557716,
+      "silence_fraction": 0.011751765751587345,
+      "onset_accuracy": {
+        "n_expected": 891,
+        "n_detected_total": 591,
+        "hit_rate_within_tolerance": 0.24017957351290684,
+        "mean_abs_error_sec": 0.11167177443367947,
+        "p95_abs_error_sec": 0.3497505668934231
+      },
+      "local_sync": {
+        "n_windows_with_notes": 75,
+        "mean_window_hit_rate": 0.21830930398577456,
+        "min_window_hit_rate": 0.0,
+        "pct_windows_above_80pct": 0.0
+      }
+    },
+    "2202": {
+      "instrument": "Flute",
+      "n_notes": 1022,
+      "render_time_sec": 0.24709486961364746,
+      "peak_mem_mb": 69.818883,
+      "real_duration_sec": 181.21142857142857,
+      "sample_rate": 16000,
+      "duration_sec": 180.9655,
+      "peak_amplitude": 1.0,
+      "clipped": true,
+      "rms": 0.2735848711722744,
+      "silence_fraction": 0.006900141187132354,
+      "onset_accuracy": {
+        "n_expected": 1022,
+        "n_detected_total": 917,
+        "hit_rate_within_tolerance": 0.18101761252446183,
+        "mean_abs_error_sec": 0.08193930357531129,
+        "p95_abs_error_sec": 0.21014852607710136
+      },
+      "local_sync": {
+        "n_windows_with_notes": 86,
+        "mean_window_hit_rate": 0.18147824397824397,
+        "min_window_hit_rate": 0.0,
+        "pct_windows_above_80pct": 0.0
+      }
+    },
+    "2296": {
+      "instrument": "Cello",
+      "n_notes": 402,
+      "render_time_sec": 0.2668778896331787,
+      "peak_mem_mb": 112.646493,
+      "real_duration_sec": 291.9183673469388,
+      "sample_rate": 16000,
+      "duration_sec": 292.479375,
+      "peak_amplitude": 1.0,
+      "clipped": true,
+      "rms": 0.22983484991048633,
+      "silence_fraction": 0.0035639265161859705,
+      "onset_accuracy": {
+        "n_expected": 402,
+        "n_detected_total": 576,
+        "hit_rate_within_tolerance": 0.39552238805970147,
+        "mean_abs_error_sec": 0.05888853916359195,
+        "p95_abs_error_sec": 0.07666031746026948
+      },
+      "local_sync": {
+        "n_windows_with_notes": 137,
+        "mean_window_hit_rate": 0.39026763990267643,
+        "min_window_hit_rate": 0.0,
+        "pct_windows_above_80pct": 0.18248175182481752
+      }
+    },
+    "2218": {
+      "instrument": "Cello",
+      "n_notes": 972,
+      "render_time_sec": 0.2594611644744873,
+      "peak_mem_mb": 76.543443,
+      "real_duration_sec": 199.9673469387755,
+      "sample_rate": 16000,
+      "duration_sec": 198.554625,
+      "peak_amplitude": 1.0,
+      "clipped": true,
+      "rms": 0.18746146174535147,
+      "silence_fraction": 0.01042345399911989,
+      "onset_accuracy": {
+        "n_expected": 972,
+        "n_detected_total": 1291,
+        "hit_rate_within_tolerance": 0.38580246913580246,
+        "mean_abs_error_sec": 0.05689024196784303,
+        "p95_abs_error_sec": 0.08438458049886403
+      },
+      "local_sync": {
+        "n_windows_with_notes": 96,
+        "mean_window_hit_rate": 0.3848676786176786,
+        "min_window_hit_rate": 0.0,
+        "pct_windows_above_80pct": 0.010416666666666666
+      }
+    },
+    "2289": {
+      "instrument": "Violin",
+      "n_notes": 952,
+      "render_time_sec": 0.22942900657653809,
+      "peak_mem_mb": 78.07942,
+      "real_duration_sec": 203.36326530612246,
+      "sample_rate": 16000,
+      "duration_sec": 202.5600625,
+      "peak_amplitude": 1.0,
+      "clipped": true,
+      "rms": 0.176219058488636,
+      "silence_fraction": 0.003709085052242221,
+      "onset_accuracy": {
+        "n_expected": 952,
+        "n_detected_total": 1639,
+        "hit_rate_within_tolerance": 0.4852941176470588,
+        "mean_abs_error_sec": 0.05197306541664159,
+        "p95_abs_error_sec": 0.06890702947845603
+      },
+      "local_sync": {
+        "n_windows_with_notes": 98,
+        "mean_window_hit_rate": 0.4883138969873663,
+        "min_window_hit_rate": 0.18181818181818182,
+        "pct_windows_above_80pct": 0.05102040816326531
+      }
+    },
+    "2242": {
+      "instrument": "Violin",
+      "n_notes": 1631,
+      "render_time_sec": 0.3923211097717285,
+      "peak_mem_mb": 120.008459,
+      "real_duration_sec": 312.73795918367347,
+      "sample_rate": 16000,
+      "duration_sec": 311.20625,
+      "peak_amplitude": 1.0,
+      "clipped": true,
+      "rms": 0.17775989919185947,
+      "silence_fraction": 0.001040708533327978,
+      "onset_accuracy": {
+        "n_expected": 1631,
+        "n_detected_total": 1921,
+        "hit_rate_within_tolerance": 0.5266707541385653,
+        "mean_abs_error_sec": 0.052603255240374215,
+        "p95_abs_error_sec": 0.06876190476191368
+      },
+      "local_sync": {
+        "n_windows_with_notes": 150,
+        "mean_window_hit_rate": 0.5282120934620935,
+        "min_window_hit_rate": 0.0,
+        "pct_windows_above_80pct": 0.10666666666666667
+      }
+    }
+  }
+}

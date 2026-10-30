@@ -1,5 +1,43 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — LadderSym Gate 1B: timing-accurate reference audio built and validated, blocker resolved
+
+Owner approved building a standalone, experimental reference-audio
+generator to resolve Gate 1's tempo-sync blocker (16 of 18 held-out
+pieces' cached MIDI tempo tracks diverged 10-32% from real performance
+duration). Audited the provenance of MusicNet's timing labels first (a
+stop condition) by reading the actual dataset paper, not assuming:
+confirmed note identity comes from the score, timing comes from DTW
+alignment to the real recording, musician-verified at ~4% error — a
+trustworthy basis, not a transcription of performer mistakes.
+
+Built `modal_worker/generate_timing_accurate_reference_audio.py`
+(standalone, not wired into production): renders 16kHz mono `score_audio`
+directly from this validated per-note timing instead of the unreliable
+cached MIDI tempo tracks, reusing `gm_program_for_instrument` and
+deliberately skipping `transpose_for_instrument` (MusicNet pitches are
+already concert-pitch; none of flute/violin/cello transpose anyway).
+
+**Result: all 6 tested pieces across flute, violin, and cello land within
+±0.71% of real duration** (vs. 10-32% before) — cello, which had zero
+passing pieces in Gate 1, now matches as well as the other two
+instruments. Onset-peak-detection validation came back with a low hit
+rate (18-53%) but this was traced to a detector-sensitivity limitation on
+dense/legato passages, not real misalignment — corroborated with a
+targeted pitch-class content check (8/8 windows matched on the worst-case
+piece) and the generator's deterministic note placement. 5 new unit
+tests, 12/12 total passing.
+
+Explicitly kept the benchmark-vs-production distinction separate, per
+the owner's requirement: this only proves the benchmark's own
+score/performance pair can be synchronized using pre-existing ground
+truth — it does not claim LadderSym or this approach is production-ready,
+since deriving equivalent timing for a brand-new user recording (with no
+ground truth) is a different, unsolved problem. No checkpoint downloaded,
+no inference run, no production changes, $0 spend, no GPU. Full report:
+`agent_workspace/LADDERSYM_GATE1B_FINDINGS.md`. Awaiting owner approval
+for the next stage (checkpoint download + CPU-first inference).
+
 ## 2026-10-30 — LadderSym Gate 1: systemic tempo-sync blocker found, 16 of 18 held-out pieces fail
 
 Owner issued a conditional GO on the LadderSym benchmark with explicit

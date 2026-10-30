@@ -17,7 +17,20 @@ Pure local signal processing. No network calls, no paid APIs, no GPU.
 
 Known artifacts that make injected mistakes acoustically unrealistic
 ----------------------------------------------------------------------
-Inspected directly from the implementation below (not generic caveats):
+Inspected directly from the implementation below (not generic caveats),
+then measured on a deterministic synthetic fixture (three concatenated
+tones at different frequencies/phases chosen so no boundary coincides
+with a zero-crossing) via `measure_injection_boundary_artifacts.py` in
+this directory -- run it to reproduce. Against that fixture's typical
+in-tone sample-to-sample delta of 0.0399, the splice boundaries measured:
+wrong_pitch onset 0.2067 (5.2x), wrong_pitch offset 0.4189 (10.5x),
+deleted_note onset 0.1074 (2.7x), deleted_note offset 0.4958 (12.4x),
+duplicated_note splice 0.0569 (1.4x) -- all boundaries land above the
+fixture's typical in-tone delta. These are single-fixture numbers, not a
+universal constant (the actual jump depends on the signal's phase at
+each boundary); what they confirm is that NO crossfade is applied, so a
+real step discontinuity is the expected outcome rather than a
+theoretical worst case.
 
 - "wrong_pitch" splices a pitch-shifted copy of the note's own window
   back into the buffer at the exact same sample indices

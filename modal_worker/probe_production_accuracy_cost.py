@@ -32,8 +32,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-import worker as w  # noqa: E402 -- needs the real modal/music21/etc. stack; run in the validation venv.
-from validate_score_reading_against_corpus import (  # noqa: E402
+from validate_score_reading_against_corpus import (  # noqa: E402 -- needs the real modal/music21/etc. stack; run in the validation venv.
     _call_read_score_notes_with_one_retry, score_measures)
 
 # Sonnet 5 pricing, per this session's own verified research: $2/$10 per 1M
@@ -107,8 +106,13 @@ def main():
 
     print(f"Probing real cost for ONE piece ({piece_id}) via the real "
           f"production read_score_notes_claude...\n")
-    with w.app.run():
-        probe_result = probe_one_piece(piece_id, corpus_dir, ground_truth, anthropic_key)
+    # _call_read_score_notes_with_one_retry (called inside probe_one_piece)
+    # already wraps its own call in `with w.app.run():` -- wrapping it again
+    # here raised a real "App is already running" InvalidError on both
+    # attempts of the first real probe run (confirmed: zero Claude calls
+    # were made, zero cost incurred -- it failed before ever reaching the
+    # API). Modal's app context is not reentrant.
+    probe_result = probe_one_piece(piece_id, corpus_dir, ground_truth, anthropic_key)
 
     pct = round(100 * probe_result["n_correct"] / probe_result["n_total"], 2) \
         if probe_result["n_total"] else 0.0

@@ -1,5 +1,48 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 (2) — LadderSym Gate 2 blocker RESOLVED (one-line version bump); launch-readiness SQL queries delivered
+
+Owner's "Gate 2 Recovery and Launch-Readiness Directive": one bounded (~2hr
+timeboxed, actual ~10min) attempt to unblock Gate 2's dependency failure,
+plus read-only launch-readiness SQL for the owner to run themselves.
+
+**Track A, resolved**: the `tokenizers`/`transformers==4.18.0` build
+failure from earlier today is fixed by bumping ONLY `transformers` to
+`4.24.0` — every other pin (`torch==2.3.0`, `numpy==1.26.4`,
+`huggingface_hub==0.23.0`, etc.) resolves unchanged, with zero source
+builds. Verified this doesn't silently break anything: inspected the exact
+`transformers`/T5 symbols LadderSym's vendored `laddersym_t5.py` imports,
+constructed the real model architecture (hyperparameters read from its own
+`config/model/laddersym_prompt_MT3Net.yaml`) and ran a forward pass with
+dummy tensors through the decoder's `T5Stack.forward()` -> `T5Block(...)`
+call chain — the exact call convention Gate 2 flagged as cross-version
+risk. Passed. Then downloaded (first attempt used the wrong HF repo_id;
+checkpoints live in `ben2002chou/laddersym-checkpoints`, not the dataset
+repo) the single already-approved `cocochorales/prompted` checkpoint
+(2.07GB) and compared its 740-key state dict directly against the
+constructed model: **exact match, 0 missing, 0 unexpected keys**,
+`load_state_dict(strict=True)` succeeded, one CPU forward pass with the
+real loaded weights ran in 23ms. Full writeup:
+`agent_workspace/LADDERSYM_GATE2_RESOLVED.md`. Gate 3's real 12-case
+inference pilot was explicitly out of scope for this directive and was not
+run — this is an environment/checkpoint compatibility result only, not a
+detection-accuracy claim.
+
+**Track B, delivered**: `agent_workspace/LAUNCH_READINESS_QUERIES.sql` —
+7 read-only queries for the Supabase SQL Editor (no service-role key used
+or requested), authored from the actual migration files
+(`takes`/`songs`/`flag_annotations`/`teacher_students` schemas), covering
+instrument distribution, sheet-music linkage, analysis completion/failure,
+duration/quality, and the real unannotated-and-flagged candidate pool for
+teacher annotation. The previously-reported 199-take figure is explicitly
+labeled unverified this session (no DB access) — Query 1 re-checks it.
+
+**Track C**: teacher-annotation sampling plan and payments/storage
+decision flags delivered in chat per the directive's "concise plan"
+framing, not as a separate file.
+
+No production code, dependencies, or deploys touched. No paid API calls.
+
 ## 2026-10-30 — LadderSym Gate 2: blocked on dependency reconstruction; parallel DB-inspection track also blocked
 
 Owner approved Gate 2 (checkpoint setup) and a bounded Gate 3 pilot (12

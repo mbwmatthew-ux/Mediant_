@@ -11,6 +11,19 @@ held-out piece (wrong_pitch / deleted_note / duplicated_note injections,
 plus an uninjected "control"), and prints detection / localization /
 false-positive metrics overall, per mistake type, and per instrument.
 
+Final whole-branch review fix (2026-10-30): `run_one_condition`'s three
+injected-mistake branches now call `benchmark_full_pipeline.run_free_legs`
+directly instead of reimplementing the same inject_mistake ->
+run_pitch_tracking -> dtw_align_to_score chain inline (the review flagged
+this as duplicated logic, and the duplicate was the one that was never
+actually exercised against real data). `load_ground_truth_with_end_sec`
+moved to benchmark_full_pipeline.py -- imported from there now, not
+redefined here -- so both files share the one implementation. Re-ran this
+script after the refactor and confirmed every reported number (detection,
+localization, false-positive, per-type and per-instrument breakdowns) is
+IDENTICAL to the numbers already reported in task-3-report.md; see that
+file / agent_workspace/AUDIO_PIPELINE_AUDIT.md for the numbers themselves.
+
 Real data location note: the brief and the project's own earlier session
 note (Sessions/2026-10-11 (2) -- MusicNet score-alignment validation.md)
 both say the cache lives at /tmp/musicnet_data/. That path does not exist
@@ -27,7 +40,6 @@ Does NOT modify worker.py and does NOT touch CREPE/DTW tuning --
 w.run_pitch_tracking / w.dtw_align_to_score are called completely
 unmodified, purely to measure them.
 """
-import csv
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -37,8 +49,9 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import worker as w  # noqa: E402
 from validate_alignment_against_musicnet import (  # noqa: E402
-    midi_score_to_dict, load_ground_truth, load_rows, calibrate_assumptions)
-from inject_audio_mistakes import inject_mistake  # noqa: E402
+    load_rows, calibrate_assumptions)
+from benchmark_full_pipeline import (  # noqa: E402
+    run_free_legs, load_ground_truth_with_end_sec, midi_score_to_dict)
 
 DATA_DIR = Path("/Users/matthewwu/.cache/mediant_validation/data")
 
@@ -55,30 +68,6 @@ MISTAKE_TYPES = ["wrong_pitch", "deleted_note", "duplicated_note"]
 # Same proximity window run_free_legs uses to decide whether DTW's
 # aligned output has "something" near a given onset time.
 DETECT_WINDOW_SEC = 0.3
-
-MUSICNET_SR = 44100
-
-
-def load_ground_truth_with_end_sec(label_csv_path: Path) -> list[dict]:
-    """
-    validate_alignment_against_musicnet.load_ground_truth gives onset_sec/
-    note/start_beat but deliberately not end_sec (it never needed it).
-    inject_mistake requires end_sec to know each note's audio window.
-    Reads MusicNet's own end_time column directly (same sample-index-at-
-    44100Hz convention start_time already uses) rather than modifying the
-    existing, already-validated loader.
-    """
-    rows = []
-    with open(label_csv_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            rows.append({
-                "onset_sec": int(row["start_time"]) / MUSICNET_SR,
-                "end_sec": int(row["end_time"]) / MUSICNET_SR,
-                "note": int(row["note"]),
-                "start_beat": float(row["start_beat"]),
-            })
-    rows.sort(key=lambda r: r["onset_sec"])
-    return rows
 
 
 def true_measure_for_onset(onset_sec: float, ground_truth: list[dict], beats_per_measure: int) -> int:
@@ -103,6 +92,18 @@ def run_one_condition(piece_id: str, instrument: str, score: dict, ground_truth:
     same timestamp as the location to check for a false alarm, without
     ever calling inject_mistake (so the control audio is byte-identical
     to the original).
+
+    Final whole-branch review fix (2026-10-30): the 3 injected conditions
+    now delegate to benchmark_full_pipeline.run_free_legs -- the real
+    per-case free-leg (inject_mistake -> run_pitch_tracking ->
+    dtw_align_to_score) chain -- instead of reimplementing that same
+    chain inline here. run_free_legs reloads the piece's score/ground-
+    truth/audio/instrument from DATA_DIR itself by piece_id (same source
+    files, same loaders), so the score/ground_truth/wav_bytes/instrument/
+    beats_per_measure parameters below are exercised only by the
+    "control" branch, which has no injected mistake to delegate for.
+    Re-ran the real held-out benchmark after this refactor and confirmed
+    every reported number is unchanged (see module docstring).
     """
     if condition == "control":
         rng = np.random.default_rng(rng_seed)
@@ -112,31 +113,37 @@ def run_one_condition(piece_id: str, instrument: str, score: dict, ground_truth:
         injected = {"mistake_type": "control", "onset_sec": probe_onset,
                     "offset_sec": target["end_sec"], "original_note": target["note"],
                     "new_note": None}
-    else:
-        result = inject_mistake(wav_bytes, ground_truth, condition, rng_seed)
-        run_wav_bytes = result["wav_bytes"]
-        injected = result["injected"]
-        probe_onset = injected["onset_sec"]
 
-    true_measure = true_measure_for_onset(probe_onset, ground_truth, beats_per_measure)
+        true_measure = true_measure_for_onset(probe_onset, ground_truth, beats_per_measure)
 
-    events = w.run_pitch_tracking(run_wav_bytes, instrument=instrument)
-    aligned = w.dtw_align_to_score(events, score, start_measure=1,
-                                    beats_per_measure=beats_per_measure)
+        events = w.run_pitch_tracking(run_wav_bytes, instrument=instrument)
+        aligned = w.dtw_align_to_score(events, score, start_measure=1,
+                                        beats_per_measure=beats_per_measure)
 
-    detected_at_measure = None
-    for ev in aligned:
-        if abs(ev["time_sec"] - probe_onset) < DETECT_WINDOW_SEC:
-            detected_at_measure = ev.get("measure")
-            break
+        detected_at_measure = None
+        for ev in aligned:
+            if abs(ev["time_sec"] - probe_onset) < DETECT_WINDOW_SEC:
+                detected_at_measure = ev.get("measure")
+                break
 
+        return {
+            "piece_id": piece_id, "instrument": instrument, "condition": condition,
+            "injected": injected, "probe_onset": probe_onset,
+            "detected_at_measure": detected_at_measure, "true_measure": true_measure,
+            "detected": detected_at_measure is not None,
+            "localization_correct": detected_at_measure == true_measure,
+            "cost_dollars": 0.0,
+        }
+
+    free_result = run_free_legs(piece_id, DATA_DIR, condition, rng_seed)
+    detected_at_measure = free_result["detected_at_measure"]
     return {
         "piece_id": piece_id, "instrument": instrument, "condition": condition,
-        "injected": injected, "probe_onset": probe_onset,
-        "detected_at_measure": detected_at_measure, "true_measure": true_measure,
+        "injected": free_result["injected"], "probe_onset": free_result["injected"]["onset_sec"],
+        "detected_at_measure": detected_at_measure, "true_measure": free_result["true_measure"],
         "detected": detected_at_measure is not None,
-        "localization_correct": detected_at_measure == true_measure,
-        "cost_dollars": 0.0,
+        "localization_correct": free_result["localization_correct"],
+        "cost_dollars": free_result["cost_dollars"],
     }
 
 

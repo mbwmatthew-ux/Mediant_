@@ -58,10 +58,6 @@ _Nothing pending — all approved tasks have been completed._
 
   See Obsidian Fixes/Gotchas/Decisions for full diagnostic history.
 
-- [ ] **Track B: audio-pipeline benchmark (score-reading-agnostic).** Read-only
-  audit done, plan at `docs/superpowers/plans/2026-10-30-audio-pipeline-benchmark.md`,
-  findings at `agent_workspace/AUDIO_PIPELINE_AUDIT.md`. Not yet started executing.
-
 - [ ] **Reference-audio recognition pipeline — PIPELINE IS NOW WIRED AND LIVE.**
   Branch `task-11-13` (3 feature + 3 fix commits on top of `main`), 566/566 checks green,
   NOT merged and NOT deployed. Spec and plan:
@@ -98,6 +94,25 @@ _Nothing pending — all approved tasks have been completed._
 ---
 
 ## Needs Review
+
+- [ ] **Track B: audio-pipeline benchmark — Tasks 1-3 (all free/read-only work) complete, real results in. Task 4 (paid Gemini+Claude leg) needs the owner's budget decision.**
+  Plan at `docs/superpowers/plans/2026-10-30-audio-pipeline-benchmark.md`. Task 1
+  audit at `agent_workspace/AUDIO_PIPELINE_AUDIT.md`; Task 2 built the synthetic
+  mistake-injection tool (`modal_worker/inject_audio_mistakes.py`); Task 3 chained
+  it against the real, free half of the production pipeline (CREPE pitch tracking
+  + DTW score alignment, `modal_worker/benchmark_full_pipeline.py` /
+  `run_task3_benchmark.py`) on 18 real held-out MusicNet pieces. Real numbers and
+  the key methodological finding are now committed in `AUDIO_PIPELINE_AUDIT.md`'s
+  "Results" section (detection 96.3%, localization 57.7%, false-positive 100% —
+  localization is the metric with actual signal; detection as defined mostly
+  measures audio event density, not mistake-specificity). Zero paid API calls
+  made anywhere in Tasks 1-3.
+  **What the owner needs to decide:** whether to approve a spending cap for
+  Task 4 (the paid Gemini+Claude leg, per the plan's approval-gate rule) — not
+  approved here, no Gemini/Claude calls were added to the benchmark pending that
+  decision. Review item: confirm the Results-section numbers/methodology read
+  as intended, then either move this to Approved Tasks with a Task-4 budget, or
+  park it in Backlog.
 
 - [ ] **AI reference audio feature — deployed live, three real bugs found from
   the user's own first three tries and fixed, needs a real browser smoke

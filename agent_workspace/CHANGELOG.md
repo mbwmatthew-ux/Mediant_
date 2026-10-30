@@ -1,5 +1,44 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — Audio-pipeline mistake-injection benchmark (Track B, Tasks 1-3): real results in, free-leg bug fixed in final review
+
+Closed out Track B's free/read-only work: a synthetic mistake-injection
+benchmark for the audio pipeline (CREPE pitch detection + DTW score
+alignment), run against real MusicNet data, no paid API calls anywhere.
+
+**Real numbers** (18 held-out real MusicNet pieces, 72 runs): detection
+accuracy 96.3% (52/54), localization accuracy 57.7% (30/52), control
+false-positive rate 100% (18/18, 44.4% of those also mislocalized). Full
+breakdown (per mistake type, per instrument) and methodology now committed
+in `agent_workspace/AUDIO_PIPELINE_AUDIT.md`'s new "Results" section —
+previously these numbers existed only in a gitignored report and a scratch
+log, nowhere durable in the repo.
+
+**Key finding:** "detection," as the benchmark defines it (any aligned event
+within 0.3s of the probed timestamp), fires just as often on ordinary,
+uninjected audio as on injected audio (100% control false-positive rate) —
+it mostly measures audio event density, not mistake-specific anomaly
+detection. **Localization accuracy is the metric with real signal** for
+deciding whether a case is worth sending to Task 4's paid Gemini/Claude leg.
+
+**Final whole-branch review fix (this entry):** `benchmark_full_pipeline.run_free_legs`
+called `load_ground_truth` (rows have no `end_sec`) and fed that straight into
+`inject_mistake` (which requires `target["end_sec"]`) — this raised `KeyError`
+on any real piece, and hardcoded `instrument="Violin"` regardless of the
+piece's real instrument; it had never actually been run against real data.
+Fixed to use `load_ground_truth_with_end_sec` and the real per-piece
+instrument (both via the same MusicNet-metadata mechanism
+`run_task3_benchmark.py` already used), then made `run_task3_benchmark.py`'s
+`run_one_condition` call `run_free_legs` directly for the 3 injected
+conditions instead of duplicating the same chain inline. Re-ran the real
+18-piece benchmark after the refactor and confirmed every reported number
+is unchanged. Updated `test_benchmark_full_pipeline.py`'s mock to patch the
+corrected function names and to assert the real per-piece instrument reaches
+`run_pitch_tracking` (mocked to a non-"Violin" value), so the test can no
+longer hide either bug. Also updated `agent_workspace/AGENT_TASKS.md`'s
+Track B entry (moved to Needs Review — Task 4's paid-leg budget is the
+owner's next decision, not approved here).
+
 ## 2026-10-30 — Compound-meter beat-convention fix deployed; Track A production-accuracy benchmark underway
 
 **Deployed to production** (`modal deploy modal_worker/worker.py`): the

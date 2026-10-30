@@ -78,14 +78,24 @@ def probe_one_piece(piece_id: str, corpus_dir: Path, ground_truth: dict,
         num_calls += 1
 
     if result is None:
-        n_correct, n_total = 0, len(gt_entry["measures"])
+        n_correct, n_total, predicted_measures = 0, len(gt_entry["measures"]), []
     else:
         predicted_measures = result.get("measures") or []
         n_correct, n_total = score_measures(
             predicted_measures, gt_entry["measures"], gt_entry["time_signature"])
 
     return {"piece_id": piece_id, "n_correct": n_correct, "n_total": n_total,
-            "real_cost_dollars": round(real_cost, 4), "num_claude_calls": num_calls}
+            "real_cost_dollars": round(real_cost, 4), "num_claude_calls": num_calls,
+            # Real predicted measures, saved so a wrong-but-not-flagged
+            # result (e.g. a measure that "resolved" but is still wrong
+            # against ground truth) can be diagnosed offline afterward,
+            # without needing another paid call just to look at the
+            # content -- exactly the gap found probing piece 2243 after
+            # the compound-meter fix: duration overshoots dropped to zero,
+            # but accuracy stayed at 0%, and there was no saved content to
+            # inspect why.
+            "predicted_measures": predicted_measures,
+            "ground_truth_measures": gt_entry["measures"]}
 
 
 def main():
@@ -123,6 +133,10 @@ def main():
     print(f"  real Claude calls made: {probe_result['num_claude_calls']}")
     print(f"  REAL cost for this one piece: ${probe_result['real_cost_dollars']}")
     print(f"{'=' * 70}")
+
+    out_path = Path(__file__).parent / f"probe_result_{piece_id}.json"
+    out_path.write_text(json.dumps(probe_result, indent=2))
+    print(f"\nFull predicted + ground-truth measures written to {out_path}")
     return 0
 
 

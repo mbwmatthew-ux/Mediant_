@@ -238,29 +238,13 @@ def transcribe_with_smt(page_paths: list[Path], checkpoint: str) -> dict:
         return {"error": f"SMT model load failed: {type(e).__name__}: {e}",
                 "measures": [], "source": "smt"}
 
-    import numpy as np
-    import torch
     from PIL import Image
-    from torchvision import transforms
-
-    transform = transforms.Compose(
-        [transforms.ToPILImage(), transforms.Grayscale(), transforms.ToTensor()])
 
     all_measures = []
     for page_path in page_paths:
         try:
             img = Image.open(page_path).convert("RGB")
-            x = transform(np.array(img)).unsqueeze(0)
-
-            old_handler = signal.signal(signal.SIGALRM, _raise_page_timeout)
-            signal.alarm(_PAGE_TIMEOUT_SECONDS)
-            try:
-                with torch.no_grad():
-                    raw_output, _ = model.predict(x)
-            finally:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-
+            raw_output = _predict_raw_tokens(model, img)
             page_measures = _decode_smt_output(raw_output)
             offset = all_measures[-1]["number"] if all_measures else 0
             for m in page_measures:
@@ -272,6 +256,69 @@ def transcribe_with_smt(page_paths: list[Path], checkpoint: str) -> dict:
                     "measures": all_measures, "source": "smt"}
 
     return {"measures": all_measures, "source": "smt"}
+
+
+def _predict_raw_tokens(model, img) -> list[str]:
+    """
+    Shared transform + timeout-guarded predict() call used by both
+    transcribe_with_smt (whole pages) and transcribe_row_with_smt (single
+    cropped systems) -- the SIGALRM-based timeout (point 8 in the module
+    docstring) must behave identically for both input shapes, so it lives
+    in exactly one place rather than two copies that could drift.
+    """
+    import numpy as np
+    import torch
+    from torchvision import transforms
+
+    transform = transforms.Compose(
+        [transforms.ToPILImage(), transforms.Grayscale(), transforms.ToTensor()])
+    x = transform(np.array(img)).unsqueeze(0)
+
+    old_handler = signal.signal(signal.SIGALRM, _raise_page_timeout)
+    signal.alarm(_PAGE_TIMEOUT_SECONDS)
+    try:
+        with torch.no_grad():
+            raw_output, _ = model.predict(x)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+    return raw_output
+
+
+def transcribe_row_with_smt(row_png_bytes: bytes, checkpoint: str) -> dict:
+    """
+    Like transcribe_with_smt, but for ONE already-cropped, already-dewarped
+    single-system row image (worker._prepare_score_rows' "row_bytes" --
+    the input shape this checkpoint was actually trained on: a grand-staff
+    system for piano, a single staff for a solo instrument) rather than a
+    whole multi-system page. See the Phase 1-2 final report's caveat on
+    why a correctly-shaped row crop is still only a full training-
+    distribution match for the grand-staff (piano) case, not for a
+    single-staff solo-instrument row.
+
+    Returns {"measures": [...], "source": "smt"} with measure numbers
+    starting at 1 (row-relative, not page- or piece-relative -- the caller
+    owns re-numbering across rows/pages when reassembling a whole piece),
+    or {"error": "...", "measures": [], "source": "smt"} on any failure,
+    matching this file's existing fail-open shape.
+    """
+    try:
+        model = _load_model(checkpoint)
+    except Exception as e:
+        return {"error": f"SMT model load failed: {type(e).__name__}: {e}",
+                "measures": [], "source": "smt"}
+
+    import io
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(row_png_bytes)).convert("RGB")
+        raw_output = _predict_raw_tokens(model, img)
+        measures = _decode_smt_output(raw_output)
+        return {"measures": measures, "source": "smt"}
+    except Exception as e:
+        return {"error": f"SMT inference failed on row: {type(e).__name__}: {e}",
+                "measures": [], "source": "smt"}
 
 
 # Kern "recip" duration code -> quarterLength (1 whole note = 4 quarterLengths;

@@ -46,8 +46,12 @@ GEMINI_FLASH_OUTPUT_PER_TOKEN = 2.50 / 1_000_000
 # `maxOutputTokens` is the real API cap on TOTAL output tokens, including
 # thinking tokens (thoughtsTokenCount) -- not just the visible candidates
 # text -- so this constant already bounds the worst case correctly with no
-# separate thinking-budget term needed.
-WORST_CASE_OUTPUT_TOKENS = 16384
+# separate thinking-budget term needed. Raised from 16384 to 32768 after a
+# real run (with thinking already disabled) still hit MAX_TOKENS on 2 of 5
+# pieces -- the per-note-per-measure JSON schema this prompt asks for is
+# verbose enough that a dense, many-measure piece can genuinely need more
+# than 16384 output tokens even with no thinking overhead at all.
+WORST_CASE_OUTPUT_TOKENS = 32768
 
 
 def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:

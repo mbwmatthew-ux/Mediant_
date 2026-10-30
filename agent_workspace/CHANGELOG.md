@@ -1,5 +1,31 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — LadderSym feasibility report: real I/O contract confirmed, checkpoint sizes checked without downloading, one input gap found and flagged
+
+Read-only feasibility pass on LadderSym (the model recommended in the prior
+Polytune/LadderSym comparison). Inspected the actual inference code on
+GitHub (`laddersym_test_inference.py`, `inference_error.py`, config files)
+rather than relying on docs — confirmed the real input contract (16kHz mono
+audio for both the performance and the score-audio inputs, a MIDI symbolic
+score prompt, ~2.048s windows auto-chunked across the full clip internally)
+and the real output contract (3-class note-level MIDI: Correct/Missing/
+Extra — no separate "wrong pitch" class, which changes how a wrong_pitch
+injection must be scored). Confirmed via Hugging Face `HEAD` requests
+(`x-linked-size` header, zero bytes transferred) that both the
+`cocochorales/prompted` and `maestro/prompted` checkpoints are ~1.93GiB.
+Recommends the `cocochorales/prompted` checkpoint specifically, not
+MAESTRO — MAESTRO-E is piano-only; CocoChorales-E is the dataset that
+covers flute/violin/cello. Code and checkpoint license: MIT; dataset
+license: CC BY 4.0 (not needed for this benchmark anyway, since Mediant's
+own held-out MusicNet pieces serve as the test set). Found one real input
+gap — no pre-rendered "score audio" sonification exists anywhere in Track
+B's current assets — and proposed the smallest viable, explicitly-flagged
+substitution (each piece's own unmodified MusicNet recording) rather than
+silently assuming compatibility. Full report:
+`agent_workspace/LADDERSYM_FEASIBILITY_REPORT.md`. No weights downloaded,
+no inference run, no production/CREPE/DTW changes. Awaiting owner go/no-go
+to download the checkpoint and run the benchmark.
+
 ## 2026-10-30 — Track B closed; security incident remediated and pushed; research comparison for Polytune/LadderSym delivered
 
 Owner accepted Task 4B's recommendation to stop pursuing Gemini as the

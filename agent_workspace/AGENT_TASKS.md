@@ -95,24 +95,36 @@ _Nothing pending — all approved tasks have been completed._
 
 ## Needs Review
 
-- [ ] **Track B: audio-pipeline benchmark — Tasks 1-3 (all free/read-only work) complete, real results in. Task 4 (paid Gemini+Claude leg) needs the owner's budget decision.**
+- [ ] **Track B: audio-pipeline benchmark — Tasks 1-3 complete (free), Task 4A pilot complete (paid, $0.245 spent) with a negative headline result. Owner needs to decide whether to continue, redesign, or stop.**
   Plan at `docs/superpowers/plans/2026-10-30-audio-pipeline-benchmark.md`. Task 1
   audit at `agent_workspace/AUDIO_PIPELINE_AUDIT.md`; Task 2 built the synthetic
-  mistake-injection tool (`modal_worker/inject_audio_mistakes.py`); Task 3 chained
-  it against the real, free half of the production pipeline (CREPE pitch tracking
-  + DTW score alignment, `modal_worker/benchmark_full_pipeline.py` /
-  `run_task3_benchmark.py`) on 18 real held-out MusicNet pieces. Real numbers and
-  the key methodological finding are now committed in `AUDIO_PIPELINE_AUDIT.md`'s
-  "Results" section (detection 96.3%, localization 57.7%, false-positive 100% —
-  localization is the metric with actual signal; detection as defined mostly
-  measures audio event density, not mistake-specificity). Zero paid API calls
-  made anywhere in Tasks 1-3.
-  **What the owner needs to decide:** whether to approve a spending cap for
-  Task 4 (the paid Gemini+Claude leg, per the plan's approval-gate rule) — not
-  approved here, no Gemini/Claude calls were added to the benchmark pending that
-  decision. Review item: confirm the Results-section numbers/methodology read
-  as intended, then either move this to Approved Tasks with a Task-4 budget, or
-  park it in Backlog.
+  mistake-injection tool (`modal_worker/inject_audio_mistakes.py`, now with
+  crossfaded splice boundaries); Task 3 chained it against the real, free half
+  of the production pipeline (CREPE + DTW, `modal_worker/benchmark_full_pipeline.py`
+  / `run_task3_benchmark.py`) on 18 real held-out MusicNet pieces — detection
+  96.3%, localization 57.7%, control false-positive 100% (localization is the
+  metric with actual signal).
+
+  **Task 4A (owner-approved 2026-10-30, $2.00 cap, 9 calls): ran.** Real spend
+  $0.2450. Full results and analysis: `agent_workspace/TASK4A_GEMINI_PILOT_RESULTS.md`.
+  **Headline finding: `evaluate_with_gemini` missed 5 of 6 injected mistakes
+  (2 of those as confident false negatives — "no wrong notes" stated despite a
+  real injected mistake), and its output volume scales almost exactly 1
+  issue/second with clip DURATION rather than content, on both injected and
+  control audio alike, across different pieces and instruments.** This mirrors
+  the same "fires regardless of content" failure mode Task 3 found in CREPE/DTW's
+  own "detection" metric, now observed at the Gemini flag-authoring stage too.
+  Two real design caveats limit how far this generalizes: no score image was
+  available for this test (production always has one), and whole 2-5 minute
+  pieces were used rather than short clips.
+
+  **What the owner needs to decide:** the recommendation in the results doc is
+  to NOT proceed to the full fused pipeline (Claude coaching on top of this
+  Gemini leg) on this design, and if continuing at all, to redesign the next
+  experiment around short clips and/or a real score image before concluding
+  anything final about Gemini's real capability — rather than spending more on
+  the same whole-piece, no-score shape. Move to Approved Tasks with a new scope
+  if continuing; otherwise park in Backlog.
 
 - [ ] **AI reference audio feature — deployed live, three real bugs found from
   the user's own first three tries and fixed, needs a real browser smoke

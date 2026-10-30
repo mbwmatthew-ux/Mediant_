@@ -1,5 +1,41 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — Task 4A: Gemini-only mistake-recognition pilot (negative result)
+
+Owner-approved, budget-capped ($2.00/9 calls) pilot testing whether the
+real, unmodified `evaluate_with_gemini` correctly identifies synthetically
+injected pitch/rhythm mistakes, independent of CREPE/DTW and Claude
+coaching. Real spend: **$0.2450** (well under cap; worst-case pre-call
+estimates were ~4x the real cost, confirming the budget gate was safely
+conservative). Full analysis: `agent_workspace/TASK4A_GEMINI_PILOT_RESULTS.md`.
+
+**Headline result: negative.** 5 of 6 injected mistakes were missed (2 as
+confident false negatives — "no wrong notes" stated despite a real
+injected mistake). More importantly, **issue-output volume scales almost
+exactly 1/second with clip DURATION, not content** — true on injected AND
+control audio alike, across three different instruments and completely
+different real pieces (two different Violin pieces independently produced
+near-identical 200+ item descending-scale intonation lists). This mirrors
+Track B's own Task 3 finding (CREPE/DTW's "detection" metric firing 100% on
+control audio too) at the Gemini flag-authoring stage.
+
+Pre-work: added a 10ms crossfade at every splice boundary
+`inject_audio_mistakes.py` had previously identified as a hard digital
+click, so injected mistakes don't carry an obvious editing artifact.
+Confirmed via `measure_injection_boundary_artifacts.py`: the two fixable
+discontinuities now measure exactly 0.0 (down from 12.4x and 1.4x the
+baseline in-tone delta). One real bug caught and fixed in the first draft
+(duplicated_note's crossfade anchor was computed from the wrong sample).
+
+**Recommendation:** do not proceed to the full fused pipeline on this
+design (whole 2-5 minute clips, no score image). If continuing, redesign
+around short clips and/or a real score image before concluding anything
+final about Gemini's actual capability — this pilot's specific shape may
+have triggered a formulaic/templated degeneration mode rather than
+representative behavior.
+
+No production code touched. No CREPE/DTW tuning reopened.
+
 ## 2026-10-30 — Audio-pipeline mistake-injection benchmark (Track B, Tasks 1-3): real results in, free-leg bug fixed in final review
 
 Closed out Track B's free/read-only work: a synthetic mistake-injection

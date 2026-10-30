@@ -15,71 +15,110 @@ Pure local signal processing. No network calls, no paid APIs, no GPU.
 
 ---
 
-Known artifacts that make injected mistakes acoustically unrealistic
+Crossfading (added for Task 4A, docs/superpowers/plans/2026-10-30-audio-
+pipeline-benchmark.md): every boundary identified below as a step
+discontinuity now gets a short (CROSSFADE_SEC, default 10ms) linear
+blend instead of a hard splice. This is a SMALL fade confined to the
+very edges of each affected window -- the vast majority of each
+mistake's duration is untouched, so the intended ground truth (a
+different pitch, silence, or a repeated note) is still clearly present
+for the large majority of its `[onset_sec, offset_sec)` window; only the
+first/last `CROSSFADE_SEC` seconds taper into/out of it. Verified via `measure_injection_boundary_artifacts.py`,
+re-run after this change: `deleted_note` offset_jump and `duplicated_note`
+splice_jump both now measure exactly 0.0000 (0.0x) -- the discontinuities
+this module's own code introduced are gone. The two remaining nonzero
+numbers (onset_jump=0.2843/7.1x for all three types; wrong_pitch's
+offset_jump=0.1611/4.0x) are the measurement fixture's OWN inherent
+tone-to-tone boundary (it concatenates three different-frequency/phase
+tones with no crossfade of its own) -- present even with NO mistake
+injected at all, confirmed by construction: the crossfade anchors each
+window's edge to exactly match the ORIGINAL audio at that same position,
+so what's left is whatever discontinuity already existed there before any
+mistake was applied, not an artifact of the injection.
+
+Known artifacts that made injected mistakes acoustically unrealistic
+(historical; now reduced by the crossfade above, not eliminated as a
+fundamentally different kind of audio -- see "Residual limitations"
+below for what crossfading does NOT fix)
 ----------------------------------------------------------------------
-Inspected directly from the implementation below (not generic caveats),
-then measured on a deterministic synthetic fixture (three concatenated
-tones at different frequencies/phases chosen so no boundary coincides
-with a zero-crossing) via `measure_injection_boundary_artifacts.py` in
-this directory -- run it to reproduce. Against that fixture's typical
-in-tone sample-to-sample delta of 0.0399, the splice boundaries measured:
-wrong_pitch onset 0.2067 (5.2x), wrong_pitch offset 0.4189 (10.5x),
-deleted_note onset 0.1074 (2.7x), deleted_note offset 0.4958 (12.4x),
-duplicated_note splice 0.0569 (1.4x) -- all boundaries land above the
-fixture's typical in-tone delta. These are single-fixture numbers, not a
-universal constant (the actual jump depends on the signal's phase at
-each boundary); what they confirm is that NO crossfade is applied, so a
-real step discontinuity is the expected outcome rather than a
-theoretical worst case.
+Original measurement, before crossfading (deterministic synthetic
+fixture: three concatenated tones at different frequencies/phases
+chosen so no boundary coincides with a zero-crossing), against that
+fixture's typical in-tone sample-to-sample delta of 0.0399: wrong_pitch
+onset 0.2067 (5.2x), wrong_pitch offset 0.4189 (10.5x), deleted_note
+onset 0.1074 (2.7x), deleted_note offset 0.4958 (12.4x), duplicated_note
+splice 0.0569 (1.4x) -- all boundaries landed above the fixture's
+typical in-tone delta, confirming no crossfade was applied at that time.
 
 - "wrong_pitch" splices a pitch-shifted copy of the note's own window
-  back into the buffer at the exact same sample indices
-  (`samples[start_idx:end_idx] = shifted`), with NO crossfade at either
-  boundary. `librosa.effects.pitch_shift` is a phase-vocoder operation;
-  it does not guarantee the shifted window's amplitude/phase at sample 0
-  or sample -1 matches the unshifted audio immediately outside the
-  window. Where those values don't line up, the output has a step
-  discontinuity at each edge, which is an audible click/seam, not a
-  smooth transition into a differently-pitched note the way a real
-  mis-fingered note would sound.
+  back into the buffer at the exact same sample indices. Without a
+  crossfade, `librosa.effects.pitch_shift`'s phase-vocoder output at the
+  window's first/last sample generally does not match the unshifted
+  audio immediately outside the window, producing a step discontinuity
+  at each edge -- an audible click/seam, not a smooth transition into a
+  differently-pitched note the way a real mis-fingered note would sound.
+  Now crossfaded: the shifted window's own first/last CROSSFADE_SEC
+  blend FROM the original (correct-pitch) audio at that same position,
+  so the transition in and out of the wrong pitch is smooth; the wrong
+  pitch is still clearly audible for the large majority of the window.
 
-- "deleted_note" hard-zeros the window (`samples[start_idx:end_idx] = 0.0`)
-  with no fade-out/fade-in at the edges either. If the signal's value at
-  `start_idx` or `end_idx` isn't already near zero (it generally won't
-  be, since onset/offset times are note boundaries, not zero-crossings),
-  this is also a step discontinuity -- a sharp digital click bracketing
-  a dead-silent gap. A real missed/skipped note in a live recording
-  still has room tone, reverb tail from the previous note, or bow/breath
-  noise; it does not drop to exact digital zero. This mistake type reads
-  as "a sample got deleted from the file," not as "a musician skipped a
-  note."
+- "deleted_note" hard-zeroed the window with no fade-out/fade-in at the
+  edges, which (since onset/offset times are note boundaries, not
+  zero-crossings) was also a step discontinuity -- a sharp digital click
+  bracketing a dead-silent gap, reading as "a sample got deleted from
+  the file," not "a musician skipped a note." Now crossfaded: the first
+  CROSSFADE_SEC ramps from the original note's own start down to zero,
+  and the last CROSSFADE_SEC ramps from zero back up to the value the
+  resumed (unmodified) audio immediately after the window actually
+  starts at -- so both edges are smooth. The middle of the window is
+  still true digital silence; only a short fade at each end changed.
 
 - "duplicated_note" copies the window and concatenates it immediately
-  after itself (`np.concatenate([samples[:end_idx], window,
-  samples[end_idx:]])`) with no crossfade at the splice point either. If
-  the window's last sample doesn't equal its own first sample (true for
-  a generic waveform, and specifically true for a sine window that
-  isn't an exact integer number of periods), the repeat boundary is a
-  step discontinuity -- a click where the two copies join. Separately,
-  pasting an identical copy of the sustained tone (same envelope, same
-  exact phase/timbre throughout) is not what a real repeated note sounds
-  like: an actual musician replaying a note produces a fresh attack
-  transient (bow re-articulation, tongue stop, re-pluck) and a
-  non-identical envelope/intonation on the second instance. This
-  produces something closer to an audio-editing "copy-paste" loop than
-  a performed repetition.
+  after itself. The ONLY discontinuity this introduces is at the single
+  splice point where the first (natural) playing of the note ends and
+  the inserted second copy begins (window[0], i.e. the note's own
+  onset value) -- the point where the second copy's end rejoins the
+  original timeline was already continuous before duplication (it's
+  literally the original, untouched samples immediately after the
+  window). Now crossfaded: a CROSSFADE_SEC blend at that one splice
+  point, between the end of the first playing and the start of the
+  second. Separately, pasting an identical copy of the sustained tone
+  (same envelope, same exact phase/timbre throughout) is still not what
+  a real repeated note sounds like -- see "Residual limitations" below;
+  crossfading the splice point does not add a fresh attack transient.
 
 - Not an issue found here: none of the three paths touch samples outside
   the target note's own `[start_idx, end_idx)` window (or, for
   "duplicated_note", the inserted copy immediately after it) -- so
   mistakes never bleed into or corrupt unrelated, correctly-played
-  audio elsewhere in the take.
+  audio elsewhere in the take. The crossfades above are entirely
+  internal to that same window; they do not extend this boundary.
+
+Residual limitations (crossfading does NOT fix these -- still present)
+----------------------------------------------------------------------
+- "duplicated_note" still pastes an EXACT copy of the first playing
+  (identical envelope, phase, and intonation) rather than synthesizing a
+  fresh, independently-articulated second performance of the same note.
+  A real musician re-playing a note has a new attack transient and
+  small intonation/timing differences the second time; this still
+  doesn't. Crossfading only removes the click at the join -- it doesn't
+  change that the two copies are identical audio.
+- "wrong_pitch"'s `librosa.effects.pitch_shift` output, even with clean
+  edges, is a phase-vocoder reconstruction -- it can still sound subtly
+  processed/robotic compared to a real mis-fingered note played on the
+  actual instrument, especially on fast vibrato passages.
+- "deleted_note"'s silence is still TRUE digital zero (not room tone,
+  reverb tail, or ambient noise) for the bulk of the window -- a real
+  skipped note in a live recording is rarely dead silent. Only the
+  immediate edges now fade gracefully; the body of the gap is unchanged.
 """
 import numpy as np
 
 SR = 22050  # matches run_pitch_tracking's own resample rate (worker.py:910)
 
 MISTAKE_TYPES = {"wrong_pitch", "deleted_note", "duplicated_note"}
+
+CROSSFADE_SEC = 0.01  # 10ms linear blend at each boundary identified above
 
 
 def _load_wav(wav_bytes: bytes) -> np.ndarray:
@@ -146,14 +185,30 @@ def inject_mistake(wav_bytes: bytes, ground_truth_notes: list[dict],
     start_idx, end_idx = int(onset_sec * SR), int(offset_sec * SR)
     start_idx, end_idx = max(0, start_idx), min(len(samples), end_idx)
 
+    fade_len = min(int(CROSSFADE_SEC * SR), (end_idx - start_idx) // 2)
+
     if mistake_type == "deleted_note":
-        samples[start_idx:end_idx] = 0.0
+        window = samples[start_idx:end_idx].copy()
+        new_window = np.zeros_like(window)
+        if fade_len > 0:
+            # Fade OUT from the real, original note into silence over the
+            # window's first fade_len samples.
+            ramp_out = np.linspace(1.0, 0.0, fade_len)
+            new_window[:fade_len] = window[:fade_len] * ramp_out
+            # Fade IN from silence back up to whatever value the resumed,
+            # unmodified audio right after the window actually starts at --
+            # entirely within the window, so nothing outside [start_idx,
+            # end_idx) is touched.
+            resume_value = samples[end_idx] if end_idx < len(samples) else 0.0
+            ramp_in = np.linspace(0.0, 1.0, fade_len)
+            new_window[-fade_len:] = resume_value * ramp_in
+        samples[start_idx:end_idx] = new_window
         new_note = None
 
     elif mistake_type == "wrong_pitch":
         import librosa
         semitones = float(rng.choice([-7, -6, -5, -4, -3, -2, 2, 3, 4, 5, 6, 7]))
-        window = samples[start_idx:end_idx]
+        window = samples[start_idx:end_idx].copy()
         shifted = librosa.effects.pitch_shift(window, sr=SR, n_steps=semitones)
         # pitch_shift can change length by a few samples -- pad/trim to fit
         # the original window exactly so nothing downstream shifts in time.
@@ -161,12 +216,36 @@ def inject_mistake(wav_bytes: bytes, ground_truth_notes: list[dict],
             shifted = shifted[:len(window)]
         else:
             shifted = np.pad(shifted, (0, len(window) - len(shifted)))
+        if fade_len > 0:
+            # Blend the shifted window's own edges FROM the original
+            # (correct-pitch) audio at that same position, so entry/exit
+            # are smooth. The wrong pitch is still clearly audible for
+            # the large majority of the window (everything outside these
+            # two short fades).
+            ramp_in = np.linspace(0.0, 1.0, fade_len)
+            shifted[:fade_len] = window[:fade_len] * (1 - ramp_in) + shifted[:fade_len] * ramp_in
+            ramp_out = np.linspace(1.0, 0.0, fade_len)
+            shifted[-fade_len:] = window[-fade_len:] * (1 - ramp_out) + shifted[-fade_len:] * ramp_out
         samples[start_idx:end_idx] = shifted
         new_note = original_note + int(round(semitones))
 
     else:  # duplicated_note
-        window = samples[start_idx:end_idx]
-        samples = np.concatenate([samples[:end_idx], window, samples[end_idx:]])
+        window = samples[start_idx:end_idx].copy()
+        inserted = window.copy()
+        if fade_len > 0:
+            # The only discontinuity duplication introduces is at this one
+            # splice point: the end of the first (natural) playing meets
+            # the inserted copy's own onset value. Anchor the inserted
+            # copy's very first sample to match the single sample it now
+            # sits next to (samples[end_idx - 1], the last sample of the
+            # first playing), then ramp back to the copy's own natural
+            # values over fade_len samples -- a sliding window of the
+            # original tail would anchor to the WRONG point (fade_len
+            # samples before the splice, not the splice itself).
+            anchor = samples[end_idx - 1]
+            ramp_in = np.linspace(0.0, 1.0, fade_len)
+            inserted[:fade_len] = anchor * (1 - ramp_in) + inserted[:fade_len] * ramp_in
+        samples = np.concatenate([samples[:end_idx], inserted, samples[end_idx:]])
         new_note = original_note
 
     return {

@@ -46,7 +46,13 @@ def test_deleted_note_silences_the_target_window():
     import io
     out, sr = sf.read(io.BytesIO(result["wav_bytes"]))
     window = out[int(1.0 * sr):int(3.0 * sr)]
-    assert np.sqrt(np.mean(window ** 2)) < 0.01  # near-silent where the note was
+    # The core of the window (excluding the short crossfade margins at each
+    # edge -- see CROSSFADE_SEC) must be near-silent. The margins themselves
+    # deliberately taper from/to real audio now, so they're excluded here
+    # rather than requiring the WHOLE window to be near digital zero.
+    margin = int(0.01 * sr) + 10  # CROSSFADE_SEC's sample count, plus slack
+    core = window[margin:-margin]
+    assert np.sqrt(np.mean(core ** 2)) < 0.01  # near-silent in the core, away from the fade edges
     assert result["injected"] == {
         "mistake_type": "deleted_note", "onset_sec": 1.0, "offset_sec": 3.0,
         "original_note": 69, "new_note": None,

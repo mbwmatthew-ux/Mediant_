@@ -1,5 +1,40 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — LadderSym Gate 1: systemic tempo-sync blocker found, 16 of 18 held-out pieces fail
+
+Owner issued a conditional GO on the LadderSym benchmark with explicit
+gates, Gate 1 being: render authentic `score_audio` via MuseScore from the
+existing ground-truth scores (not the original recording), and verify
+pitch/duration/rest/instrument correctness, tempo/timing, and whether
+LadderSym's inference code actually requires score/performance audio to
+be temporally synchronized — stopping and reporting if it's incompatible,
+rather than silently substituting.
+
+It is incompatible, for most of the corpus. Read LadderSym's real batching
+code directly: it pairs score and mistake audio windows by matching frame
+index, with no DTW or search step anywhere in the inference path, so
+`score_audio` must track the real performance's actual tempo curve
+throughout, not just contain the right notes. Measured MuseScore-rendered
+(and `mido`-verified) durations against real performance durations across
+all 18 of Track B's held-out pieces: **16 of 18 (89%) diverge by more than
+5%, most by 10-32%** — root-caused to the cached ground-truth MIDI's tempo
+tracks, which were built for pitch/beat-position correctness earlier in
+Track B and never validated for audio-timing fidelity. Also checked
+whether Mediant's existing production reference-audio feature
+(`generate_reference_audio`) could substitute — it can't, for the
+identical reason: it renders at a single nominal BPM with no tempo-curve
+tracking at all.
+
+Identified a real, bounded smallest-viable fix (FluidSynth render driven
+by the validated per-note `onset_sec`/`end_sec` timing already in Track
+B's labels CSVs, reusing `generate_reference_audio`'s own rendering
+pattern) but did not build it — flagged as exactly the kind of
+methodological substitution the owner's own constraints require stopping
+for. No checkpoint downloaded, no inference run, no new dependencies
+installed for the model itself. Full findings:
+`agent_workspace/LADDERSYM_GATE1_FINDINGS.md`. Awaiting owner direction
+on how to proceed before Gates 2-3 can start.
+
 ## 2026-10-30 — LadderSym feasibility report: real I/O contract confirmed, checkpoint sizes checked without downloading, one input gap found and flagged
 
 Read-only feasibility pass on LadderSym (the model recommended in the prior

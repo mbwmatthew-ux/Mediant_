@@ -5428,10 +5428,12 @@ MULTIPLE PAGES: You may be given several images. They are consecutive pages of O
 {batch_note}
 Time signature hint: {time_sig}. Use what you see in the image if different.
 
+DURATION UNITS FOR COMPOUND TIME (6/8, 9/8, 12/8, and similar): one beat is a DOTTED QUARTER NOTE, not a plain quarter note. A 12/8 measure has 4 beats (not 6), a 9/8 measure has 3 beats (not 4.5), a 6/8 measure has 2 beats (not 3). Example: a 12/8 measure of four dotted-quarter notes in a row has notes starting at beat 1.0, 2.0, 3.0, 4.0, each with duration 1.0 — NOT beat 1.0, 2.5, 4.0, 5.5 with duration 1.5. For simple time signatures (4/4, 3/4, 2/4, etc.) one beat is a plain quarter note as usual — this only changes for compound meters.
+
 Return every measure that CONTAINS AT LEAST ONE SOUNDED NOTE, in order. Omit measures that are entirely rest (including multirests) — but per the numbering rules above, they still consume their measure numbers. For each sounded note:
 - "p": pitch in scientific notation ("D3", "F#4") — null only if notehead present but pitch unreadable
 - "b": beat position in measure (1.0 = downbeat)
-- "d": duration in beats
+- "d": duration in beats (see DURATION UNITS above for compound time)
 - "a": articulation — "staccato", "tenuto", "accent", or null
 - "dyn": dynamic marking at this note — "pp","p","mp","mf","f","ff","cresc","dim", or null
 

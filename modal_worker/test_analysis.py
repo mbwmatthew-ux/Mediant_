@@ -2900,6 +2900,78 @@ def test_validate_measure_duration_sum():
     check("the issue mentions duration", any("duration" in i.lower() for i in result_bad["issues"]), str(result_bad))
 
 
+def test_validate_measure_duration_sum_compound_meter():
+    print("\n[207] validator's duration-sum check uses NOTATED-BEAT units "
+          "correctly for compound meters (6/8, 9/8, 12/8) -- a measure "
+          "reported in the correct dotted-quarter-beat convention is "
+          "valid; the SAME musical content reported in raw quarter-note "
+          "units (the real bug found 2026-10-29 probing production: "
+          "Claude's prompt never defined 'beat' for compound time, so it "
+          "reported plain quarter-note counts instead) is correctly "
+          "caught as an overshoot, confirming this validator's own logic "
+          "was never the bug -- the prompt was.")
+    # 12/8: 4 notated beats/measure (each a dotted quarter). Four
+    # dotted-quarter notes in a row, correctly reported in notated-beat
+    # units: beat 1,2,3,4, duration 1.0 each -- a full, correct measure.
+    correct_12_8 = {"number": 1, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+        {"pitch": "F4", "is_rest": False, "beat": 4.0, "duration_beats": 1.0},
+    ]}
+    # The exact real bug pattern: the SAME four dotted-quarter notes,
+    # reported using raw quarter-note counting instead (each dotted
+    # quarter = 1.5 "quarter-note beats") -- sums to 6.0, not 4.0. This
+    # is what a real production probe (piece 2243) actually observed:
+    # "duration sum 6.00 beats exceeds the 4 beats expected for 12/8".
+    buggy_12_8 = {"number": 1, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.5},
+        {"pitch": "D4", "is_rest": False, "beat": 2.5, "duration_beats": 1.5},
+        {"pitch": "E4", "is_rest": False, "beat": 4.0, "duration_beats": 1.5},
+        {"pitch": "F4", "is_rest": False, "beat": 5.5, "duration_beats": 1.5},
+    ]}
+    result_correct = w.validate_measure(correct_12_8, "violin", "12/8")
+    result_buggy = w.validate_measure(buggy_12_8, "violin", "12/8")
+    check("a correct 12/8 measure (4 notated beats) is valid",
+          result_correct["valid"], str(result_correct))
+    check("the same measure in raw quarter-note units (6.0) is invalid",
+          not result_buggy["valid"], str(result_buggy))
+    check("the buggy measure's issue reports 'exceeds the 4 beats expected for 12/8'",
+          any("4 beats expected for 12/8" in i for i in result_buggy["issues"]),
+          str(result_buggy))
+
+    # 9/8: 3 notated beats/measure. Three correct dotted-quarter notes.
+    correct_9_8 = {"number": 1, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+    ]}
+    result_9_8 = w.validate_measure(correct_9_8, "violin", "9/8")
+    check("a correct 9/8 measure (3 notated beats) is valid",
+          result_9_8["valid"], str(result_9_8))
+
+    # 6/8: 2 notated beats/measure. Two correct dotted-quarter notes.
+    correct_6_8 = {"number": 1, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+    ]}
+    result_6_8 = w.validate_measure(correct_6_8, "violin", "6/8")
+    check("a correct 6/8 measure (2 notated beats) is valid",
+          result_6_8["valid"], str(result_6_8))
+
+    # Simple meters stay unaffected by the compound-meter path: a plain
+    # quarter-note-per-beat 4/4 measure is still valid as before.
+    correct_4_4 = {"number": 1, "notes": [
+        {"pitch": "C4", "is_rest": False, "beat": 1.0, "duration_beats": 1.0},
+        {"pitch": "D4", "is_rest": False, "beat": 2.0, "duration_beats": 1.0},
+        {"pitch": "E4", "is_rest": False, "beat": 3.0, "duration_beats": 1.0},
+        {"pitch": "F4", "is_rest": False, "beat": 4.0, "duration_beats": 1.0},
+    ]}
+    result_4_4 = w.validate_measure(correct_4_4, "violin", "4/4")
+    check("simple meters (4/4) are unaffected -- still valid as before",
+          result_4_4["valid"], str(result_4_4))
+
+
 def test_validate_measure_duration_sum_undershoot_is_not_flagged():
     print("\n[107] validator does NOT flag an undershoot duration sum — the score-reading prompt "
           "deliberately omits sub-beat rests, so a short bar is the expected shape, not a misread "
@@ -7166,6 +7238,7 @@ def main():
               test_split_row_into_measures_falls_back_on_undecodable_bytes,
               test_split_row_into_measures_on_the_real_problem_photo,
               test_validate_measure_duration_sum,
+              test_validate_measure_duration_sum_compound_meter,
               test_validate_measure_skips_duration_check_on_pickup_and_final_measures,
               test_validate_measure_written_pitch_range,
               test_validate_measure_unexpected_polyphony,

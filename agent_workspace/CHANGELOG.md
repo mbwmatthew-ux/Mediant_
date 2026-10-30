@@ -1,5 +1,37 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — LadderSym Gate 2: blocked on dependency reconstruction; parallel DB-inspection track also blocked
+
+Owner approved Gate 2 (checkpoint setup) and a bounded Gate 3 pilot (12
+inference cases) plus an independent launch-readiness DB inspection.
+Both tracks hit real blockers before any model loaded or data was read.
+
+**Gate 2**: cloned the real LadderSym repo, built an isolated Python 3.11
+venv (doesn't touch the existing system Python or any production
+dependency), and ran `pip install -r requirements.txt`. It fails building
+`tokenizers`, pinned via `transformers==4.18.0`. Root-caused directly
+against PyPI's actual file listing: no Apple Silicon (arm64) macOS wheel
+exists for this old `tokenizers` version range on any Python version, and
+compiling from source fails against this machine's modern Rust toolchain
+(a strict lint the old crate predates). Checked what `transformers` is
+actually used for before judging workaround risk: the model is a heavily
+vendored, modified copy of HuggingFace's old `modeling_t5.py` (reduces
+but doesn't eliminate cross-version risk, since the base class and config
+are still imported live from whatever version is installed). Both
+plausible workarounds (relax the pins and test empirically, or stand up a
+separate x86_64/Rosetta Python) cross the owner's own "significant
+dependency reconstruction" stop condition — stopped and reported instead
+of picking one unilaterally. No checkpoint downloaded, no model loaded.
+Full findings: `agent_workspace/LADDERSYM_GATE2_FINDINGS.md`.
+
+**Parallel launch-readiness DB inspection**: also blocked — only the
+Supabase anon key is available locally (correctly RLS-restricted, as it
+should be), no service-role key or direct DB connection string, and
+`supabase db dump` requires Docker, which isn't running in this
+environment. Flagged to the owner rather than attempting a workaround
+that would need either new credentials or a new environment dependency
+(starting Docker).
+
 ## 2026-10-30 — LadderSym Gate 1B: timing-accurate reference audio built and validated, blocker resolved
 
 Owner approved building a standalone, experimental reference-audio

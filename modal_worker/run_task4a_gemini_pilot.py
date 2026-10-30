@@ -26,6 +26,7 @@ DOES report from listening) against a tolerance window instead.
 Held-out pieces only (never a dev piece: 2186/2219 excluded by
 construction -- not even considered below).
 """
+import os
 import sys
 import time
 from pathlib import Path
@@ -71,7 +72,7 @@ def _capturing_post(self, url, *args, **kwargs):
 httpx.Client.post = _capturing_post
 
 DATA_DIR = Path("/Users/matthewwu/.cache/mediant_validation/data")
-GOOGLE_AI_API_KEY = "AIzaSyCmwr9Dlvc4nm3JF7-EatD0fCqXutUbDkU"
+GOOGLE_AI_API_KEY = os.environ["GOOGLE_AI_API_KEY"]  # never hardcode -- set via env
 
 # Pricing verified via WebSearch against multiple aggregators before any
 # call (2026-10-30): Gemini 2.5 Flash audio input ~$1.00/1M tokens, output

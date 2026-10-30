@@ -1,5 +1,41 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 — Task 4B: production-faithful Gemini evaluation (score image + short clips don't fix it)
+
+Owner-approved, budget-capped ($1.50/9 calls) follow-up to Task 4A, testing
+whether a real score image and/or short clips — the two ways Task 4A
+deviated from production — were responsible for its negative result.
+Installed MuseScore 4 locally (Homebrew), rendered real scores for the same
+3 Task 4A pieces, verified clef/time-signature/measure-numbering fidelity
+before spending anything, then ran short-clip/no-score, short-clip/score,
+and full-clip/score conditions against Task 4A's existing full-clip/no-score
+baseline. Real spend: **$0.1214** (9 calls) **+ $0.0064** (1 call lost to a
+revoked key before the fix, see incident below). Full analysis:
+`agent_workspace/TASK4B_GEMINI_PILOT_RESULTS.md`.
+
+**Headline result: negative, with direct mechanical proof.** Full-length
+clips with a score image reproduced Task 4A's no-score result almost
+exactly for the same piece (204 issues, ~1/second, both conditions) and
+produced a 200-entry intonation list that walks the circle of fifths one
+step per measure without ever resolving enharmonic spelling — ending in
+note names with 25+ stacked sharp signs, which is not music and cannot come
+from genuine listening. Short clips reduced the severity of this pattern
+but not the underlying unreliability: across both real injected mistakes
+and all 4 conditions tested (Task 4A's + these 3 new ones), the hit rate
+was 1 clear hit + 1 partial hit out of 8 opportunities.
+
+**Security incident, resolved:** the Gemini test key was hardcoded in
+Task 4A's committed script and pushed to a **public** GitHub repo
+(`mbwmatthew-ux/Mediant_`); Google auto-revoked it mid-run via GitHub's
+secret-scanning partnership. Confirmed test-only, no production impact.
+Both pilot scripts now read the key from `GOOGLE_AI_API_KEY`, never
+hardcoded.
+
+**Recommendation:** stop pursuing Gemini as the primary mistake detector
+in this configuration; evaluate specialized score-conditioned alternatives.
+Per the owner's explicit instruction, no further Track B work has started
+pending their review of this result.
+
 ## 2026-10-30 — Task 4A: Gemini-only mistake-recognition pilot (negative result)
 
 Owner-approved, budget-capped ($2.00/9 calls) pilot testing whether the

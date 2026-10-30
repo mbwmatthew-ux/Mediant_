@@ -1,0 +1,3406 @@
+[
+  {
+    "piece_id": "2203",
+    "instrument": "Flute",
+    "mistake_type": "wrong_pitch",
+    "condition": "short_no_score",
+    "injected": {
+      "mistake_type": "wrong_pitch",
+      "onset_sec": 132.17879818594105,
+      "offset_sec": 132.32975056689344,
+      "original_note": 76,
+      "new_note": 79
+    },
+    "excerpt_measures": [
+      70,
+      78
+    ],
+    "excerpt_sec": [
+      124.6,
+      139.53
+    ],
+    "duration_sec": 14.930000000000007,
+    "n_score_pages": 0,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 70,
+          "time": "0:00",
+          "description": "The opening phrase sounds slightly sharp."
+        },
+        {
+          "measure": 72,
+          "time": "0:02",
+          "description": "The C# in measure 72 sounds sharp."
+        },
+        {
+          "measure": 74,
+          "time": "0:04",
+          "description": "The high G in measure 74 sounds sharp."
+        },
+        {
+          "measure": 76,
+          "time": "0:06",
+          "description": "The D in measure 76 sounds flat."
+        },
+        {
+          "measure": 78,
+          "time": "0:08",
+          "description": "The E in measure 78 sounds sharp."
+        },
+        {
+          "measure": 80,
+          "time": "0:10",
+          "description": "The A in measure 80 sounds flat."
+        },
+        {
+          "measure": 82,
+          "time": "0:12",
+          "description": "The high C in measure 82 sounds sharp."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 71,
+          "time": "0:01",
+          "description": "Slight hesitation before the second beat of measure 71."
+        },
+        {
+          "measure": 73,
+          "time": "0:03",
+          "description": "The sixteenth notes in measure 73 are slightly uneven."
+        },
+        {
+          "measure": 75,
+          "time": "0:05",
+          "description": "Rushing through the end of measure 75."
+        },
+        {
+          "measure": 77,
+          "time": "0:07",
+          "description": "Slight drag on the dotted eighth note in measure 77."
+        },
+        {
+          "measure": 79,
+          "time": "0:09",
+          "description": "Uneven spacing in the arpeggio figure in measure 79."
+        },
+        {
+          "measure": 81,
+          "time": "0:11",
+          "description": "Hesitation before the downbeat of measure 81."
+        },
+        {
+          "measure": 83,
+          "time": "0:13",
+          "description": "The final notes in measure 83 are rushed."
+        }
+      ],
+      "wrong_notes_cracks": [
+        {
+          "measure": 72,
+          "time": "0:02",
+          "description": "A slight crack on the C# in measure 72."
+        },
+        {
+          "measure": 74,
+          "time": "0:04",
+          "description": "A squeak on the attack of the high G in measure 74."
+        },
+        {
+          "measure": 78,
+          "time": "0:08",
+          "description": "A tone break on the E in measure 78."
+        },
+        {
+          "measure": 82,
+          "time": "0:12",
+          "description": "A slight crack on the high C in measure 82."
+        }
+      ],
+      "dynamics_issues": [
+        {
+          "measure": 70,
+          "measure_end": 73,
+          "time": "0:00",
+          "time_end": "0:03",
+          "description": "The opening phrase lacks dynamic contrast, remaining at a consistent mezzo-forte."
+        },
+        {
+          "measure": 75,
+          "time": "0:05",
+          "description": "The intended crescendo in measure 75 is not fully realized."
+        },
+        {
+          "measure": 79,
+          "measure_end": 80,
+          "time": "0:09",
+          "time_end": "0:10",
+          "description": "The passage in measures 79-80 lacks a clear dynamic shape."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 70,
+          "measure_end": 71,
+          "time": "0:00",
+          "time_end": "0:01",
+          "description": "Slightly breathy tone in the opening measures."
+        },
+        {
+          "measure": 74,
+          "time": "0:04",
+          "description": "The high G in measure 74 sounds over-pressured."
+        },
+        {
+          "measure": 76,
+          "measure_end": 77,
+          "time": "0:06",
+          "time_end": "0:07",
+          "description": "Inconsistent tone quality in measures 76-77, with some notes sounding unfocused."
+        },
+        {
+          "measure": 80,
+          "time": "0:10",
+          "description": "Weak tone on the A in measure 80."
+        }
+      ],
+      "posture_issues": [
+        "The player's head is tilted slightly down throughout the performance, particularly noticeable around 0:05 and 0:10.",
+        "There appears to be some tension in the shoulders, especially the right shoulder, visible around 0:07."
+      ],
+      "technique_issues": [
+        "The embouchure plate angle appears to be slightly too high, causing some of the higher notes to sound sharp and over-pressured (e.g., 0:04, 0:12).",
+        "Finger spacing over the keys is sometimes wide, particularly with the right hand, visible around 0:09.",
+        "Visible tension in the right wrist around 0:07 and 0:11."
+      ],
+      "overall": "The most important thing to fix is the overall intonation, which is inconsistent, along with addressing the tension in the embouchure and right hand to improve tone quality and technique."
+    },
+    "latency_sec": 8.620617151260376,
+    "real_input_tokens": 2348,
+    "real_output_tokens": 1490,
+    "real_cost": 0.006073,
+    "worst_case_cost_gate": 0.10047776
+  },
+  {
+    "piece_id": "2203",
+    "instrument": "Flute",
+    "mistake_type": "wrong_pitch",
+    "condition": "short_with_score",
+    "injected": {
+      "mistake_type": "wrong_pitch",
+      "onset_sec": 132.17879818594105,
+      "offset_sec": 132.32975056689344,
+      "original_note": 76,
+      "new_note": 79
+    },
+    "excerpt_measures": [
+      70,
+      78
+    ],
+    "excerpt_sec": [
+      124.6,
+      139.53
+    ],
+    "duration_sec": 14.930000000000007,
+    "n_score_pages": 3,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 70,
+          "time": "0:00",
+          "description": "The initial notes in measure 70 sound slightly sharp."
+        },
+        {
+          "measure": 72,
+          "time": "0:02",
+          "description": "The high D in measure 72 is noticeably sharp."
+        },
+        {
+          "measure": 75,
+          "time": "0:05",
+          "description": "The ascending passage in measure 75 sounds sharp."
+        },
+        {
+          "measure": 78,
+          "time": "0:08",
+          "description": "The sustained notes in measure 78 are slightly flat."
+        },
+        {
+          "measure": 80,
+          "time": "0:10",
+          "description": "The high notes in measure 80 are sharp."
+        },
+        {
+          "measure": 82,
+          "time": "0:12",
+          "description": "The descending line in measure 82 is slightly flat."
+        },
+        {
+          "measure": 84,
+          "time": "0:14",
+          "description": "The final notes in measure 84 are sharp."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 70,
+          "time": "0:00",
+          "description": "The rhythm in measure 70 is slightly rushed."
+        },
+        {
+          "measure": 73,
+          "time": "0:03",
+          "description": "There is a slight hesitation at the beginning of measure 73."
+        },
+        {
+          "measure": 76,
+          "time": "0:06",
+          "description": "The sixteenth notes in measure 76 are unevenly spaced."
+        },
+        {
+          "measure": 79,
+          "time": "0:09",
+          "description": "The rhythm in measure 79 feels a bit dragged."
+        },
+        {
+          "measure": 81,
+          "time": "0:11",
+          "description": "The beat feels unstable in measure 81."
+        }
+      ],
+      "wrong_notes_cracks": [
+        {
+          "measure": 71,
+          "time": "0:01",
+          "description": "A slight crack is heard on the C# in measure 71."
+        },
+        {
+          "measure": 74,
+          "time": "0:04",
+          "description": "A wrong note (sounds like a B instead of C) is played in measure 74."
+        },
+        {
+          "measure": 77,
+          "time": "0:07",
+          "description": "A squeak occurs on the high G in measure 77."
+        }
+      ],
+      "dynamics_issues": [
+        {
+          "measure": 70,
+          "measure_end": 72,
+          "time": "0:00",
+          "time_end": "0:02",
+          "description": "The passage from measure 70 to 72 lacks dynamic contrast, remaining at a consistent mezzo-forte despite implied variations."
+        },
+        {
+          "measure": 75,
+          "time": "0:05",
+          "description": "The crescendo in measure 75 is not fully realized."
+        },
+        {
+          "measure": 80,
+          "measure_end": 82,
+          "time": "0:10",
+          "time_end": "0:12",
+          "description": "The dynamic level in measures 80-82 is too loud for the implied piano section."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 70,
+          "measure_end": 72,
+          "time": "0:00",
+          "time_end": "0:02",
+          "description": "The tone quality in measures 70-72 is somewhat breathy."
+        },
+        {
+          "measure": 73,
+          "time": "0:03",
+          "description": "The tone in measure 73 sounds unfocused."
+        },
+        {
+          "measure": 77,
+          "time": "0:07",
+          "description": "The high notes in measure 77 are over-pressured, leading to a harsh sound."
+        },
+        {
+          "measure": 80,
+          "measure_end": 84,
+          "time": "0:10",
+          "time_end": "0:14",
+          "description": "The tone quality is inconsistent throughout measures 80-84."
+        }
+      ],
+      "posture_issues": [],
+      "technique_issues": [],
+      "overall": "The student needs to focus on improving intonation, especially in the higher register, and maintaining consistent tone quality throughout the piece."
+    },
+    "latency_sec": 7.918047904968262,
+    "real_input_tokens": 3369,
+    "real_output_tokens": 1239,
+    "real_cost": 0.0064665,
+    "worst_case_cost_gate": 0.10182776
+  },
+  {
+    "piece_id": "2203",
+    "instrument": "Flute",
+    "mistake_type": "wrong_pitch",
+    "condition": "full_with_score",
+    "injected": {
+      "mistake_type": "wrong_pitch",
+      "onset_sec": 132.17879818594105,
+      "offset_sec": 132.32975056689344,
+      "original_note": 76,
+      "new_note": 79
+    },
+    "excerpt_measures": null,
+    "excerpt_sec": null,
+    "duration_sec": 156.1861224489796,
+    "n_score_pages": 3,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 1,
+          "time": "0:01",
+          "description": "The initial notes sound slightly sharp."
+        },
+        {
+          "measure": 6,
+          "time": "0:08",
+          "description": "The passage from measure 6 to 9 sounds consistently sharp."
+        },
+        {
+          "measure": 14,
+          "time": "0:14",
+          "description": "The notes in measure 14 sound slightly flat."
+        },
+        {
+          "measure": 22,
+          "time": "0:21",
+          "description": "The passage from measure 22 to 25 sounds sharp."
+        },
+        {
+          "measure": 31,
+          "time": "0:30",
+          "description": "The notes in measure 31 sound slightly flat."
+        },
+        {
+          "measure": 39,
+          "time": "0:39",
+          "description": "The notes in measure 39 sound sharp."
+        },
+        {
+          "measure": 43,
+          "time": "0:42",
+          "description": "The passage from measure 43 to 46 sounds consistently sharp."
+        },
+        {
+          "measure": 52,
+          "time": "0:51",
+          "description": "The notes in measure 52 sound slightly flat."
+        },
+        {
+          "measure": 60,
+          "time": "0:59",
+          "description": "The passage from measure 60 to 63 sounds sharp."
+        },
+        {
+          "measure": 68,
+          "time": "1:07",
+          "description": "The notes in measure 68 sound slightly flat."
+        },
+        {
+          "measure": 76,
+          "time": "1:15",
+          "description": "The notes in measure 76 sound sharp."
+        },
+        {
+          "measure": 84,
+          "time": "1:20",
+          "description": "The notes in measure 84 sound slightly sharp."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 1,
+          "time": "0:01",
+          "description": "The rhythm in measure 1 is slightly rushed."
+        },
+        {
+          "measure": 10,
+          "time": "0:10",
+          "description": "There is a slight hesitation in measure 10."
+        },
+        {
+          "measure": 18,
+          "time": "0:18",
+          "description": "The rhythm in measure 18 is uneven."
+        },
+        {
+          "measure": 27,
+          "time": "0:26",
+          "description": "The passage from measure 27 to 29 sounds rushed."
+        },
+        {
+          "measure": 35,
+          "time": "0:34",
+          "description": "There is a slight drag in measure 35."
+        },
+        {
+          "measure": 47,
+          "time": "0:46",
+          "description": "The rhythm in measure 47 is slightly rushed."
+        },
+        {
+          "measure": 56,
+          "time": "0:55",
+          "description": "There is a slight hesitation in measure 56."
+        },
+        {
+          "measure": 64,
+          "time": "1:03",
+          "description": "The rhythm in measure 64 is uneven."
+        },
+        {
+          "measure": 72,
+          "time": "1:11",
+          "description": "The passage from measure 72 to 74 sounds rushed."
+        },
+        {
+          "measure": 80,
+          "time": "1:19",
+          "description": "There is a slight drag in measure 80."
+        }
+      ],
+      "wrong_notes_cracks": [
+        {
+          "measure": 3,
+          "time": "0:04",
+          "description": "A slight crack on a note in measure 3."
+        },
+        {
+          "measure": 12,
+          "time": "0:12",
+          "description": "A wrong note played in measure 12."
+        },
+        {
+          "measure": 20,
+          "time": "0:20",
+          "description": "A squeak heard in measure 20."
+        },
+        {
+          "measure": 28,
+          "time": "0:27",
+          "description": "A tone break in measure 28."
+        },
+        {
+          "measure": 37,
+          "time": "0:36",
+          "description": "A wrong note played in measure 37."
+        },
+        {
+          "measure": 45,
+          "time": "0:44",
+          "description": "A slight crack on a note in measure 45."
+        },
+        {
+          "measure": 54,
+          "time": "0:53",
+          "description": "A wrong note played in measure 54."
+        },
+        {
+          "measure": 62,
+          "time": "1:01",
+          "description": "A squeak heard in measure 62."
+        },
+        {
+          "measure": 70,
+          "time": "1:09",
+          "description": "A tone break in measure 70."
+        },
+        {
+          "measure": 78,
+          "time": "1:17",
+          "description": "A wrong note played in measure 78."
+        }
+      ],
+      "dynamics_issues": [
+        {
+          "measure": 1,
+          "time": "0:01",
+          "description": "The initial dynamic is not clearly established; sounds mezzo forte rather than forte."
+        },
+        {
+          "measure": 10,
+          "time": "0:10",
+          "description": "The piano marking in measure 10 is not fully observed; still too loud."
+        },
+        {
+          "measure": 18,
+          "time": "0:18",
+          "description": "The crescendo in measure 18 is not very pronounced."
+        },
+        {
+          "measure": 27,
+          "time": "0:26",
+          "description": "The forte in measure 27 is not strong enough."
+        },
+        {
+          "measure": 35,
+          "time": "0:34",
+          "description": "The diminuendo in measure 35 is not smooth."
+        },
+        {
+          "measure": 43,
+          "time": "0:42",
+          "description": "The dynamic in measure 43 is not clearly established; sounds mezzo forte rather than forte."
+        },
+        {
+          "measure": 52,
+          "time": "0:51",
+          "description": "The piano marking in measure 52 is not fully observed; still too loud."
+        },
+        {
+          "measure": 60,
+          "time": "0:59",
+          "description": "The crescendo in measure 60 is not very pronounced."
+        },
+        {
+          "measure": 68,
+          "time": "1:07",
+          "description": "The forte in measure 68 is not strong enough."
+        },
+        {
+          "measure": 76,
+          "time": "1:15",
+          "description": "The diminuendo in measure 76 is not smooth."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 1,
+          "time": "0:01",
+          "description": "The tone is somewhat breathy in the opening measures."
+        },
+        {
+          "measure": 6,
+          "time": "0:08",
+          "description": "The tone becomes over-pressured in the upper register in measure 6."
+        },
+        {
+          "measure": 14,
+          "time": "0:14",
+          "description": "The tone is inconsistent in measure 14, wavering between focused and unfocused."
+        },
+        {
+          "measure": 22,
+          "time": "0:21",
+          "description": "The tone is unfocused in measure 22."
+        },
+        {
+          "measure": 31,
+          "time": "0:30",
+          "description": "The tone is somewhat weak in measure 31."
+        },
+        {
+          "measure": 39,
+          "time": "0:39",
+          "description": "The tone is over-pressured in measure 39."
+        },
+        {
+          "measure": 43,
+          "time": "0:42",
+          "description": "The tone is somewhat breathy in measure 43."
+        },
+        {
+          "measure": 52,
+          "time": "0:51",
+          "description": "The tone is inconsistent in measure 52."
+        },
+        {
+          "measure": 60,
+          "time": "0:59",
+          "description": "The tone is unfocused in measure 60."
+        },
+        {
+          "measure": 68,
+          "time": "1:07",
+          "description": "The tone is somewhat weak in measure 68."
+        },
+        {
+          "measure": 76,
+          "time": "1:15",
+          "description": "The tone is over-pressured in measure 76."
+        }
+      ],
+      "posture_issues": [
+        "The player's head is tilted slightly down throughout the performance, which may affect embouchure and breath support.",
+        "There is visible tension in the shoulders, particularly noticeable around 0:30 and 1:00."
+      ],
+      "technique_issues": [
+        "The embouchure plate angle appears to be slightly too high, especially in higher passages (e.g., 0:08, 0:42).",
+        "Finger spacing over the keys is sometimes inconsistent, leading to slight delays in articulation (e.g., 0:12, 0:54).",
+        "Visible tension in the right wrist and arm, particularly during faster passages (e.g., 0:26, 1:11)."
+      ],
+      "overall": "The most important thing to fix is the overall intonation, which tends to be sharp in higher registers and inconsistent in other passages, along with addressing the visible tension in the shoulders and right arm."
+    },
+    "latency_sec": 13.578460931777954,
+    "real_input_tokens": 7881,
+    "real_output_tokens": 2609,
+    "real_cost": 0.0144035,
+    "worst_case_cost_gate": 0.10634795591836735
+  },
+  {
+    "piece_id": "2296",
+    "instrument": "Cello",
+    "mistake_type": "deleted_note",
+    "condition": "short_no_score",
+    "injected": {
+      "mistake_type": "deleted_note",
+      "onset_sec": 247.89546485260772,
+      "offset_sec": 248.9984126984127,
+      "original_note": 50,
+      "new_note": null
+    },
+    "excerpt_measures": [
+      52,
+      60
+    ],
+    "excerpt_sec": [
+      229.67,
+      267.21
+    ],
+    "duration_sec": 37.53999999999999,
+    "n_score_pages": 0,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 52,
+          "time": "0:00",
+          "description": "The opening D note is slightly flat."
+        },
+        {
+          "measure": 52,
+          "time": "0:01",
+          "description": "The A note is slightly flat."
+        },
+        {
+          "measure": 53,
+          "time": "0:02",
+          "description": "The G note is slightly flat."
+        },
+        {
+          "measure": 54,
+          "time": "0:04",
+          "description": "The F# note is slightly flat."
+        },
+        {
+          "measure": 55,
+          "time": "0:05",
+          "description": "The E note is slightly flat."
+        },
+        {
+          "measure": 56,
+          "time": "0:07",
+          "description": "The D note is slightly flat."
+        },
+        {
+          "measure": 57,
+          "time": "0:08",
+          "description": "The C# note is slightly flat."
+        },
+        {
+          "measure": 58,
+          "time": "0:10",
+          "description": "The B note is slightly flat."
+        },
+        {
+          "measure": 59,
+          "time": "0:11",
+          "description": "The A note is slightly flat."
+        },
+        {
+          "measure": 60,
+          "time": "0:13",
+          "description": "The G note is slightly flat."
+        },
+        {
+          "measure": 61,
+          "time": "0:14",
+          "description": "The F# note is slightly flat."
+        },
+        {
+          "measure": 62,
+          "time": "0:16",
+          "description": "The E note is slightly flat."
+        },
+        {
+          "measure": 63,
+          "time": "0:17",
+          "description": "The D note is slightly flat."
+        },
+        {
+          "measure": 64,
+          "time": "0:19",
+          "description": "The C# note is slightly flat."
+        },
+        {
+          "measure": 65,
+          "time": "0:20",
+          "description": "The B note is slightly flat."
+        },
+        {
+          "measure": 66,
+          "time": "0:22",
+          "description": "The A note is slightly flat."
+        },
+        {
+          "measure": 67,
+          "time": "0:23",
+          "description": "The G note is slightly flat."
+        },
+        {
+          "measure": 68,
+          "time": "0:25",
+          "description": "The F# note is slightly flat."
+        },
+        {
+          "measure": 69,
+          "time": "0:26",
+          "description": "The E note is slightly flat."
+        },
+        {
+          "measure": 70,
+          "time": "0:28",
+          "description": "The D note is slightly flat."
+        },
+        {
+          "measure": 71,
+          "time": "0:29",
+          "description": "The C# note is slightly flat."
+        },
+        {
+          "measure": 72,
+          "time": "0:31",
+          "description": "The B note is slightly flat."
+        },
+        {
+          "measure": 73,
+          "time": "0:32",
+          "description": "The A note is slightly flat."
+        },
+        {
+          "measure": 74,
+          "time": "0:34",
+          "description": "The G note is slightly flat."
+        },
+        {
+          "measure": 75,
+          "time": "0:35",
+          "description": "The F# note is slightly flat."
+        },
+        {
+          "measure": 76,
+          "time": "0:37",
+          "description": "The E note is slightly flat."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 52,
+          "measure_end": 76,
+          "time": "0:00",
+          "time_end": "0:38",
+          "description": "The overall tempo is a bit slow and lacks forward momentum throughout the entire excerpt."
+        }
+      ],
+      "wrong_notes_cracks": [],
+      "dynamics_issues": [
+        {
+          "measure": 52,
+          "measure_end": 76,
+          "time": "0:00",
+          "time_end": "0:38",
+          "description": "The dynamic level remains consistently mezzo-forte, lacking variation or shaping in the phrases."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 52,
+          "measure_end": 76,
+          "time": "0:00",
+          "time_end": "0:38",
+          "description": "The tone quality is generally unfocused and lacks resonance, especially in the lower register."
+        },
+        {
+          "measure": 54,
+          "time": "0:04",
+          "description": "A slight scratchy sound is heard on the F# note."
+        },
+        {
+          "measure": 60,
+          "time": "0:13",
+          "description": "The G note has a slightly breathy, unfocused sound."
+        },
+        {
+          "measure": 66,
+          "time": "0:22",
+          "description": "The A note has a slightly thin tone."
+        }
+      ],
+      "posture_issues": [
+        "The student's left shoulder appears slightly tense throughout the performance, which may be affecting bow arm freedom.",
+        "The head and neck alignment seem a bit rigid, not allowing for natural movement with the music."
+      ],
+      "technique_issues": [
+        "BOW ARM: The bow contact point is inconsistent, sometimes too close to the fingerboard, leading to a less resonant tone.",
+        "BOW ARM: Bow changes are not always smooth, with some audible bumps, particularly at 0:01, 0:03, and 0:05.",
+        "LEFT HAND: The left wrist appears slightly bent in some passages, which could contribute to intonation issues.",
+        "LEFT HAND: Vibrato is largely absent in lyrical passages, contributing to the lack of expressive tone.",
+        "POSTURE: The cello angle on the endpin is slightly too horizontal, which might restrict the left arm's movement for string crossings."
+      ],
+      "overall": "The most important thing to fix is the intonation, which is consistently flat across almost all notes, and to develop a more resonant and focused tone quality."
+    },
+    "latency_sec": 9.789753675460815,
+    "real_input_tokens": 3279,
+    "real_output_tokens": 1683,
+    "real_cost": 0.0074865,
+    "worst_case_cost_gate": 0.10120128
+  },
+  {
+    "piece_id": "2296",
+    "instrument": "Cello",
+    "mistake_type": "deleted_note",
+    "condition": "short_with_score",
+    "injected": {
+      "mistake_type": "deleted_note",
+      "onset_sec": 247.89546485260772,
+      "offset_sec": 248.9984126984127,
+      "original_note": 50,
+      "new_note": null
+    },
+    "excerpt_measures": [
+      52,
+      60
+    ],
+    "excerpt_sec": [
+      229.67,
+      267.21
+    ],
+    "duration_sec": 37.53999999999999,
+    "n_score_pages": 3,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 52,
+          "time": "0:00",
+          "description": "The first note, a D, is noticeably flat."
+        },
+        {
+          "measure": 52,
+          "time": "0:01",
+          "description": "The C# in the second beat is flat."
+        },
+        {
+          "measure": 53,
+          "time": "0:02",
+          "description": "The B in the first beat is flat."
+        },
+        {
+          "measure": 54,
+          "time": "0:03",
+          "description": "The A in the first beat is flat."
+        },
+        {
+          "measure": 55,
+          "time": "0:04",
+          "description": "The G in the first beat is flat."
+        },
+        {
+          "measure": 56,
+          "time": "0:05",
+          "description": "The F# in the first beat is flat."
+        },
+        {
+          "measure": 57,
+          "time": "0:06",
+          "description": "The E in the first beat is flat."
+        },
+        {
+          "measure": 58,
+          "time": "0:07",
+          "description": "The D in the first beat is flat."
+        },
+        {
+          "measure": 59,
+          "time": "0:08",
+          "description": "The C# in the first beat is flat."
+        },
+        {
+          "measure": 60,
+          "time": "0:09",
+          "description": "The B in the first beat is flat."
+        },
+        {
+          "measure": 61,
+          "time": "0:10",
+          "description": "The A in the first beat is flat."
+        },
+        {
+          "measure": 62,
+          "time": "0:11",
+          "description": "The G in the first beat is flat."
+        },
+        {
+          "measure": 63,
+          "time": "0:12",
+          "description": "The F# in the first beat is flat."
+        },
+        {
+          "measure": 64,
+          "time": "0:13",
+          "description": "The E in the first beat is flat."
+        },
+        {
+          "measure": 65,
+          "time": "0:14",
+          "description": "The D in the first beat is flat."
+        },
+        {
+          "measure": 66,
+          "time": "0:15",
+          "description": "The C# in the first beat is flat."
+        },
+        {
+          "measure": 67,
+          "time": "0:16",
+          "description": "The B in the first beat is flat."
+        },
+        {
+          "measure": 68,
+          "time": "0:17",
+          "description": "The A in the first beat is flat."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 52,
+          "measure_end": 68,
+          "time": "0:00",
+          "time_end": "0:18",
+          "description": "The rhythm is generally uneven and lacks a consistent pulse throughout the played section."
+        }
+      ],
+      "wrong_notes_cracks": [],
+      "dynamics_issues": [
+        {
+          "measure": 52,
+          "measure_end": 68,
+          "time": "0:00",
+          "time_end": "0:18",
+          "description": "The dynamics are consistently at a mezzo-forte level, lacking the subtle variations implied by the melodic contour."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 52,
+          "measure_end": 68,
+          "time": "0:00",
+          "time_end": "0:18",
+          "description": "The tone quality is generally inconsistent, with some notes sounding breathy and others slightly over-pressured."
+        }
+      ],
+      "posture_issues": [
+        "The player's head and neck appear slightly stiff, which might contribute to tension in the upper body.",
+        "The overall body posture seems a bit rigid, lacking the relaxed fluidity often associated with cello playing."
+      ],
+      "technique_issues": [
+        "The bow arm contact point is inconsistent, sometimes too close to the fingerboard, resulting in a less focused tone.",
+        "Bow changes are not always smooth, occasionally causing slight bumps in the sound.",
+        "The left hand's finger curvature on the fingerboard could be more consistent, especially in faster passages, to ensure clearer articulation."
+      ],
+      "overall": "The most important thing to fix is the intonation, which is consistently flat throughout the played section, and to work on developing a more consistent and relaxed tone quality."
+    },
+    "latency_sec": 7.812894105911255,
+    "real_input_tokens": 4300,
+    "real_output_tokens": 1212,
+    "real_cost": 0.00733,
+    "worst_case_cost_gate": 0.10255128000000001
+  },
+  {
+    "piece_id": "2296",
+    "instrument": "Cello",
+    "mistake_type": "deleted_note",
+    "condition": "full_with_score",
+    "injected": {
+      "mistake_type": "deleted_note",
+      "onset_sec": 247.89546485260772,
+      "offset_sec": 248.9984126984127,
+      "original_note": 50,
+      "new_note": null
+    },
+    "excerpt_measures": null,
+    "excerpt_sec": null,
+    "duration_sec": 291.9183673469388,
+    "n_score_pages": 3,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The opening D note is slightly flat."
+        },
+        {
+          "measure": 2,
+          "time": "0:04",
+          "description": "The A note is slightly sharp."
+        },
+        {
+          "measure": 3,
+          "time": "0:06",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 4,
+          "time": "0:08",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 5,
+          "time": "0:10",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 6,
+          "time": "0:12",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 7,
+          "time": "0:14",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 8,
+          "time": "0:16",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 9,
+          "time": "0:18",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 10,
+          "time": "0:20",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 11,
+          "time": "0:22",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 12,
+          "time": "0:24",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 13,
+          "time": "0:26",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 14,
+          "time": "0:28",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 15,
+          "time": "0:30",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 16,
+          "time": "0:32",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 17,
+          "time": "0:34",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 18,
+          "time": "0:36",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 19,
+          "time": "0:38",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 20,
+          "time": "0:40",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 21,
+          "time": "0:42",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 22,
+          "time": "0:44",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 23,
+          "time": "0:46",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 24,
+          "time": "0:48",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 25,
+          "time": "0:50",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 26,
+          "time": "0:52",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 27,
+          "time": "0:54",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 28,
+          "time": "0:56",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 29,
+          "time": "0:58",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 30,
+          "time": "1:00",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 31,
+          "time": "1:02",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 32,
+          "time": "1:04",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 33,
+          "time": "1:06",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 34,
+          "time": "1:08",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 35,
+          "time": "1:10",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 36,
+          "time": "1:12",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 37,
+          "time": "1:14",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 38,
+          "time": "1:16",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 39,
+          "time": "1:18",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 40,
+          "time": "1:20",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 41,
+          "time": "1:22",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 42,
+          "time": "1:24",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 43,
+          "time": "1:26",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 44,
+          "time": "1:28",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 45,
+          "time": "1:30",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 46,
+          "time": "1:32",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 47,
+          "time": "1:34",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 48,
+          "time": "1:36",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 49,
+          "time": "1:38",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 50,
+          "time": "1:40",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 51,
+          "time": "1:42",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 52,
+          "time": "1:44",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 53,
+          "time": "1:46",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 54,
+          "time": "1:48",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 55,
+          "time": "1:50",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 56,
+          "time": "1:52",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 57,
+          "time": "1:54",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 58,
+          "time": "1:56",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 59,
+          "time": "1:58",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 60,
+          "time": "2:00",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 61,
+          "time": "2:02",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 62,
+          "time": "2:04",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 63,
+          "time": "2:06",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 64,
+          "time": "2:08",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 65,
+          "time": "2:10",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 66,
+          "time": "2:12",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 67,
+          "time": "2:14",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 68,
+          "time": "2:16",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 69,
+          "time": "2:18",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 70,
+          "time": "2:20",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 71,
+          "time": "2:22",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 72,
+          "time": "2:24",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 73,
+          "time": "2:26",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 74,
+          "time": "2:28",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 75,
+          "time": "2:30",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 76,
+          "time": "2:32",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 77,
+          "time": "2:34",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 78,
+          "time": "2:36",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 79,
+          "time": "2:38",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 80,
+          "time": "2:40",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 81,
+          "time": "2:42",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 82,
+          "time": "2:44",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 83,
+          "time": "2:46",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 84,
+          "time": "2:48",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 85,
+          "time": "2:50",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 86,
+          "time": "2:52",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 87,
+          "time": "2:54",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 88,
+          "time": "2:56",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 89,
+          "time": "2:58",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 90,
+          "time": "3:00",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 91,
+          "time": "3:02",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 92,
+          "time": "3:04",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 93,
+          "time": "3:06",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 94,
+          "time": "3:08",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 95,
+          "time": "3:10",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 96,
+          "time": "3:12",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 97,
+          "time": "3:14",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 98,
+          "time": "3:16",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 99,
+          "time": "3:18",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 100,
+          "time": "3:20",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 101,
+          "time": "3:22",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 102,
+          "time": "3:24",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 103,
+          "time": "3:26",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 104,
+          "time": "3:28",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 105,
+          "time": "3:30",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 106,
+          "time": "3:32",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 107,
+          "time": "3:34",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 108,
+          "time": "3:36",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 109,
+          "time": "3:38",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 110,
+          "time": "3:40",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 111,
+          "time": "3:42",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 112,
+          "time": "3:44",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 113,
+          "time": "3:46",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 114,
+          "time": "3:48",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 115,
+          "time": "3:50",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 116,
+          "time": "3:52",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 117,
+          "time": "3:54",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 118,
+          "time": "3:56",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 119,
+          "time": "3:58",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 120,
+          "time": "4:00",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 121,
+          "time": "4:02",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 122,
+          "time": "4:04",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 123,
+          "time": "4:06",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 124,
+          "time": "4:08",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 125,
+          "time": "4:10",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 126,
+          "time": "4:12",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 127,
+          "time": "4:14",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 128,
+          "time": "4:16",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 129,
+          "time": "4:18",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 130,
+          "time": "4:20",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 131,
+          "time": "4:22",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 132,
+          "time": "4:24",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 133,
+          "time": "4:26",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 134,
+          "time": "4:28",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 135,
+          "time": "4:30",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 136,
+          "time": "4:32",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 137,
+          "time": "4:34",
+          "description": "The F# note is flat."
+        },
+        {
+          "measure": 138,
+          "time": "4:36",
+          "description": "The E note is flat."
+        },
+        {
+          "measure": 139,
+          "time": "4:38",
+          "description": "The D note is flat."
+        },
+        {
+          "measure": 140,
+          "time": "4:40",
+          "description": "The C# note is flat."
+        },
+        {
+          "measure": 141,
+          "time": "4:42",
+          "description": "The B note is flat."
+        },
+        {
+          "measure": 142,
+          "time": "4:44",
+          "description": "The A note is flat."
+        },
+        {
+          "measure": 143,
+          "time": "4:46",
+          "description": "The G note is flat."
+        },
+        {
+          "measure": 144,
+          "time": "4:48",
+          "description": "The F# note is flat."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The tempo is a bit slow and lacks consistent drive throughout the piece."
+        },
+        {
+          "measure": 10,
+          "time": "0:20",
+          "description": "There is a slight hesitation at the beginning of this measure."
+        },
+        {
+          "measure": 22,
+          "time": "0:44",
+          "description": "The rhythm feels a bit rushed in this measure."
+        },
+        {
+          "measure": 34,
+          "time": "1:08",
+          "description": "The rhythm is slightly uneven in this passage."
+        },
+        {
+          "measure": 45,
+          "time": "1:30",
+          "description": "The rhythm feels a bit dragged here."
+        },
+        {
+          "measure": 57,
+          "time": "1:54",
+          "description": "There's a noticeable pause before this measure, disrupting the flow."
+        },
+        {
+          "measure": 62,
+          "time": "2:04",
+          "description": "The rhythm is inconsistent, with some notes being held longer than others."
+        },
+        {
+          "measure": 74,
+          "time": "2:28",
+          "description": "The rhythm feels rushed again in this section."
+        },
+        {
+          "measure": 86,
+          "time": "2:52",
+          "description": "There's a slight hesitation before the downbeat of this measure."
+        },
+        {
+          "measure": 98,
+          "time": "3:16",
+          "description": "The rhythm is uneven, making the passage sound less fluid."
+        },
+        {
+          "measure": 110,
+          "time": "3:40",
+          "description": "The tempo slows down significantly here, losing momentum."
+        },
+        {
+          "measure": 122,
+          "time": "4:04",
+          "description": "The rhythm feels a bit rushed in this measure."
+        },
+        {
+          "measure": 134,
+          "time": "4:28",
+          "description": "There's a slight drag in the rhythm here."
+        }
+      ],
+      "wrong_notes_cracks": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "A slight crack on the initial D note."
+        },
+        {
+          "measure": 10,
+          "time": "0:20",
+          "description": "A minor squeak on the G note."
+        },
+        {
+          "measure": 22,
+          "time": "0:44",
+          "description": "A tone break on the B note."
+        },
+        {
+          "measure": 34,
+          "time": "1:08",
+          "description": "A slight crack on the D note."
+        },
+        {
+          "measure": 45,
+          "time": "1:30",
+          "description": "A minor squeak on the G note."
+        },
+        {
+          "measure": 57,
+          "time": "1:54",
+          "description": "A tone break on the B note."
+        },
+        {
+          "measure": 62,
+          "time": "2:04",
+          "description": "A slight crack on the D note."
+        },
+        {
+          "measure": 74,
+          "time": "2:28",
+          "description": "A minor squeak on the F# note."
+        },
+        {
+          "measure": 86,
+          "time": "2:52",
+          "description": "A tone break on the A note."
+        },
+        {
+          "measure": 98,
+          "time": "3:16",
+          "description": "A slight crack on the C# note."
+        },
+        {
+          "measure": 110,
+          "time": "3:40",
+          "description": "A minor squeak on the E note."
+        },
+        {
+          "measure": 122,
+          "time": "4:04",
+          "description": "A tone break on the G note."
+        },
+        {
+          "measure": 134,
+          "time": "4:28",
+          "description": "A slight crack on the B note."
+        }
+      ],
+      "dynamics_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The opening lacks a clear dynamic intention; it's neither distinctly forte nor piano."
+        },
+        {
+          "measure": 10,
+          "time": "0:20",
+          "description": "The dynamic level remains flat, without much shaping or contrast."
+        },
+        {
+          "measure": 22,
+          "time": "0:44",
+          "description": "There's an opportunity for a crescendo here that is not fully realized."
+        },
+        {
+          "measure": 34,
+          "time": "1:08",
+          "description": "The dynamic level is generally too loud for what seems to be intended as a more subdued passage."
+        },
+        {
+          "measure": 45,
+          "time": "1:30",
+          "description": "The dynamic is too soft, losing the melodic line."
+        },
+        {
+          "measure": 57,
+          "time": "1:54",
+          "description": "The dynamic is inconsistent, fluctuating without clear musical intent."
+        },
+        {
+          "measure": 62,
+          "time": "2:04",
+          "description": "The dynamic level is too loud, overpowering the melodic line."
+        },
+        {
+          "measure": 74,
+          "time": "2:28",
+          "description": "The dynamic is too soft, making the passage difficult to hear."
+        },
+        {
+          "measure": 86,
+          "time": "2:52",
+          "description": "The dynamic level is flat, lacking any expressive shaping."
+        },
+        {
+          "measure": 98,
+          "time": "3:16",
+          "description": "There's an opportunity for a diminuendo that is not taken."
+        },
+        {
+          "measure": 110,
+          "time": "3:40",
+          "description": "The dynamic is too loud for the character of the music."
+        },
+        {
+          "measure": 122,
+          "time": "4:04",
+          "description": "The dynamic is too soft, losing the melodic line."
+        },
+        {
+          "measure": 134,
+          "time": "4:28",
+          "description": "The dynamic level is inconsistent, fluctuating without clear musical intent."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The tone is somewhat unfocused and lacks resonance at the beginning."
+        },
+        {
+          "measure": 10,
+          "time": "0:20",
+          "description": "The tone quality is inconsistent, with some notes sounding breathy."
+        },
+        {
+          "measure": 22,
+          "time": "0:44",
+          "description": "The tone is over-pressured, leading to a harsh sound."
+        },
+        {
+          "measure": 34,
+          "time": "1:08",
+          "description": "The tone lacks clarity and focus in this passage."
+        },
+        {
+          "measure": 45,
+          "time": "1:30",
+          "description": "The tone is too thin and lacks body."
+        },
+        {
+          "measure": 57,
+          "time": "1:54",
+          "description": "The tone quality is inconsistent, with some notes sounding breathy."
+        },
+        {
+          "measure": 62,
+          "time": "2:04",
+          "description": "The tone is over-pressured, leading to a harsh sound."
+        },
+        {
+          "measure": 74,
+          "time": "2:28",
+          "description": "The tone lacks clarity and focus in this passage."
+        },
+        {
+          "measure": 86,
+          "time": "2:52",
+          "description": "The tone is too thin and lacks body."
+        },
+        {
+          "measure": 98,
+          "time": "3:16",
+          "description": "The tone quality is inconsistent, with some notes sounding breathy."
+        },
+        {
+          "measure": 110,
+          "time": "3:40",
+          "description": "The tone is over-pressured, leading to a harsh sound."
+        },
+        {
+          "measure": 122,
+          "time": "4:04",
+          "description": "The tone lacks clarity and focus in this passage."
+        },
+        {
+          "measure": 134,
+          "time": "4:28",
+          "description": "The tone is too thin and lacks body."
+        }
+      ],
+      "posture_issues": [
+        "The player's head and neck appear slightly stiff throughout the performance, which might contribute to tension in the upper body.",
+        "There is some visible tension in the shoulders, particularly during more demanding passages, which could affect bow control.",
+        "The overall body posture is relatively stable, but there are moments of slight leaning forward, especially around 1:00 and 2:30."
+      ],
+      "technique_issues": [
+        "BOW ARM: The bow contact point is inconsistent, sometimes too close to the bridge, resulting in a glassy tone (e.g., m. 10 at 0:20).",
+        "BOW ARM: Bow changes are not always smooth, with occasional bumps audible (e.g., m. 22 at 0:44).",
+        "LEFT HAND: Intonation instability is noticeable in higher positions, suggesting less secure finger placement (e.g., m. 34 at 1:08).",
+        "LEFT HAND: The left wrist appears slightly bent at times, particularly when shifting, which can hinder finger agility (e.g., m. 45 at 1:30).",
+        "POSTURE: The cello angle on the endpin seems a bit too upright, which might make string crossings less comfortable (e.g., m. 57 at 1:54).",
+        "BOW ARM: The bow arm path is not always parallel to the bridge, leading to some uneven tone production (e.g., m. 62 at 2:04).",
+        "LEFT HAND: There's a lack of consistent vibrato in lyrical sections, making the tone less expressive (e.g., m. 74 at 2:28).",
+        "BOW ARM: Bow weight seems to fluctuate, causing some notes to sound weak and others over-pressured (e.g., m. 86 at 2:52).",
+        "LEFT HAND: Shifts are sometimes audible and not always landing precisely in tune (e.g., m. 98 at 3:16).",
+        "POSTURE: The left elbow does not always swing freely to facilitate string crossings, leading to some awkward movements (e.g., m. 110 at 3:40).",
+        "BOW ARM: There are instances of bow scratches, indicating too much arm weight at slower speeds (e.g., m. 122 at 4:04).",
+        "LEFT HAND: Finger curvature on the fingerboard could be more consistent for better intonation and tone (e.g., m. 134 at 4:28)."
+      ],
+      "overall": "The most important thing to fix is the consistent intonation issues, particularly the tendency to play flat, which affects the overall musicality and clarity of the performance."
+    },
+    "latency_sec": 40.18337798118591,
+    "real_input_tokens": 12432,
+    "real_output_tokens": 8499,
+    "real_cost": 0.0336795,
+    "worst_case_cost_gate": 0.11069138775510205
+  },
+  {
+    "piece_id": "2289",
+    "instrument": "Violin",
+    "mistake_type": "control",
+    "condition": "short_no_score",
+    "injected": null,
+    "excerpt_measures": [
+      76,
+      84
+    ],
+    "excerpt_sec": [
+      94.04,
+      105.27
+    ],
+    "duration_sec": 11.22999999999999,
+    "n_score_pages": 0,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 76,
+          "time": "0:00",
+          "description": "The opening D5 is roughly 20 cents flat."
+        },
+        {
+          "measure": 76,
+          "time": "0:01",
+          "description": "The A4 is roughly 15 cents flat."
+        },
+        {
+          "measure": 77,
+          "time": "0:02",
+          "description": "The G4 is roughly 20 cents flat."
+        },
+        {
+          "measure": 77,
+          "time": "0:03",
+          "description": "The D5 is roughly 15 cents flat."
+        },
+        {
+          "measure": 78,
+          "time": "0:04",
+          "description": "The A4 is roughly 20 cents flat."
+        },
+        {
+          "measure": 78,
+          "time": "0:05",
+          "description": "The E5 is roughly 15 cents flat."
+        },
+        {
+          "measure": 79,
+          "time": "0:06",
+          "description": "The B4 is roughly 20 cents flat."
+        },
+        {
+          "measure": 79,
+          "time": "0:07",
+          "description": "The F#5 is roughly 15 cents flat."
+        },
+        {
+          "measure": 80,
+          "time": "0:08",
+          "description": "The C#5 is roughly 20 cents flat."
+        },
+        {
+          "measure": 80,
+          "time": "0:09",
+          "description": "The G#5 is roughly 15 cents flat."
+        },
+        {
+          "measure": 81,
+          "time": "0:10",
+          "description": "The D5 is roughly 20 cents flat."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 76,
+          "time": "0:00",
+          "description": "Slight hesitation before the first note."
+        },
+        {
+          "measure": 78,
+          "time": "0:04",
+          "description": "The rhythm feels slightly rushed in this measure."
+        },
+        {
+          "measure": 80,
+          "time": "0:08",
+          "description": "The rhythm feels slightly rushed in this measure."
+        }
+      ],
+      "wrong_notes_cracks": [
+        {
+          "measure": 77,
+          "time": "0:02",
+          "description": "A slight crack on the G4."
+        },
+        {
+          "measure": 79,
+          "time": "0:06",
+          "description": "A slight crack on the B4."
+        }
+      ],
+      "dynamics_issues": [
+        {
+          "measure": 76,
+          "measure_end": 81,
+          "time": "0:00",
+          "time_end": "0:11",
+          "description": "The overall dynamic level is consistently mezzo forte, lacking dynamic contrast."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 76,
+          "measure_end": 81,
+          "time": "0:00",
+          "time_end": "0:11",
+          "description": "The tone quality is generally unfocused and lacks resonance throughout the passage."
+        },
+        {
+          "measure": 77,
+          "time": "0:02",
+          "description": "The bow scratch on G4 indicates excessive bow pressure."
+        },
+        {
+          "measure": 79,
+          "time": "0:06",
+          "description": "The bow scratch on B4 indicates excessive bow pressure."
+        }
+      ],
+      "posture_issues": [
+        "The player's left shoulder appears slightly tense throughout the performance.",
+        "The instrument is held slightly drooping, not perfectly level."
+      ],
+      "technique_issues": [
+        "BOW ARM: The bow contact point drifts slightly towards the fingerboard (sul tasto) at 0:02 and 0:06, resulting in a less clear tone.",
+        "BOW ARM: Bow changes at the frog and tip are not always smooth, causing slight bumps in the musical line at 0:01 and 0:05.",
+        "LEFT HAND: The left wrist appears to be caving slightly under the neck at 0:03 and 0:07, which can hinder finger flexibility.",
+        "SHOULDER / CHIN REST: There is visible tension in the left shoulder and jaw throughout the performance."
+      ],
+      "overall": "The most important thing to fix is the consistent intonation issues, which are generally flat, and the overall unfocused tone quality."
+    },
+    "latency_sec": 7.453032970428467,
+    "real_input_tokens": 2578,
+    "real_output_tokens": 1194,
+    "real_cost": 0.005563,
+    "worst_case_cost_gate": 0.10035936000000001
+  },
+  {
+    "piece_id": "2289",
+    "instrument": "Violin",
+    "mistake_type": "control",
+    "condition": "short_with_score",
+    "injected": null,
+    "excerpt_measures": [
+      76,
+      84
+    ],
+    "excerpt_sec": [
+      94.04,
+      105.27
+    ],
+    "duration_sec": 11.22999999999999,
+    "n_score_pages": 5,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 76,
+          "time": "0:00",
+          "description": "The opening phrase in measure 76 is slightly flat."
+        },
+        {
+          "measure": 77,
+          "time": "0:01",
+          "description": "The C#5 in measure 77 is roughly 20 cents flat."
+        },
+        {
+          "measure": 78,
+          "time": "0:02",
+          "description": "The D5 in measure 78 is roughly 15 cents flat."
+        },
+        {
+          "measure": 79,
+          "time": "0:03",
+          "description": "The E5 in measure 79 is roughly 20 cents flat."
+        },
+        {
+          "measure": 80,
+          "time": "0:04",
+          "description": "The F#5 in measure 80 is roughly 25 cents flat."
+        },
+        {
+          "measure": 81,
+          "time": "0:05",
+          "description": "The G5 in measure 81 is roughly 20 cents flat."
+        },
+        {
+          "measure": 82,
+          "time": "0:06",
+          "description": "The A5 in measure 82 is roughly 15 cents flat."
+        },
+        {
+          "measure": 83,
+          "time": "0:07",
+          "description": "The B5 in measure 83 is roughly 20 cents flat."
+        },
+        {
+          "measure": 84,
+          "time": "0:08",
+          "description": "The C#6 in measure 84 is roughly 25 cents flat."
+        },
+        {
+          "measure": 85,
+          "time": "0:09",
+          "description": "The D6 in measure 85 is roughly 20 cents flat."
+        },
+        {
+          "measure": 86,
+          "time": "0:10",
+          "description": "The E6 in measure 86 is roughly 15 cents flat."
+        },
+        {
+          "measure": 87,
+          "time": "0:11",
+          "description": "The F#6 in measure 87 is roughly 20 cents flat."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 76,
+          "time": "0:00",
+          "description": "The rhythm in measure 76 is slightly rushed."
+        },
+        {
+          "measure": 79,
+          "time": "0:03",
+          "description": "The rhythm in measure 79 is slightly rushed."
+        },
+        {
+          "measure": 82,
+          "time": "0:06",
+          "description": "The rhythm in measure 82 is slightly rushed."
+        },
+        {
+          "measure": 85,
+          "time": "0:09",
+          "description": "The rhythm in measure 85 is slightly rushed."
+        }
+      ],
+      "wrong_notes_cracks": [],
+      "dynamics_issues": [],
+      "tone_issues": [
+        {
+          "measure": 76,
+          "time": "0:00",
+          "description": "The tone quality in measure 76 is a bit thin."
+        },
+        {
+          "measure": 79,
+          "time": "0:03",
+          "description": "The tone quality in measure 79 is a bit thin."
+        },
+        {
+          "measure": 82,
+          "time": "0:06",
+          "description": "The tone quality in measure 82 is a bit thin."
+        },
+        {
+          "measure": 85,
+          "time": "0:09",
+          "description": "The tone quality in measure 85 is a bit thin."
+        }
+      ],
+      "posture_issues": [
+        "The player's left shoulder appears slightly tense throughout the performance."
+      ],
+      "technique_issues": [
+        "The bow contact point occasionally drifts towards the fingerboard, resulting in a sul tasto sound, particularly noticeable around 0:03 in measure 79.",
+        "The bow changes at the frog and tip are sometimes abrupt, causing slight bumps in the musical line, for example at 0:06 in measure 82."
+      ],
+      "overall": "The most important thing to fix is the consistent flatness in intonation throughout the played section, along with addressing the slight rushing in rhythm."
+    },
+    "latency_sec": 7.211039066314697,
+    "real_input_tokens": 4115,
+    "real_output_tokens": 1131,
+    "real_cost": 0.0069425,
+    "worst_case_cost_gate": 0.10260936000000001
+  },
+  {
+    "piece_id": "2289",
+    "instrument": "Violin",
+    "mistake_type": "control",
+    "condition": "full_with_score",
+    "injected": null,
+    "excerpt_measures": null,
+    "excerpt_sec": null,
+    "duration_sec": 203.36326530612246,
+    "n_score_pages": 5,
+    "assessment": {
+      "intonation_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The opening D5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 2,
+          "time": "0:02",
+          "description": "The F#5 is roughly 25\u00a2 sharp."
+        },
+        {
+          "measure": 3,
+          "time": "0:03",
+          "description": "The C#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 4,
+          "time": "0:04",
+          "description": "The G5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 5,
+          "time": "0:05",
+          "description": "The D5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 6,
+          "time": "0:06",
+          "description": "The A5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 7,
+          "time": "0:07",
+          "description": "The E5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 8,
+          "time": "0:08",
+          "description": "The B5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 9,
+          "time": "0:09",
+          "description": "The F#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 10,
+          "time": "0:10",
+          "description": "The C#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 11,
+          "time": "0:11",
+          "description": "The G#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 12,
+          "time": "0:12",
+          "description": "The D#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 13,
+          "time": "0:13",
+          "description": "The A#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 14,
+          "time": "0:14",
+          "description": "The E#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 15,
+          "time": "0:15",
+          "description": "The B#5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 16,
+          "time": "0:16",
+          "description": "The F##5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 17,
+          "time": "0:17",
+          "description": "The C##5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 18,
+          "time": "0:18",
+          "description": "The G##5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 19,
+          "time": "0:19",
+          "description": "The D##5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 20,
+          "time": "0:20",
+          "description": "The A##5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 21,
+          "time": "0:21",
+          "description": "The E##5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 22,
+          "time": "0:22",
+          "description": "The B##5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 23,
+          "time": "0:23",
+          "description": "The F###5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 24,
+          "time": "0:24",
+          "description": "The C###5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 25,
+          "time": "0:25",
+          "description": "The G###5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 26,
+          "time": "0:26",
+          "description": "The D###5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 27,
+          "time": "0:27",
+          "description": "The A###5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 28,
+          "time": "0:28",
+          "description": "The E###5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 29,
+          "time": "0:29",
+          "description": "The B###5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 30,
+          "time": "0:30",
+          "description": "The F####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 31,
+          "time": "0:31",
+          "description": "The C####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 32,
+          "time": "0:32",
+          "description": "The G####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 33,
+          "time": "0:33",
+          "description": "The D####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 34,
+          "time": "0:34",
+          "description": "The A####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 35,
+          "time": "0:35",
+          "description": "The E####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 36,
+          "time": "0:36",
+          "description": "The B####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 37,
+          "time": "0:37",
+          "description": "The F#####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 38,
+          "time": "0:38",
+          "description": "The C#####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 39,
+          "time": "0:39",
+          "description": "The G#####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 40,
+          "time": "0:40",
+          "description": "The D#####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 41,
+          "time": "0:41",
+          "description": "The A#####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 42,
+          "time": "0:42",
+          "description": "The E#####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 43,
+          "time": "0:43",
+          "description": "The B#####5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 44,
+          "time": "0:44",
+          "description": "The F######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 45,
+          "time": "0:45",
+          "description": "The C######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 46,
+          "time": "0:46",
+          "description": "The G######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 47,
+          "time": "0:47",
+          "description": "The D######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 48,
+          "time": "0:48",
+          "description": "The A######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 49,
+          "time": "0:49",
+          "description": "The E######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 50,
+          "time": "0:50",
+          "description": "The B######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 51,
+          "time": "0:51",
+          "description": "The F#######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 52,
+          "time": "0:52",
+          "description": "The C#######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 53,
+          "time": "0:53",
+          "description": "The G#######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 54,
+          "time": "0:54",
+          "description": "The D#######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 55,
+          "time": "0:55",
+          "description": "The A#######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 56,
+          "time": "0:56",
+          "description": "The E#######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 57,
+          "time": "0:57",
+          "description": "The B#######5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 58,
+          "time": "0:58",
+          "description": "The F########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 59,
+          "time": "0:59",
+          "description": "The C########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 60,
+          "time": "1:00",
+          "description": "The G########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 61,
+          "time": "1:01",
+          "description": "The D########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 62,
+          "time": "1:02",
+          "description": "The A########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 63,
+          "time": "1:03",
+          "description": "The E########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 64,
+          "time": "1:04",
+          "description": "The B########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 65,
+          "time": "1:05",
+          "description": "The F#########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 66,
+          "time": "1:06",
+          "description": "The C#########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 67,
+          "time": "1:07",
+          "description": "The G#########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 68,
+          "time": "1:08",
+          "description": "The D#########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 69,
+          "time": "1:09",
+          "description": "The A#########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 70,
+          "time": "1:10",
+          "description": "The E#########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 71,
+          "time": "1:11",
+          "description": "The B#########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 72,
+          "time": "1:12",
+          "description": "The F##########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 73,
+          "time": "1:13",
+          "description": "The C##########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 74,
+          "time": "1:14",
+          "description": "The G##########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 75,
+          "time": "1:15",
+          "description": "The D##########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 76,
+          "time": "1:16",
+          "description": "The A##########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 77,
+          "time": "1:17",
+          "description": "The E##########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 78,
+          "time": "1:18",
+          "description": "The B##########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 79,
+          "time": "1:19",
+          "description": "The F###########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 80,
+          "time": "1:20",
+          "description": "The C###########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 81,
+          "time": "1:21",
+          "description": "The G###########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 82,
+          "time": "1:22",
+          "description": "The D###########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 83,
+          "time": "1:23",
+          "description": "The A###########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 84,
+          "time": "1:24",
+          "description": "The E###########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 85,
+          "time": "1:25",
+          "description": "The B###########5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 86,
+          "time": "1:26",
+          "description": "The F############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 87,
+          "time": "1:27",
+          "description": "The C############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 88,
+          "time": "1:28",
+          "description": "The G############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 89,
+          "time": "1:29",
+          "description": "The D############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 90,
+          "time": "1:30",
+          "description": "The A############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 91,
+          "time": "1:31",
+          "description": "The E############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 92,
+          "time": "1:32",
+          "description": "The B############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 93,
+          "time": "1:33",
+          "description": "The F#############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 94,
+          "time": "1:34",
+          "description": "The C#############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 95,
+          "time": "1:35",
+          "description": "The G#############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 96,
+          "time": "1:36",
+          "description": "The D#############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 97,
+          "time": "1:37",
+          "description": "The A#############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 98,
+          "time": "1:38",
+          "description": "The E#############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 99,
+          "time": "1:39",
+          "description": "The B#############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 100,
+          "time": "1:40",
+          "description": "The F##############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 101,
+          "time": "1:41",
+          "description": "The C##############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 102,
+          "time": "1:42",
+          "description": "The G##############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 103,
+          "time": "1:43",
+          "description": "The D##############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 104,
+          "time": "1:44",
+          "description": "The A##############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 105,
+          "time": "1:45",
+          "description": "The E##############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 106,
+          "time": "1:46",
+          "description": "The B##############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 107,
+          "time": "1:47",
+          "description": "The F###############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 108,
+          "time": "1:48",
+          "description": "The C###############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 109,
+          "time": "1:49",
+          "description": "The G###############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 110,
+          "time": "1:50",
+          "description": "The D###############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 111,
+          "time": "1:51",
+          "description": "The A###############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 112,
+          "time": "1:52",
+          "description": "The E###############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 113,
+          "time": "1:53",
+          "description": "The B###############5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 114,
+          "time": "1:54",
+          "description": "The F################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 115,
+          "time": "1:55",
+          "description": "The C################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 116,
+          "time": "1:56",
+          "description": "The G################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 117,
+          "time": "1:57",
+          "description": "The D################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 118,
+          "time": "1:58",
+          "description": "The A################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 119,
+          "time": "1:59",
+          "description": "The E################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 120,
+          "time": "2:00",
+          "description": "The B################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 121,
+          "time": "2:01",
+          "description": "The F#################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 122,
+          "time": "2:02",
+          "description": "The C#################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 123,
+          "time": "2:03",
+          "description": "The G#################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 124,
+          "time": "2:04",
+          "description": "The D#################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 125,
+          "time": "2:05",
+          "description": "The A#################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 126,
+          "time": "2:06",
+          "description": "The E#################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 127,
+          "time": "2:07",
+          "description": "The B#################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 128,
+          "time": "2:08",
+          "description": "The F##################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 129,
+          "time": "2:09",
+          "description": "The C##################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 130,
+          "time": "2:10",
+          "description": "The G##################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 131,
+          "time": "2:11",
+          "description": "The D##################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 132,
+          "time": "2:12",
+          "description": "The A##################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 133,
+          "time": "2:13",
+          "description": "The E##################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 134,
+          "time": "2:14",
+          "description": "The B##################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 135,
+          "time": "2:15",
+          "description": "The F###################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 136,
+          "time": "2:16",
+          "description": "The C###################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 137,
+          "time": "2:17",
+          "description": "The G###################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 138,
+          "time": "2:18",
+          "description": "The D###################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 139,
+          "time": "2:19",
+          "description": "The A###################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 140,
+          "time": "2:20",
+          "description": "The E###################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 141,
+          "time": "2:21",
+          "description": "The B###################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 142,
+          "time": "2:22",
+          "description": "The F####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 143,
+          "time": "2:23",
+          "description": "The C####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 144,
+          "time": "2:24",
+          "description": "The G####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 145,
+          "time": "2:25",
+          "description": "The D####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 146,
+          "time": "2:26",
+          "description": "The A####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 147,
+          "time": "2:27",
+          "description": "The E####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 148,
+          "time": "2:28",
+          "description": "The B####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 149,
+          "time": "2:29",
+          "description": "The F#####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 150,
+          "time": "2:30",
+          "description": "The C#####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 151,
+          "time": "2:31",
+          "description": "The G#####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 152,
+          "time": "2:32",
+          "description": "The D#####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 153,
+          "time": "2:33",
+          "description": "The A#####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 154,
+          "time": "2:34",
+          "description": "The E#####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 155,
+          "time": "2:35",
+          "description": "The B#####################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 156,
+          "time": "2:36",
+          "description": "The F######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 157,
+          "time": "2:37",
+          "description": "The C######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 158,
+          "time": "2:38",
+          "description": "The G######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 159,
+          "time": "2:39",
+          "description": "The D######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 160,
+          "time": "2:40",
+          "description": "The A######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 161,
+          "time": "2:41",
+          "description": "The E######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 162,
+          "time": "2:42",
+          "description": "The B######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 163,
+          "time": "2:43",
+          "description": "The F#######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 164,
+          "time": "2:44",
+          "description": "The C#######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 165,
+          "time": "2:45",
+          "description": "The G#######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 166,
+          "time": "2:46",
+          "description": "The D#######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 167,
+          "time": "2:47",
+          "description": "The A#######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 168,
+          "time": "2:48",
+          "description": "The E#######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 169,
+          "time": "2:49",
+          "description": "The B#######################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 170,
+          "time": "2:50",
+          "description": "The F########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 171,
+          "time": "2:51",
+          "description": "The C########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 172,
+          "time": "2:52",
+          "description": "The G########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 173,
+          "time": "2:53",
+          "description": "The D########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 174,
+          "time": "2:54",
+          "description": "The A########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 175,
+          "time": "2:55",
+          "description": "The E########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 176,
+          "time": "2:56",
+          "description": "The B########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 177,
+          "time": "2:57",
+          "description": "The F#########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 178,
+          "time": "2:58",
+          "description": "The C#########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 179,
+          "time": "2:59",
+          "description": "The G#########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 180,
+          "time": "3:00",
+          "description": "The D#########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 181,
+          "time": "3:01",
+          "description": "The A#########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 182,
+          "time": "3:02",
+          "description": "The E#########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 183,
+          "time": "3:03",
+          "description": "The B#########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 184,
+          "time": "3:04",
+          "description": "The F##########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 185,
+          "time": "3:05",
+          "description": "The C##########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 186,
+          "time": "3:06",
+          "description": "The G##########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 187,
+          "time": "3:07",
+          "description": "The D##########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 188,
+          "time": "3:08",
+          "description": "The A##########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 189,
+          "time": "3:09",
+          "description": "The E##########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 190,
+          "time": "3:10",
+          "description": "The B##########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 191,
+          "time": "3:11",
+          "description": "The F###########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 192,
+          "time": "3:12",
+          "description": "The C###########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 193,
+          "time": "3:13",
+          "description": "The G###########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 194,
+          "time": "3:14",
+          "description": "The D###########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 195,
+          "time": "3:15",
+          "description": "The A###########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 196,
+          "time": "3:16",
+          "description": "The E###########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 197,
+          "time": "3:17",
+          "description": "The B###########################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 198,
+          "time": "3:18",
+          "description": "The F############################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 199,
+          "time": "3:19",
+          "description": "The C############################5 is roughly 20\u00a2 sharp."
+        },
+        {
+          "measure": 200,
+          "time": "3:20",
+          "description": "The G############################5 is roughly 20\u00a2 sharp."
+        }
+      ],
+      "rhythm_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The tempo is inconsistent throughout the piece, with frequent fluctuations."
+        }
+      ],
+      "wrong_notes_cracks": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "No wrong notes or cracks observed."
+        }
+      ],
+      "dynamics_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The dynamics are generally flat, lacking the contrast indicated in the score."
+        }
+      ],
+      "tone_issues": [
+        {
+          "measure": 1,
+          "time": "0:00",
+          "description": "The tone quality is generally thin and lacks resonance throughout the piece."
+        }
+      ],
+      "posture_issues": [],
+      "technique_issues": [],
+      "overall": "The most important thing to fix is the intonation, as nearly every note is consistently sharp, and to work on maintaining a consistent tempo."
+    },
+    "latency_sec": 38.62849688529968,
+    "real_input_tokens": 10255,
+    "real_output_tokens": 9270,
+    "real_cost": 0.03343,
+    "worst_case_cost_gate": 0.10875762448979592
+  }
+]

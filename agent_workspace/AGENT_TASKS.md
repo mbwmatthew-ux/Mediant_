@@ -95,7 +95,7 @@ _Nothing pending — all approved tasks have been completed._
 
 ## Needs Review
 
-- [ ] **Track B: audio-pipeline benchmark — Tasks 1-3 complete (free), Task 4A pilot complete (paid, $0.245 spent) with a negative headline result. Owner needs to decide whether to continue, redesign, or stop.**
+- [ ] **Track B: audio-pipeline benchmark — Tasks 1-4B complete. Recommendation delivered: stop pursuing Gemini as the primary mistake detector; evaluate specialized score-conditioned alternatives. Owner review pending.**
   Plan at `docs/superpowers/plans/2026-10-30-audio-pipeline-benchmark.md`. Task 1
   audit at `agent_workspace/AUDIO_PIPELINE_AUDIT.md`; Task 2 built the synthetic
   mistake-injection tool (`modal_worker/inject_audio_mistakes.py`, now with
@@ -106,25 +106,45 @@ _Nothing pending — all approved tasks have been completed._
   metric with actual signal).
 
   **Task 4A (owner-approved 2026-10-30, $2.00 cap, 9 calls): ran.** Real spend
-  $0.2450. Full results and analysis: `agent_workspace/TASK4A_GEMINI_PILOT_RESULTS.md`.
-  **Headline finding: `evaluate_with_gemini` missed 5 of 6 injected mistakes
-  (2 of those as confident false negatives — "no wrong notes" stated despite a
-  real injected mistake), and its output volume scales almost exactly 1
-  issue/second with clip DURATION rather than content, on both injected and
-  control audio alike, across different pieces and instruments.** This mirrors
-  the same "fires regardless of content" failure mode Task 3 found in CREPE/DTW's
-  own "detection" metric, now observed at the Gemini flag-authoring stage too.
-  Two real design caveats limit how far this generalizes: no score image was
-  available for this test (production always has one), and whole 2-5 minute
-  pieces were used rather than short clips.
+  $0.2450. `evaluate_with_gemini` missed 5 of 6 injected mistakes (2 as
+  confident false negatives), output volume scaled ~1 issue/second with clip
+  DURATION rather than content. Two caveats limited how far this generalized:
+  no score image (production always has one), whole 2-5 minute clips used.
+  Full results: `agent_workspace/TASK4A_GEMINI_PILOT_RESULTS.md`.
 
-  **What the owner needs to decide:** the recommendation in the results doc is
-  to NOT proceed to the full fused pipeline (Claude coaching on top of this
-  Gemini leg) on this design, and if continuing at all, to redesign the next
-  experiment around short clips and/or a real score image before concluding
-  anything final about Gemini's real capability — rather than spending more on
-  the same whole-piece, no-score shape. Move to Approved Tasks with a new scope
-  if continuing; otherwise park in Backlog.
+  **Task 4B (owner-approved 2026-10-30, $1.50 cap, 9 calls): ran.** Tested
+  whether a real score image and/or a short clip (the two gaps Task 4A left
+  open) fix the problem — installed MuseScore 4 locally, rendered real scores
+  for the same 3 Task 4A pieces, tested short-clip/no-score, short-clip/score,
+  and full-clip/score against Task 4A's existing full-clip/no-score results.
+  **They don't.** Full-length + score reproduced Task 4A's no-score result
+  almost exactly (same piece, same 204 issues, same ~1/second rate) and
+  produced direct, mechanical proof of template generation: a 200-entry
+  intonation list that walks the circle of fifths one step per measure
+  without resolving enharmonics, ending in nonsense like "E" with 25+ stacked
+  sharp signs. Short clips reduced the severity (no circle-of-fifths-grade
+  failures) but not the unreliability — across the 2 real injected mistakes
+  and all 4 conditions (Task 4A's + Task 4B's 3 new ones), hit rate was 1
+  clear hit + 1 partial hit out of 8 opportunities. Real spend: $0.1214 (plus
+  $0.0064 from a key killed mid-run, see incident below) against the $1.50
+  cap. Full results: `agent_workspace/TASK4B_GEMINI_PILOT_RESULTS.md`.
+
+  **Security incident during Task 4B (resolved):** the Gemini test key was
+  hardcoded in `run_task4a_gemini_pilot.py`, committed, and pushed to
+  `github.com/mbwmatthew-ux/Mediant_` — a **public** repo. Google auto-revoked
+  it (GitHub secret-scanning partnership) mid-run. Owner confirmed it was a
+  test-only key, never production; git history left as-is (key is already
+  dead). Both pilot scripts now read the key from `GOOGLE_AI_API_KEY` env var,
+  never hardcoded.
+
+  **What the owner needs to decide:** Task 4B's results doc recommends
+  stopping Gemini-as-primary-detector development and evaluating specialized
+  score-conditioned alternatives instead — the most production-faithful
+  condition tested (full clip + real score) is also the worst one, with 0 of
+  2 real mistakes detected and the clearest evidence yet that output is
+  template-generated rather than grounded. Per the owner's explicit
+  instruction, no further Track B work (redesign or otherwise) has been
+  started pending this review.
 
 - [ ] **AI reference audio feature — deployed live, three real bugs found from
   the user's own first three tries and fixed, needs a real browser smoke

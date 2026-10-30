@@ -88,7 +88,13 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
     parts.append({"text": prompt})
 
     try:
-        with httpx.Client(timeout=60) as client:
+        # 60s was too short for real multi-page-image + full-score JSON
+        # generation -- confirmed directly: 4 of 5 real pieces in the first
+        # live run hit httpx.ReadTimeout before Gemini ever responded.
+        # Raised to a bound consistent with this codebase's other
+        # long-running generation calls (worker.py's own vision calls
+        # tolerate multi-minute generation).
+        with httpx.Client(timeout=180) as client:
             resp = client.post(
                 "https://generativelanguage.googleapis.com/v1beta/models/"
                 f"gemini-2.5-flash:generateContent?key={api_key}",
@@ -120,6 +126,14 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
         # spend.
         thoughts_tokens = usage.get("thoughtsTokenCount", 0)
         output_tokens = usage.get("candidatesTokenCount", 0) + thoughts_tokens
+        # Captured for diagnostics BEFORE the parse attempt that can raise --
+        # a real run truncated at only ~1800 chars (nowhere near the
+        # WORST_CASE_OUTPUT_TOKENS*~4 char budget), so a plain
+        # JSONDecodeError alone doesn't say WHY; finishReason does
+        # ("MAX_TOKENS", "SAFETY", "RECITATION", or "STOP" with genuinely
+        # malformed JSON despite a clean finish are all different problems
+        # requiring different fixes).
+        finish_reason = data.get("candidates", [{}])[0].get("finishReason", "unknown")
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         parsed = json.loads(text)
         return {
@@ -133,9 +147,12 @@ def crosscheck_score_with_gemini(page_paths: list[Path], api_key: str) -> dict:
         # after that point (e.g. json.loads failed on truncated/malformed
         # text), they hold the real billed values; if it fired before any
         # response came back (network error, etc.), they are still 0 --
-        # correctly reporting that nothing was billed.
+        # correctly reporting that nothing was billed. finish_reason is
+        # None only when the exception fired before the response was even
+        # parsed into `data` (e.g. a network/timeout error).
         return {
-            "error": f"{type(e).__name__}: {e}",
+            "error": f"{type(e).__name__}: {e} "
+                     f"(finishReason={locals().get('finish_reason', 'N/A (no response parsed)')})",
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
         }

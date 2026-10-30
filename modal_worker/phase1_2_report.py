@@ -178,112 +178,208 @@ venv (the command shown above) completed cleanly with no load errors and
 reproduced Task 3's original result exactly, number for number. The
 output above is from that corrected, venv-activated run.
 
-## 3. Gemini cross-check extension (Task 4) -- NOT AVAILABLE
+## 2a. SMT cropped-input follow-up (Phase 3 scope, mentor-recommended priority)
 
-Status: BLOCKED. `modal_worker/evaluate_gemini_crosscheck.py` exists and
-is unit-tested (`modal_worker/test_gemini_crosscheck.py`, 8/8 tests pass,
-no API call made by the test suite), but the real paid evaluation run
-(its Step 5) has never executed, because `GOOGLE_AI_API_KEY` has never
-been supplied in this environment. Confirmed this session:
+Status: REAL RUN COMPLETED (2026-10-29, after this report's initial version).
+An outside mentor reviewing Section 2's 0% result flagged, correctly, that
+0% on whole-page input establishes only that configuration failed, not that
+SMT is unsuitable -- recommended testing row-cropped input (the shape the
+checkpoint was actually trained on) before investing further or abandoning
+it. Built `evaluate_smt_cropped_input.py` + `transcribe_row_with_smt`,
+reusing `worker._prepare_score_rows`' existing per-system row crops (the
+same crops Claude's own reading path already receives) on a bounded
+4-piece subset (piano_synthetic + the smallest single-page Violin/Cello/
+Flute pieces). Metric was deliberately binary -- did each row decode >=1
+real note/rest token -- not a measure-accuracy percentage, since trusting
+the row segmentation's own visual measure-count estimate to assign
+absolute ground-truth measure numbers would risk conflating real model
+failure with crop-segmentation error.
 
-  $ echo "${GOOGLE_AI_API_KEY:-UNSET}"
-  UNSET
+Real result: **Piano (true grand-staff training shape): 4/4 rows (100%)
+decoded real notes. Non-piano (single-staff, still a partial shape
+mismatch vs. the grand-staff checkpoint): 27/29 rows (93.1%).** Compare:
+0/25 whole-page runs in Section 2 ever decoded a single note. Spot-checked
+4 rows' actual decoded pitches directly to rule out a degenerate fixed-
+output artifact -- confirmed real variation in pitch, rhythm, and note
+count across different rows, not an echoed constant.
 
-`evaluate_gemini_crosscheck.py`'s own `main()` checks for this and exits
-immediately with "GOOGLE_AI_API_KEY not set -- export it and re-run"
-before making any network call, so no partial or accidental spend
-occurred.
+**This reopens, rather than settles, the question Section 2's "not viable
+as it stands" verdict addressed.** That verdict was specifically about
+whole-page input and remains true. But the decoder itself is not broken --
+the earlier total failure was an input-shape problem, exactly as the
+mentor predicted. The real next question -- is the decoded CONTENT
+accurate, not just present -- is unanswered by this binary test and needs
+the harder row-to-ground-truth alignment work this result now justifies
+attempting. One accuracy red flag noticed in passing, not chased further:
+a violin row decoded a note at E-flat3, below the violin's actual lowest
+open string (G3) -- a sign the content is not yet validated as correct.
 
-The script enforces a hard $2.00 spend cap via its own `BudgetGuard`
-class (`guard = BudgetGuard(cap_dollars=2.00)`, line 148), gated on
-worst-case rather than average per-call cost (per commit d3aba89).
+## 3. Gemini cross-check extension (Task 4)
 
-To unblock this section:
-  1. Supply a real key: `GOOGLE_AI_API_KEY=... python3
-     modal_worker/evaluate_gemini_crosscheck.py`
-  2. Paste its real printed per-piece output here, including the real
-     total dollar cost it reports.
+Status: REAL RUN COMPLETED (2026-10-29). Real key supplied; script run to
+completion with its $2.00 BudgetGuard cap active throughout. Three real
+bugs were found and fixed while getting a usable run (each independently
+root-caused against real response data, not guessed):
+  1. `httpx.Client(timeout=60)` was too short for real multi-page-image +
+     full-score JSON generation -- 4 of 5 pieces hit ReadTimeout on the
+     first real attempt. Raised to 180s (commit 9912037).
+  2. `gemini-2.5-flash` runs thinking by default, and thinking tokens draw
+     from the SAME `maxOutputTokens` budget as the visible answer -- on
+     the second attempt all 5 pieces hit MAX_TOKENS after only ~1400-1900
+     characters of visible JSON (confirmed via the response's own
+     `finishReason` field, added as a diagnostic). Disabled thinking
+     entirely via `thinkingConfig.thinkingBudget=0` (commit 2e6b984) --
+     this is deterministic extraction, not creative reasoning, so thinking
+     has no value here.
+  3. Even with thinking disabled, 2 of 5 pieces still hit MAX_TOKENS at
+     16384 -- the per-note-per-measure JSON schema is verbose enough that
+     a dense piece needs more room. Raised to 32768 (commit c28e3fd).
 
-<no real Gemini cross-check output available -- never run with a key>
+Final clean run, all 5 `FAST_ITERATION_SUBSET` pieces, real printed
+output:
 
-## 4. Coaching comparison (Task 5) -- NOT AVAILABLE
+```
+  [2204] 0/46 measures correct (0.0%), cost=$0.0288, running total=$0.0288
+  [2220] 0/48 measures correct (0.0%), cost=$0.0239, running total=$0.0527
+  [2243] 0/20 measures correct (0.0%), cost=$0.0141, running total=$0.0668
+  [2296] 0/64 measures correct (0.0%), cost=$0.0365, running total=$0.1032
+  [2191] 0/74 measures correct (0.0%), cost=$0.0466, running total=$0.1498
 
-Status: BLOCKED. `modal_worker/evaluate_coaching_models.py` exists and
-is unit-tested (`modal_worker/test_coaching_models.py`), but the real
-paid three-arm run (Sonnet 5 / Haiku 5.5 / deterministic template) has
-never executed, because `ANTHROPIC_API_KEY` has never been supplied in
-this environment. Confirmed this session:
+Total spent: $0.1498 of $2.00 cap
+```
 
-  $ echo "${ANTHROPIC_API_KEY:-UNSET}"
-  UNSET
+**0% exact-measure-match on all 5 real pieces, with the real total cost of
+this run being $0.1498.** Total real spend across the full debugging
+arc (two failed attempts plus this clean run) was approximately $0.58 of
+the $2.00 cap.
 
-`evaluate_coaching_models.py`'s own `main()` checks for this and exits
-immediately with "ANTHROPIC_API_KEY not set -- export it and re-run"
-before making any network call.
+**Independently verified this is real inaccuracy, not a scoring-code
+artifact** (the same discipline applied to Section 2's SMT result):
+fetched piece 2296's raw Gemini output directly and compared both against
+ground truth AND against the actual corpus page image. Ground truth
+measure 1 is a single sustained note (E-flat3, 3 beats); the real page
+image shows exactly that, one dotted-half-note. Gemini's real measure 1
+reported six eighth notes (G2, C3, F2, B2, E3, A2) -- structurally
+different content, not a near-miss or a units/spelling mismatch. Gemini's
+total measure count for this piece (72) also did not match ground truth's
+real count (64). This was a single spot-check on one piece, not exhaustive
+verification of all 5, but it rules out the most likely innocent
+explanation (a scoring bug) for the uniform 0%.
 
-The script enforces a hard $3.00 spend cap via the same `BudgetGuard`
-class it imports from `evaluate_gemini_crosscheck` (`guard =
-BudgetGuard(cap_dollars=3.00)`, line 142).
+**Conclusion for this deliverable:** this specific cross-check design --
+one unconditional, whole-score-at-once prompt asking gemini-2.5-flash to
+transcribe every measure across all pages in a single call -- does not
+currently produce accurate-enough output to serve as a reconciliation
+signal for the score-reading cascade. This does not rule out a
+differently-scoped use of Gemini (e.g., smaller per-page or per-row calls,
+closer to how Claude's own reading path is already structured), which
+was not tested here.
 
-To unblock this section:
-  1. Supply a real key: `ANTHROPIC_API_KEY=... python3
-     modal_worker/evaluate_coaching_models.py`
-  2. Paste its real printed three-arm output here, including the real
-     total dollar cost it reports.
+## 4. Coaching comparison (Task 5)
 
-<no real coaching comparison output available -- never run with a key>
+Status: REAL RUN COMPLETED (2026-10-29). Real key supplied; script run to
+completion with its $3.00 BudgetGuard cap active throughout. No errors, no
+parse failures, real printed output for all 3 sample issues x 2 models:
+
+```
+--- issue: F#4 sharp, m.12, 34 cents ---
+  [claude-sonnet-5]  cost=$0.00391  title='Sharp approaching the F#4'
+  [claude-haiku-5-5] cost=$0.00047  title='Sharp on the F#4 note'
+
+--- issue: dotted rhythm, m.25-27 ---
+  [claude-sonnet-5]  cost=$0.00318  title='Uneven Dotted Rhythm in Measures 25-27'
+  [claude-haiku-5-5] cost=$0.00057  title='Dotted rhythm proportions blurred in m.25-27'
+
+--- issue: sustained high A flat, m.8, 22 cents ---
+  [claude-sonnet-5]  cost=$0.00279  title='Flat on the sustained high A'
+  [claude-haiku-5-5] cost=$0.00057  title='Flat on the sustained high A'
+
+Total spent: $0.0115 of $3.00 cap (Sonnet 5: $0.00988, Haiku 5.5: $0.00161)
+```
+
+**Cost:** Haiku 5.5 was ~6.1x cheaper than Sonnet 5 per call on this
+sample (list-price ratio is ~20x on input, ~20x on output; the smaller
+realized ratio reflects this prompt's short, fixed-length input
+dominating cost less than token-count differences in the two models' own
+output). **Quality, read directly (n=3, not a statistically powered
+sample):** both models' bodies stayed within the 40-word/2-sentence limit,
+used only the facts given in `observed`, and read as comparably specific
+and actionable -- Haiku's text was not noticeably thinner or more generic
+than Sonnet's on these 3 issues.
+
+**Real, concrete finding neither arm was expected to have:** for the F#4
+intonation issue, BOTH `claude-sonnet-5` (production's current model) and
+`claude-haiku-5-5` violated the exact same prompt's own explicit rule --
+"NEVER put a number... in an intonation title" -- by writing "F#4" (with
+the octave digit) instead of stripping it to "F#". The zero-cost
+deterministic template correctly stripped the digit
+(`deterministic_coaching_template`'s explicit `isdigit()` filter). Because
+this is the real, verbatim production prompt text (not a modified
+experimental version), this same violation is plausible in production
+output today, independent of which model Mediant ultimately uses for
+coaching -- worth a prompt fix (e.g., an explicit worked example showing
+the digit stripped) regardless of the Sonnet-vs-Haiku decision.
+
+**Conclusion for this deliverable:** on this small sample, Haiku 5.5
+preserved comparable coaching quality at a real, substantial cost
+reduction -- consistent with (not yet a confirmation of) the swap
+hypothesis. 3 issues is too small a sample to generalize the quality
+comparison with confidence; a larger run (more issues, more instruments,
+ideally blind-rated) is the natural next step if this direction is
+pursued further.
 
 ## 5. Recommendation
 
-A final go/no-go call on building out Phases 3-4 CANNOT be made yet. Of
-the four measurements the spec requires for that call, three have not
-been run at all: Section 1 (real production cost/cache baseline) is
-blocked on deploying the instrumented worker and sampling real traffic;
-Section 3 (Gemini cross-check accuracy/cost) is blocked on
-`GOOGLE_AI_API_KEY`; Section 4 (coaching quality/cost comparison) is
-blocked on `ANTHROPIC_API_KEY`. None of those three numbers were
-estimated or guessed at here -- they are simply not yet collected.
+A final go/no-go call on building out Phases 3-4 still CANNOT be made with
+full confidence, but three of the four required measurements are now real
+(Sections 2/2a, 3, 4). Only Section 1 (real production cost/cache/latency
+baseline) remains genuinely blocked -- it requires deploying the
+instrumented worker to live production traffic, a decision outside this
+report's authority. Per-section conclusions:
 
-The one real, completed measurement this report has is Section 2's SMT
-zero-shot result. Read narrowly and honestly, it supports exactly one
-conclusion: **zero-shot SMT, used as a direct whole-page replacement for
-the current Claude-vision score-reading calls, is not viable as it
-stands** -- 0% measure-localization accuracy across every instrument and
-both splits, in a clean, completed, 25-piece run (0/1090 calibration,
-0/1339 held-out, including Piano 0/8). This conclusion does NOT extend
-any further than that:
+  - **SMT (Sections 2, 2a):** NOT viable as a direct whole-page
+    replacement (0% across 25 pieces, both splits) -- but the decoder
+    itself works once given correctly-shaped input (100% piano / 93.1%
+    non-piano rows decoded real notes on a 4-piece follow-up). This is a
+    genuine reopening, not a reversal: whether that decoded content is
+    ACCURATE remains unmeasured and is the natural next step, not yet a
+    reason to promote or discard SMT.
+  - **Gemini cross-check (Section 3):** the specific design tested here
+    (one unconditional whole-score prompt per piece) does NOT currently
+    produce accurate output -- 0% exact-measure-match on all 5 real
+    pieces, independently confirmed as real inaccuracy (not a scoring bug)
+    by comparing one piece's output directly against its real page image.
+    This result is specific to this prompt/call shape, not a verdict on
+    Gemini generally.
+  - **Coaching comparison (Section 4):** Haiku 5.5 looks promising --
+    comparable quality to Sonnet 5 on a small (n=3) real sample, at
+    roughly 1/6th the real cost. Not yet a confirmed result (sample too
+    small), but directionally supports the swap. Separately surfaced a
+    real prompt-compliance bug (the digit-in-title rule) present in BOTH
+    models against the actual production prompt -- worth fixing
+    regardless of which model is ultimately used.
 
-  - It does NOT show SMT is unviable under the row-cropped input shape
-    it was actually trained for and that Audiveris already produces via
-    `_prepare_score_rows` -- that input shape was never tested, here or
-    in Task 3's original run; both only ever fed the model whole pages.
-  - Also run with generation capped at 150 of the checkpoint's native
-    1281 tokens, for CPU feasibility; no run in this corpus ever emitted
-    a single note token, so the note-decoding path itself was never
-    exercised end to end.
-  - It does NOT mean the overall cascade redesign should be abandoned.
-    The Audiveris-cascade path and the Haiku-coaching-swap path are
-    independent of SMT and remain completely untested by anything in
-    this report.
+**Net picture:** nothing tested so far supports keeping either SMT or this
+Gemini cross-check design as-is in the cascade. The Haiku coaching swap is
+the one result that looks ready for a larger confirmatory run. The
+SMT row-cropped accuracy question and the production baseline deploy are
+the two largest remaining unknowns before a confident Phases 3-4 decision.
 
-What unblocks each missing piece, concretely:
+What unblocks what remains, concretely:
   1. Section 1 (baseline): deploy the instrumented worker (commits
      1830151, 2532dd1) to the live `mediant-worker` Modal app, let a real
      sample of production analyses run, then grep and paste the real
      `[cost]` lines and `[analyze-performance]` cache hit/miss lines.
-  2. Section 3 (Gemini cross-check): supply `GOOGLE_AI_API_KEY` and run
-     `GOOGLE_AI_API_KEY=... python3
-     modal_worker/evaluate_gemini_crosscheck.py` (hard $2.00 cap already
-     enforced).
-  3. Section 4 (coaching comparison): supply `ANTHROPIC_API_KEY` and run
-     `ANTHROPIC_API_KEY=... python3
-     modal_worker/evaluate_coaching_models.py` (hard $3.00 cap already
-     enforced).
-  4. Section 2's load-bearing caveat, if a stronger SMT signal is wanted
-     before Phases 3-4: feed SMT the row-cropped input shape
-     `_prepare_score_rows` already produces, since that is the shape it
-     was actually trained for and whole-page input was never its
-     intended use.
+  2. SMT row-cropped accuracy: build the row-to-ground-truth alignment
+     Section 2a deliberately deferred, to turn the binary "decoded a real
+     note" signal into an actual accuracy measurement.
+  3. Gemini: if pursued further, test a differently-scoped call shape
+     (smaller per-page/per-row calls) rather than concluding Gemini
+     cross-checking is unworkable outright from this one design.
+  4. Coaching comparison: a larger, ideally blind-rated run across more
+     issues/instruments to confirm the n=3 quality-parity signal, and a
+     prompt fix for the digit-in-title compliance gap found in both
+     models.
 """
 
 if __name__ == "__main__":

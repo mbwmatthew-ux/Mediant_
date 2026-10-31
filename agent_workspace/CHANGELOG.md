@@ -1,5 +1,33 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (15) — Task 3 of the P0 sprint: squeak-filter fix is NO-SHIP, decided correctly before writing or validating it
+
+Before proposing anything, built a full gate-by-gate trace of all 15
+real observable misses from Task 1, then a ceiling check: even with
+the squeak filter's confirmed-real confidence-alone over-triggering
+(worker.py:792, fires on 8/15 candidates, including the exact piece-2220
+case: confidence=70, perfectly stable spread=0) completely removed,
+**0 of 15 misses would flip to correct** -- every one has an
+independent, redundant blocker:
+
+- 6/15: the comparator's OWN quality gates correctly reject genuinely
+  unstable/noisy/too-brief audio -- librosa.effects.pitch_shift splice
+  artifacts, a synthetic-injection-methodology limitation.
+- 5/15: DTW alignment puts the event in the wrong measure entirely --
+  the same pre-existing, already-"stop tuning" limitation driving
+  Task 2's false positives.
+- 4/15: the random substitute pitch happens to already be legitimately
+  expected elsewhere in that measure -- a real gap in
+  inject_audio_mistakes.py's own methodology, not a comparator defect.
+
+No fix written, no 4-way validation run (would have validated a
+provable zero benefit), no commit. The squeak filter's confidence-alone
+branch remains a real, latent issue worth fixing on its own merits
+someday, but it is demonstrably not the bottleneck here. Real recall
+improvement requires fixing the injection benchmark's own methodology
+or improving DTW alignment accuracy -- both materially larger than "one
+minimal correction." Full detail: `agent_workspace/AUDIO_PIPELINE_AUDIT.md`.
+
 ## 2026-10-31 (14) — Task 1 of the P0 sprint, full 18-piece scale: recall is genuinely ~0% on clean, observable mistakes -- overturns the earlier 4-piece sample's conclusion
 
 The earlier root-cause pass (4 sample pieces) suggested roughly half the

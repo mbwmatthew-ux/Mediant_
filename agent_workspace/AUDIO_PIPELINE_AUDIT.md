@@ -488,6 +488,55 @@ instruments, 0% missing-note recall). Both remain exactly as rejected.
 
 ---
 
+### Task 3 (2026-10-31, same day): squeak-filter correction — NO-SHIP, and here's exactly why
+
+Before writing or validating any fix, built a full gate-by-gate trace of
+all 15 of Task 1's real observable misses (not a sample) and ran a
+"ceiling" check: even with the squeak filter's confidence-alone
+over-triggering (confirmed real — it independently fires on 8/15
+candidates, including the exact piece-2220 case found earlier,
+confidence=70 and perfectly stable spread=0) completely removed, would
+ANY of the 15 misses actually flip to a correct flag? **Answer: no, zero
+of 15.** Every one of the 8 squeak-filtered candidates also has at
+least one other, fully independent blocking reason:
+
+- **6/15** fail the comparator's OWN quality gates for reasons unrelated
+  to the squeak filter (`cents_spread` up to 1076, confidence as low as
+  58, duration as short as 0.065s) — `librosa.effects.pitch_shift`
+  splice artifacts producing audio that genuinely IS unstable/noisy/too
+  brief. A synthetic-injection-methodology limitation.
+- **5/15** get assigned to the wrong measure entirely by DTW alignment
+  (off by 1-6 measures) — the same pre-existing, already-"stop tuning"
+  alignment-accuracy limitation that drives 41.7% of Task 2's false
+  positives. Same root problem, different symptom.
+- **4/15** have a randomly-chosen substitute pitch that coincidentally
+  equals a pitch already legitimately expected elsewhere in that same
+  measure (dense/scalar passages) — the distance gate is correctly,
+  conservatively declining to call it wrong. A real gap in
+  `inject_audio_mistakes.py`'s own methodology (it never checks whether
+  its random 2-7 semitone substitute happens to be contextually
+  plausible), not a comparator defect.
+
+**No correction was proposed, written, or validated** — the ceiling
+check, done first and from real data, proved a squeak-filter fix could
+not move measured recall at all on this benchmark, so running the full
+4-way validation plan would have validated something with a provable
+zero benefit. `looks_like_squeak`'s confidence-alone branch remains a
+real, latent design issue worth fixing on its own merits someday, but
+it is demonstrably NOT the bottleneck for this problem.
+
+**This closes out the recall investigation with three identified,
+independent root causes, none of them safely or usefully fixable within
+this sprint's constraints:** (1) the synthetic mistake-injection
+methodology itself produces audio artifacts that don't always survive
+as clean "mistakes," (2) DTW alignment accuracy — already a known,
+already-"stop tuning" limitation — misplaces notes into the wrong
+measure, and (3) the injection methodology doesn't check whether its
+random substitute pitch happens to already belong in that measure. Any
+real improvement to wrong-note recall routes through fixing (1)/(3) in
+the benchmark itself, or improving (2) DTW alignment — a materially
+different, larger effort than "one minimal correction."
+
 ## Priority 2 (2026-10-31): octave errors are the dominant remaining
 ## pitch-extraction failure post-breath-noise-fix — no safe fix found
 

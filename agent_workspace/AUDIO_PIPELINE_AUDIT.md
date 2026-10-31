@@ -124,6 +124,47 @@ they are not synthetic-injection artifacts, but no root cause was traced
 to a specific line this round — that is the real driver of the 50%
 false-positive-on-correct-audio rate and remains open.
 
+### Task 1 (2026-10-31, same day): benchmark validity repaired across the FULL 18-piece set — overturns the earlier 4-piece sample's headline conclusion
+
+The earlier root-cause pass (4 sample pieces: 2293, 2217, 2242, 2220)
+suggested roughly half the misses were synthetic-injection-methodology
+artifacts (librosa pitch_shift confidence depression, short-note
+non-events) rather than real detector failures. **That was correct as
+far as it went, but underpowered — the full 18-piece set shows the
+opposite balance.**
+
+- **Recall across all 18 intended `wrong_pitch` injections: 0/18 = 0%.**
+- **Recall conditional on independently-verified-observable injections
+  (confirmed via direct inspection of real `run_pitch_tracking` output,
+  not inferred): 0/15 = 0%.** 15 of the 18 injected mistakes produced a
+  real CREPE event matching the intended wrong pitch within 1 semitone
+  — genuinely clean, correctly-pitched, observable audio. The real
+  production detector never flagged the correct measure on ANY of them.
+- **Only 3/18 (17%) are non-observable** (methodology limitations): one
+  (2204, Flute) landed 18 semitones off — a different measurement issue
+  entirely — and two (2217, 2297, both Cello) landed exactly 2 semitones
+  short of the intended shift, a specific, repeatable
+  `librosa.effects.pitch_shift` under-shoot pattern on those two cases.
+- **Per instrument: recall is 0% in Violin (5/5 observable), Cello (9/11
+  observable), and Flute (2/3 observable) alike — the detector-logic
+  miss is universal across instrument, not instrument-specific.**
+- `deleted_note`/`duplicated_note` were also measured across all 18
+  pieces for completeness, but `find_wrong_note_candidates` was never
+  designed to catch either (a duplicated note is the CORRECT pitch
+  played twice; a deleted note is an absence) — 0/18 on both is expected
+  by design, not new evidence of failure, and there remains no
+  missing/extra-note detector in production at all (confirmed
+  separately, unchanged).
+
+**Revised conclusion: the problem is overwhelmingly in the detector's
+own logic, not the benchmark.** 15 of 18 real, clean, correctly-pitched
+injected mistakes were never flagged. This makes the squeak-filter
+mechanism found on the 4-piece sample (worker.py:792's
+`conf <= _SQUEAK_CONF` branch with no instability requirement) far more
+consequential than it looked on that smaller sample — it is plausibly
+the dominant mechanism across most of these 15 misses, though that has
+not yet been traced at this full scale (Task 3 does that next).
+
 ### Task 2 (2026-10-31, same day): false-positive root cause — resolved, and it's good news for the comparator specifically
 
 Re-ran `find_wrong_note_candidates` against all 18 held-out pieces' real,
@@ -157,19 +198,19 @@ confident, student-facing false accusation." Fixing it for real means
 improving alignment/pitch-tracking accuracy (the already-"stop tuning"
 DTW mechanism and the CREPE pipeline), not a comparator-logic patch.
 
-**Bottom line:** "0% recall" was never purely a methodology artifact
-(mechanism 1 is real and would affect genuine mistakes too), and it was
-never purely a real detector failure either (mechanisms 2-3 are
-measurement limitations). The true real-world recall rate is unknown
-and likely higher than 0% but has not been measured. The 50%
-false-positive rate on correct playing is real and confirmed present
-independent of any injected mistake — **and as of Task 2 (above), its
-cause is resolved: 80.6% of it (41.7% alignment + 38.9% CREPE) traces to
+**Bottom line, updated after Task 1's full 18-piece measurement:**
+recall is genuinely ~0% on real, cleanly-observable, correctly-pitched
+injected mistakes (0/15 conditional recall) — this is NOT mostly a
+measurement artifact; only 3/18 (17%) of injections were non-observable.
+The detector-logic failure (most plausibly the squeak filter, per the
+4-piece trace, now needing full-scale confirmation) is real and
+dominant. The 50% false-positive rate on correct playing is separately
+resolved (Task 2): 80.6% of it (41.7% alignment + 38.9% CREPE) traces to
 two already-known upstream limitation classes, not to the comparator's
-own logic (0/36).** No fix was implemented this round for the recall
+own logic (0/36). No fix was implemented this round for the recall
 side — per the systematic-debugging skill's Iron Law, none of the three
 recall mechanisms had a fix that could be safely validated within this
-turn's scope.
+turn's scope; that validation is exactly what Task 3 does next.
 
 ---
 

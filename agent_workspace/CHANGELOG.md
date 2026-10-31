@@ -1,5 +1,24 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (14) — Task 1 of the P0 sprint, full 18-piece scale: recall is genuinely ~0% on clean, observable mistakes -- overturns the earlier 4-piece sample's conclusion
+
+The earlier root-cause pass (4 sample pieces) suggested roughly half the
+"0% recall" misses were synthetic-injection-methodology artifacts
+rather than real detector failures. The full 18-piece measurement shows
+the opposite: **only 3/18 (17%) injections were non-observable; 15/18
+(83%) produced clean, correctly-pitched, observable CREPE events that
+the real production detector still never flagged.** Recall conditional
+on observable injections: 0/15 = 0%, uniform across every instrument
+(Violin, Cello, Flute). `deleted_note`/`duplicated_note` measured for
+completeness -- 0/18 on both, expected by design since this detector
+was never built to catch either.
+
+**This makes the squeak-filter mechanism found on the small sample far
+more consequential than it looked** -- plausibly dominant across most
+of these 15 real misses, not an edge case. No detector code touched
+this entry; Task 3 (squeak-filter correction attempt, full validation)
+is next. Full detail: `agent_workspace/AUDIO_PIPELINE_AUDIT.md`.
+
 ## 2026-10-31 (13) — Task 2 of the P0 Audio Detector Reliability Sprint: the 50% false-positive rate is resolved, and it's not a comparator bug
 
 Re-ran `find_wrong_note_candidates` against all 18 held-out MusicNet

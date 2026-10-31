@@ -1,5 +1,35 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (12) — Root-caused the 0% recall / 50% FP finding: one real detector design issue, two measurement artifacts, FP cause still open
+
+Applied the systematic-debugging skill's Iron Law (root cause before
+any fix) to entry (11) below. Instrumented 4 real pieces directly
+(2293, 2217, 2242, 2220) instead of guessing.
+
+**Confirmed real, not injection-specific:** `looks_like_squeak`
+(worker.py:792) kills an exact-pitch-match injected wrong note with
+confidence 70 and **zero pitch instability (cents_spread=0)** purely
+because confidence sits at its own threshold -- one OR-branch with no
+instability requirement. This would affect a real wrong note played
+under the same conditions too. **Not fixed** -- `looks_like_squeak` has
+its own validated squeak/crack-protection history; a change validated
+on 4 pieces risks regressing it. Needs full-corpus validation first.
+
+**Confirmed measurement artifacts (not detector bugs):**
+`librosa.effects.pitch_shift`'s own phase-vocoder artifacts depress
+CREPE confidence below the detector's bar on one piece; a very short
+injected note produced no distinct CREPE event at all on another. Both
+mean the "0% recall" figure understates real-world recall, which
+remains genuinely unmeasured.
+
+**Still open:** the 50% false-positive rate on unmodified correct audio
+is confirmed real (present regardless of injection) but not traced to a
+specific root cause this round.
+
+No fix implemented, no commit -- per the Iron Law, none of the three
+recall mechanisms had a fix safely validatable within this turn's
+scope. Full detail: `agent_workspace/AUDIO_PIPELINE_AUDIT.md`.
+
 ## 2026-10-31 (11) — CRITICAL: real wrong-note detector measured at 0% true recall, 50% false-positive rate; prior "96.3% detection" number was a degenerate metric
 
 Phase 2 of "MEDIANT — Continue Pipeline Validation and Prepare Coaching

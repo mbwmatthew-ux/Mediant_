@@ -72,9 +72,68 @@ been measured, rigorously, for the first time.
 this file.** It directly contradicts the product's core promise
 ("measure-level feedback on pitch, rhythm, dynamics, articulation") and
 was previously masked by a measurement that looked like a strong real
-number (96.3%) but wasn't measuring the right thing. See the owner
-conversation this same day for the decision on whether to root-cause
-this before anything else proceeds.
+number (96.3%) but wasn't measuring the right thing. Root-caused below —
+read that section before treating "0% recall" as the final word on
+real-world performance.
+
+### Root cause of the 0% recall / 50% FP (2026-10-31, same day, confirmed via direct instrumentation on 4 real pieces — 2293, 2217, 2242, 2220)
+
+**Not one mechanism — three, two of which are measurement artifacts and
+one of which is a real, confirmed detector design issue.**
+
+1. **Confirmed real design issue (piece 2220, cleanest case): the squeak
+   filter kills an exact-pitch-match injected event even though nothing
+   about it is unstable.** Traced the actual injected event: `midi_raw`
+   matches the injected wrong note exactly, confidence 70, **cents
+   spread 0 (perfectly stable)**, duration 0.302s — passes every one of
+   `find_wrong_note_candidates`'s own gates (conf≥65, dur≥0.08,
+   spread≤40). It never reaches those gates: `looks_like_squeak`
+   (worker.py:792) kills it upstream purely because
+   `conf(70) <= _SQUEAK_CONF(70)` — one branch of an OR, with zero
+   instability evidence (spread=0 directly contradicts the function's
+   own stated definition, "pitch that will not hold still"). Same
+   pattern confirmed on piece 2293. **Nothing about this mechanism is
+   specific to synthetic injection — a real wrong note played with
+   confidence exactly at this threshold and a stable pitch would be
+   killed the same way.** Not fixed this round: `looks_like_squeak` has
+   its own validated history protecting real clarinet squeak/crack
+   detection (worker.py:7542-7551's own comment references a prior
+   incident from narrowing this exact logic) — a blind tighten-the-OR
+   fix validated on 4 pieces risks regressing that already-shipped
+   behavior. Needs full-corpus validation against both this benchmark
+   AND existing squeak/crack test coverage before any change — not a
+   one-line fix to take on faith.
+2. **Confirmed measurement artifact (piece 2242): `librosa.effects.pitch_shift`'s
+   own phase-vocoder artifacts depress CREPE's confidence below the
+   detector's bar.** The event matching the injected note measured
+   confidence 60 — below `MIN_CONF=65` — independent of the squeak
+   filter. This means the "0% recall" number **understates** real-world
+   recall; it does not prove the detector would miss an authentically-played
+   wrong note with clean, confident pitch tracking.
+3. **Confirmed measurement artifact (piece 2217): a very short injected
+   note (0.139s) produced no distinct CREPE event at the substituted
+   pitch at all** — same category, a limitation of the injection
+   methodology's short-window case, not the detector.
+
+**Separate, still-unexplained finding: every traced piece has
+pre-existing "wrong note" false-positive candidates at measures
+unrelated to the injection** (2293: 1, 2217: 6, 2242: 6) — confirms the
+"flag set is nearly identical between `wrong_pitch` and `control`"
+observation directly. These are present regardless of injection, so
+they are not synthetic-injection artifacts, but no root cause was traced
+to a specific line this round — that is the real driver of the 50%
+false-positive-on-correct-audio rate and remains open.
+
+**Bottom line:** "0% recall" was never purely a methodology artifact
+(mechanism 1 is real and would affect genuine mistakes too), and it was
+never purely a real detector failure either (mechanisms 2-3 are
+measurement limitations). The true real-world recall rate is unknown
+and likely higher than 0% but has not been measured. The 50% false-positive
+rate on correct playing is real, confirmed present independent of any
+injected mistake, and its specific cause is still open. No fix was
+implemented this round — per the systematic-debugging skill's Iron Law,
+none of the three recall mechanisms had a fix that could be safely
+validated within this turn's scope.
 
 ---
 

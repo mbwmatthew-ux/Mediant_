@@ -537,6 +537,59 @@ real improvement to wrong-note recall routes through fixing (1)/(3) in
 the benchmark itself, or improving (2) DTW alignment — a materially
 different, larger effort than "one minimal correction."
 
+### Phase A+B (2026-10-31, "Accelerated Audio Accuracy Recovery Sprint"): benchmark repaired, and the dominant failure is finally isolated with hard evidence
+
+**Phase A — benchmark repair.** Added a verification gate to
+`inject_audio_mistakes.py` (`verify_injection`, `inject_mistake_verified`
+— commit `73d9484`) that only counts a `wrong_pitch` injection as a
+valid test case if it survives as a clean, confident, stable,
+musically-unambiguous event — checked against the real post-DTW
+aligned-event pool `find_wrong_note_candidates` actually sees (an
+earlier, tighter pre-alignment check gave an implausible 2/12 result
+and was corrected mid-task). **Major new finding: 9 of 12 development
+pieces produced NO valid injection in 8 attempts each** — the synthetic
+injection methodology is considerably less reliable than Task 3's
+looser definition suggested. Of the 3 pieces that did validate: **recall
+1/3 = 33.3%** — the first non-zero, properly-gated recall number in this
+whole investigation, though the sample is too small to call it a settled
+rate. A frozen, untouched 6-piece subset (2204, 2218, 2222, 2297, 2244,
+2289) was set aside before any of this repair work and committed
+(`modal_worker/p0_sprint_frozen_eval_manifest.json`) — reserved
+exclusively for a later final validation, never used to develop or tune
+anything.
+
+**Phase B — the decisive diagnostic experiment.** Fed `dtw_align_to_score`
+two ways on the same 12 dev pieces, same score, same algorithm: (A) real
+CREPE-extracted events (today's production path), (B) MusicNet's own
+independently-annotated ground-truth note events, reformatted into the
+same input shape, CREPE bypassed entirely.
+
+- **Condition A: 60.8% correct. Condition B: 76.2% correct. Gap: +15.4pt.**
+- **Sharply bimodal, settling the "which stage" question with hard
+  numbers for the first time:** 9/12 pieces reach 90-100% under
+  Condition B — for these, CREPE pitch/onset extraction is the clearly
+  dominant failure, since near-perfect input localizes almost
+  perfectly. **3/12 pieces (2220: 7.4%, 2242: 6.8%, 2296: 9.0%) stay in
+  single digits even with PERFECT ground-truth input** — DTW's own
+  algorithm has a defect independent of input quality on these specific
+  pieces. These are exactly the same pieces already identified in this
+  project's standing backlog as "over-counting" cases with an explicit
+  2026-10-15 "stop tuning" decision (vibrato/pitch noise exceeding DTW's
+  1-semitone merge tolerance) — not a new problem, confirms the old one.
+- **Anomaly, flagged not chased:** piece 2242's Condition B (6.8%) is
+  WORSE than its Condition A (49.8%) — possibly an artifact of how the
+  synthetic ground-truth event sequence was built for that one piece.
+  Needs its own look before drawing conclusions specifically about 2242.
+- **Engineering-target decision: CREPE pitch/onset extraction/event-
+  consolidation quality — dominant on 9/12 (75%) of pieces by count.**
+  The 3-piece DTW-defect subset stays explicitly out of scope, matching
+  the project's own standing decision.
+
+Full regression confirmed clean throughout: `test_analysis.py` 727/727,
+`test_page_omr_adapter.py` 16/16, new `test_inject_audio_mistakes.py`
+6/6. $0 spend, CPU-only. No detector/alignment code touched this round
+— only the injection benchmark itself.
+
 ## Priority 2 (2026-10-31): octave errors are the dominant remaining
 ## pitch-extraction failure post-breath-noise-fix — no safe fix found
 

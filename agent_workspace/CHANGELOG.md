@@ -1,5 +1,38 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (16) — P0 sprint Phase A+B: benchmark repaired, dominant failure isolated with hard evidence -- CREPE extraction, not DTW, on 75% of pieces
+
+Commit `73d9484`. Repaired `inject_audio_mistakes.py` with a real
+verification gate (`verify_injection`/`inject_mistake_verified`) --
+only counts a wrong_pitch injection as valid if it survives as clean,
+confident, stable, musically-unambiguous audio, checked against the
+real post-DTW aligned-event pool the comparator actually sees.
+
+**9 of 12 development pieces produced no valid injection in 8 attempts
+each** -- the injection methodology is considerably less reliable than
+previously assumed. Of the 3 that validated: recall 1/3 = 33.3%, the
+first non-zero properly-gated number this sprint (tiny sample).
+
+**The decisive diagnostic experiment**, real CREPE events vs MusicNet's
+own ground-truth note events through unmodified `dtw_align_to_score`,
+same score/algorithm otherwise: **Condition A 60.8%, Condition B 76.2%,
++15.4pt gap, sharply bimodal.** 9/12 pieces reach 90-100% with perfect
+input (CREPE pitch/onset extraction is the dominant failure there);
+3/12 (2220, 2242, 2296) stay in single digits even with perfect input --
+this confirms, with hard numbers for the first time, the project's
+already-known, already-"stop tuning" DTW over-counting limitation on
+exactly those same pieces. Not a new problem.
+
+**Engineering target decided for Phase C: CREPE pitch/onset extraction
+and event-consolidation quality** -- dominant on 9/12 (75%) of pieces.
+A frozen, untouched 6-piece validation set was committed
+(`modal_worker/p0_sprint_frozen_eval_manifest.json`) before any of this
+repair work, reserved for final validation only.
+
+Full regression clean: `test_analysis.py` 727/727,
+`test_page_omr_adapter.py` 16/16, new `test_inject_audio_mistakes.py`
+6/6. $0 spend, CPU-only. No detector/alignment code touched.
+
 ## 2026-10-31 (15) — Task 3 of the P0 sprint: squeak-filter fix is NO-SHIP, decided correctly before writing or validating it
 
 Before proposing anything, built a full gate-by-gate trace of all 15

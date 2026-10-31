@@ -6727,6 +6727,36 @@ def test_run_pitch_tracking_tags_event_provenance():
           all(isinstance(e["from_probe"], bool) for e in events))
 
 
+def test_run_beat_tracking_tempo_is_a_plain_float_not_an_ndarray():
+    print("\n[181b] run_beat_tracking had ZERO prior unit coverage at all — "
+          "found 2026-10-31 during the page-omr full-pipeline compatibility "
+          "audit, which ran run_full_analysis end-to-end against real "
+          "full-length MusicNet recordings for the first time (every "
+          "existing test either stubs this function or never calls it). "
+          "librosa.beat.beat_track (0.10.2, as pinned in the Modal image) "
+          "returns `tempo` as a shape-(1,) ndarray on every input, not a "
+          "scalar — confirmed with a 5s synthetic signal, so this is not "
+          "duration-dependent. `float(tempo)` on numpy>=1.25 (numpy itself "
+          "is UNPINNED in the image build) raises TypeError rather than "
+          "the old deprecation warning, which crashed every real take's "
+          "analysis with no test ever catching it.")
+    if not REAL_AUDIO_STACK_AVAILABLE:
+        print("  SKIP  torch/torchcrepe/librosa/soundfile/scipy not all installed "
+              "in this environment")
+        return
+    wav_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "testdata", "real_violin_note_tinysol_g3_mf.wav")
+    with open(wav_path, "rb") as f:
+        wav_bytes = f.read()
+    result = w.run_beat_tracking(wav_bytes)
+    check("tempo_bpm is a plain Python float, not a numpy array",
+          isinstance(result["tempo_bpm"], float), f"{type(result['tempo_bpm'])}")
+    check("tempo_bpm is a sane, nonzero estimate",
+          0 < result["tempo_bpm"] < 400, str(result["tempo_bpm"]))
+    check("duration_sec is a plain Python float",
+          isinstance(result["duration_sec"], float), f"{type(result['duration_sec'])}")
+
+
 def test_cluster_sustained_events():
     print("\n[182] _cluster_sustained_events only collapses PROBE-origin events, "
           "never a believed-real attack")
@@ -7414,6 +7444,7 @@ def main():
               test_run_pitch_tracking_recovers_a_quiet_real_note_the_old_absolute_floor_missed,
               test_run_pitch_tracking_still_rejects_true_silence,
               test_run_pitch_tracking_tags_event_provenance,
+              test_run_beat_tracking_tempo_is_a_plain_float_not_an_ndarray,
               test_cluster_sustained_events,
               test_dtw_align_to_score_collapses_spurious_same_pitch_oversampling,
               test_dtw_align_to_score_never_collapses_a_real_ornament,

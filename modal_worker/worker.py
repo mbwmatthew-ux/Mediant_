@@ -1469,15 +1469,21 @@ def run_beat_tracking(wav_bytes: bytes, estimated_bpm: float | None = None) -> d
             start_bpm=start_bpm,
             tightness=100,
         )
+        # librosa 0.10.x's beat_track returns tempo as a shape-(1,) ndarray, not
+        # a scalar (confirmed on every input, regardless of duration) — plain
+        # float(tempo) raises TypeError on numpy >=1.25, where casting a
+        # non-0-d array to a Python scalar is a hard error, not a deprecation
+        # warning. np.ravel(...)[0] accepts both a scalar and an array equally.
+        tempo_bpm = float(np.ravel(tempo)[0])
         beat_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
 
         onset_frames = librosa.onset.onset_detect(y=y, sr=sr, backtrack=True)
         onset_times = librosa.frames_to_time(onset_frames, sr=sr).tolist()
 
-        print(f"[beat_tracking] tempo={float(tempo):.1f} bpm, {len(beat_times)} beats, {len(onset_times)} onsets, duration={duration:.1f}s")
+        print(f"[beat_tracking] tempo={tempo_bpm:.1f} bpm, {len(beat_times)} beats, {len(onset_times)} onsets, duration={duration:.1f}s")
 
         return {
-            "tempo_bpm": float(tempo),
+            "tempo_bpm": tempo_bpm,
             "beat_times": beat_times,
             "onset_times": onset_times,
             "duration_sec": float(duration),

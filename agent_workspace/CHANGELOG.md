@@ -1,5 +1,24 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (7) — page-omr private staging deployment: plan prepared, not executed
+
+Owner's "Close Flat OMR and Advance page-omr" directive, Task 2.
+Confirmed read-only (no deploy run) that only one Modal environment
+("main") and one deployed app ("mediant-worker") currently exist.
+Proposed isolating staging as a separate Modal Environment rather than
+a flag-flip on the production app -- own endpoint URL, own
+environment-scoped secrets (MEDIANT_SCORE_ENGINE=page_omr set only
+there), checkpoint baked into the image, explicit
+cpu=2.0/memory=4096/max_containers=2/min_containers=0, tested only via
+direct calls with local corpus images so Supabase/production stay
+structurally unreachable. Requested a $5 hard spending cap against a
+~$0.02-0.05 realistic estimate. See
+`agent_workspace/PAGE_OMR_STAGING_DEPLOYMENT_PLAN.md`. Nothing deployed.
+
+Also closed out Task 1 from the same directive: verified commit
+150d801 (and 445e1c6) carry no API keys/credentials, reran both test
+suites (719/719 + 16/16), and pushed main to origin.
+
 ## 2026-10-31 (6) — Flat OMR API test #2 (mild): structural collapse, recommend STOP spending credits
 
 Owner's "Flat OMR Test #2 Approved" directive. Verified auth/balance

@@ -39,6 +39,20 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **page-omr private staging deployment: PLAN PREPARED, awaiting approval — not executed (see `agent_workspace/PAGE_OMR_STAGING_DEPLOYMENT_PLAN.md`).**
+  Per "Close Flat OMR and Advance page-omr" Task 2. Confirmed via
+  read-only `modal environment list`/`modal app list` that only one
+  environment ("main") and one deployed app ("mediant-worker") exist
+  today. Plan: a separate Modal Environment (`staging`), not a flag-flip
+  on the production app — its own endpoint URL, its own scoped secrets
+  (`MEDIANT_SCORE_ENGINE=page_omr` set only there), checkpoint baked
+  into the image (Option A over a Volume), `cpu=2.0/memory=4096/
+  max_containers=2/min_containers=0`, tested only via direct calls with
+  local corpus images (Supabase/production never touched). Requesting a
+  **$5 hard spending cap** against a realistic $0.02-0.05 estimate.
+  **`modal environment create staging` has NOT been run; nothing has
+  been deployed.**
+
 - [ ] **Flat OMR API — test #2 (mild) complete: Flat collapses structurally on the degraded tier, page-omr+deskew unaffected. Recommendation: STOP spending Flat credits (see `agent_workspace/FLAT_OMR_TEST2_MILD.md`).**
   Verified auth/balance (29 credits, same token as test #1 — no new one
   was provided, rotation not confirmed from this side), confirmed the

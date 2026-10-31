@@ -256,3 +256,174 @@ def inject_mistake(wav_bytes: bytes, ground_truth_notes: list[dict],
             "original_note": original_note, "new_note": new_note,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Verified injection (P0 Audio Detector Reliability Sprint, Phase A, 2026-10-31)
+# ---------------------------------------------------------------------------
+#
+# Task 3's ceiling check (same sprint) found that of 15 "wrong_pitch"
+# injections that were all 2-7 semitones from the original note, 10/15
+# failures were NOT a detector defect at all:
+#   - 6/15: the pitch-shifted splice itself didn't survive as a clean,
+#     confident, stable CREPE event (librosa.effects.pitch_shift's
+#     phase-vocoder artifacts) -- not acoustically recognizable.
+#   - 4/15: the random substitute pitch happened to equal a pitch already
+#     legitimately expected elsewhere in that measure (or its immediate
+#     neighbours) -- musically ambiguous relative to the score, so
+#     find_wrong_note_candidates' own conservative distance gate declined
+#     to call it wrong, correctly, by its own design.
+#
+# These two functions gate an injection BEFORE it's scored, so a benchmark
+# run only ever measures the detector against injections that are actually
+# fair tests of it. They do not touch find_wrong_note_candidates or any
+# other detector logic -- only which synthetic cases are considered valid.
+import math
+
+
+def _expected_pitch_classes_for_measure(score: dict, measure_num: int) -> set[int]:
+    """
+    Pitch classes (mod 12) legitimately expected in `measure_num` AND its
+    immediate neighbours -- mirrors find_wrong_note_candidates' own
+    boundary-expansion logic (worker.py ~7580-7591: a note at the first/
+    last onset of a measure also gets the neighbouring bars' pitches
+    added) closely enough to judge "would this substitute pitch be
+    musically ambiguous," without importing or modifying that function.
+    Requires `worker.midi_from_name` for parsing score pitch names.
+    """
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    import worker as w  # noqa: E402
+
+    pcs: set[int] = set()
+    for m in score.get("measures", []):
+        if m["number"] not in (measure_num - 1, measure_num, measure_num + 1):
+            continue
+        for n in m.get("notes", []):
+            midi = w.midi_from_name(n.get("pitch") or "")
+            if midi is not None:
+                pcs.add(midi % 12)
+    return pcs
+
+
+def verify_injection(injected_wav_bytes: bytes, injected: dict, score: dict,
+                      beats_per_measure: int, instrument: str) -> dict:
+    """
+    Checks one already-injected "wrong_pitch" case against the two gates
+    Task 3 found actually matter, using the REAL production functions
+    (unmodified) to judge both. Checks the same ALIGNED event pool
+    `find_wrong_note_candidates` itself sees (run_pitch_tracking ->
+    dtw_align_to_score), not raw pre-alignment events -- an earlier
+    version of this function checked raw events against a tight +/-0.05s
+    window and under-counted recognizability relative to what the real
+    comparator actually receives (DTW's own clustering/representative
+    selection can shift an event's effective time_sec).
+
+      - "recognizable": an ALIGNED event exists near [onset_sec, offset_sec]
+        (a wider +/-0.15s tolerance, matching this project's existing
+        onset-matching convention elsewhere) whose midi_raw matches
+        `new_note` within 1 semitone AND clears find_wrong_note_candidates'
+        own quality bar (confidence>=65, cents_spread<=40) -- the same bar
+        the thing under test actually requires, not an arbitrary stricter one.
+      - "unambiguous": the injected note's pitch CLASS must not already be
+        legitimately expected in its own measure or immediate neighbours
+        (see `_expected_pitch_classes_for_measure`) -- otherwise
+        find_wrong_note_candidates' conservative distance gate would
+        correctly decline to call it wrong regardless of audio quality.
+
+    Returns {"recognizable": bool, "unambiguous": bool, "valid": bool,
+    "reason": str | None, "matched_event": dict | None, "aligned": list[dict]}.
+    `aligned` is returned so callers can reuse it for the final scored
+    find_wrong_note_candidates call without re-running CREPE. Only
+    mistake_type == "wrong_pitch" is meaningful here (duplicated_note's
+    new_note is the correct pitch by definition; deleted_note has no new
+    pitch) -- this detector was never built to catch either of those, per
+    the existing project finding.
+    """
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    import worker as w  # noqa: E402
+
+    if injected["mistake_type"] != "wrong_pitch":
+        return {"recognizable": None, "unambiguous": None, "valid": None,
+                "reason": "verify_injection only applies to wrong_pitch",
+                "matched_event": None, "aligned": []}
+
+    new_note = injected["new_note"]
+    onset_sec, offset_sec = injected["onset_sec"], injected["offset_sec"]
+
+    measure_num = injected.get("measure")
+    unambiguous = None
+    if measure_num is not None:
+        expected_pcs = _expected_pitch_classes_for_measure(score, measure_num)
+        unambiguous = (new_note % 12) not in expected_pcs
+
+    events = w.run_pitch_tracking(injected_wav_bytes, instrument=instrument)
+    aligned = w.dtw_align_to_score(events, score, start_measure=1,
+                                    beats_per_measure=beats_per_measure)
+
+    matched = None
+    for ev in aligned:
+        t0 = ev.get("time_sec")
+        if t0 is None or not (onset_sec - 0.15 <= t0 <= offset_sec + 0.15):
+            continue
+        midi_raw = ev.get("midi_raw", ev.get("midi"))
+        if midi_raw is None or abs(midi_raw - new_note) > 1:
+            continue
+        conf = ev.get("confidence", 0) or 0
+        spread = ev.get("cents_spread", 999) or 999
+        if conf >= 65 and spread <= 40:
+            matched = ev
+            break
+
+    recognizable = matched is not None
+    valid = bool(recognizable and (unambiguous is not False))
+    reason = None
+    if not recognizable:
+        reason = "not acoustically recognizable (no clean/confident/stable aligned event near injection matching new_note)"
+    elif unambiguous is False:
+        reason = "musically ambiguous (substitute pitch class already expected in this measure or a neighbour)"
+
+    return {"recognizable": recognizable, "unambiguous": unambiguous,
+            "valid": valid, "reason": reason, "matched_event": matched,
+            "aligned": aligned}
+
+
+def inject_mistake_verified(wav_bytes: bytes, ground_truth_notes: list[dict],
+                             score: dict, beats_per_measure: int, instrument: str,
+                             base_seed: int, max_attempts: int = 8) -> dict:
+    """
+    Repeatedly calls `inject_mistake(..., "wrong_pitch", seed)` with
+    varying seeds (which vary both the target note AND the semitone
+    choice, since `inject_mistake`'s own rng derives both from one seed)
+    until `verify_injection` reports `valid`, or `max_attempts` is
+    exhausted. Computes each attempt's target measure number itself (by
+    nearest ground-truth onset -> start_beat -> measure, same formula
+    used throughout this project's MusicNet validation scripts) so
+    `verify_injection` can run its ambiguity check.
+
+    Returns {"result": dict | None, "attempts": [ {seed, measure, ...gate
+    results...} ], "valid": bool}. `result` is `inject_mistake`'s own
+    return value from the FIRST attempt that validated, or None if every
+    attempt in `max_attempts` failed -- callers must check `valid` before
+    using `result`, and must record a failed case explicitly (never
+    silently drop it from denominators).
+    """
+    attempts = []
+    for i in range(max_attempts):
+        seed = base_seed * 1000 + i
+        result = inject_mistake(wav_bytes, ground_truth_notes, "wrong_pitch", seed)
+        injected = result["injected"]
+
+        nearest = min(ground_truth_notes, key=lambda r: abs(r["onset_sec"] - injected["onset_sec"]))
+        measure_num = int(nearest["start_beat"] // beats_per_measure) + 1
+        injected["measure"] = measure_num
+
+        verdict = verify_injection(result["wav_bytes"], injected, score, beats_per_measure, instrument)
+        attempts.append({"seed": seed, "measure": measure_num, **verdict})
+        if verdict["valid"]:
+            return {"result": result, "attempts": attempts, "valid": True}
+
+    return {"result": None, "attempts": attempts, "valid": False}

@@ -39,19 +39,32 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
-- [ ] **page-omr private staging deployment: PLAN PREPARED, awaiting approval — not executed (see `agent_workspace/PAGE_OMR_STAGING_DEPLOYMENT_PLAN.md`).**
-  Per "Close Flat OMR and Advance page-omr" Task 2. Confirmed via
-  read-only `modal environment list`/`modal app list` that only one
-  environment ("main") and one deployed app ("mediant-worker") exist
-  today. Plan: a separate Modal Environment (`staging`), not a flag-flip
-  on the production app — its own endpoint URL, its own scoped secrets
-  (`MEDIANT_SCORE_ENGINE=page_omr` set only there), checkpoint baked
-  into the image (Option A over a Volume), `cpu=2.0/memory=4096/
-  max_containers=2/min_containers=0`, tested only via direct calls with
-  local corpus images (Supabase/production never touched). Requesting a
-  **$5 hard spending cap** against a realistic $0.02-0.05 estimate.
-  **`modal environment create staging` has NOT been run; nothing has
-  been deployed.**
+- [ ] **page-omr private staging deployment: LIVE and VERIFIED (see `agent_workspace/PAGE_OMR_STAGING_DEPLOYED.md`).**
+  Deployed `mediant-worker-staging` into a separate `staging` Modal
+  Environment (production's `main`/`mediant-worker` untouched —
+  verified before and after). Found and fixed 3 real environment
+  incompatibilities live (not predicted): `git` missing from the build
+  image; a build-step ordering rule (`.env()` must precede
+  `.add_local_python_source`); and two dependency-resolution breaks
+  that only surfaced on real inference calls, not at build time
+  (`transformers` pin not sticking until installed AFTER page-omr;
+  `torchvision` installing a non-"+cpu" build mismatched with the
+  image's "+cpu" torch, needing `--force-reinstall`). 3 real calls
+  against the live deployment all reproduced the already-validated
+  100% pitch / 48/48 exact-measure result exactly. Real Modal numbers
+  came in higher than the earlier estimate (23-41s/page vs ~10s local;
+  2.3GB RSS vs 1.7GB local) — recomputed cost ≈$0.001/page, still
+  trivial. Actual spend so far: **$0.0385 of the $5 cap** (confirmed via
+  `modal billing report`, not estimated). Enforceable Modal spending
+  limit exists (per-Environment budget) but is dashboard-only — I
+  cannot set it myself; recommend the owner set one on `staging`.
+  Task 3 (real-photo validation): zero authentic photos with verified
+  ground truth exist anywhere in this project (re-confirmed, not new) —
+  this requires a human to physically photograph sheet music, which I
+  cannot do. Proposed smallest safe method: photograph existing
+  corpus pages (Cello/Violin/Flute/Piano already have verified ground
+  truth; Clarinet/Guitar have none and need separate sourcing). No
+  accuracy claim made from unscored examples.
 
 - [ ] **Flat OMR API — test #2 (mild) complete: Flat collapses structurally on the degraded tier, page-omr+deskew unaffected. Recommendation: STOP spending Flat credits (see `agent_workspace/FLAT_OMR_TEST2_MILD.md`).**
   Verified auth/balance (29 credits, same token as test #1 — no new one

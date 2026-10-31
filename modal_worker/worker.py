@@ -25,8 +25,22 @@ Exposes a single HTTPS endpoint:
 """
 
 import modal
+import os
 
 app = modal.App("mediant-worker")
+
+# Staging-only, build-time-only toggle: baked into the image ONLY when
+# MEDIANT_BUILD_SCORE_ENGINE is set in the LOCAL shell that runs `modal
+# deploy` (never set by deploy.sh/production deploys). This is distinct
+# from the runtime MEDIANT_SCORE_ENGINE check inside _score_pipeline —
+# that one reads the deployed container's own environment, which this
+# line is what actually populates for a staging deploy. Deliberately NOT
+# read via Modal Secrets: every existing @app.function in this file
+# takes zero `secrets=[...]`, and a secret lookup that doesn't exist in
+# an environment is unnecessary risk to add to a decorator production
+# also uses. Baking a plain env var into the image, built only for the
+# staging deploy invocation, touches nothing production depends on.
+_STAGING_BUILD_SCORE_ENGINE = os.environ.get("MEDIANT_BUILD_SCORE_ENGINE", "").strip().lower()
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -38,6 +52,11 @@ image = (
         "libxtst6",
         "fluidsynth",
         "fluid-soundfont-gm",
+        # Needed for `pip install git+https://...` below (page-omr). Found
+        # live on the first staging deploy attempt: debian_slim has no git
+        # by default, confirmed by the exact build failure ("Cannot find
+        # command 'git'"), not guessed in advance.
+        "git",
     )
     .run_commands(
         # Audiveris converts visual scores (PDF/images) into MusicXML/MXL.
@@ -51,19 +70,6 @@ image = (
         # change nothing today and only stop a silent major-version jump.
         "pip install 'torch<3.0' 'torchaudio<3.0' --index-url https://download.pytorch.org/whl/cpu",
         "pip install 'torchcrepe<1.0'",
-        # page-omr (modal_worker/page_omr_adapter.py) — staging-only alternate
-        # score-reading engine, selected via MEDIANT_SCORE_ENGINE=page_omr; the
-        # default path (unset) never imports this. Pin transformers BEFORE
-        # installing page-omr, same pattern as the torch/torchcrepe pins above:
-        # page-omr's own pyproject.toml only requires transformers>=4.30.0, which
-        # a plain `pip install` resolves to a 5.x release that silently breaks its
-        # `transformers.Dinov2Model` encoder — confirmed directly (the encoder
-        # collapses into a repeated degenerate token regardless of input image or
-        # checkpoint) — see agent_workspace/PAGE_OMR_BENCHMARK_FINDINGS.md.
-        # Repo pinned to the exact commit every validation benchmark in
-        # agent_workspace/PAGE_OMR_*.md was produced against.
-        "pip install 'transformers==4.46.3'",
-        "pip install 'git+https://github.com/tobiashornbogen/page-omr.git@e369a44a8232ddcf0ddd915f7e07b19cdcb91b61'",
     )
     .pip_install(
         # Audio processing
@@ -119,12 +125,95 @@ image = (
         # data existed, for however long this had been deployed.
         "anthropic>=0.30.0,<1.0.0",
     )
-    # page_omr_adapter.py is a sibling module (not a pip package), so it needs
-    # an explicit add — `modal deploy modal_worker/worker.py` does not auto-mount
-    # sibling files in this Modal client version. Added last so the adapter
-    # module is importable regardless of image-layer caching above.
-    .add_local_python_source("page_omr_adapter")
+    .run_commands(
+        # page-omr (modal_worker/page_omr_adapter.py) — staging-only alternate
+        # score-reading engine, selected via MEDIANT_SCORE_ENGINE=page_omr; the
+        # default path (unset) never imports this. Installed AFTER the audio/
+        # utility .pip_install block above, not alongside the early torch
+        # install — found live on the first real staging deploy: installing
+        # page-omr before that block let its own numpy/torch-adjacent pins
+        # get silently overwritten by the LATER block's own numpy constraint
+        # (a reinstall, not a no-op, confirmed in that deploy's build log),
+        # which broke transformers' Dinov2Model import at runtime
+        # ("ModuleNotFoundError: Could not import module 'Dinov2Model'") even
+        # though the image built successfully — a binary-ABI break, not a
+        # version-string conflict pip itself would reject. Installing
+        # page-omr LAST makes it, not an earlier unrelated block, the final
+        # word on every package it shares a dependency with.
+        #
+        # Install page-omr FIRST, pin transformers SECOND — found live on
+        # this deploy's third attempt: pinning transformers BEFORE page-omr
+        # (as this file did until now) does not stick. page-omr's own
+        # pyproject.toml only requires transformers>=4.30.0, and installing
+        # it re-resolves the whole dependency set, which pip is free to (and
+        # did, confirmed in that build's log: "Successfully installed ...
+        # transformers-5.22.1") satisfy by upgrading an already-pinned,
+        # already-satisfying 4.46.3 to the newest compatible release instead
+        # of leaving it alone. A pin is only authoritative as the LAST
+        # command that touches a package — exactly the ordering already
+        # proven to work across 5 rounds of real inference in the isolated
+        # validation venv (`pip install -e repo` then `pip install
+        # "transformers==4.46.3"` afterward, never the reverse).
+        #
+        # The pin matters because transformers>=5.x silently breaks
+        # `transformers.Dinov2Model` (confirmed directly in the original
+        # benchmark round — the encoder collapses into a repeated degenerate
+        # token regardless of input image or checkpoint) — see
+        # agent_workspace/PAGE_OMR_BENCHMARK_FINDINGS.md. Repo pinned to the
+        # exact commit every validation number in agent_workspace/
+        # PAGE_OMR_*.md was produced against.
+        "pip install 'git+https://github.com/tobiashornbogen/page-omr.git@e369a44a8232ddcf0ddd915f7e07b19cdcb91b61'",
+        # Found live, same deploy attempt as the transformers reasoning
+        # above: page-omr's install also pulled in a plain-PyPI
+        # torchvision-0.29.2 (torchvision>=0.15.0, unpinned) with no
+        # relation to the CPU-specific torch+cpu build installed earlier
+        # in this image — confirmed the exact runtime break this caused:
+        # "RuntimeError: ... operator torchvision::nms does not exist", a
+        # torch/torchvision ABI mismatch (mixing a '+cpu' torch build with
+        # a torchvision not built against it), not a version-string
+        # conflict pip itself would reject. Same fix as transformers:
+        # reinstall the whole CPU-matched torch/torchaudio/torchvision trio
+        # from PyTorch's own CPU index as the authoritative LAST word on
+        # the torch stack, right before the transformers pin (which must
+        # stay last of all — see above).
+        # --force-reinstall --no-deps is required here, confirmed live:
+        # without it pip printed "Requirement already satisfied:
+        # torchvision<1.0 ... (0.29.2)" and left the plain-PyPI build in
+        # place, since an unpinned "<1.0" constraint is satisfied by
+        # ANY 0.x release regardless of which index or torch build it
+        # was compiled against — a version-range match, not a build
+        # match. torch/torchaudio themselves are untouched (confirmed
+        # already correct: "2.15.0+cpu"/"2.11.1+cpu" from the early
+        # install), so only torchvision needs forcing.
+        "pip install --force-reinstall --no-deps 'torchvision<1.0' --index-url https://download.pytorch.org/whl/cpu",
+        "pip install 'transformers==4.46.3'",
+        # Bake the checkpoint into the image at build time (staging deployment
+        # plan, Option A — agent_workspace/PAGE_OMR_STAGING_DEPLOYMENT_PLAN.md
+        # Section 3) rather than downloading it on first request: removes
+        # per-cold-start network time entirely, and avoids every container
+        # independently hitting the HF Hub. huggingface_hub is already
+        # installed above as a page-omr dependency.
+        "python3 -c \"from huggingface_hub import snapshot_download; "
+        "snapshot_download('tobiashornbogen/page-omr-a1-kern')\"",
+    )
 )
+if _STAGING_BUILD_SCORE_ENGINE:
+    # Only ever true for a staging deploy invocation (see
+    # _STAGING_BUILD_SCORE_ENGINE's definition above) — a production
+    # `modal deploy` never sets MEDIANT_BUILD_SCORE_ENGINE, so this
+    # branch does not run for production's image at all. MUST come
+    # before .add_local_python_source below — found live on the second
+    # staging deploy attempt: Modal refuses any further build step
+    # (.env included) after a local-file add unless that add uses
+    # copy=True, since local-file adds are normally applied at container
+    # startup, not image-build time.
+    image = image.env({"MEDIANT_SCORE_ENGINE": _STAGING_BUILD_SCORE_ENGINE})
+# page_omr_adapter.py is a sibling module (not a pip package), so it needs
+# an explicit add — `modal deploy modal_worker/worker.py` does not auto-mount
+# sibling files in this Modal client version. Added last (after the
+# conditional .env above) so the adapter module is importable regardless
+# of image-layer caching, and so no build step ever follows a local add.
+image = image.add_local_python_source("page_omr_adapter")
 
 # ── Data types (dicts — no dataclasses so JSON-serializable naturally) ────────
 
@@ -11047,6 +11136,40 @@ def check_score_quality(body: dict) -> dict:
     to discover.
     """
     return _check_score_quality(body)
+
+
+@app.function(image=image, timeout=300, memory=4096, cpu=2.0, max_containers=2, min_containers=0)
+def staging_score_page_omr(page_b64: str, mime: str, start_measure: int = 1) -> dict:
+    """
+    STAGING-ONLY verification utility for the page-omr+deskew engine
+    (agent_workspace/PAGE_OMR_STAGING_DEPLOYMENT_PLAN.md). NOT a web
+    endpoint — no `@modal.fastapi_endpoint` — so it has no public URL in
+    any environment and is reachable only via `modal.Function.from_name(
+    ..., environment_name=...).remote(...)` by someone with an
+    authenticated Modal CLI session. Requires no Anthropic/Gemini/
+    Supabase credential of any kind: it calls page_omr_adapter directly,
+    the same way _score_pipeline does, bypassing run_full_analysis's
+    audio/coaching/webhook machinery entirely so this can be exercised
+    in isolation. Exists to verify a real Modal deployment (cold start,
+    warm inference, memory, output correctness) without needing or
+    risking anything production-only.
+    """
+    import base64
+    import resource
+    import time
+
+    from page_omr_adapter import score_pages_with_page_omr
+
+    page_bytes = base64.b64decode(page_b64)
+    t0 = time.time()
+    result = score_pages_with_page_omr([(page_bytes, mime)], start_measure)
+    elapsed = time.time() - t0
+    peak_rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return {
+        "result": result,
+        "elapsed_sec": round(elapsed, 2),
+        "peak_rss_mb": round(peak_rss_kb / 1024.0, 1),  # Linux: ru_maxrss is KB
+    }
 
 
 @app.local_entrypoint()

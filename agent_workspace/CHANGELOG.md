@@ -1,5 +1,47 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (8) — page-omr staging deployment LIVE; 3 real env bugs found+fixed; real-photo validation still blocked
+
+Owner's "Staging Deployment Approved + Complete Task 3" directive.
+Deployed mediant-worker-staging into a separate `staging` Modal
+Environment (production untouched, verified). Took 7 deploy attempts
+to reach a working state, fixing three real issues found live:
+
+1. `git` missing from the debian_slim build image (needed for `pip
+   install git+...`).
+2. Modal refuses a build step after `.add_local_python_source(...)`
+   unless `copy=True` -- moved the conditional `.env()` call earlier.
+3. Two dependency-resolution breaks invisible at build time, found only
+   by running real inference: pinning transformers BEFORE page-omr
+   didn't stick (page-omr's own install silently re-resolved it to
+   5.22.1, reproducing the original Dinov2Model collapse bug) -- fixed
+   by installing page-omr first and pinning transformers last, mirroring
+   the pattern already proven across 5 rounds in the isolated venv.
+   Separately, page-omr pulled in a non-"+cpu" torchvision mismatched
+   with the image's "+cpu" torch ("operator torchvision::nms does not
+   exist") -- a plain re-pin wasn't enough (pip considered the mismatched
+   build "already satisfied"); needed --force-reinstall --no-deps from
+   PyTorch's own CPU index.
+
+3 real calls against the live deployment reproduced the already-
+validated 100% pitch / 48/48 exact-measure result exactly -- confirms
+functional correctness, not just a successful build. Real Modal numbers
+(23-41s/page, 2.3GB RSS) came in higher than the earlier local-CPU
+estimate; recomputed cost is still ~$0.001/page. Actual spend so far:
+$0.0385 of the approved $5 cap, read directly from `modal billing
+report`. Confirmed Modal does have an enforceable per-Environment
+spending limit, but it's dashboard-only -- flagged for the owner to set
+since I can't set it myself via CLI/API.
+
+Task 3 (real smartphone photos across 6 instruments): zero authentic
+photos with verified ground truth exist anywhere in this project,
+re-confirmed rather than newly found. This needs a human to physically
+photograph sheet music, which I cannot do. Proposed smallest safe
+method: photograph existing corpus pages for Cello/Violin/Flute/Piano
+(already have verified ground truth); Clarinet/Guitar need ground
+truth sourced separately first. No accuracy claim made from unscored
+examples. See `agent_workspace/PAGE_OMR_STAGING_DEPLOYED.md`.
+
 ## 2026-10-31 (7) — page-omr private staging deployment: plan prepared, not executed
 
 Owner's "Close Flat OMR and Advance page-omr" directive, Task 2.

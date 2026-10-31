@@ -590,6 +590,42 @@ Full regression confirmed clean throughout: `test_analysis.py` 727/727,
 6/6. $0 spend, CPU-only. No detector/alignment code touched this round
 — only the injection benchmark itself.
 
+### Phase C/D/E (2026-10-31): STOP — confirms an existing, already-abandoned problem; no fix implemented
+
+Diagnosed the exact CREPE-vs-ground-truth divergence on all 9
+CREPE-bound dev pieces via an order-respecting sequence diff (a first,
+looser nearest-time matcher gave an implausible 44.9% wrong-pitch rate
+and was caught and corrected mid-task — crossing matches in dense
+passages). Corrected totals across 7,995 real ground-truth notes: 19.0%
+missing, 2285 extra (beyond the real note count), 30.6% wrong_pitch,
+3.1% octave_error, 47.3% matched_correct. CREPE substantially
+over-generates candidate events relative to real notes on every one of
+the 9 pieces (e.g. piece 2241: 912 CREPE events vs. 608 real notes).
+
+**Decision: STOP, no fix implemented, no branch, no commit.** Two
+reasons: (1) the extra/missing pattern is the exact shape of the
+rapid/dense-passage event over/under-detection problem this project has
+already tried four separate ways (three frame heuristics, one global DP
+segmentation, two finer-hop variants) and reverted from the real corpus
+every time — this diagnostic confirms the same already-abandoned
+problem, not a new one. (2) The wrong_pitch number itself is not
+trustworthy enough to act on — two different matching methodologies on
+the same data gave materially different answers (3268 vs. 2447), a red
+flag that the measurement is sensitive to matching-window/ordering
+choices rather than cleanly isolating a real defect. Per the Iron Law, a
+methodology-sensitive signal is not a confirmed root cause worth
+building a fix on.
+
+Phase D's frozen 6-piece set (2204, 2218, 2222, 2297, 2244, 2289) was
+never opened — correctly, since no correction existed to validate.
+**This closes out the sprint's search for a quick, safe, single
+correction with a clear negative result: none exists within the
+sprint's constraints.** A methodology-robust note-level sequence
+alignment (proper DP between the two event streams, not a two-pointer
+approximation) would be needed before any future attempt could even
+get a trustworthy wrong-pitch-rate number to work from — flagged, not
+built, out of scope here.
+
 ## Priority 2 (2026-10-31): octave errors are the dominant remaining
 ## pitch-extraction failure post-breath-noise-fix — no safe fix found
 

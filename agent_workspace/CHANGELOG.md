@@ -1,5 +1,34 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (17) — P0 sprint Phase C/D/E: STOP, no fix exists within constraints -- confirms an already-abandoned problem, correctly, before writing any code
+
+Diagnosed the exact CREPE-vs-ground-truth divergence on all 9
+CREPE-bound dev pieces via an order-respecting sequence diff (self-
+corrected mid-task: a looser nearest-time matcher gave an implausible
+44.9% wrong-pitch rate from cross-matching in dense passages). CREPE
+substantially over-generates candidate events vs. real notes on every
+piece (e.g. 2241: 912 events vs. 608 real notes).
+
+**Decision: STOP, nothing implemented.** The over/under-detection
+pattern is the exact shape of the rapid/dense-passage problem already
+tried four separate ways and reverted from the real corpus every time
+-- this confirms the existing, already-abandoned problem rather than
+revealing a new one. Separately, the wrong-pitch rate itself proved
+methodology-sensitive (two matching approaches gave 3268 vs. 2447 on
+the same data) -- not a confirmed root cause worth building a fix on.
+
+No branch, no commit. The frozen 6-piece validation set was never
+opened -- correctly, since no correction existed to validate.
+
+**This closes out the full two-sprint search (P0 Audio Detector
+Reliability Sprint + Accelerated Audio Accuracy Recovery Sprint) for a
+quick, safe, single correction to wrong-note detection with a clear
+negative result: none exists within these constraints.** A real fix
+needs either a genuinely new idea for the CREPE dense-passage problem
+(already given up on once) or a methodology-robust sequence-alignment
+matcher just to get a trustworthy number to work from (new backlog
+item). Full detail: `agent_workspace/AUDIO_PIPELINE_AUDIT.md`.
+
 ## 2026-10-31 (16) — P0 sprint Phase A+B: benchmark repaired, dominant failure isolated with hard evidence -- CREPE extraction, not DTW, on 75% of pieces
 
 Commit `73d9484`. Repaired `inject_audio_mistakes.py` with a real

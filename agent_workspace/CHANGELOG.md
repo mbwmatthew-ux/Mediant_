@@ -1,5 +1,41 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 (3) — LadderSym Gate 3 pilot run: REJECT recommendation; teacher-facing features discontinued
+
+Owner's "Gate 3 Approved & Teacher Features Discontinued" directive: run
+the previously-scoped 12-case real mistake-detection pilot (1 held-out
+MusicNet piece per instrument x 4 conditions), CPU-only, $0 spend, and
+stop building teacher-facing features.
+
+Built the full real pipeline: prepared 12 real inputs (score_audio via
+Gate 1B's generator, mistake_audio via the existing
+`inject_audio_mistakes.py`, symbolic MIDI prompts), ran the actual
+`cocochorales/prompted` checkpoint's `InferenceHandler.inference()` under
+the Gate 2 `transformers==4.24.0` environment, and scored the decoded
+output against the known injected ground truth. Found and fixed two more
+environment issues along the way (`protobuf` reading `note_seq`'s stale
+generated code; `numpy>=1.24` removing `np.int`/etc. that LadderSym's own
+pinned `pretty_midi==0.2.9` still uses) — both env-var/alias shims, not
+dependency reconstruction, and one real bug in the test harness itself
+(a missing `use_prompt=True` on the T5Config).
+
+**Result: 0% missing-note precision/recall, 1.5%/16.7% extra-note
+precision/recall, 28 unsupported (false-positive) predictions across just
+3 UNMODIFIED control cases, 1 of 9 non-control cases correctly detected.**
+The failure pattern is inconsistent in both directions across the 3
+instruments, not uniformly over- or under-sensitive. **Recommendation:
+reject** the released checkpoint as-is — this is a hard zero-shot
+cross-dataset transfer (CocoChorales-E training data vs. real MusicNet
+solo recordings + a differently-synthesized score reference), and closing
+that gap would need real fine-tuning, out of scope here. Full writeup:
+`agent_workspace/LADDERSYM_GATE3_FINDINGS.md`.
+
+Per the same directive, teacher-facing feature work (TeacherDashboard,
+annotation workflows) is discontinued going forward — existing
+infrastructure is left in place, untouched.
+
+No production code, dependencies, or deploys touched. No paid API calls.
+
 ## 2026-10-30 (2) — LadderSym Gate 2 blocker RESOLVED (one-line version bump); launch-readiness SQL queries delivered
 
 Owner's "Gate 2 Recovery and Launch-Readiness Directive": one bounded (~2hr

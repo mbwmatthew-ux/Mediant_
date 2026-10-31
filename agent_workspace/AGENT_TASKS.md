@@ -2,7 +2,7 @@
 
 AFTER EVERY CHANGE, WHEN APPROPRIATE, MAKE SURE TO UPDATE THIS FILE
 
-Last updated: 2026-10-11
+Last updated: 2026-10-30
 
 ---
 
@@ -12,11 +12,22 @@ Last updated: 2026-10-11
 take now lives in a persistent per-song thread with Loop, coach chat, and
 take-to-take comparison. The open question now is whether the product is
 ready for real users: the core analysis pipeline has no measured accuracy
-number (zero teacher annotations exist on 199 real takes — see the
-2026-10-11 full-audit entry in Completed), payments aren't operational, and
-a few launch-blocking decisions (annotate a sample for a first real accuracy
-read, decide on payments timing, decide on storage-retention policy) are
-the owner's to make, not further coding.
+number (zero teacher annotations exist on 199 real takes, last independently
+counted 2026-10-11 — see `agent_workspace/LAUNCH_READINESS_QUERIES.sql` to
+refresh that), payments aren't operational, and a few launch-blocking
+decisions (decide on payments timing, decide on storage-retention policy)
+are the owner's to make, not further coding.
+
+**2026-10-30 — teacher-facing features are discontinued per owner
+directive.** Do not build on TeacherDashboard, teacher accounts, or the
+annotation workflow — existing infrastructure stays as-is, untouched,
+unless a real security/operational issue appears. Future accuracy
+validation uses standalone offline benchmarks and directly-reviewed
+recordings instead of teacher annotation. Priorities, in order: (1)
+reliable visual score reading, (2) reliable multi-instrument mistake
+detection, (3) the existing frontend/coaching experience, (4) payment
+readiness, (5) storage retention/operational reliability. Do not narrow
+to a single instrument; no architecture rewrite.
 
 ---
 
@@ -95,7 +106,7 @@ _Nothing pending — all approved tasks have been completed._
 
 ## Needs Review
 
-- [ ] **Gate 2 Recovery + Launch-Readiness Directive — Track A RESOLVED, Track B delivered as owner-run SQL, Track C delivered as a plan in chat; final report delivered, awaiting owner's next-step decision.** **Track A:** the `tokenizers`/`transformers` blocker from `agent_workspace/LADDERSYM_GATE2_FINDINGS.md` is resolved — bumping `transformers` 4.18.0→4.24.0 only (every other pin unchanged) installs cleanly on Apple Silicon with zero source builds, constructs the exact model architecture, and loads the real `cocochorales/prompted` checkpoint with an exact 740/740 state-dict key match (`strict=True`, 0 missing, 0 unexpected) plus one passing CPU forward smoke test. Full writeup: `agent_workspace/LADDERSYM_GATE2_RESOLVED.md`. Gate 3's real 12-case inference pilot was NOT run (out of this directive's scope) — environment/checkpoint compatibility only, no detection-accuracy claim. **Track B:** read-only SQL queries for the owner to run themselves in the Supabase SQL Editor (no service-role key used) at `agent_workspace/LAUNCH_READINESS_QUERIES.sql` — instrument distribution, sheet-music linkage, analysis completion/failure, duration/quality, and the real teacher-annotation candidate pool (completed + flagged + not-yet-annotated). The previously-reported 199-take/instrument-mix figures are NOT independently re-verified this session (no DB access) — Query 1/2 refreshes them. **Track C:** teacher-annotation sampling plan and payments/storage decision flags delivered in chat (not as a separate file) per the directive's "concise plan" framing. **Needs the owner:** run the Track B queries and decide the single highest-value next step named in the final report.
+- [ ] **LadderSym investigation — CONCLUDED with REJECT; Launch-Readiness Track B SQL still needs the owner to run it.** Full arc: Track B research → feasibility report → Gate 1 (blocked, fixed via Gate 1B's timing-accurate generator) → Gate 2 (blocked on `tokenizers`/`transformers==4.18.0`, resolved by bumping to `4.24.0` only — exact 740/740 checkpoint state-dict key match, `strict=True`) → **Gate 3: 12-case real mistake-detection pilot run to completion, CPU-only, $0 spend.** Result: 0% missing-note precision/recall, 1.5%/16.7% extra-note precision/recall, 28 unsupported (false-positive) predictions across just 3 unmodified control cases, 1/9 non-control cases correctly detected. Inconsistent in both directions across the 3 instruments (Flute over-flags everywhere including controls; Violin under-flags on 3/4 conditions; Cello in between, contributing the pilot's one real hit). **Recommendation: reject** the released checkpoint as-is for production use — closing the gap would need real fine-tuning on Mediant-distribution data, out of scope for any further zero-shot tuning. Full writeup: `agent_workspace/LADDERSYM_GATE3_FINDINGS.md` (also see `LADDERSYM_GATE2_RESOLVED.md`, `LADDERSYM_GATE1B_FINDINGS.md`). Per this same directive, **teacher-facing feature work (TeacherDashboard, annotation workflows) is discontinued** — existing infrastructure left untouched, not to be extended. **Still needs the owner:** run `agent_workspace/LAUNCH_READINESS_QUERIES.sql` in the Supabase SQL Editor (Track B of the prior directive) — not something this session can do without a service-role key.
 
 
 

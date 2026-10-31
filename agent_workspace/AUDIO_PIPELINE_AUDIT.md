@@ -626,6 +626,61 @@ approximation) would be needed before any future attempt could even
 get a trustworthy wrong-pitch-rate number to work from — flagged, not
 built, out of scope here.
 
+### Task 2 (2026-10-31, "Audio Recovery: Measurement Fix + New Architecture Feasibility"): a genuinely different alignment formulation — large, consistent, real gains, no regression on any of 5 tested pieces
+
+Built `modal_worker/chroma_alignment_experiment.py`: a continuous
+chroma/CQT-feature DTW (`librosa.sequence.dtw` over `chroma_cqt`
+features, a classical MIR score-alignment technique) replacing the
+production pipeline's discrete-pitch-event DTW for the alignment stage
+only — CREPE's event extraction is bypassed entirely. A synthetic
+chroma template is rendered from the symbolic score (sounding pitch,
+transposition applied via the same `transpose_for_instrument` the
+production comparator uses) at a nominal average tempo derived from the
+real audio's duration; real `chroma_cqt` features come from the real
+MusicNet audio. Scored with the exact same `classify_alignment` the
+production validator uses, for a direct comparison.
+
+**Measured, real audio, same 5 pieces, current pipeline vs this approach:**
+
+| piece | instrument | current (real CREPE) | chroma-DTW |
+|---|---|---|---|
+| 2220 | Cello  | 0.4%  | **66.8%** |
+| 2242 | Violin | 49.8% | **78.3%** |
+| 2296 | Cello  | 2.0%  | **80.1%** |
+| 2293 | Cello  | 82.5% | 88.7% |
+| 2295 | Cello  | 83.2% | 85.3% |
+
+2220/2242/2296 are exactly the three pieces where the prior fork's
+diagnostic found the current DTW algorithm defective INDEPENDENT of
+input quality (7.4%/6.8%/9.0% even with perfect ground-truth events fed
+into the unchanged discrete-event DTW). Those same three pieces align
+60-80 points better under a continuous-feature formulation — strong
+evidence the defect lives in the discrete pitch-SEQUENCE DTW
+formulation itself, not fixable by improving CREPE's event extraction
+quality. 2293/2295 (where the current approach already performs
+reasonably) show a small additional gain, not a regression — no piece
+tested got worse.
+
+**Also notable:** this approach's "unmatched" rate (no measure
+assigned to a ground-truth note at all) is 0% on 4/5 pieces (0.9% on
+the 5th), vs. the current approach's 2.3%-41.5% — every audio frame
+gets some alignment by construction, so every ground-truth note gets a
+prediction, right or wrong; the current discrete-event approach can
+simply produce no aligned event anywhere near a given note at all.
+
+**Runtime:** the DTW step itself is 0.08-0.3s per piece (310s of audio)
+— fast, CPU-only, no GPU, no new model (chroma_cqt and
+`librosa.sequence.dtw` are standard, already-installed DSP library
+functions).
+
+**What this does NOT demonstrate** (per the owning directive's own
+constraint — do not confuse improved alignment with demonstrated
+mistake-detection accuracy): whether `find_wrong_note_candidates` (or
+an equivalent) can be adapted to consume this continuous alignment's
+output and produce reliable wrong-note flags. That adaptation is a
+separate, unbuilt, unverified step — only the alignment stage was
+tested here. Not wired into production; no production code touched.
+
 ## Priority 2 (2026-10-31): octave errors are the dominant remaining
 ## pitch-extraction failure post-breath-noise-fix — no safe fix found
 

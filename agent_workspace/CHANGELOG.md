@@ -1,5 +1,40 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (18) — Task 2, chroma/CQT alignment experiment: large, consistent, real gains on exactly the pieces where discrete-event DTW is defective
+
+New file `modal_worker/chroma_alignment_experiment.py` (standalone
+experiment, not wired into production): a continuous chroma/CQT DTW
+(`librosa.sequence.dtw` over `chroma_cqt`), replacing the alignment
+stage's discrete-pitch-event input with continuous audio features,
+score template rendered with transposition applied via the existing
+`transpose_for_instrument`.
+
+**Measured on real MusicNet audio, same 5 pieces as the prior sprint's
+diagnostic:**
+
+```
+piece  instrument  current(real CREPE)  chroma-DTW
+2220   Cello        0.4%                 66.8%
+2242   Violin       49.8%                78.3%
+2296   Cello        2.0%                 80.1%
+2293   Cello        82.5%                88.7%
+2295   Cello        83.2%                85.3%
+```
+
+2220/2242/2296 are exactly the pieces the prior fork found the current
+DTW defective on even with PERFECT ground-truth events (7.4%/6.8%/9.0%).
+Those same pieces align 60-80 points better under a continuous-feature
+formulation -- real evidence the defect is in the discrete-event DTW
+formulation itself. No piece tested regressed; unmatched rate dropped
+to ~0% from the current approach's 2.3%-41.5%.
+
+DTW itself runs in 0.08-0.3s/piece, CPU-only, no new model (standard
+librosa DSP functions already installed).
+
+**Does not demonstrate mistake-detection accuracy** -- only the
+alignment stage was tested; adapting the wrong-note comparator to this
+output is separate, unbuilt work. No production code touched.
+
 ## 2026-10-31 (17) — P0 sprint Phase C/D/E: STOP, no fix exists within constraints -- confirms an already-abandoned problem, correctly, before writing any code
 
 Diagnosed the exact CREPE-vs-ground-truth divergence on all 9

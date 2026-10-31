@@ -39,6 +39,32 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **page-omr root cause found: structural (barline) misreading, not symbol recognition — deskew fix shows real gains, needs full-scale validation next (see `agent_workspace/PAGE_OMR_ROOT_CAUSE_FINDINGS.md`).**
+  Split mild-tier accuracy by whether page-omr got each page's measure
+  COUNT right: 86.9% pitch accuracy on structurally-correct pages vs. 65.9%
+  overall — a 21pt gap proving structural/barline misreading, not pitch
+  recognition, is the dominant error source. Confirmed via a controlled
+  ablation (reused `degrade_visual_corpus.py`'s own sub-functions): rotation
+  alone, perspective-warp alone, and lighting-gradient alone EACH produced
+  the exact correct measure count on both worst-case pieces tested — only
+  the realistic COMBINATION of all three breaks structural decoding. This
+  also answers whether the synthetic degradation is realistic: yes — a real
+  phone photo naturally combines all three simultaneously, this isn't a
+  testing artifact.
+
+  Built and tested one bounded fix: a blind (non-cheating) projection-
+  profile deskew, estimated from the image alone. Result: 2 of 4 mild
+  structural-failure cases reached the EXACT real measure count after
+  deskewing (vs. 0 of 4 before), pitch accuracy gained +13 to +66 points
+  across all 4 cases tested, and ZERO regression on 2 clean-image checks
+  (100%→100%, 92.0%→92.0% exactly). Added latency: 0.5-0.8s/page, trivial.
+
+  **Recommended next action (not yet done — small 4-case sample)**: re-run
+  the full mild-tier held-out set with deskew applied, to confirm the gain
+  holds at scale before any integrate/defer decision. No production
+  changes made; this round used only already-collected images/ground
+  truth plus 12 new local CPU inference calls.
+
 - [ ] **page-omr expanded validation: CONTINUE WITH ONE SPECIFIC FIX (see `agent_workspace/PAGE_OMR_EXPANDED_FINDINGS.md`; pilot in `PAGE_OMR_BENCHMARK_FINDINGS.md`).**
   Built and validated a reliable page-to-measure mapping (via verovio's own
   layout of the real MusicXML, cross-checked two ways, zero failures across

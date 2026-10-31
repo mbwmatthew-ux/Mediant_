@@ -1,5 +1,32 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (2) — page-omr root cause found: structural barline misreading; deskew fix shows real gains
+
+Owner's "page-omr: Root-Cause Investigation Approved" directive. Split
+mild-tier accuracy by whether page-omr got each page's measure count
+right: 86.9% pitch accuracy on structurally-correct pages vs. 65.9%
+overall -- the dominant error source is structural/barline misreading,
+not symbol (pitch) recognition. Confirmed via a controlled ablation
+reusing `degrade_visual_corpus.py`'s own sub-functions: rotation alone,
+perspective-warp alone, and lighting-gradient alone each produced the
+exact correct measure count on both worst-case pieces tested -- only the
+realistic combination of all three breaks structural decoding. This also
+answers whether the degradation is realistic: yes, a real phone photo
+naturally combines all three at once.
+
+Built and tested one bounded corrective experiment: a blind (not
+cheating -- estimated from the image alone) projection-profile deskew.
+2 of 4 mild structural-failure cases reached the exact real measure
+count after deskewing (0 of 4 before), pitch accuracy gained +13 to +66
+points across all 4 cases, zero regression on 2 clean-image checks.
+Added latency ~0.7s/page.
+
+Recommended next action: validate this at full scale (the complete
+mild-tier held-out set, already-collected assets) before any
+integrate/defer decision -- not yet done, this round's sample was 4
+cases. See `agent_workspace/PAGE_OMR_ROOT_CAUSE_FINDINGS.md`. No
+production changes, no new model, no paid API calls.
+
 ## 2026-10-31 — page-omr expanded validation: CONTINUE WITH ONE SPECIFIC FIX
 
 Owner's "page-omr: Expanded Validation Approved" directive. Solved the

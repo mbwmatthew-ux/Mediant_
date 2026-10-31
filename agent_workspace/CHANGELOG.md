@@ -1,5 +1,29 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (11) — CRITICAL: real wrong-note detector measured at 0% true recall, 50% false-positive rate; prior "96.3% detection" number was a degenerate metric
+
+Phase 2 of "MEDIANT — Continue Pipeline Validation and Prepare Coaching
+Evaluation." Re-ran the existing free, CPU-only MusicNet mistake-
+injection harness on the same 18 held-out pieces used by every prior
+round, but this time called the REAL production detector
+(`find_wrong_note_candidates`) instead of only checking DTW alignment
+continuity.
+
+**The prior "96.3% detection / 57.7% localization / 100% control FP"
+number (Track B) was re-confirmed to be measuring whether DTW aligns
+*something* within 0.3s of a reference timestamp — true by construction
+on almost every piece, mistake or not. It was never a mistake-detection
+measurement.**
+
+**Real number, measured for the first time, using the actual production
+function:** wrong-pitch recall 0/18 = 0.0%; false-positive rate on
+unmodified correct audio 9/18 = 50.0%. No missing/extra-note detector
+exists in production at all. A "squeak-shaped event routing" hypothesis
+for the root cause is plausible but explicitly unverified.
+
+Full detail: `agent_workspace/AUDIO_PIPELINE_AUDIT.md`'s new top
+section. $0 spend, CPU-only, zero code changes (pure measurement).
+
 ## 2026-10-31 (10) — Full pipeline compatibility audit: real run_beat_tracking crash found and fixed (not page-omr-specific); page-omr/Claude-vision parity confirmed byte-identical on real matched case
 
 Owner's "MEDIANT — Full Pipeline Compatibility and Accuracy Validation"

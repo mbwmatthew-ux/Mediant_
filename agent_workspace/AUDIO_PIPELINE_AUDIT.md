@@ -5,6 +5,79 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## CRITICAL (2026-10-31): the real wrong-note detector has ~0% true recall and ~50% false-positive rate — prior "96.3% detection" number was measuring a different, degenerate thing
+
+Found during Phase 2 of "MEDIANT — Continue Pipeline Validation and
+Prepare Coaching Evaluation." This revises what every prior round
+believed about the project's actual mistake-detection capability and
+should be read before trusting any earlier "detection" percentage in
+this file or in AGENT_TASKS.md's Track B entry.
+
+**What the prior "96.3% detection / 57.7% localization / 100% control
+false-positive" numbers (Track B, `agent_workspace/AGENT_TASKS.md`)
+actually measured:** whether `dtw_align_to_score` aligns *something*
+within 0.3s of a reference timestamp on the injected-mistake condition
+vs. the untouched control. DTW aligns continuously across an entire
+piece by construction, so this is true on nearly every piece regardless
+of whether a mistake was injected — it is not, and never was, a measure
+of mistake-detection. Confirmed by re-running it fresh this round:
+identical 100%/100%/100% degenerate pattern on every piece, including
+controls.
+
+**What the ACTUAL production detector does, measured for the first time
+this round:** called `find_wrong_note_candidates` — the real function
+`run_full_analysis` uses to generate wrong-note flags — on the same 18
+held-out MusicNet pieces' `wrong_pitch` and `control` conditions (real
+audio, synthetic pitch-substitution injection via the existing
+`inject_audio_mistakes.py`, zero paid API calls).
+
+- **True wrong-pitch recall: 0/18 = 0.0%.** The detector never once
+  located the actual injected wrong note, on any of the 18 pieces.
+- **True false-positive rate on unmodified, correct audio: 9/18 = 50.0%.**
+  Half the time, the real detector flags something as a wrong note on a
+  performance that has no mistake in it at all.
+- In nearly every piece, the flag set produced for `wrong_pitch` and for
+  `control` is almost identical — strong evidence the detector is firing
+  on fixed, pre-existing CREPE/alignment artifacts specific to that
+  recording, not responding to the actual injected mistake at all.
+- Two pieces (2220, 2296, both Cello) tripped the detector's own
+  "more than 25% of notes look wrong" sanity gate and got fully
+  suppressed (51-54% of notes flagged) — a separate, piece-specific
+  breakdown.
+- **Plausible but UNVERIFIED hypothesis, not confirmed, flagged for
+  follow-up only:** hundreds of events per piece (374-769) may be
+  getting classified as "squeak-shaped" and routed away from the
+  wrong-note comparator before it ever sees them — which could be
+  silently swallowing the injected note. This has not been traced to a
+  confirmed root cause.
+
+**Also confirmed this round: there is no missing-note or extra-note
+detector in production at all.** The only three detectors are
+`find_wrong_note_candidates`, `find_crack_candidates`, and
+`find_rest_violations`; the last only fires for notes played during a
+*written* rest, which none of the injected test cases are. No
+precision/recall number exists for missing/extra notes because the
+capability itself doesn't exist yet to measure.
+
+**What this is NOT (yet) known to be:** whether this is a fixable
+software bug (e.g. the "squeak-shaped" routing hypothesis, an
+off-by-something in which audio/score window gets compared, a threshold
+set wrong) or a genuine, harder accuracy limitation of CREPE+DTW's
+precision. 0% recall across 18 pieces (not just "low," literally zero)
+is suspicious enough to suggest a systematic bug rather than pure
+imprecision, but this has NOT been root-caused — only the symptom has
+been measured, rigorously, for the first time.
+
+**Status: this finding is more launch-critical than anything else in
+this file.** It directly contradicts the product's core promise
+("measure-level feedback on pitch, rhythm, dynamics, articulation") and
+was previously masked by a measurement that looked like a strong real
+number (96.3%) but wasn't measuring the right thing. See the owner
+conversation this same day for the decision on whether to root-cause
+this before anything else proceeds.
+
+---
+
 ### The four failure categories, and what already has a real number
 
 **1. Score-reading failures (Claude vision transcribing a photographed/PDF score into notes)**

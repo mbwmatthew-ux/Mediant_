@@ -39,6 +39,17 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **Flat OMR API — first paid test complete, 1 of 1 approved credits spent (see `agent_workspace/FLAT_OMR_FIRST_TEST.md`).**
+  Verified auth + balance (30 credits) before spending, ran exactly ONE
+  job (piece 2220, Cello, clean tier, single page), confirmed afterward
+  that exactly 1 credit was deducted (30→29). Scored Flat's MusicXML
+  output with the exact same canonicalization + scorer used for every
+  page-omr number in this investigation. Result: Flat 96.4% pitch / 91.7%
+  exact-measure / 71.1s; page-omr 100% / 100% / 9.5s / $0 on the same
+  piece. One sample only — not a general claim either way. No further
+  credits spent without approval, per the directive. **Token was shared
+  in plaintext chat to set this up — recommend the owner rotate it.**
+
 - [ ] **page-omr + deskew: staging integration built — NO-GO for user rollout yet (see `agent_workspace/PAGE_OMR_STAGING_INTEGRATION.md`).**
   Built a real backend adapter (`modal_worker/page_omr_adapter.py`) and a
   staging-only `MEDIANT_SCORE_ENGINE` feature flag inside `worker.py`

@@ -1,5 +1,27 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (5) — Flat OMR API: first paid test, 1 credit spent, vs. page-omr
+
+Owner's "Flat OMR API Setup and First Test" directive. Verified auth and
+balance (30 credits) via `GET /v2/omr/capabilities` before spending
+anything. Ran exactly one Interactive Jobs conversion (piece 2220,
+Cello, clean tier, single page, output=musicxml, never touched the Flat
+Library) and confirmed afterward the balance dropped by exactly 1
+credit (30->29). Scored Flat's MusicXML with the same canonicalization
++ scorer used for every page-omr number this investigation has
+produced.
+
+Result on this one piece: Flat 96.4% pitch / 100% rhythm / 91.7%
+exact-measure / 71.1s; page-omr 100% / 100% / 100% / 9.5s / $0. Flat's
+errors were 4 measures with exactly 2 clean pitch substitutions each,
+rhythm otherwise perfect -- not degenerate output. One sample, one
+tier -- not a general claim. No further credits spent. See
+`agent_workspace/FLAT_OMR_FIRST_TEST.md`.
+
+Note: the Flat API token was shared in plaintext in chat to set this
+up and was never printed/logged/committed, but plaintext-in-chat is not
+a secure distribution channel -- recommended the owner rotate it.
+
 ## 2026-10-31 (4) — page-omr + deskew: staging adapter and feature flag built, NO-GO for rollout
 
 Owner's "Integrate page-omr + Deskew Into Staging" directive. Added

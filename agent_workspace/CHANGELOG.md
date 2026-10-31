@@ -1,5 +1,33 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (3) — page-omr deskew preprocessing: INTEGRATE, validated at full scale
+
+Owner's "Full Held-Out Deskew Benchmark Approved" directive. Applied the
+frozen deskew implementation (unchanged from the 4-case pilot) to every
+held-out page -- all 24 mild-tier pieces (54 pages) and all 25 clean-tier
+pieces (55 pages), 109 new CPU inference calls, 21.9 min total, $0 --
+scored against the already-collected frozen raw baselines.
+
+Result: mild-tier pitch accuracy 65.3%->91.3% (+26.0pt), exact-measure
+50.9%->82.6%, structural measure-count match rate 57.4%->92.6%.
+Clean-tier: exactly byte-identical totals before and after across all 25
+pieces -- zero regression, not approximate. All 3 tested instruments
+improved (Cello +20.9pt, Violin +30.2pt, Flute +34.1pt). A new
+sequence-level (measure-boundary-independent) scoring view, reusing the
+same Levenshtein alignment already trusted elsewhere, confirmed the gain
+is both structural (barline-finding fixed) and a real, smaller
+improvement in raw symbol legibility. Zero invalid/runaway outputs
+anywhere in 109 pages.
+
+Recommendation: INTEGRATE deskew as a standing preprocessing step ahead
+of page-omr for non-guaranteed-clean input -- meets the owner's own bar
+(meaningful improvement, zero regression, practical +0.65s/page latency).
+This is not a production-deployment recommendation for page-omr itself;
+remaining blockers (no real photos tested, no clarinet/guitar coverage,
+unresolved failure-detector gap) are named in
+`agent_workspace/PAGE_OMR_DESKEW_FULL_VALIDATION.md`. No production
+changes, no new model, no paid API calls.
+
 ## 2026-10-31 (2) — page-omr root cause found: structural barline misreading; deskew fix shows real gains
 
 Owner's "page-omr: Root-Cause Investigation Approved" directive. Split

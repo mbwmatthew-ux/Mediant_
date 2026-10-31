@@ -39,6 +39,35 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **page-omr deskew preprocessing: INTEGRATE — validated at full scale (see `agent_workspace/PAGE_OMR_DESKEW_FULL_VALIDATION.md`).**
+  Applied the FROZEN deskew (unchanged from the 4-case pilot) to every
+  held-out page: all 24 mild-tier pieces (54 pages) and all 25 clean-tier
+  pieces (55 pages), scored against the already-collected frozen raw
+  baselines (no rerun of raw). Result: **mild-tier pitch accuracy
+  65.3%→91.3% (+26.0pt)**, exact-measure 50.9%→82.6%, structural
+  (measure-count) match rate 57.4%→92.6%. **Clean-tier: exactly
+  byte-identical totals before and after across all 25 pieces, zero
+  regression** — the estimator correctly detected ~0° correction needed on
+  every clean image. All 3 tested instruments improved (Cello +20.9pt,
+  Violin +30.2pt, Flute +34.1pt). Added a sequence-level (measure-
+  boundary-independent) scoring view confirming the gain is BOTH
+  structural (barline-finding fixed) and a real, smaller improvement in
+  raw symbol legibility. 21/24 mild pieces improved, 2 had tiny (<3.2pt)
+  regressions traced directly to pages that were already either correct
+  or already-broken before deskewing — deskew never broke a previously-
+  correct page. Zero invalid/runaway outputs anywhere in 109 pages.
+  Latency: +0.65s/page, trivial next to inference's 5-50s.
+
+  **Recommendation: INTEGRATE deskew as a standing preprocessing step
+  ahead of page-omr** for any non-guaranteed-clean input — meets the
+  owner's own INTEGRATE bar (meaningful improvement, ~zero regression,
+  practical latency). This is NOT a recommendation to deploy page-omr to
+  production yet — remaining blockers: no real smartphone photos tested
+  anywhere in this investigation (all synthetic, now evidenced realistic);
+  zero clarinet/guitar ground truth exists; the failure detector built
+  2 rounds ago still has an unresolved generalization gap; multi-page
+  mapping untested against real photos. No production code written.
+
 - [ ] **page-omr root cause found: structural (barline) misreading, not symbol recognition — deskew fix shows real gains, needs full-scale validation next (see `agent_workspace/PAGE_OMR_ROOT_CAUSE_FINDINGS.md`).**
   Split mild-tier accuracy by whether page-omr got each page's measure
   COUNT right: 86.9% pitch accuracy on structurally-correct pages vs. 65.9%

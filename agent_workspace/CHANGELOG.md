@@ -1,5 +1,52 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (9) — Production build-isolation fix; audio-pipeline category audit (no new DTW/pitch fix, one real finding banked)
+
+Owner's "Finish Visual Integration and Improve Audio Accuracy" directive.
+Four priorities, mostly audit against already-done work, not a rebuild.
+
+**Priority 1 (visual production readiness):** found and fixed a real
+gap — `git` and the entire page-omr build block (pip install,
+torchvision force-reinstall, transformers pin, 737MB checkpoint bake)
+were running unconditionally in the Modal image build, even though the
+runtime `MEDIANT_SCORE_ENGINE` flag was already gated. The next ordinary
+production `modal deploy` would have silently inherited all of it for a
+path production never enables. Moved the whole block behind the existing
+staging-only conditional. Build-script change only -- confirmed via diff
+scope and the full regression suite (719/719 + 16/16 + every other
+`modal_worker/test_*.py` file) staying green. No production deploy made.
+See `agent_workspace/PAGE_OMR_PRODUCTION_READINESS.md`.
+
+**Priority 3 (rhythm/DTW):** categorized current real alignment-miss
+data against the directive's 5 requested failure categories (false
+onsets, missed/rapid notes, legato transitions, tempo variation,
+mapping drift). All 5 already map onto specific mechanisms from the
+existing 13-attempt tuning history (2 shipped, 11 reverted, explicit
+2026-10-15 stop-tuning decision on record). **No new DTW change ships**
+-- nothing found constitutes new evidence for a 14th attempt.
+
+**Priority 4 (coaching):** confirmed, not re-investigated -- nothing
+this round touches the coaching path. Did not restore Gemini-only
+detection or LadderSym (both remain rejected).
+
+**Priority 2 (pitch/octave errors) -- real new finding, no fix shipped.**
+Re-ran the full real 2,224-clip TinySOL corpus with a per-clip
+breakdown: `octave_error` is now the single largest non-correct pitch
+category post-breath-noise-fix (45/2224, 2.0%). Two fully-explained
+clusters: Double Bass/Tuba near their register floor (missing-
+fundamental, always detected an octave high -- 36% of Double Bass's
+lowest-octave clips) and Violin/Viola/Flute at CREPE's own documented
+~1975-2093Hz ceiling (always detected an octave low -- an already-
+disclosed, deliberate gap, not a new bug). Checked directly whether a
+"prefer the lower octave" heuristic could work: it can't be
+distinguished from an already-correct detection using the decoded pitch
+alone (a genuinely correct 110Hz Double Bass reading looks identical to
+a wrongly-doubled 55Hz->110Hz error). No fix implemented -- recorded as
+a precisely-diagnosed Backlog item instead of shipping an unvalidatable
+heuristic.
+
+719/719 + 16/16 + full `modal_worker/test_*.py` suite green throughout.
+
 ## 2026-10-31 (8) — page-omr staging deployment LIVE; 3 real env bugs found+fixed; real-photo validation still blocked
 
 Owner's "Staging Deployment Approved + Complete Task 3" directive.

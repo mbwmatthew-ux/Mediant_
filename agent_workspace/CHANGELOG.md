@@ -1,5 +1,50 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (20) — Audio Recovery sprint closes: NO-GO on chroma/CQT alignment, classified (D) combination problem; three reusable artifacts shipped
+
+The authoritative final result — supersedes entry (19) below, which was
+a preliminary self-check by the same agent that built the experiment
+and did not use the properly-validated DP evaluator or test actual
+wrong-note detection. This entry is from the separately-dispatched,
+dedicated Task 3/4 validation (`modal_worker/p0_frozen_validation.py`,
+commit `554e66c`).
+
+**The frozen 6-piece set (2204/Flute, 2218/Cello, 2222/Cello,
+2297/Cello, 2244/Violin, 2289/Violin) did NOT confirm a generalizable
+advantage.** 2204/2297/2222 replicate real gains. **2244 collapses
+89.6%→47.1% (-42.3pt), 2289 drops 92.5%→86.5%** — a severe,
+previously-untested-profile regression: the dev set's two regression
+checks (2293, 2295) had coincidentally both been Cello, so no Violin
+piece with 2244's tempo/density profile was tested before this run.
+Likely mechanism: the chroma template's single nominal piece-average
+tempo desyncs against real local tempo variation.
+
+**The metric that actually matters: wrong-pitch detection via the
+verified-injection benchmark.** Only 1 of 6 frozen pieces produced a
+valid injection in 8 attempts (reproducing the dev-set's benchmark-
+reliability finding on fresh data). On that one testable case, **both
+the current pipeline and a minimal CREPE+chroma-DTW hybrid missed the
+injected mistake — zero recall improvement**, despite much better raw
+alignment localization on other pieces. This is exactly the
+alignment-vs-detection conflation the parent directive warned against.
+
+**Decision: NO-GO. No production code touched anywhere in this
+investigation.** Classification: **(D) — a combination requiring
+larger architectural changes.** CREPE's event over-generation (real,
+confirmed on 9/12 dev pieces), the alignment algorithm's two distinct
+piece-dependent failure modes (discrete-DTW fails on some pieces,
+chroma-DTW fails on others — no single formulation is uniformly
+correct), and the comparator/gate stage (still blocks detection even
+where alignment works) are all independently implicated. No
+single-component fix addresses all three.
+
+**Three reusable artifacts survive the NO-GO**, all committed: the
+validated DP note-sequence evaluator (`note_sequence_evaluator.py`,
+`5e02fe3`), the chroma/CQT alignment experiment (`chroma_alignment_experiment.py`,
+`35bfc01`), and the frozen-validation harness (`p0_frozen_validation.py`,
+`554e66c`). $0 spend, CPU-only throughout. Full detail:
+`agent_workspace/AUDIO_PIPELINE_AUDIT.md`.
+
 ## 2026-10-31 (18) — Task 2, chroma/CQT alignment experiment: large, consistent, real gains on exactly the pieces where discrete-event DTW is defective
 
 New file `modal_worker/chroma_alignment_experiment.py` (standalone

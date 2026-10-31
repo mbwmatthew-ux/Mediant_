@@ -744,6 +744,62 @@ global constant) and re-run the SAME frozen set once more before any
 integration decision — this is a narrow, targeted fix to a known,
 explained weakness, not a new broad investigation.
 
+### Task 3/4 (2026-10-31, authoritative — supersedes Task 2's own preliminary self-check above): chroma-DTW does NOT generalize — NO-GO, classified as a combination problem
+
+Ran the frozen 6-piece set (2204/Flute, 2218/Cello, 2222/Cello,
+2297/Cello, 2244/Violin, 2289/Violin — opened for the first and only
+time) through three conditions: (A) current pipeline, (B) chroma/CQT
+alignment alone, (C) a minimal hybrid — real CREPE events, but measure
+assignment via chroma-DTW's warping path instead of
+`dtw_align_to_score`.
+
+**Localization (correct %, A/B/C):** 2204: 31.8/**81.1**/70.8. 2218:
+92.2/93.3/91.4. 2222: 32.2/36.1/36.2. 2297: 57.4/**87.3**/84.3. **2244:
+89.6/47.1/47.3 — a severe, previously-unseen 42-point regression.**
+2289: 92.5/85.4/86.5. The dev-set's two regression-check pieces (2293,
+2295) were both Cello — no Violin piece with 2244's profile was tested
+before now, and Violin is exactly where this breaks (avg 91.0%→66.3%
+across the 2 frozen Violin pieces). Likely mechanism, not fully traced:
+the chroma template uses one nominal piece-average tempo; a piece with
+real local tempo variation desyncs a single global warping path.
+
+**The metric that actually matters — wrong-pitch detection via the
+verified-injection benchmark:** only 1 of 6 frozen pieces produced a
+valid injection in 8 attempts (independently reproducing the dev-set's
+benchmark-reliability finding on fresh data). On the one testable case,
+**both the current pipeline and the hybrid missed it — zero
+improvement.** n=1, but it's the only real evidence available, and
+raw localization gains (B's 81.1%/87.3% above) did **not** translate
+into better actual mistake detection on the one case that could be
+checked — exactly the conflation the parent directive warned against.
+
+**False positives:** improves on 2 pieces, ties on 3, **regresses on
+2244 (0→6 new false flags)** — same piece as the localization collapse.
+
+**Decision: NO-GO.** No production code touched (`worker.py`
+unaffected throughout this whole investigation branch).
+
+**Classification: (D) — a combination requiring larger architectural
+changes**, not a single fixable component: (A) CREPE event-extraction
+over-generation is real and confirmed dominant on 9/12 dev pieces; (B)
+the alignment algorithm has TWO distinct, piece-dependent failure
+modes — discrete pitch-DTW fails on some pieces, chroma-DTW fails on
+others — no single formulation is uniformly correct; (C) the one
+testable recall case shows the comparator/gate stage still blocks
+detection even where alignment localizes reasonably. No single-
+component fix addresses all three. An ensemble/per-piece-adaptive
+approach is a plausible future direction, but is itself a larger
+architectural change, not a minimal integration — not recommended here.
+
+**This closes out the "Audio Recovery: Measurement Fix + New
+Architecture Feasibility" directive.** Three real deliverables survive
+it regardless of the NO-GO: a validated DP note-sequence evaluator
+(`note_sequence_evaluator.py`), a working chroma/CQT alignment
+experiment with genuine (if non-generalizing) gains on specific pieces
+(`chroma_alignment_experiment.py`), and a frozen-set validation harness
+(`p0_frozen_validation.py`) — all committed, all reusable for whoever
+picks up the (D)-classified combination problem next.
+
 ## Priority 2 (2026-10-31): octave errors are the dominant remaining
 ## pitch-extraction failure post-breath-noise-fix — no safe fix found
 

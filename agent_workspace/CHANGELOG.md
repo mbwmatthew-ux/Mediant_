@@ -1,5 +1,42 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 — page-omr expanded validation: CONTINUE WITH ONE SPECIFIC FIX
+
+Owner's "page-omr: Expanded Validation Approved" directive. Solved the
+pilot's open multi-page gap: built a page-to-measure mapping from verovio's
+own real layout of each piece's MusicXML (the exact rendering call that
+produced the corpus PNGs), cross-validated two independent ways, zero
+failures across all 25 corpus pieces. Expanded to the 20 held-out pieces x
+clean+mild tiers (40 cases, 100 page-inferences, 33.6 min CPU, $0) and got
+a result that closely matches the 5-piece pilot: clean 95.4% pitch / mild
+65.4% pitch (pilot: 96.3%/64.7%) -- not a fluke, multi-page handling doesn't
+measurably hurt accuracy.
+
+Tested the one real reusable whole-page preprocessing step in this codebase
+(`_binarize_ink` -- there is no actual deskew at the page level; the
+existing `dewarp_row` assumes one isolated staff system per crop). No
+benefit on mild degradation, actively worse on severe (several cases
+collapsed to near-blank output instead of being rescued). Froze the
+decision: raw images, no binarization.
+
+Built a ground-truth-free failure detector and caught a real generalization
+bug in it before reporting the result as fact: it worked cleanly on the
+13-case pilot (100% precision, 60% recall) but produced 21 false positives
+on the 40-case held-out expansion, because its absolute output-length
+threshold doesn't scale to longer, legitimately-complex pieces. The
+repetition-collapse half of the detector held up with zero false positives
+across all 53 cases tested, but that specific failure mode never occurred
+anywhere in the mild-tier data.
+
+Recommendation: CONTINUE WITH ONE SPECIFIC FIX (normalize the detector's
+length signal per predicted measure, not as a raw character count) --
+not integrate (mild-degradation accuracy never materially improved and
+there's no reliable way yet to flag a bad upload instead of silently
+returning a ~65%-accurate read) and not reject (clean-score accuracy is
+excellent and now confirmed at real scale). See
+`agent_workspace/PAGE_OMR_EXPANDED_FINDINGS.md`. No production changes, no
+paid APIs, no GPU spend.
+
 ## 2026-10-30 (4) — page-omr five-piece benchmark: EXPAND TESTING (real bug caught before trusting results)
 
 Owner's "page-omr Benchmark Approved" directive: downloaded and

@@ -39,6 +39,33 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **page-omr + deskew: staging integration built — NO-GO for user rollout yet (see `agent_workspace/PAGE_OMR_STAGING_INTEGRATION.md`).**
+  Built a real backend adapter (`modal_worker/page_omr_adapter.py`) and a
+  staging-only `MEDIANT_SCORE_ENGINE` feature flag inside `worker.py`
+  (default unset = old Claude+Audiveris path, byte-for-byte unchanged —
+  719/719 existing tests still pass). Fixed a real score_cache
+  cross-engine-collision risk and extended score-DTW eligibility +
+  the reference-audio provenance gate to the new engine (both via one
+  extracted, tested `is_vision_sourced_score()` helper). Verified the
+  production adapter module reproduces the already-validated benchmark
+  numbers exactly (2220/mild: 100% pitch accuracy, byte-identical to the
+  recorded deskew-benchmark result) and spot-checked the one genuinely
+  new code path — multi-page concatenation with no privileged ground-
+  truth mapping (production has none) — on a real 3-page piece (2186):
+  not shown to underperform the benchmark's own privileged-mapping
+  result, but n=1. Ran the ONE real smartphone photo available in this
+  project (no ground truth, used only for an orientation-normalization
+  test fixture) — succeeded, plausible-looking, unscored. No `modal
+  deploy` was run; no production/live-traffic change of any kind.
+
+  **Recommendation: NO-GO for any user-facing rollout.** The integration
+  itself is done and safe to keep developing against. Blockers are
+  unchanged from the prior round and still open: zero SCORED real-photo
+  accuracy data (the only real photo tested has no ground truth), no
+  detector for wrong-but-normal-looking output, zero clarinet/guitar
+  coverage, no real Modal deployment measured (cost/latency are estimates
+  from local CPU numbers against Modal's published rates).
+
 - [ ] **page-omr deskew preprocessing: INTEGRATE — validated at full scale (see `agent_workspace/PAGE_OMR_DESKEW_FULL_VALIDATION.md`).**
   Applied the FROZEN deskew (unchanged from the 4-case pilot) to every
   held-out page: all 24 mild-tier pieces (54 pages) and all 25 clean-tier

@@ -51,6 +51,19 @@ image = (
         # change nothing today and only stop a silent major-version jump.
         "pip install 'torch<3.0' 'torchaudio<3.0' --index-url https://download.pytorch.org/whl/cpu",
         "pip install 'torchcrepe<1.0'",
+        # page-omr (modal_worker/page_omr_adapter.py) — staging-only alternate
+        # score-reading engine, selected via MEDIANT_SCORE_ENGINE=page_omr; the
+        # default path (unset) never imports this. Pin transformers BEFORE
+        # installing page-omr, same pattern as the torch/torchcrepe pins above:
+        # page-omr's own pyproject.toml only requires transformers>=4.30.0, which
+        # a plain `pip install` resolves to a 5.x release that silently breaks its
+        # `transformers.Dinov2Model` encoder — confirmed directly (the encoder
+        # collapses into a repeated degenerate token regardless of input image or
+        # checkpoint) — see agent_workspace/PAGE_OMR_BENCHMARK_FINDINGS.md.
+        # Repo pinned to the exact commit every validation benchmark in
+        # agent_workspace/PAGE_OMR_*.md was produced against.
+        "pip install 'transformers==4.46.3'",
+        "pip install 'git+https://github.com/tobiashornbogen/page-omr.git@e369a44a8232ddcf0ddd915f7e07b19cdcb91b61'",
     )
     .pip_install(
         # Audio processing
@@ -106,6 +119,11 @@ image = (
         # data existed, for however long this had been deployed.
         "anthropic>=0.30.0,<1.0.0",
     )
+    # page_omr_adapter.py is a sibling module (not a pip package), so it needs
+    # an explicit add — `modal deploy modal_worker/worker.py` does not auto-mount
+    # sibling files in this Modal client version. Added last so the adapter
+    # module is importable regardless of image-layer caching above.
+    .add_local_python_source("page_omr_adapter")
 )
 
 # ── Data types (dicts — no dataclasses so JSON-serializable naturally) ────────
@@ -5657,6 +5675,41 @@ def _align_audiveris_measures(claude_numbers_by_row: dict[tuple[int, int], list[
     return aligned
 
 
+# Page-omr source values — "page_omr" (success) only; a failed page-omr read
+# never sets "source" at all (see page_omr_adapter.score_pages_with_page_omr's
+# error-path returns), so there is nothing else to name here.
+_PAGE_OMR_SOURCE = "page_omr"
+
+
+def score_cache_matches_engine(cached_score_notes: dict, using_page_omr: bool) -> bool:
+    """
+    True when a score_cache hit was produced by the CURRENTLY selected
+    engine, False when it was produced by the other one.
+
+    score_cache is keyed only by the photo's content hash (score_path),
+    shared across whichever engine last wrote it — switching
+    MEDIANT_SCORE_ENGINE does not change that key, so without this check a
+    cache hit could silently serve the other engine's result regardless of
+    which one is currently selected. See _score_pipeline's cache
+    short-circuit (its only call site) for the full reasoning.
+    """
+    cached_is_page_omr = cached_score_notes.get("source") == _PAGE_OMR_SOURCE
+    return cached_is_page_omr == using_page_omr
+
+
+def is_vision_sourced_score(score_source: str) -> bool:
+    """
+    True for any photo-read (not deterministic MusicXML-parsed) score
+    source — "claude_vision"/"claude_vision_partial" or the staging
+    "page_omr" engine. Used to gate score-DTW alignment eligibility (see
+    its call site) and the reference-audio provenance gate (its other call
+    site) identically for both engines: page-omr is a real photo-read model
+    with a measured, non-zero error rate, same risk class as Claude vision,
+    not the deterministic-parse risk class music21 is.
+    """
+    return score_source.startswith("claude_vision") or score_source == _PAGE_OMR_SOURCE
+
+
 def read_score_notes_claude(
     pages: list[tuple[bytes, str]],
     start_measure: int, instrument: str, time_sig: str,
@@ -10094,6 +10147,18 @@ def run_full_analysis(payload: dict) -> None:
             if not score_url:
                 return s, ps_notes, _pages_covered(s)
 
+            # Score-reading engine: defaults to the existing Claude+Audiveris path.
+            # MEDIANT_SCORE_ENGINE=page_omr is a staging-only Modal deployment
+            # setting (not a request/payload field — the frontend API contract is
+            # unchanged) that switches to the page-omr+deskew adapter instead. See
+            # "MEDIANT — Integrate page-omr + Deskew Into Staging" (2026-10-31) and
+            # agent_workspace/PAGE_OMR_DESKEW_FULL_VALIDATION.md for the validation
+            # this is built on. Read fresh (not module-level) so a redeploy with a
+            # new env value takes effect without relying on cold-start timing.
+            import os
+            score_engine = (os.environ.get("MEDIANT_SCORE_ENGINE") or "").strip().lower()
+            using_page_omr = score_engine == "page_omr"
+
             # Cache short-circuit BEFORE any download. cached_score_notes is only ever
             # populated for visual (pdf/image) scores — see the analyze-performance edge
             # function's cache lookup, gated on scoreMimeType matching pdf|image — and it
@@ -10103,8 +10168,22 @@ def run_full_analysis(payload: dict) -> None:
             # fresh Gemini position call: it must not download or read anything. Coverage
             # is still derived from the cached measures' `page` values, not from "0 files
             # downloaded" — a cache hit that covers every page must not read as a miss.
+            #
+            # Model-version-aware cache identity: score_cache is keyed only by the
+            # photo's content hash (score_path), shared across whichever engine
+            # last wrote it — toggling MEDIANT_SCORE_ENGINE does not change that key.
+            # A cache row is only trusted here when its own "source" field agrees
+            # with the engine currently selected (page-omr's adapter always sets
+            # "source": "page_omr"; every existing source value — "claude_vision",
+            # "claude_vision_partial", "music21" — is what "not using page-omr"
+            # means). A mismatch re-downloads and re-reads fresh with the CURRENT
+            # engine rather than silently serving the other engine's cached result.
             if cached_score_notes and cached_score_notes.get("measures"):
-                return cached_score_notes, ps_notes, _pages_covered(cached_score_notes)
+                if score_cache_matches_engine(cached_score_notes, using_page_omr):
+                    return cached_score_notes, ps_notes, _pages_covered(cached_score_notes)
+                print(f"[run_full_analysis] score_cache hit ignored — cached source="
+                      f"{cached_score_notes.get('source')!r} does not match selected "
+                      f"engine (page_omr={using_page_omr}); re-reading fresh")
 
             # Download every uploaded page, in order. Task 1 signs the full ordered set
             # as score_urls; a legacy client (or a run where signing some pages failed)
@@ -10142,6 +10221,21 @@ def run_full_analysis(payload: dict) -> None:
                 res = parse_score_document(pages[0][0], start_measure, instrument)
                 if not res.get("error") and res.get("measures"):
                     s = res
+            elif kind == "visual" and using_page_omr:
+                # Staging engine — no Claude fallback chained on failure: this
+                # path exists to measure page-omr+deskew on its own, not to
+                # blend with the existing path (that would make Task 3's
+                # staging comparison unreadable and silently double cost on
+                # every page-omr failure). A failure here surfaces as a
+                # structured error on `s`, same contract as the music21/
+                # claude_vision branches above/below.
+                from page_omr_adapter import score_pages_with_page_omr
+                res = score_pages_with_page_omr(pages, start_measure)
+                if res.get("measures"):
+                    s = res
+                    ps_notes = res
+                elif res.get("error"):
+                    s = {**s, "error": res["error"]}
             elif kind == "visual" and anthropic_key:
                 res = read_score_notes_claude(pages, start_measure, instrument, time_sig, anthropic_key,
                                                end_measure=end_measure)
@@ -10318,7 +10412,7 @@ def run_full_analysis(payload: dict) -> None:
             # needs. Photo-read note data is less precise per-note than MusicXML, so
             # require a larger sample (12 vs 4) before trusting it for alignment.
             is_musicxml = "music21" in score_source
-            is_vision   = score_source.startswith("claude_vision")
+            is_vision   = is_vision_sourced_score(score_source)
             min_notes   = 4 if is_musicxml else 12
             if total_score_notes >= min_notes and (is_musicxml or is_vision):
                 print(f"[run_full_analysis] using score DTW ({total_score_notes} score notes, "
@@ -10595,7 +10689,15 @@ def _generate_reference_audio(body: dict) -> dict:
     # legitimately never carries these markers — refusing it would be a
     # regression, not a fix. So this only fires for a vision-sourced score
     # missing its validation markers, not for every marker-less score.
-    if (score.get("source") in ("claude_vision", "claude_vision_partial")
+    #
+    # "page_omr" (staging-only, see page_omr_adapter.py) is included here too:
+    # unlike music21, it has a real, measured error rate (not deterministic
+    # parsing) and — by design, matching music21's own convention — never sets
+    # unresolved_measure_count either. Without this, a page-omr-sourced cache
+    # row would read as fully trustworthy by the same absent-red-flag gap this
+    # comment already documents for Claude, just via a path nobody wrote a
+    # markers field for yet.
+    if (is_vision_sourced_score(score.get("source") or "")
             and "unresolved_measure_count" not in score):
         print("[_generate_reference_audio] refusing to synthesize — vision-sourced "
               "score carries no validation markers at all (provenance gap: likely a "

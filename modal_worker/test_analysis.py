@@ -7149,6 +7149,88 @@ def test_detect_within_segment_pitch_jumps_declines_a_small_step_too_close_to_se
           jumps == [], f"{jumps}")
 
 
+def test_score_cache_matches_engine():
+    print("\n[195] score_cache_matches_engine: a cache row's trustworthiness "
+          "depends on whether IT was produced by the currently-selected "
+          "engine, not just whether a row exists. score_cache is keyed only "
+          "by the photo's content hash, shared across whichever engine last "
+          "wrote it — switching MEDIANT_SCORE_ENGINE does not change that "
+          "key, so this is the only thing standing between a flag flip and "
+          "silently serving the other engine's stale result.")
+    page_omr_row = {"source": "page_omr", "measures": [{"number": 1, "notes": []}]}
+    claude_row = {"source": "claude_vision", "measures": [{"number": 1, "notes": []}]}
+    musicxml_row = {"source": "music21", "measures": [{"number": 1, "notes": []}]}
+
+    check("page-omr row matches when page-omr is selected",
+          w.score_cache_matches_engine(page_omr_row, True) is True)
+    check("page-omr row does NOT match when Claude is selected",
+          w.score_cache_matches_engine(page_omr_row, False) is False)
+    check("claude_vision row does NOT match when page-omr is selected",
+          w.score_cache_matches_engine(claude_row, True) is False)
+    check("claude_vision row matches when Claude is selected (default)",
+          w.score_cache_matches_engine(claude_row, False) is True)
+    check("music21 row matches when Claude is selected (default) — never page-omr-sourced",
+          w.score_cache_matches_engine(musicxml_row, False) is True)
+
+
+def test_is_vision_sourced_score():
+    print("\n[196] is_vision_sourced_score: page-omr is a photo-read engine "
+          "with a real, measured error rate, same risk class as Claude "
+          "vision — it must be treated as 'vision-sourced' by both call "
+          "sites that check this (score-DTW eligibility and the "
+          "reference-audio provenance gate), or page-omr-sourced takes "
+          "would silently regress to beat-grid alignment / be treated as "
+          "unconditionally trusted, with no error either way.")
+    check("claude_vision counts as vision-sourced",
+          w.is_vision_sourced_score("claude_vision") is True)
+    check("claude_vision_partial counts as vision-sourced",
+          w.is_vision_sourced_score("claude_vision_partial") is True)
+    check("page_omr counts as vision-sourced",
+          w.is_vision_sourced_score("page_omr") is True)
+    check("music21 (deterministic parse) does NOT count as vision-sourced",
+          w.is_vision_sourced_score("music21") is False)
+    check("empty source does NOT count as vision-sourced",
+          w.is_vision_sourced_score("") is False)
+
+
+def test_reference_audio_refuses_page_omr_sourced_fallback_with_no_validation_markers():
+    print("\n[197] same gate as [172], extended to the staging page-omr "
+          "engine: a FALLBACK score claiming source='page_omr' with no "
+          "unresolved_measure_count at all must be refused too — page-omr "
+          "has a real, measured error rate (unlike music21's deterministic "
+          "parse), so treating its marker-less output as fully trustworthy "
+          "would be the same provenance gap [172] exists to close, just for "
+          "a path that didn't exist when that gate was written.")
+    class _FailingHttpClient:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): raise RuntimeError("network down")
+
+    stale_page_omr_row = {
+        "source": "page_omr",
+        "measures": [{"number": 20, "notes": [{"pitch": "Bb4", "beat": 1.0, "duration_beats": 1.0}]}],
+    }
+
+    _httpx = sys.modules["httpx"]
+    _orig_httpx = _httpx.Client
+    _httpx.Client = _FailingHttpClient
+    try:
+        res = w._generate_reference_audio({
+            "score_urls": ["https://example.test/unreachable.png"],
+            "score": stale_page_omr_row,
+            "instrument": "Clarinet (B♭)",
+            "bpm": 100,
+            "anthropic_api_key": "fake-key",
+        })
+    finally:
+        _httpx.Client = _orig_httpx
+
+    check("refuses rather than synthesizing from unvalidated page-omr content",
+          res.get("error") == "score_read_uncertain", str(res))
+    check("does NOT return audio", "audio_base64" not in res, str(res))
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -7344,7 +7426,10 @@ def main():
               test_detect_within_segment_pitch_jumps_finds_multiple_levels_in_one_segment,
               test_detect_within_segment_pitch_jumps_finds_a_small_legato_step,
               test_detect_within_segment_pitch_jumps_ignores_vibrato_with_legato_sized_swings,
-              test_detect_within_segment_pitch_jumps_declines_a_small_step_too_close_to_segment_end):
+              test_detect_within_segment_pitch_jumps_declines_a_small_step_too_close_to_segment_end,
+              test_score_cache_matches_engine,
+              test_is_vision_sourced_score,
+              test_reference_audio_refuses_page_omr_sourced_fallback_with_no_validation_markers):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

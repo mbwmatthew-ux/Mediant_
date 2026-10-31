@@ -1,5 +1,34 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (4) — page-omr + deskew: staging adapter and feature flag built, NO-GO for rollout
+
+Owner's "Integrate page-omr + Deskew Into Staging" directive. Added
+`modal_worker/page_omr_adapter.py` (deskew + page-omr inference + kern
+parsing into Mediant's canonical measure shape) and a staging-only
+`MEDIANT_SCORE_ENGINE` env-var flag inside `worker.py`'s `_score_pipeline`
+-- default (unset) is byte-for-byte the existing Claude+Audiveris path.
+Fixed a real score_cache cross-engine cache-collision risk
+(`score_cache_matches_engine`) and extended score-DTW eligibility plus the
+reference-audio provenance gate to the new engine via one extracted,
+tested `is_vision_sourced_score()` helper -- without these, a page-omr
+read would have silently regressed to beat-grid alignment or been treated
+as unconditionally trusted, with no error either way.
+
+719/719 existing `test_analysis.py` checks still pass (707 + 12 new);
+16/16 new checks in `test_page_omr_adapter.py`. Verified the production
+adapter reproduces the already-recorded benchmark numbers exactly
+(2220/mild: 100% pitch accuracy, byte-identical to `deskew_full_scored.
+json`) and spot-checked the one genuinely new code path -- multi-page
+concatenation with no privileged ground-truth mapping -- on a real
+3-page piece (2186), not shown to underperform the benchmark. Ran the
+one real smartphone photo available in this repo (no ground truth) --
+succeeded, plausible-looking, unscored.
+
+No `modal deploy` was run. Recommendation: NO-GO for user rollout --
+zero scored real-photo accuracy data and no wrong-but-plausible-output
+detector remain open blockers. See
+`agent_workspace/PAGE_OMR_STAGING_INTEGRATION.md`.
+
 ## 2026-10-31 (3) — page-omr deskew preprocessing: INTEGRATE, validated at full scale
 
 Owner's "Full Held-Out Deskew Benchmark Approved" directive. Applied the

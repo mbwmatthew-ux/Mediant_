@@ -1,5 +1,43 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (10) — Full pipeline compatibility audit: real run_beat_tracking crash found and fixed (not page-omr-specific); page-omr/Claude-vision parity confirmed byte-identical on real matched case
+
+Owner's "MEDIANT — Full Pipeline Compatibility and Accuracy Validation"
+directive, Phase 1. First time `run_full_analysis` was actually executed
+end-to-end for real (via Modal's `.local()`, with only the Anthropic/
+Gemini network boundary stubbed — zero paid spend), against real
+MusicNet audio and real clean-tier page-omr page renders, rather than
+inspected via unit tests or run through the isolated `staging_score_page_omr`
+test hook that bypasses the real audio/coaching pipeline entirely.
+
+**Real bug found and fixed, commit `b09e1d1`:** `run_beat_tracking`
+crashed on every real recording regardless of score-reading engine —
+`librosa.beat.beat_track` 0.10.2 returns `tempo` as a shape-(1,) ndarray,
+and `float(tempo)` raises `TypeError` on numpy>=1.25. numpy is unpinned
+in the Modal image build, so this was one dependency-resolution away
+from reproducing in production on the next ordinary `modal deploy`,
+independent of page-omr or anything else this session touched. Fixed
+via `float(np.ravel(tempo)[0])`; added the first-ever unit test for this
+function, red-green verified. Regression: 724/724 -> 727/727
+`test_analysis.py`, 16/16 `test_page_omr_adapter.py` unchanged.
+
+**Everything else on the real matched test case (MusicNet piece 2293,
+Bach Cello Suite 4) came back byte-identical between the Claude-vision
+and page-omr paths:** pitch/octave mapping, rhythm/tempo/time-signature,
+measure numbering, multi-page ordering, score caching/invalidation
+across engines, `dtw_align_to_score`, `find_wrong_note_candidates`
+error localization, and webhook/feedback-formatting structure. Two
+open items flagged for an owner decision, not fixed (judgment calls,
+not mechanical bugs -- see Backlog in `agent_workspace/AGENT_TASKS.md`):
+page-omr notes carry no `articulation`/`dynamic` keys at all (silent
+feature gap for any page-omr-sourced score), and `assess_quality` can
+report `trust: "high"` on a fully-synthesized-skeleton total-failure
+fallback (not page-omr-specific). Instrument transposition was not
+empirically tested -- MusicNet's solo corpus has no transposing
+instrument -- confirmed engine-independent by code inspection only.
+
+No production deploy. No paid API spend.
+
 ## 2026-10-31 (9) — Production build-isolation fix; audio-pipeline category audit (no new DTW/pitch fix, one real finding banked)
 
 Owner's "Finish Visual Integration and Improve Audio Accuracy" directive.

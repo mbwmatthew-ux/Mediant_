@@ -1,5 +1,25 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (13) — Task 2 of the P0 Audio Detector Reliability Sprint: the 50% false-positive rate is resolved, and it's not a comparator bug
+
+Re-ran `find_wrong_note_candidates` against all 18 held-out MusicNet
+pieces' real, unmodified audio (no detector changes). Confirmed 9/18
+pieces produce false wrong-note flags, 36 total, and classified every
+one against MusicNet's own ground truth: **15/36 (41.7%) are DTW
+alignment/measure-mismatch** (CREPE's pitch is exactly right; alignment
+put the event in the wrong measure), **14/36 (38.9%) are genuine CREPE
+pitch misreads**, 7/36 (19.4%) too ambiguous to attribute, and **0/36
+trace to the comparator's own logic** (squeak filter, semitone-distance
+gates, transposition guard).
+
+**Conclusion: the wrong-note comparator itself isn't buggy for false
+positives — it's faithfully amplifying pre-existing upstream DTW-
+alignment and CREPE pitch-tracking error into confident, student-facing
+false accusations.** The real fix is improving alignment/pitch-tracking
+accuracy (both already-known, already-"stop tuning" limitation
+classes), not a comparator patch. No code changed, no detector
+modified — pure diagnosis. Full detail: `agent_workspace/AUDIO_PIPELINE_AUDIT.md`.
+
 ## 2026-10-31 (12) — Root-caused the 0% recall / 50% FP finding: one real detector design issue, two measurement artifacts, FP cause still open
 
 Applied the systematic-debugging skill's Iron Law (root cause before

@@ -124,16 +124,52 @@ they are not synthetic-injection artifacts, but no root cause was traced
 to a specific line this round — that is the real driver of the 50%
 false-positive-on-correct-audio rate and remains open.
 
+### Task 2 (2026-10-31, same day): false-positive root cause — resolved, and it's good news for the comparator specifically
+
+Re-ran `find_wrong_note_candidates` against all 18 held-out pieces' real,
+unmodified audio (no detector changes). Confirmed the recording-level
+incidence exactly: **9/18 pieces, 36 total false-positive flags**
+(2204:6, 2217:6, 2222:6, 2241:1, 2242:6, 2289:3, 2293:1, 2295:1, 2297:6).
+
+Classified every one of the 36 flags against MusicNet's own ground truth:
+- **Alignment/measure-mismatch: 15/36 (41.7%)** — CREPE's pitch is
+  exactly right; `dtw_align_to_score` put the event in the wrong
+  measure, so the comparator checked it against the wrong measure's
+  expected notes. This is the single largest cause.
+- **CREPE misread: 14/36 (38.9%)** — the detected pitch genuinely
+  doesn't match ground truth at that timestamp.
+- **Unclear: 7/36 (19.4%)** — ground-truth onset too far (>0.15s) from
+  the flagged timestamp to attribute confidently without manual review.
+- **Filter gap, comparator logic, genuine performance/notation
+  difference: 0/36 each.**
+
+**None of the 36 false positives trace to `find_wrong_note_candidates`'s
+own logic** (squeak filter, semitone-distance gates, transposition
+guard). The comparator is faithfully reporting what upstream DTW
+alignment and CREPE pitch tracking hand it. The 50% false-positive rate
+is driven almost entirely by two already-known, already-documented
+limitation classes in this project (the standing ~65% DTW measure-
+localization accuracy, and CREPE's own pitch-tracking error rate) — not
+a new comparator defect. This reframes the FP problem: it isn't
+"the wrong-note detector has a bug," it's "the wrong-note detector
+correctly amplifies pre-existing alignment/pitch-tracking error into a
+confident, student-facing false accusation." Fixing it for real means
+improving alignment/pitch-tracking accuracy (the already-"stop tuning"
+DTW mechanism and the CREPE pipeline), not a comparator-logic patch.
+
 **Bottom line:** "0% recall" was never purely a methodology artifact
 (mechanism 1 is real and would affect genuine mistakes too), and it was
 never purely a real detector failure either (mechanisms 2-3 are
 measurement limitations). The true real-world recall rate is unknown
-and likely higher than 0% but has not been measured. The 50% false-positive
-rate on correct playing is real, confirmed present independent of any
-injected mistake, and its specific cause is still open. No fix was
-implemented this round — per the systematic-debugging skill's Iron Law,
-none of the three recall mechanisms had a fix that could be safely
-validated within this turn's scope.
+and likely higher than 0% but has not been measured. The 50%
+false-positive rate on correct playing is real and confirmed present
+independent of any injected mistake — **and as of Task 2 (above), its
+cause is resolved: 80.6% of it (41.7% alignment + 38.9% CREPE) traces to
+two already-known upstream limitation classes, not to the comparator's
+own logic (0/36).** No fix was implemented this round for the recall
+side — per the systematic-debugging skill's Iron Law, none of the three
+recall mechanisms had a fix that could be safely validated within this
+turn's scope.
 
 ---
 

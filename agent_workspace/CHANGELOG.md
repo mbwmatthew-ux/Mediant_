@@ -1,5 +1,37 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-30 (4) — page-omr five-piece benchmark: EXPAND TESTING (real bug caught before trusting results)
+
+Owner's "page-omr Benchmark Approved" directive: downloaded and
+sha256-verified the official `tobiashornbogen/page-omr-a1-kern` checkpoint
+(737MB MIT), ran CPU-only inference in an isolated venv against 5 single-page
+pieces from the existing visual validation corpus x 3 image-quality tiers
+(clean/mild/severe). Found and fixed a real environment bug first
+(page-omr's `transformers>=4.30.0` floor resolves to 5.22.1 by default, which
+breaks the DINOv2 encoder badly enough to collapse the decoder into one
+repeated token regardless of input or checkpoint — pinned `transformers==
+4.46.3`, same fix that resolved SMT's version-skew bug earlier this project).
+
+Then caught a real scoring bug in my own adapter before trusting any
+number: the first pass scored 0-12.5% pitch accuracy everywhere, which
+turned out to be a measure-numbering bug (music21's humdrum reader zeroes
+out every measure number after the first) that discarded 7/8 of a
+piece's content before scoring — direct inspection showed the raw model
+output was actually note-for-note identical to ground truth. Fixed and
+re-scored from the already-saved raw outputs (no re-inference needed).
+
+**Real result**: clean-tier pitch accuracy 96.3% across the 5 pieces,
+beating the one comparable existing-baseline data point by a wide margin
+(piece 2243: 92.0%/96.6% pitch/rhythm vs. the production Claude+Audiveris
+pipeline's own 30.7%/21.6% on the same image). Mild degradation drops to
+64.7%, inconsistently by piece. Severe degradation collapses to 7.5% with a
+reproducible runaway-hallucination pattern (4-14x too many predicted
+measures). Recommendation: EXPAND TESTING to the full 24-piece corpus, not
+integrate yet (too narrow a sample, severe-tier failure unresolved) and not
+reject (clean-tier result is genuinely strong). See
+`agent_workspace/PAGE_OMR_BENCHMARK_FINDINGS.md` for full detail. No
+production changes, no paid APIs, no GPU spend — CPU-only, local checkpoint.
+
 ## 2026-10-30 (3) — LadderSym Gate 3 pilot run: REJECT recommendation; teacher-facing features discontinued
 
 Owner's "Gate 3 Approved & Teacher Features Discontinued" directive: run

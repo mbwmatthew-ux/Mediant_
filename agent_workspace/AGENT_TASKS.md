@@ -39,6 +39,45 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **page-omr five-piece benchmark: EXPAND TESTING (real, verified results — see `agent_workspace/PAGE_OMR_BENCHMARK_FINDINGS.md`).**
+  Owner approved downloading `tobiashornbogen/page-omr-a1-kern` (737MB MIT,
+  sha256-verified) and running a 5-piece (single-page only, disclosed scope
+  reduction) x 3-tier CPU benchmark in an isolated venv. Found and fixed a
+  real environment bug (page-omr's `transformers>=4.30.0` floor resolved to
+  5.22.1 by default, which breaks the DINOv2 encoder into degenerate repeated-
+  token output regardless of input/checkpoint — pinned `transformers==4.46.3`,
+  the same fix that resolved SMT's earlier version-skew bug in this project).
+  Also caught and fixed a real scoring bug in my own adapter BEFORE trusting
+  any number (music21's humdrum reader zeroes out measure numbers after the
+  first; direct inspection found page-omr's raw output was note-for-note
+  identical to ground truth on a case the buggy scorer rated ~12%).
+
+  **Real results (fixed scorer):** clean-tier pitch accuracy 96.3% (1013/1052
+  notes) across the 5 pieces — a dramatic win over the one comparable
+  existing-baseline data point (piece 2243: page-omr 92.0%/96.6%
+  pitch/rhythm vs. the existing Claude+Audiveris pipeline's 30.7%/21.6% on
+  the same clean image). Mild-degradation tier drops to 64.7% pitch,
+  inconsistently across pieces (Flute 91.4%, Cello 21.1-50.9%). Severe
+  degradation collapses to 7.5% pitch with a reproducible runaway-
+  hallucination pattern (4-14x too many predicted measures on every severe
+  case that showed it, with matching latency spikes). No clarinet/guitar
+  coverage exists in the corpus at all (independent of page-omr). Multi-page
+  pieces were excluded from this benchmark, not solved — the corpus never
+  records which ground-truth measure numbers land on which rendered page.
+
+  **Recommendation: EXPAND TESTING**, not integrate (too narrow a sample, and
+  severe-tier collapse is real and unresolved) and not reject (clean-tier
+  result reverses what the pre-fix buggy scorer wrongly suggested, and beats
+  the one real baseline comparison by a wide margin). Next: expand to the
+  full 24-piece corpus (clean+mild tiers) and investigate whether image
+  pre-processing (deskew/denoise, which the existing pipeline already does
+  for Claude's reads) rescues the severe-tier collapse. Integration itself
+  looks structurally easy (page-omr's output converts to the same canonical
+  measure shape Audiveris's OMR output already feeds into
+  `_cross_source_measure_match`/`fuse_measure_confidence`; no frontend or
+  downstream audio-analysis changes needed) — the open question is accuracy
+  robustness, not integration mechanics.
+
 - [ ] **Track A: production score-reading accuracy benchmark (compound-meter fix shipped; pitch-accuracy problem open, investigation paused on API credit).**
   Real-cost probe (`modal_worker/probe_production_accuracy_cost.py`) ran the actual
   production `read_score_notes_claude` against one real piece (2243, 12/8 Violin,

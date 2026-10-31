@@ -39,6 +39,23 @@ _Nothing pending — all approved tasks have been completed._
 
 ## In Progress
 
+- [ ] **Flat OMR API — test #2 (mild) complete: Flat collapses structurally on the degraded tier, page-omr+deskew unaffected. Recommendation: STOP spending Flat credits (see `agent_workspace/FLAT_OMR_TEST2_MILD.md`).**
+  Verified auth/balance (29 credits, same token as test #1 — no new one
+  was provided, rotation not confirmed from this side), confirmed the
+  mild image shares the same ground truth as test #1's clean image
+  (read directly from `degrade_visual_corpus.py`'s generator code), ran
+  exactly one job, confirmed afterward exactly 1 credit was deducted
+  (29→28). Flat got measures 1-3 of piece 2220 exactly right then lost
+  measures 4-39 entirely (36 consecutive measures with no corresponding
+  output) — pitch accuracy 7.2%, measure count 42/48. page-omr+deskew on
+  the identical piece/tier: 100% pitch, 48/48. Two data points now (clean
+  + mild, same piece): Flat matched/lost on clean, collapsed on mild —
+  the realistic condition. **Recommendation: STOP spending Flat credits**
+  (not continue, not retain as fallback) — insufficient measured benefit,
+  and Flat fails harder than page-omr on exactly the condition a fallback
+  would need to cover. 2 of 30 credits spent total, both pre-confirmed
+  and post-verified.
+
 - [ ] **Flat OMR API — first paid test complete, 1 of 1 approved credits spent (see `agent_workspace/FLAT_OMR_FIRST_TEST.md`).**
   Verified auth + balance (30 credits) before spending, ran exactly ONE
   job (piece 2220, Cello, clean tier, single page), confirmed afterward

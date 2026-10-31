@@ -1,5 +1,28 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-10-31 (6) — Flat OMR API test #2 (mild): structural collapse, recommend STOP spending credits
+
+Owner's "Flat OMR Test #2 Approved" directive. Verified auth/balance
+(29 credits, same token as test #1), confirmed via `degrade_visual_
+corpus.py`'s own generator code that the mild image shares ground truth
+with test #1's clean image, ran exactly one job, confirmed afterward
+the balance dropped by exactly 1 credit (29->28).
+
+Flat read measures 1-3 of piece 2220 exactly correctly, then produced
+no corresponding content for measures 4-39 (36 consecutive ground-truth
+measures) before partially recovering into measures 40-42 and never
+reaching the real final 6 measures -- pitch accuracy 7.2%, measure
+count 42/48 (mismatch). page-omr+deskew on the identical piece/tier:
+100% pitch, 48/48, already-recorded result independently re-confirmed
+via the production adapter.
+
+Two data points now (same piece, clean + mild): Flat matched/lost to
+page-omr on clean, collapsed structurally on mild -- the realistic
+degradation condition. Recommendation: STOP spending Flat credits (not
+continue, not retain as fallback). 2 of 30 total credits spent, both
+pre-confirmed and post-verified. See
+`agent_workspace/FLAT_OMR_TEST2_MILD.md`.
+
 ## 2026-10-31 (5) — Flat OMR API: first paid test, 1 credit spent, vs. page-omr
 
 Owner's "Flat OMR API Setup and First Test" directive. Verified auth and

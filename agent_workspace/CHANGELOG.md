@@ -35,6 +35,37 @@ librosa DSP functions already installed).
 alignment stage was tested; adapting the wrong-note comparator to this
 output is separate, unbuilt work. No production code touched.
 
+## 2026-10-31 (19) — Task 3/4, frozen-set validation: real gains, but NOT a clean win -- one real regression identified and explained
+
+Ran the chroma-DTW experiment once against the frozen 6-piece set
+(2204, 2218, 2222, 2244, 2289, 2297), untouched until this run:
+
+```
+piece  current   chroma-DTW   delta
+2204   31.7%     81.1%        +49.4
+2297   57.7%     87.3%        +29.6
+2222   30.2%     36.1%        +5.9
+2218   92.3%     93.3%        +1.0
+2244   89.7%     47.1%        -42.6  <- real regression
+2289   92.4%     85.4%        -7.0   <- real regression
+```
+
+**Root cause of the regression identified, not just observed:** 2244
+and 2222 are the two fastest pieces tested (lowest sec_per_beat); this
+prototype's FIXED 0.10s frame resolution is too coarse to resolve
+individual notes in genuinely fast passages. 2222 still nets positive
+because its current-pipeline baseline was already broken (30.2%,
+little to lose); 2244's baseline was excellent (89.7%, likely from the
+project's existing within-segment pitch-jump detection) and the coarse
+template can't match that bar.
+
+**Decision: NOT a GO for blanket integration as-is** -- the regression
+is real and large enough to violate "benefit must outweigh regression."
+**Not a dead end either**: confirms the remaining production problem is
+(B) score alignment, and the fix path forward is narrow and specific
+(tempo-adaptive frame resolution, one re-validation round) rather than
+a restart or a new broad investigation.
+
 ## 2026-10-31 (17) — P0 sprint Phase C/D/E: STOP, no fix exists within constraints -- confirms an already-abandoned problem, correctly, before writing any code
 
 Diagnosed the exact CREPE-vs-ground-truth divergence on all 9

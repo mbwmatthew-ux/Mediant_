@@ -681,6 +681,69 @@ output and produce reliable wrong-note flags. That adaptation is a
 separate, unbuilt, unverified step — only the alignment stage was
 tested here. Not wired into production; no production code touched.
 
+### Task 3/4 (2026-10-31): frozen-set validation — real, meaningful gains, but NOT a clean win; a specific, fixable weakness identified, not a fundamental flaw
+
+Ran the same chroma-DTW experiment once against the frozen 6-piece set
+(2204, 2218, 2222, 2244, 2289, 2297 — untouched until this exact
+moment) alongside the real current-pipeline baseline on the same
+pieces:
+
+| piece | instrument | current (real CREPE) | chroma-DTW | delta |
+|---|---|---|---|---|
+| 2204 | Flute  | 31.7% | 81.1% | **+49.4** |
+| 2218 | Cello  | 92.3% | 93.3% | +1.0 |
+| 2222 | Cello  | 30.2% | 36.1% | +5.9 |
+| 2244 | Violin | 89.7% | 47.1% | **-42.6** |
+| 2289 | Violin | 92.4% | 85.4% | -7.0 |
+| 2297 | Cello  | 57.7% | 87.3% | **+29.6** |
+
+**Not a clean win.** Three pieces improve substantially, one is flat,
+but **2244 regresses badly (-42.6pt) and 2289 regresses moderately
+(-7.0pt)**. Both regressions are on pieces where the CURRENT pipeline
+already performs very well (89.7%, 92.4%) — unlike the dev-set pieces,
+where every gain came from pieces the current approach was already bad
+on.
+
+**Root cause of the regression, identified not just observed:** 2244
+("4. Presto") and 2222 ("6. Gigue") are both unusually fast
+(`sec_per_beat` 0.26 and 0.31 — the lowest of any piece tested, vs.
+0.42-2.1 elsewhere). This prototype's chroma template uses a FIXED
+`FRAME_HOP_SEC=0.10` regardless of piece tempo — too coarse to resolve
+individual notes in a genuinely fast passage, where several real notes
+can fall inside one 100ms template frame. 2222 (also fast) still shows
+a small net gain because the current pipeline was already badly broken
+there (30.2%) — less of a working baseline to lose. 2244 had an
+excellent working baseline (89.7%, likely benefiting from this
+project's existing within-segment pitch-jump detection, which is
+specifically tuned for fast passages) and the coarse chroma template
+can't match that bar. **This is a specific, explainable, plausibly
+fixable implementation-parameter issue (adaptive/tempo-aware frame
+resolution) in this prototype — not evidence that the continuous-
+feature concept itself is unsound.**
+
+**Decision: NOT a GO for blanket integration as-is.** The regression on
+2244 is real and large enough that replacing the production DTW input
+wholesale would make at least one currently-good case meaningfully
+worse — unacceptable per "retain only if benefit outweighs regression."
+**But this is also not a dead end requiring a restart**: the underlying
+architectural idea (continuous-feature alignment, bypassing CREPE's
+discrete event extraction) has now been shown, on real audio, to
+substantially fix the exact pieces this project already identified as
+DTW-algorithm-defective independent of input quality — a real, useful,
+narrowing result. Per Task 4's own A/B/C/D framing: the remaining
+problem for the CURRENT production pipeline is confirmed, again, to be
+**(B) score alignment** (not audio representation, not musical-error
+detection) — this experiment's own residual gap is a parameter/
+resolution issue within the alternative formulation, not a new
+category of problem.
+
+**Recommended next step, not done here (would need its own validation
+round):** make the chroma template's frame resolution tempo-adaptive
+(e.g. proportional to the piece's locally-estimated tempo rather than a
+global constant) and re-run the SAME frozen set once more before any
+integration decision — this is a narrow, targeted fix to a known,
+explained weakness, not a new broad investigation.
+
 ## Priority 2 (2026-10-31): octave errors are the dominant remaining
 ## pitch-extraction failure post-breath-noise-fix — no safe fix found
 

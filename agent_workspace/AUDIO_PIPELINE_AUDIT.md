@@ -73,6 +73,81 @@ production code touched — `worker.py` unaffected. Regression confirmed
 clean: `test_analysis.py` 727/727. $0 spend, CPU-only (parangonar's
 elastic DP runs ~1-16s/piece on CPU, no GPU).
 
+## Task 2 (2026-11-01, "Score-Conditioned Audio Verification Feasibility"): frame-level verifier — NOT a GO, false positives worse than production
+
+Prototyped a verifier that works from raw CREPE frame-level evidence
+inside a time window anchored by Task 1's Parangonar alignment, instead
+of requiring a clean discrete CREPE event sequence first (the thing
+that has failed repeatedly this session — CREPE over-generates events
+on dense passages, already tried and abandoned 4 ways). For each
+expected score note: gather confident (periodicity >= 0.45, same bar as
+production's `CONF_THRESHOLD`) CREPE frames inside the window; check for
+sustained (>= 0.08s, same floor as production's `MIN_DUR_SEC`) evidence
+for the expected pitch; if absent, check for sustained confident
+evidence for some OTHER specific pitch (excluding octaves of the
+expected one, reported separately as "unverifiable" per the directive's
+hard constraint against flagging on weak-expected-evidence alone).
+Built as `modal_worker/score_conditioned_verification_prototype.py`
+(commit `09b8039`), reusing `worker._instrument_pitch_bounds` and the
+production CREPE parameters (16kHz, 40ms hop, model="tiny",
+weighted_argmax) for frame extraction, and the already-repaired
+`inject_mistake_verified` for ground-truth mistake injection — `worker.py`
+itself not modified.
+
+**Test set**: 8 dev pieces where Task 1 measured Parangonar alignment at
+92.7-99.2% (2202, 2203, 2217, 2221, 2288, 2293, 2294, 2295) — deliberately
+excludes 2220/2242/2296/2244/2241 (Parangonar's own alignment is weak or
+broken there, so a detection failure would conflate alignment error with
+verification error) and the frozen 6 (already opened, non-blind).
+
+**Recall**: of 8 pieces, only 2 (2288, 2294) produced any `wrong_pitch`
+injection the existing `inject_mistake_verified` gate accepts as valid
+(acoustically recognizable + musically unambiguous) within 8 attempts
+each — the other 6 fail the same "not acoustically recognizable" gate
+already documented in the P0 sprint's Task 3, a known limitation of the
+pitch-shift injection methodology itself, not a new finding this round.
+Of the 2 valid cases: **2/2 detected (100%)**, a real improvement over
+production's already-measured 0/18 — but n=2, far too small to
+generalize from, drawn from exactly the subset the injection methodology
+happens to tolerate.
+
+**False positives** (all score notes, unmodified correct audio, 8 pieces,
+7211 total notes): **8/8 pieces had at least one false "wrong_note" flag
+— WORSE than production's already-measured 9/18 (50%)** at the same
+piece-level granularity. Note-level false-flag rate with a fixed
++/-0.2s evidence window: 18.78% (1354/7211).
+
+**One decisive diagnostic, not a tuning cycle.** The fixed-window
+false-positive rate looked attributable to window bleed into
+neighboring notes on dense passages — average inter-note spacing on
+these pieces is close to 0.2s, so a fixed +/-0.2s window routinely
+captures the ADJACENT correct note's own frames. The same shape of bug
+as the chroma/CQT sprint's fixed-frame-resolution regression on fast
+pieces. Tested the obvious, principled fix: bound each note's evidence
+window by its neighbors' own aligned times instead of a fixed radius
+(`note_window` in the committed file). **Result: the false-positive rate
+got WORSE, not better** — note-level FP rose to 28.57% (2060/7211);
+piece-level stayed 8/8. This disproves the neighbor-bleed hypothesis and
+points to something deeper: CREPE's own per-frame pitch continuity
+produces transition-region frames right at note boundaries (the
+tracker's smoothing lags across the real attack), and tightening the
+window concentrates evidence on exactly those transition frames while
+leaving the correct pitch too few frames to reach the duration floor —
+making the problem worse. No window-radius parameter fixes this; it
+would need either an onset-anchored exclusion margin or a different
+confidence/continuity signal entirely, out of scope here per "no
+unbounded architecture search" / "do not start an uncontrolled sequence
+of replacements." Stopped after this one diagnostic, as instructed.
+
+**Conclusion: this frame-level verifier, as prototyped, is NOT a GO.**
+The false-positive regression is specific to this verification logic,
+not to the Parangonar alignment it anchors on (which remains strong on
+these 8 pieces per Task 1 — not conflating alignment quality with
+detection accuracy, the exact mistake the chroma/CQT sprint made and was
+called out for). The recall signal (2/2) is real but on too small and
+too biased a sample to call a win on its own. No production code
+touched; `worker.py` unaffected.
+
 ## CRITICAL (2026-10-31): the real wrong-note detector has ~0% true recall and ~50% false-positive rate — prior "96.3% detection" number was measuring a different, degenerate thing
 
 Found during Phase 2 of "MEDIANT — Continue Pipeline Validation and

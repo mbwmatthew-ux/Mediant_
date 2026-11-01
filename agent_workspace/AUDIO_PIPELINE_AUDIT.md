@@ -5,6 +5,74 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## Task 1 (2026-11-01, "Score-Conditioned Audio Verification Feasibility"): Parangonar — the strongest alignment result in this entire investigation, with two real caveats
+
+Tested a third audio-to-score alignment candidate: Parangonar
+(`AudioToScoreMatcher`, Apache-2.0, CPJKU/Silvan Peter — verified
+directly: installed version 3.4.1, license file matches GitHub,
+installed into the isolated validation venv only, zero production
+dependency change). Unlike the prior sprint's chroma/CQT experiment
+(chroma-folded, loses octave information), Parangonar's elastic DP runs
+over an 88-bin full-pitch-resolution log-frequency spectrogram — a
+materially different internal representation, not just a different
+cost function on the same folded features.
+
+**Real MusicNet audio+score, 13 pieces (9 prior dev pieces + the 4
+directive-named failure cases), scored with the SAME
+`classify_alignment`/`nearest_ground_truth_measure` machinery already
+used for the other two candidates:**
+
+```
+piece  instr   current(DTW)  chroma-DTW              parangonar
+2293   Cello    82.5%         88.7%                   94.6%
+2295   Cello    83.2%         85.3%                   95.9%
+2220   Cello     0.4%         66.8%                    2.0%  <- still broken
+2242   Violin   49.8%         78.3%                   92.7%
+2296   Cello     2.0%         80.1%                   54.6%
+2244   Violin   89.6%         47.1% (chroma REGRESSED) 96.4%  <- fixes exactly what broke chroma
+(7 more dev pieces, no prior individual baseline)       95.9%/94.6%/97.0%/95.9%/1.6%/99.2%/95.9%
+```
+
+**10 of 13 pieces land at 92.7-99.2% — the largest, most consistent
+alignment improvement found in this whole investigation**, including
+2244, the exact piece where the chroma/CQT experiment regressed
+severely — Parangonar's failure mode there is independent of both
+known prior defects (discrete-event DTW's algorithm defect, and
+chroma's fixed-tempo-resolution desync).
+
+**Two real, uninvestigated problems remain, reported honestly rather
+than smoothed over:**
+1. **2220 (2.0%) and 2296 (54.6%)** — better than the current pipeline,
+   but worse than chroma-DTW on these two specific pieces. Not chased.
+2. **2241 (1.6%) — a NEW catastrophic failure, not seen in either prior
+   candidate.** 314/498 notes classified "wrong" (not "unmatched") —
+   the dominance of "wrong" over "unmatched" suggests a global desync
+   rather than local difficulty (plausible, unconfirmed mechanism: a
+   repeat MusicNet's real performance omits or adds, which the elastic
+   DP's bounded stretch parameter can't recover from). 2241 was one of
+   the 9 pieces that reached 90-100% under the prior sprint's
+   perfect-ground-truth-input diagnostic — this is a genuinely new
+   problem, not a recurrence of an already-known one.
+
+**Held-out test integrity — a real constraint found this task, not
+worked around.** Checked directly against MusicNet's own metadata:
+this project has already downloaded and used **every one of the 24
+monophonic solo Violin/Cello/Flute pieces in the entire MusicNet
+corpus** — the 18 held-out, the 4 excluded-by-sanity-check, and 2
+designated dev/tuning pieces (`2186`/`2219`) used throughout this
+project's history. **No genuinely fresh monophonic piece remains** to
+serve as a new frozen subset for Task 3's final confirmation; the only
+unused MusicNet pieces are 156 Solo Piano recordings — a different,
+polyphonic instrument class, not a drop-in substitute, out of scope to
+introduce without separate authorization. A real fresh frozen set would
+require downloading additional MusicNet audio beyond the local cache
+(free, same public dataset, just more of it) — not done this round.
+
+Committed: `modal_worker/parangonar_alignment_experiment.py`. No
+production code touched — `worker.py` unaffected. Regression confirmed
+clean: `test_analysis.py` 727/727. $0 spend, CPU-only (parangonar's
+elastic DP runs ~1-16s/piece on CPU, no GPU).
+
 ## CRITICAL (2026-10-31): the real wrong-note detector has ~0% true recall and ~50% false-positive rate — prior "96.3% detection" number was measuring a different, degenerate thing
 
 Found during Phase 2 of "MEDIANT — Continue Pipeline Validation and

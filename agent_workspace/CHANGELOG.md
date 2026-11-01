@@ -1,5 +1,43 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-01 (1) — Parangonar alignment experiment: strongest result in this entire investigation, two real caveats, held-out integrity exhausted
+
+Task 1 of "MEDIANT — Score-Conditioned Audio Verification Feasibility."
+Tested Parangonar (`AudioToScoreMatcher`, Apache-2.0, CPJKU/Silvan
+Peter -- version 3.4.1 and license verified directly against the
+installed package, isolated-venv-only, zero production dependency
+change). Full-pitch-resolution (88-bin IIR log-frequency spectrogram,
+not chroma-folded) elastic-DP alignment -- a materially different
+internal representation from the prior sprint's chroma/CQT experiment.
+
+**10 of 13 real pieces land at 92.7-99.2% correct** -- the largest,
+most consistent alignment improvement found across this whole
+investigation, including 2244 (96.4%), the exact piece where the
+chroma/CQT experiment regressed severely (47.1%) -- fixed here,
+independently of that defect.
+
+**Two real problems, not smoothed over:** 2220 (2.0%) and 2296 (54.6%)
+beat the current pipeline but not chroma-DTW. **2241 (1.6%) is a brand
+new catastrophic failure**, not seen in either prior candidate --
+314/498 notes classified "wrong" rather than "unmatched," suggesting a
+global desync (plausible, unconfirmed: a repeat MusicNet's performance
+omits/adds that the elastic DP's bounded stretch can't recover from).
+2241 reached 90-100% under the prior sprint's perfect-ground-truth
+diagnostic -- this is genuinely new, not a known problem recurring.
+
+**Real constraint found, reported honestly rather than worked around:**
+every one of MusicNet's 24 monophonic solo Violin/Cello/Flute pieces
+has now been touched by this project (18 held-out + 4 excluded + 2
+designated dev/tuning pieces) -- no fresh piece remains for a new
+frozen validation subset. Only 156 unused Solo Piano pieces exist --
+different, polyphonic, out of scope here without separate
+authorization. A real fresh set needs downloading more MusicNet audio
+(free, same dataset) -- not done this round.
+
+Committed: `modal_worker/parangonar_alignment_experiment.py`. No
+production code touched. Regression clean: `test_analysis.py` 727/727.
+$0 spend, CPU-only. Full detail: `agent_workspace/AUDIO_PIPELINE_AUDIT.md`.
+
 ## 2026-10-31 (20) — Audio Recovery sprint closes: NO-GO on chroma/CQT alignment, classified (D) combination problem; three reusable artifacts shipped
 
 The authoritative final result — supersedes entry (19) below, which was

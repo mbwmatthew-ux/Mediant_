@@ -148,6 +148,81 @@ called out for). The recall signal (2/2) is real but on too small and
 too biased a sample to call a win on its own. No production code
 touched; `worker.py` unaffected.
 
+## Task 3 & 4 (2026-11-01, "Score-Conditioned Audio Verification Feasibility"): oracle timing makes false positives WORSE, not better — decision: STOP
+
+Built `modal_worker/task3_end_to_end_comparison.py` (commit `b93445f`)
+to answer the question Task 2 left open: is the frame-level verifier's
+false-positive problem caused by Parangonar's alignment error, or is it
+intrinsic to the verifier itself? Ran three conditions on the exact same
+8 dev pieces (2202/2203/2217/2221/2288/2293/2294/2295):
+
+  A. **Production** — the real `find_wrong_note_candidates`, fed by the
+     real `run_pitch_tracking` -> `dtw_align_to_score` chain, run fresh
+     on these same 8 pieces (not reused from the older 18-piece figure,
+     so this is a genuine same-sample baseline).
+  B. **Non-oracle** — Task 2's frame-level verifier, anchored by Task 1's
+     real Parangonar alignment (numbers reused from Task 2's own commit,
+     not rerun).
+  C. **Oracle** — the identical verifier code (`verify_note`/`note_window`,
+     imported unchanged), anchored instead by MusicNet's own ground-truth
+     note timing — perfect alignment, by construction. Score-note <->
+     ground-truth-note correspondence is by nearest `onset_beat`/
+     `start_beat` (not list index — a real check found index counts
+     differ on 7/8 pieces, e.g. 2217: 928 score notes vs 1007
+     ground-truth notes, almost certainly ties/ornaments).
+
+**False positives, unmodified correct audio:**
+
+    condition               pieces flagged     note-level FP
+    production              3/8 (37.5%)        8 total flags / ~7200-7400 notes (~0.1%)
+    non-oracle verifier     8/8 (100%)         2060/7211 (28.57%)
+    oracle verifier         8/8 (100%)         4085/7387 (55.30%)
+
+Production is dramatically cleaner than either verifier condition on
+this same sample. **The oracle condition is WORSE than non-oracle, not
+better — the key finding of this task.** Giving the verifier PERFECT
+ground-truth timing nearly doubled its false-positive rate instead of
+fixing it. This rules out "Parangonar's alignment error" as the cause of
+Task 2's false positives and confirms Task 2's own diagnosis: the
+problem is intrinsic to the frame-level verification method, not the
+alignment anchoring it. Plausible mechanism (not confirmed further,
+per "no unbounded architecture search"): MusicNet's ground-truth onset
+lands exactly at a note's nominal start — right at the attack transient
+/ legato overlap with the previous note, precisely where CREPE's own
+pitch-tracking continuity is least reliable (the mechanism Task 2
+already identified). Parangonar's imperfect alignment, being fit to
+acoustic stability in the real audio, may incidentally land closer to a
+note's stable sustain than the mathematically "correct" onset instant
+does — accidentally dodging some of the boundary noise that oracle
+timing walks straight into.
+
+**Recall, same 2 verified `wrong_pitch` injections as Task 2 (2288, 2294):**
+production 0/2, non-oracle verifier 2/2, oracle verifier 2/2. Production
+misses both cases the frame-level verifier catches under either
+condition — consistent with, not new evidence beyond, this session's
+already-established 0/18 production recall finding. The frame-level
+approach has a genuine, real detection-capability advantage in
+principle, at a false-positive cost between ~280x (non-oracle) and
+~550x (oracle) production's own false-positive rate, measured on the
+exact same audio.
+
+**Task 4 decision: STOP — not a GO.** The recall advantage is real and
+reproducible, but it is not an alignment or integration problem that a
+"smallest isolated integration plan" could fix: Task 3's oracle result
+proves the false-positive mechanism is intrinsic to frame-level
+CREPE-continuity artifacts at note boundaries, and perfect timing makes
+it worse, not better. More annotated data would not fix this on its own
+— it is a systematic artifact of CREPE's frame-level behavior, not
+noise more examples would average out. A real fix would need either a
+substantially more sophisticated learned classifier over frame-level
+features (a "substantial learning-based architecture" in the
+directive's own words), or a fundamentally different evidence-extraction
+approach with an onset-transient exclusion margin independent of the
+timing-anchor source — both untested, named here as a recommendation for
+future work, not built, per the directive's "do not start additional
+model experiments automatically." No production code touched across
+Tasks 1-4; `worker.py` unaffected throughout.
+
 ## CRITICAL (2026-10-31): the real wrong-note detector has ~0% true recall and ~50% false-positive rate — prior "96.3% detection" number was measuring a different, degenerate thing
 
 Found during Phase 2 of "MEDIANT — Continue Pipeline Validation and

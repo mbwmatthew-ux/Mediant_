@@ -223,6 +223,104 @@ future work, not built, per the directive's "do not start additional
 model experiments automatically." No production code touched across
 Tasks 1-4; `worker.py` unaffected throughout.
 
+## 2026-11-04 targeted follow-up: reuse evidence, one prototype (transition-frame exclusion), immediate verdict — STOP, confirmed again
+
+New owner directive, explicitly narrower than the 2026-11-01 round:
+no broad surveys, reuse what exists, one targeted prototype, stop
+immediately if it fails. Two tasks, both real, both committed
+(`34719da`).
+
+**Task 1 — injection coverage, no new infrastructure.** Task 2's
+2026-11-01 recall number (2/2) rested on only 2/8 pieces producing any
+verified `wrong_pitch` injection in 8 attempts. Tried 32 MORE attempts
+per piece on the exact same, unmodified `inject_mistake_verified` gate
+(`modal_worker/task1_expand_injection_coverage.py`) — no new dataset,
+no new pipeline, just more seeds on the same 8 pieces.
+
+    piece   new valid cases (32 extra attempts)
+    2202    0   (40 total attempts, 0 successes)
+    2203    0   (40 total attempts, 0 successes)
+    2217    0   (40 total attempts, 0 successes)
+    2221    0   (40 total attempts, 0 successes)
+    2288    +1
+    2293    +2
+    2294    (already had 1 from the original run)
+    2295    +1
+
+**Coverage: 2/8 pieces → 4/8 pieces; 2 valid cases → 6 valid cases.**
+Real, cheap, zero-new-infrastructure progress — exactly what the
+directive asked to check first. But NOT a full fix, and the shape of
+the remainder is itself informative: **both Flute pieces produce zero
+valid cases at any attempt count tested (40 each)**, and 2 of 5 Cello
+pieces (2217, 2221) are the same — a real, instrument/piece-correlated
+limitation of the pitch-shift injection methodology, not sparse-sample
+bad luck (0/40 is a strong null result). Not investigated further —
+out of scope for "the smallest additional ground truth."
+
+**Task 2 — transition-frame exclusion, mechanically distinct from the
+already-failed window resize.** Modified
+`modal_worker/score_conditioned_verification_prototype.py` in place
+(not rewritten): added `compute_transition_mask`, which flags individual
+CREPE frames as "transition" when the frame-to-frame pitch jump exceeds
+0.75 semitones in one 40ms hop (a proxy for "still mid-attack/
+portamento, not settled"), computed once per piece over the full frame
+array — independent of any note's window. `verify_note` excludes these
+frames from BOTH the expected-pitch-evidence and competing-pitch-
+evidence computations. This is mechanically different from the
+2026-11-01 `note_window` fix: that changed which frames a window
+*includes*, based on NEIGHBOR TIMING; this changes which already-
+included frames *count*, based on the frame's OWN local pitch
+stability — confirmed distinct before building it, per the directive's
+explicit ask.
+
+Same 8 dev pieces, 7211 notes:
+
+    condition (non-oracle, Parangonar-anchored — the GO/STOP number)   note-level FP
+    fixed window, no exclusion (2026-11-01 original)                  18.78% (1354/7211)
+    neighbor-bound, no exclusion (2026-11-01 diagnostic)               28.57% (2060/7211)
+    fixed window, WITH transition exclusion (new)                     29.87% (2154/7211)  <- WORSE
+
+    condition (oracle timing — diagnostic only, not the GO/STOP number)
+    oracle, no exclusion (2026-11-01)                                  55.30% (4085/7387)
+    oracle, WITH transition exclusion (new)                            34.25% (2530/7387)  <- improved, still bad
+
+The oracle-only improvement (55.30%→34.25%) confirms transition frames
+really are *part* of why oracle timing was so bad — but the condition
+that actually matters (non-oracle, directly comparable to production)
+got WORSE, not better, so the verdict doesn't change. **Precision**
+(the metric this round's directive specifically asked for, since recall
+alone hid how bad the false-positive problem is): full-piece sweep on
+the injected audio for the 2 original verified cases — 2288: 1 true
+positive / 87 total flags (1.15%); 2294: 1 true positive / 321 total
+flags (0.31%). **Combined: 2/408 = 0.49% precision.** Recall unchanged
+at 2/2 (100%) — the real wrong notes are still caught, just buried in
+overwhelming noise.
+
+**Per-instrument breakdown** (transition-exclusion verifier vs.
+production, same 8 pieces): Flute 33.98% vs. 0%, Cello 31.08% vs.
+0.18%, Violin 12.35% vs. 0%. **Latency**: production
+`run_pitch_tracking`+`dtw_align_to_score`+`find_wrong_note_candidates`
+≈9.8s/piece (measured directly); verifier
+`crepe_frames`+Parangonar-align+transition-mask ≈9-10s/piece (crepe_frames
+≈3.6s, Parangonar align ≈5.4s, transition-mask computation <0.1s,
+vectorized) — roughly comparable cost, not a differentiator either way.
+**Measure-localization**: 100% by construction for the verifier (it is
+anchored directly to the score's own note index, with no DTW
+event-to-measure step that could mis-localize, unlike production) — a
+real structural property, moot given the accuracy result.
+
+**Decision: STOP, confirmed again.** Per the directive's own stop
+condition ("if this candidate fails... STOP — do not automatically try
+more variations"): the false-positive rate on the condition that
+matters got WORSE, and precision is catastrophic (0.49%) regardless of
+which window/exclusion configuration is used. This is now the THIRD
+diagnostic across two rounds (neighbor-bound window, oracle timing,
+transition-frame exclusion) to either fail to fix the false-positive
+problem or make it worse. Not attempting a fourth variant (e.g.
+confidence-dip-based or spectral-flux-based transition detection)
+without new, explicit authorization. No production code touched;
+`worker.py` unaffected throughout both rounds.
+
 ## CRITICAL (2026-10-31): the real wrong-note detector has ~0% true recall and ~50% false-positive rate — prior "96.3% detection" number was measuring a different, degenerate thing
 
 Found during Phase 2 of "MEDIANT — Continue Pipeline Validation and

@@ -116,6 +116,46 @@ kept because it is the more defensible design even though it measured
 worse on this metric; a future attempt should NOT retry window-sizing
 again without first addressing the CREPE-transition-frame issue
 directly.
+
+UPDATE (2026-11-04, new owner directive): tested transition-frame
+exclusion (`compute_transition_mask`, `TRANSITION_SEMITONE_THRESHOLD`)
+instead of window resizing — mechanically different: it excludes
+individual FRAMES from evidence based on the frame's OWN local pitch
+stability (frame-to-frame semitone jump > 0.75 in one 40ms hop),
+independent of window boundaries, rather than changing which frames a
+window includes based on neighbor timing. `main()` now runs this
+config (fixed window + transition exclusion) by default.
+
+**Confirmed FAIL, per the directive's own stop condition.** Same 8 dev
+pieces, 7211 notes (non-oracle, Parangonar-anchored — the condition
+that matters for GO/STOP):
+
+    config                              note-level FP
+    fixed window, no exclusion (orig)   18.78% (1354/7211)
+    neighbor-bound, no exclusion        28.57% (2060/7211)
+    fixed window, WITH exclusion (new)  29.87% (2154/7211)  <- WORSE than original
+
+Oracle-timing diagnostic only (not the GO/STOP number) told a different,
+partial story: transition exclusion DID help there — 55.30% (no
+exclusion) -> 34.25% (with exclusion) — confirming transition frames are
+part of why oracle timing was so bad. But the condition that actually
+matters (non-oracle) got worse, not better, so this does not change the
+verdict.
+
+**Precision** (new metric this round — recall alone hid how bad this
+is): full-piece sweep on the 2 original verified injections (2288,
+2294), transition-exclusion config: 2288 — 1 true positive / 87 total
+flags (1.15%); 2294 — 1 true positive / 321 total flags (0.31%).
+**Combined: 2/408 = 0.49% precision.** Recall unchanged at 2/2 (100%) —
+the real wrong notes are still caught, just buried in overwhelming
+false positives.
+
+No further variant attempted, per "do not automatically try more
+variations" — this candidate failed on the metric that matters
+(non-oracle FP got worse) and precision is catastrophic regardless.
+See `task3_end_to_end_comparison.py` and
+`task1_expand_injection_coverage.py` for the rest of this round's work;
+`agent_workspace/AUDIO_PIPELINE_AUDIT.md` for the full decision report.
 """
 import sys
 import csv
@@ -148,6 +188,20 @@ IN_TUNE_CENTS = 50.0       # within a half-semitone counts as "the expected pitc
 MIN_EVIDENCE_SEC = 0.08    # same floor as production's MIN_DUR_SEC quality gate
 WINDOW_RADIUS_SEC = 0.20   # +/- window around the alignment-predicted time
 
+# 2026-11-04 owner directive, Task 2: transition-frame exclusion. A frame
+# whose pitch jumps more than this many semitones from the IMMEDIATELY
+# PRECEDING frame (40ms earlier) is still mid-attack/portamento, not
+# settled on a note — exclude it from evidence entirely, regardless of
+# which note's window it falls in. This is mechanically different from
+# the already-failed `note_window` neighbor-bound fix (2026-11-01): that
+# changed which frames a window INCLUDES based on NEIGHBOR TIMING; this
+# changes which INCLUDED frames COUNT AS EVIDENCE based on the frame's
+# OWN local pitch stability, independent of window boundaries. A fast
+# but genuine vibrato/intonation wobble moves far less than one semitone
+# in 40ms; a real attack or note-to-note transition moves several
+# semitones over 1-2 frames — this threshold targets the latter only.
+TRANSITION_SEMITONE_THRESHOLD = 0.75
+
 
 def crepe_frames(wav_bytes: bytes, instrument: str):
     """Raw per-frame CREPE (Hz, periodicity), same params as
@@ -178,6 +232,31 @@ def hz_to_midi(hz: np.ndarray) -> np.ndarray:
     return 69.0 + 12.0 * np.log2(hz / 440.0)
 
 
+def compute_transition_mask(pitch_np: np.ndarray, conf_np: np.ndarray) -> np.ndarray:
+    """
+    True at frame i if its pitch moved more than TRANSITION_SEMITONE_THRESHOLD
+    semitones from frame i-1 (40ms earlier) -- a plausible proxy for "CREPE's
+    tracker is still mid-attack/portamento here, not settled," independent
+    of any note's window. Computed once per piece over the FULL frame
+    array (not per-note), so it never depends on window boundaries. Both
+    sides of a detected jump are marked (the landing point could be
+    either side of the hop boundary). Frames with no usable pitch on
+    either side of the comparison are never marked by this rule alone --
+    the existing `pitch_np > 0` gate already excludes them elsewhere.
+    """
+    n = len(pitch_np)
+    transition = np.zeros(n, dtype=bool)
+    voiced = pitch_np > 0
+    both_voiced = voiced[:-1] & voiced[1:]
+    midi = np.full(n, np.nan)
+    midi[voiced] = hz_to_midi(pitch_np[voiced])
+    jump = np.zeros(n - 1, dtype=bool)
+    jump[both_voiced] = np.abs(midi[1:][both_voiced] - midi[:-1][both_voiced]) > TRANSITION_SEMITONE_THRESHOLD
+    transition[:-1] |= jump
+    transition[1:] |= jump
+    return transition
+
+
 def note_window(t: float, prev_t: float | None, next_t: float | None,
                  max_radius: float = WINDOW_RADIUS_SEC) -> tuple[float, float]:
     """
@@ -200,10 +279,15 @@ def note_window(t: float, prev_t: float | None, next_t: float | None,
 
 
 def verify_note(frame_times, pitch_np, conf_np, expected_midi: float,
-                 window_start: float, window_end: float) -> dict:
+                 window_start: float, window_end: float,
+                 transition_mask: np.ndarray | None = None) -> dict:
     """
     Score-conditioned frame-level verification for ONE expected note.
     See module docstring for the hard constraint this implements.
+
+    `transition_mask`, if given (see `compute_transition_mask`), excludes
+    frames flagged as mid-attack/portamento from evidence entirely --
+    orthogonal to the window bounds themselves.
     """
     mask = (
         (frame_times >= window_start)
@@ -211,6 +295,8 @@ def verify_note(frame_times, pitch_np, conf_np, expected_midi: float,
         & (conf_np >= CONF_THRESHOLD)
         & (pitch_np > 0)
     )
+    if transition_mask is not None:
+        mask = mask & ~transition_mask
     frame_hop_sec = CREPE_HOP / CREPE_SR
     if not mask.any():
         return {"verdict": "unverifiable", "reason": "no confident frames in window",
@@ -264,7 +350,9 @@ def _align(matcher, audio: np.ndarray, sr: int, na):
     return matcher(audio.astype(np.float32), na, sample_rate=sr)
 
 
-def run_false_positive_check(matcher, piece_id: str, instrument: str) -> dict | None:
+def run_false_positive_check(matcher, piece_id: str, instrument: str,
+                              use_neighbor_bound: bool = False,
+                              use_transition_exclusion: bool = False) -> dict | None:
     """Unmodified, correct audio: any 'wrong_note' verdict here is a false positive."""
     musicxml = SCORES / f"{piece_id}.musicxml"
     wav = DATA / "audio" / f"{piece_id}.wav"
@@ -282,6 +370,7 @@ def run_false_positive_check(matcher, piece_id: str, instrument: str) -> dict | 
     buf = io.BytesIO()
     sf.write(buf, audio, sr, format="WAV")
     frame_times, pitch_np, conf_np = crepe_frames(buf.getvalue(), instrument)
+    transition_mask = compute_transition_mask(pitch_np, conf_np) if use_transition_exclusion else None
 
     times = [e.get("performance_time") for e in alignment]
 
@@ -291,11 +380,12 @@ def run_false_positive_check(matcher, piece_id: str, instrument: str) -> dict | 
     for i, t in enumerate(times):
         if t is None:
             continue
-        prev_t = times[i - 1] if i > 0 else None
-        next_t = times[i + 1] if i + 1 < len(times) else None
+        prev_t = (times[i - 1] if i > 0 else None) if use_neighbor_bound else None
+        next_t = (times[i + 1] if i + 1 < len(times) else None) if use_neighbor_bound else None
         window_start, window_end = note_window(float(t), prev_t, next_t)
         expected_midi = float(na[i]["pitch"])
-        v = verify_note(frame_times, pitch_np, conf_np, expected_midi, window_start, window_end)
+        v = verify_note(frame_times, pitch_np, conf_np, expected_midi, window_start, window_end,
+                         transition_mask=transition_mask)
         if v["verdict"] == "wrong_note":
             false_positives += 1
         elif v["verdict"] == "unverifiable":
@@ -309,7 +399,9 @@ def run_false_positive_check(matcher, piece_id: str, instrument: str) -> dict | 
 
 
 def run_recall_check(matcher, piece_id: str, instrument: str, score_dict: dict,
-                      beats_per_measure: int) -> dict | None:
+                      beats_per_measure: int, injection_seed: int | None = None,
+                      use_neighbor_bound: bool = False,
+                      use_transition_exclusion: bool = False) -> dict | None:
     """One verified wrong_pitch injection per piece: does the verifier flag it?"""
     musicxml = SCORES / f"{piece_id}.musicxml"
     wav = DATA / "audio" / f"{piece_id}.wav"
@@ -321,8 +413,9 @@ def run_recall_check(matcher, piece_id: str, instrument: str, score_dict: dict,
     with open(wav, "rb") as f:
         wav_bytes_orig = f.read()
 
+    base_seed = injection_seed if injection_seed is not None else int(piece_id)
     inj = inject_mistake_verified(wav_bytes_orig, ground_truth, score_dict,
-                                   beats_per_measure, instrument, base_seed=int(piece_id))
+                                   beats_per_measure, instrument, base_seed=base_seed)
     if not inj["valid"]:
         return {"piece": piece_id, "valid": False,
                 "attempts": len(inj["attempts"]),
@@ -340,6 +433,7 @@ def run_recall_check(matcher, piece_id: str, instrument: str, score_dict: dict,
 
     alignment = _align(matcher, audio, sr, na)
     frame_times, pitch_np, conf_np = crepe_frames(injected_wav_bytes, instrument)
+    transition_mask = compute_transition_mask(pitch_np, conf_np) if use_transition_exclusion else None
 
     nearest = min(ground_truth, key=lambda r: abs(r["onset_sec"] - injected["onset_sec"]))
     target_start_beat = nearest["start_beat"]
@@ -351,14 +445,16 @@ def run_recall_check(matcher, piece_id: str, instrument: str, score_dict: dict,
         return {"piece": piece_id, "valid": True, "detected": False,
                 "reason": "alignment produced no performance_time for the injected note's score index"}
 
-    prev_t = times[idx - 1] if idx > 0 else None
-    next_t = times[idx + 1] if idx + 1 < len(times) else None
+    prev_t = (times[idx - 1] if idx > 0 else None) if use_neighbor_bound else None
+    next_t = (times[idx + 1] if idx + 1 < len(times) else None) if use_neighbor_bound else None
     window_start, window_end = note_window(float(t), prev_t, next_t)
 
     expected_midi = float(na[idx]["pitch"])  # the CORRECT pitch per the score
-    v = verify_note(frame_times, pitch_np, conf_np, expected_midi, window_start, window_end)
+    v = verify_note(frame_times, pitch_np, conf_np, expected_midi, window_start, window_end,
+                     transition_mask=transition_mask)
     detected = v["verdict"] == "wrong_note"
     return {"piece": piece_id, "valid": True, "detected": detected,
+            "measure": injected.get("measure"),
             "original_note": injected["original_note"], "new_note": injected["new_note"],
             "verdict": v["verdict"], "reason": v["reason"],
             "competing_midi": v["competing_midi"]}
@@ -368,11 +464,12 @@ def main():
     matcher = pa.AudioToScoreMatcher()
     meta_rows = {r["id"]: r for r in load_rows(DATA / "musicnet_metadata.csv")}
 
-    print("=== False-positive check (unmodified, correct audio) ===")
+    print("=== False-positive check: FIXED window + TRANSITION-FRAME EXCLUSION (new, 2026-11-04) ===")
     fp_results = []
     for pid in DEV_PIECES:
         instrument = meta_rows[pid]["instrument"]
-        r = run_false_positive_check(matcher, pid, instrument)
+        r = run_false_positive_check(matcher, pid, instrument,
+                                      use_neighbor_bound=False, use_transition_exclusion=True)
         if r is None:
             print(f"{pid}: SKIP (missing file)")
             continue
@@ -384,9 +481,11 @@ def main():
     pieces_with_fp = sum(1 for r in fp_results if r["false_positives"] > 0)
     total_notes = sum(r["n_notes"] for r in fp_results)
     total_fp = sum(r["false_positives"] for r in fp_results)
-    print(f"\nFP summary: {pieces_with_fp}/{len(fp_results)} pieces had >=1 false "
-          f"flag; {total_fp}/{total_notes} notes false-flagged "
-          f"({100.0 * total_fp / total_notes:.2f}% of all notes)")
+    print(f"\nFP summary (fixed window + transition exclusion): {pieces_with_fp}/{len(fp_results)} "
+          f"pieces had >=1 false flag; {total_fp}/{total_notes} notes false-flagged "
+          f"({100.0 * total_fp / total_notes:.2f}% of all notes) -- compare against the "
+          f"already-measured fixed-window-NO-exclusion baseline of 18.78% (1354/7211) "
+          f"and neighbor-bound-NO-exclusion of 28.57% (2060/7211), both in this file's docstring.")
 
     print("\n=== Recall check (one verified wrong_pitch injection per piece) ===")
     recall_results = []
@@ -397,7 +496,8 @@ def main():
             continue
         score_dict = w.parse_musicxml(musicxml.read_bytes(), 1)
         beats_per_measure = w.beats_per_measure_from_time_sig(score_dict["time_signature"])
-        r = run_recall_check(matcher, pid, instrument, score_dict, beats_per_measure)
+        r = run_recall_check(matcher, pid, instrument, score_dict, beats_per_measure,
+                              use_neighbor_bound=False, use_transition_exclusion=True)
         if r is None:
             print(f"{pid}: SKIP (missing file)")
             continue

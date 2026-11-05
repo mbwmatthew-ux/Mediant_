@@ -5,6 +5,95 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-05 (read-only): contextual verification feasibility — a real confound caught, no concrete signal, recommend real labeled data
+
+Direct follow-up to the same day's confidence/duration gate round
+(STOP, no credible separation on amplitude or duration). This round
+asks a different question on the same 6 TP / 432 FP events: does
+CONTEXT — neighboring notes, overlapping pitch activity, harmonic
+relationships, temporal consistency — separate genuine substitutions
+from Basic Pitch's own extraction noise? Explicitly read-only; the
+directive forbade implementing anything this round regardless of
+outcome.
+
+**Disclosure on data provenance, as the directive required.** The
+confidence/duration round persisted only aggregate statistics and the
+6 individual true-positive printouts — the 432 false positives' own
+per-event identity (which score note each one attaches to) was never
+written to disk. Examining context required knowing that identity.
+Recovered it by re-running the exact same deterministic, already-
+twice-executed alignment + adapter pass (`AudioToScoreMatcher` +
+`basic_pitch_score_adapter.detect_wrong_notes`) over already-stored
+raw data — no new Basic Pitch extraction, no new audio processing, no
+new injections, $0 cost. Stated here rather than done quietly, per the
+directive's explicit instruction.
+
+**Three contextual properties examined, computed directly from
+already-stored data (no further re-inference for any of these):**
+
+**1. Overlapping (simultaneous) pitch activity** — does more than one
+Basic Pitch pitch sound at the same time as the flagged event, in
+Basic Pitch's own output. **FP: 364/432 (84.3%). TP: 3/6 (50%).** A
+real directional difference, but not clean — half the genuine
+substitutions studied here ALSO show overlapping activity, so this
+property alone could not gate out the bulk of false positives without
+losing a large fraction of true positives even in this tiny sample.
+
+**2. Harmonic relation to a nearby expected pitch** (octave or
+fifth/fourth) — the starkest-looking number, but a real confound was
+caught before trusting it. **FP: `{'fifth/fourth': 219, 'none': 149,
+'octave': 64}` (283/432 = 65.5% show some relation). TP: 0/6 show any.**
+Checked `inject_audio_mistakes.verify_injection`'s source directly: its
+own "unambiguous" validity gate
+(`_expected_pitch_classes_for_measure`) REJECTS any candidate injection
+whose substitute pitch CLASS already matches one expected nearby —
+which includes octave-equivalent substitutes by construction (same
+pitch class, mod 12). **The 6 true positives are therefore guaranteed,
+by the injection methodology's own design, to never show the octave
+relation — this is not independent evidence about genuine wrong notes
+in general, and is disclosed as a confound rather than reported at
+face value.** The fifth/fourth component (219/432 = 50.7% of FPs) is
+NOT excluded by that gate (it only tests exact pitch-class equality,
+not a fifth/fourth interval) and so IS a genuine, if extremely
+small-sample (n=6), directional observation: none of the 6 real
+substitutions examined landed a fifth/fourth from a nearby expected
+pitch, while half of all false positives do.
+
+**3. Temporal consistency** (gap in seconds to the nearest neighboring
+Basic Pitch event, before/after) — **no separation.** FP gaps range
+-1.313s to +1.220s (mean -0.06s; 473 of 856 measured gaps are
+NEGATIVE, meaning the neighboring event actually overlaps in time —
+itself a sign of a messy local detection, consistent with finding #1).
+TP gaps range -0.39s to +0.12s, sitting entirely INSIDE the FP range.
+No distinguishing pattern.
+
+**Combined candidate, one hypothesis as the directive asked for:**
+false positives more often coincide with COMPETING pitch evidence near
+the flagged note — either literally simultaneous (finding #1) or
+harmonically adjacent (the unconfounded half of finding #2) — than the
+6 genuine substitutions examined do. This is directionally present
+across two largely-independent signals, but it is **not concrete**:
+50% of true positives still show overlapping activity, and n=6 — with
+one real construction confound already found and set aside — is
+nowhere near enough to fit, validate, or trust a rule built on it.
+
+**Decision: do not prototype from this data.** Per the directive,
+propose the smallest justified next action rather than inventing a
+mechanism to keep the thread alive: **collect a small set of real,
+labeled performance errors (actual musicians' actual mistakes, not
+synthetic pitch-shift injections) before any further contextual-
+verification model development.** The synthetic injection methodology
+itself is now confirmed, directly, to bake in at least one property
+(no octave-adjacent substitutes) that would make a model trained or
+validated only on it blind to an entire class of real wrong notes.
+That is a structural limitation of the test data available in this
+investigation, not a limitation of any detector design tried so far.
+
+No production code touched; `worker.py` unaffected. Regression suites
+green (212/212). $0 cost throughout.
+
+---
+
 ## 2026-11-05: confidence/duration gate feasibility — STOP, no credible separation found
 
 Direct follow-up to the 2026-11-04 second round, which found the

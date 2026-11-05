@@ -136,7 +136,11 @@ def detect_wrong_notes(na, alignment, performed_events: list[dict]) -> dict:
         verdict = "substitution" if is_substitution(expected_midi, played_midi) else "correct"
         notes.append({"score_idx": i, "verdict": verdict, "expected_midi": expected_midi,
                        "played_midi": played_midi, "window": (window_start, window_end),
-                       "reason": None})
+                       "reason": None, "played_perf_idx": int(orig_idx),
+                       "played_amplitude": event.get("amplitude"),
+                       "played_duration_sec": float(event["end_sec"] - event["time_sec"]),
+                       "played_onset_sec": float(event["time_sec"]),
+                       "pitch_distance_semitones": abs(played_midi - expected_midi)})
 
     insertions = [orig_idx for orig_idx, _ in performed if orig_idx not in claimed_perf_idx]
     return {"notes": notes, "insertions": insertions}

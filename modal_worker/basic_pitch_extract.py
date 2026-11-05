@@ -38,7 +38,8 @@ def main():
         t0 = time.time()
         _, _, note_events = predict(str(wav))
         elapsed = time.time() - t0
-        events = [{"time_sec": float(start), "end_sec": float(end), "midi": int(round(pitch))}
+        events = [{"time_sec": float(start), "end_sec": float(end), "midi": int(round(pitch)),
+                    "amplitude": float(amp)}
                    for start, end, pitch, amp, bend in note_events]
         results[pid] = {"events": events, "elapsed_sec": elapsed}
         print(f"{pid}: {len(events)} note events in {elapsed:.1f}s")

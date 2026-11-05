@@ -22,7 +22,8 @@ def main():
     results = {}
     for case in MANIFEST:
         _, _, note_events = predict(case["wav_path"])
-        events = [{"time_sec": float(start), "end_sec": float(end), "midi": int(round(pitch))}
+        events = [{"time_sec": float(start), "end_sec": float(end), "midi": int(round(pitch)),
+                    "amplitude": float(amp)}
                    for start, end, pitch, amp, bend in note_events]
         results[str(case["case"])] = events
         print(f"case {case['case']} ({case['piece']}): {len(events)} note events")

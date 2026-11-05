@@ -5,6 +5,84 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-05: confidence/duration gate feasibility — STOP, no credible separation found
+
+Direct follow-up to the 2026-11-04 second round, which found the
+Basic Pitch + `AudioToScoreMatcher` adapter got 6/6 recall (vs
+production's 0/6) but at 5.99% false-positive rate (432/7211 notes,
+8/8 control pieces), and named a confidence/duration gate on Basic
+Pitch's own note events as the specific next step — not built that
+round. This round tests exactly that, nothing more.
+
+**Task 1 — pull apart the actual TP/FP evidence, verify field
+semantics, don't assume.** Checked Basic Pitch's "amplitude" field
+directly against its source (`basic_pitch/note_creation.py`): it is
+computed as `np.mean(frames[note_start_idx:i, freq_idx])` — the MEAN
+of the model's own per-frame note-activation probability (0-1) over
+the detected note's duration, at its pitch's frequency bin. Confirmed
+NOT loudness/velocity, and NOT on CREPE's periodicity-based confidence
+scale (0-100) — a genuinely different quantity, checked rather than
+assumed compatible.
+
+Re-extracted Basic Pitch events (both the 8 control pieces and the 6
+injected cases) to capture this field, which the prior round's
+extraction discarded. Extended `basic_pitch_score_adapter.py`'s
+`detect_wrong_notes` additively (new output fields only:
+`played_perf_idx`, `played_amplitude`, `played_duration_sec`,
+`played_onset_sec`, `pitch_distance_semitones`) to expose this
+information per note — `worker.py` untouched throughout.
+
+**Duplicate check, explicitly asked for: answered cleanly.** Grouped
+all 432 false-positive flags by `(piece, played_perf_idx)`. **All 432
+correspond to 432 DISTINCT underlying Basic Pitch events — zero
+duplicates, zero score notes independently nominating the same
+performed event.** The prior round's "54x production's rate" finding
+is confirmed real, not an artifact of double-counting one noisy event
+multiple times.
+
+**Task 2 — feasibility check on DEVELOPMENT data only, n=6 TPs vs
+n=432 FPs. No credible separation on either axis:**
+
+    metric       TP (n=6) range      FP (n=432) 10th / 50th / 90th pct
+    amplitude    [0.513, 0.674]      0.367 / 0.521 / 0.669
+    duration(s)  [0.152, 0.534]      0.151 / 0.232 / 0.510
+
+The TP range sits almost entirely INSIDE the FP distribution's middle
+80% on BOTH axes. TP amplitude's own minimum (0.513) is below the FP
+population's median (0.521) — more than half of all false positives
+have HIGHER amplitude than the weakest true positive. TP duration's
+minimum (0.152s) sits right at the FP's 10th percentile (0.151s), and
+its maximum (0.534s) exceeds the FP's 90th percentile (0.510s). **No
+single threshold on either field could meaningfully reduce the 432
+false positives without also cutting several of the 6 true
+positives.** Per-instrument FP breakdown (for context, not a gate
+candidate): Flute n=82 (amplitude mean 0.556), Cello n=336 (0.506),
+Violin n=14 (0.590) — amplitude doesn't cleanly separate by instrument
+either; Cello carries the overwhelming majority of false positives in
+absolute count, consistent with it being the dominant instrument in
+this 8-piece dev set (5 of 8 pieces), not evidence of an
+instrument-specific confidence difference.
+
+**Decision: STOP, per the directive's own explicit instruction** ("if
+there's no credible separation, STOP here — do not implement a filter
+just because you built this far"). **No gate was implemented.** Tasks
+3 (implementation + re-validation) and 4 (GO/STOP on an integrated
+gate) were not executed, because there was nothing credible to
+implement or validate — proceeding would have meant fitting a
+threshold to 6 data points with no real separation, i.e. overfitting
+exactly as the directive warned against.
+
+Dev/control piece disclosure (asked for, answered even though Task 3
+didn't run): the 8 dev pieces used here (2202/2203/2217/2221/2288/
+2293/2294/2295) do NOT overlap with the frozen 6-piece set
+(2204/2218/2222/2297/2244/2289) opened in an earlier round — no
+held-out integrity concern applies to this round's (non-)result.
+
+No production code touched; `worker.py` unaffected. Regression suites
+green (212/212). $0 cost, CPU-only throughout.
+
+---
+
 ## 2026-11-04 (second round): Basic Pitch + AudioToScoreMatcher wrong-note adapter — the bug from round one, fixed; real progress, not yet a GO
 
 Direct follow-up to the same day's first round (Basic Pitch extraction

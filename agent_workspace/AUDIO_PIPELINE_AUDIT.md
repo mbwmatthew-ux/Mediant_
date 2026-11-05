@@ -5,6 +5,147 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-04: Basic Pitch note-extraction feasibility — extraction wins decisively, wrong-note detection hits a specific, confirmed stop condition
+
+New owner directive, bounded: does Spotify's Basic Pitch fix CREPE's
+diagnosed dense-passage over-generation bottleneck (e.g. piece 2241:
+912 CREPE events vs 608 real notes, confirmed dominant on 9/12 dev
+pieces)? Not a repeat of the benchmark-repair or alignment-diagnosis
+work (already done) — a genuinely new tool test, one bounded pass,
+stop immediately on either failure condition.
+
+**Setup, a real compatibility note worth keeping.** `pip install
+basic-pitch` into the main validation venv (Python 3.13) failed:
+basic-pitch requires `tensorflow-macos<2.15.1` on macOS with
+Python>3.11, and that constraint has no wheel for 3.13 (pip tried to
+build numpy from source and hit a Python-3.13-incompatible
+`pkgutil.ImpImporter` reference and failed). Created a sibling
+isolated venv, `venv_basic_pitch` (Python 3.11, via Homebrew), still
+fully separate from production. On THAT exact Python version,
+basic-pitch's own dependency markers skip the TensorFlow requirement
+entirely and it uses its CoreML backend instead — no TensorFlow
+install was actually needed, and inference is on-device, CPU/Neural-
+Engine only. $0 cost confirmed, no GPU, no API calls, throughout.
+
+**Stop condition 1 (note extraction) — cleared decisively.** Compared
+Basic Pitch against CREPE (`worker.run_pitch_tracking`, unmodified) on
+identical audio, the same 8 real MusicNet dev pieces, 7387 real notes,
+scored via `note_sequence_evaluator.align_note_sequences` (unmodified).
+**A real bug was caught and fixed before trusting any number**: Basic
+Pitch's raw `note_events` output is NOT returned in time order
+(verified directly — confirmed real, not assumed); the DP evaluator
+requires monotonic input, so an unsorted feed silently produced
+near-zero onset scores and badly wrong precision/recall on the first
+run. Explicit sort by `time_sec` fixed it.
+
+    metric                  Basic Pitch   CREPE
+    note precision          0.796         0.531
+    note recall             0.843         0.706
+    event over-generation   1.059x        1.329x   <- the diagnosed bottleneck
+    octave errors           135           289
+    wrong_pitch             442           1615
+    deletions               583           269
+    insertions              1016          2700
+    latency/piece           1.1-2.2s      3.1-6.2s
+
+Basic Pitch wins on every headline metric. The one metric where CREPE
+"wins" (fewer raw deletions) is explained, not contradictory: CREPE's
+over-generation means it plants a candidate near almost every real
+note, but a much larger share of what it finds carries the wrong pitch
+(26.7% of CREPE's matched pairs vs 8.5% of Basic Pitch's) — the
+wrong-pitch penalty dominates, so Basic Pitch's overall recall still
+comes out higher. **Per-instrument, Basic Pitch wins precision AND
+recall on all three** (Flute 0.884/0.829 vs 0.655/0.784; Cello
+0.757/0.827 vs 0.477/0.645; Violin 0.850/0.976 vs 0.584/0.887) — not a
+single-instrument fluke.
+
+**Step 7 (alignment) — Basic Pitch's notes beat CREPE's through the
+same matcher, but both trail raw audio.** Task 1's
+`pa.AudioToScoreMatcher` (2026-11-01) takes RAW AUDIO — it computes its
+own spectrogram internally and cannot consume a pre-extracted note
+list, so it is not the right reuse target for "feed Basic Pitch's
+OUTPUT into Parangonar." `pa.AutomaticNoteMatcher` is parangonar's
+symbolic score-note-to-performance-note matcher, built for exactly
+this input shape — verified its exact field requirements directly
+against its source rather than guessing (partitura's own
+`note_array()` returns the literal string `"None"` for every note's
+`id`, which would silently break the matcher's id-based bookkeeping —
+unique ids assigned before calling it). Scored with the SAME
+`classify_alignment`/`nearest_ground_truth_measure` convention every
+other alignment candidate in this investigation used:
+
+    piece   instr    BP %correct   CREPE %correct
+    2202    Flute    89.5%         86.1%
+    2203    Flute    77.2%         79.5%   <- only piece CREPE wins
+    2217    Cello    78.0%         51.7%
+    2221    Cello    93.1%         76.8%
+    2288    Violin   97.5%         91.1%
+    2293    Cello    91.3%         73.9%
+    2294    Cello    81.5%         76.3%
+    2295    Cello    82.0%         71.6%
+    AVERAGE          86.3%         75.9%
+
+Basic Pitch wins 7/8 pieces, often by a wide margin (2217: +26.3pt;
+2293: +17.4pt), confirming the extraction-quality gap translates into a
+real alignment-quality gap. **But both still trail Task 1's raw-audio
+result on these same pieces (~95.6%).** Working directly on the
+continuous audio signal remains more robust for alignment than any
+discrete-note symbolic matcher, regardless of which extraction
+front-end feeds it — a real, useful negative result in its own right.
+
+**Stop condition 2 (wrong-note detection) — triggered, a specific,
+confirmed mechanism, not a vague "didn't work."** Tested ONLY the 6
+verified `wrong_pitch` injections that actually exist (2 from
+2026-11-01 + 4 from 2026-11-04's expansion) as positive cases, and the
+8 unmodified pieces as negative controls — nothing manufactured, per
+the directive. Detection logic: since `AutomaticNoteMatcher` already
+gives an explicit 1:1 score-note-to-performance-note pairing, a "wrong
+note" should just be a matched pair whose pitch distance is >=2
+semitones and non-octave (the same distance/octave rule
+`find_wrong_note_candidates` uses, applied directly since no
+measure-level ambiguity exists once a direct pairing exists).
+
+**Result: 0/6 detected, 0/8 pieces false-flagged — zero flags of any
+kind on BOTH sides.** That is not "perfectly clean" — it is the
+signature of a detector that can never fire. Confirmed directly by
+inspecting the raw alignment for case 1 (piece 2288, score index 41,
+true pitch 69, injected to 65): `AutomaticNoteMatcher` labels that
+score note `"deletion"` — the EXACT SAME label it would give a note the
+performer never played at all. **The matcher's own internal
+pitch-aware cost function refuses to produce a "match" when pitch
+distance is large, routing a genuinely-wrong-pitch performance note
+into the same bucket as a missing note before any distance-gate logic
+downstream ever sees it.** This is a structural property of a matcher
+built for expressive-performance alignment (assumes the performance is
+mostly pitch-correct), not a threshold that tuning could fix.
+
+Not the same failure mode as the 2026-11-01/11-04 frame-level verifier
+(which anchors on `AudioToScoreMatcher`'s raw-audio TIME alignment,
+independent of pitch matching, and failed on CREPE's own frame-level
+continuity artifacts). Basic Pitch's discrete note+pitch-bend output
+isn't a drop-in substitute for CREPE's per-frame pitch/confidence
+surface that architecture needs, so that approach can't be reused here
+without building something new either.
+
+**Recommendation, named not built, per "do not automatically try more
+variations":** a wrong-note detector built on Basic Pitch's notes would
+need either (a) `AudioToScoreMatcher`'s time-based alignment paired
+with a separate distance-gate against Basic Pitch's own per-note pitch
+at each aligned time (bypassing `AutomaticNoteMatcher` entirely), or
+(b) explicit insertion/deletion-pair inference (a deleted score note
+and an unrelated inserted performance note at the same time, inferred
+as one wrong note rather than two separate errors). Neither attempted.
+
+**Overall verdict: extraction is a real, reusable, strong finding —
+Basic Pitch is a materially better note-extraction front-end than CREPE
+on every axis measured (precision, recall, over-generation, octave
+errors, speed). Wrong-note detection via the one bounded mechanism
+tested here is NO-GO, for a specific, named, structural reason, not a
+noise/threshold problem.** No production code touched; `worker.py`
+unaffected throughout. Regression suites green (212/212).
+
+---
+
 ## Task 1 (2026-11-01, "Score-Conditioned Audio Verification Feasibility"): Parangonar — the strongest alignment result in this entire investigation, with two real caveats
 
 Tested a third audio-to-score alignment candidate: Parangonar

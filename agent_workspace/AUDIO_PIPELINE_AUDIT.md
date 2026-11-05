@@ -5,6 +5,123 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-04 (second round): Basic Pitch + AudioToScoreMatcher wrong-note adapter — the bug from round one, fixed; real progress, not yet a GO
+
+Direct follow-up to the same day's first round (Basic Pitch extraction
+GO, wrong-note detection NO-GO via `AutomaticNoteMatcher`'s deletion-
+before-distance-check behavior). This round builds the exact fix that
+finding named as unbuilt.
+
+**Task 1 — verify the mechanism with code, not assumption.** Read
+Parangonar's actual source rather than re-testing blindly.
+`AutomaticNoteMatcher`'s fine-grained stage
+(`SequenceAugmentedGreedyMatcher.__call__`, `matchers.py:139-146`)
+groups BOTH the score and performance note arrays by EXACT PITCH VALUE
+before any matching happens at all:
+```python
+score_pitches = np.unique(score_note_array["pitch"])
+for pitch in score_pitches:
+    score_notes = score_note_array[pitch == score_note_array["pitch"]]
+    performance_notes = performance_note_array[pitch == performance_note_array["pitch"]]
+```
+Matching then only ever happens WITHIN a pitch bucket, by nearest onset
+order. A performance note of a different pitch than its true score
+counterpart is therefore invisible to it by construction — it surfaces
+as an "insertion" wherever a score note of ITS OWN pitch happens to
+exist nearby (or not at all), while the true score note becomes a
+"deletion," always, regardless of timing. This is the exact, now
+source-confirmed mechanism behind round one's 0/6 recall.
+
+`AudioToScoreMatcher` (verified via `audio_matchers.py::_path_to_alignment`,
+lines 340-350) is the opposite in exactly the needed way:
+```python
+for note in score_note_array:
+    sid = note["id"]
+    s_onset = note["onset_beat"]
+    p_time = float(predicted_stime_to_ptime_map(s_onset))
+    alignment.append({"label": "match", "score_id": sid, "performance_time": p_time})
+```
+Every score note, unconditionally, gets a `performance_time` from pure
+time-interpolation over the DP's backtracked path — pitch is never
+read in this step. Confirmed: this is exactly the pitch-independent
+timing localization the adapter needs.
+
+**Task 2 — adapter built, `worker.py` untouched.**
+`modal_worker/basic_pitch_score_adapter.py`. Pipeline: `AudioToScoreMatcher`
+gives timing only; for each score note, the nearest-in-TIME Basic
+Pitch event (selection is by time proximity ONLY, never by pitch) is
+located inside a window bounded by the neighbouring score notes' own
+predicted times (capped at 0.5s); the distance/octave gate — same rule
+`find_wrong_note_candidates` uses (>=2 semitones, non-octave), reused
+verbatim rather than duplicated, since that function's own signature
+assumes CREPE-specific confidence/spread/duration fields Basic Pitch's
+notes don't carry in the same form — is applied only AFTER association,
+never as a precondition for it. Score notes with no Basic Pitch event
+in their window are classified `"deletion"` and reported, never
+dropped; Basic Pitch events claimed by no window are classified
+`"insertion"` and reported, never dropped.
+
+**Task 3 — real measurement, same cases as round one, nothing
+manufactured.** `modal_worker/basic_pitch_adapter_eval.py`. Per the
+directive: raw counts only, n=6 positive / n=8 control, too small to
+extrapolate a percentage from.
+
+Negative/control cases (8 unmodified pieces, 7211 notes):
+
+    condition                 pieces flagged   note-level FP
+    non-oracle (real align)   8/8              432/7211 (5.99%)
+    oracle (diagnostic only)  8/8              470/7211 (6.52%)
+    production (same 8)       3/8              8/~7211 (~0.11%)
+
+Oracle and non-oracle are CLOSE (5.99% vs 6.52%) — a meaningfully
+different signal from round one's frame-level verifier, where oracle
+timing nearly DOUBLED the false-positive rate. Here, the false
+positives are not primarily an alignment-timing artifact; they trace
+mostly to genuine Basic Pitch extraction noise inside each note's
+search window — consistent with Basic Pitch's own measured note
+precision of 0.796 (the extraction round's own number: ~20% of its
+notes are wrong before any detection logic ever runs). 1542 Basic Pitch
+events across the 8 pieces were never claimed by any window
+("insertions") — reported, not dropped.
+
+Positive cases (6 verified `wrong_pitch` injections, RAW COUNTS):
+
+    recall (non-oracle, the GO/STOP number):   6/6
+    recall (oracle, diagnostic only):           6/6
+    production's recall, SAME 6 cases (fresh):  0/6
+    measure localization among detections:      6/6 (by construction)
+
+Every one of the 6 detections also carried 14-82 OTHER substitution
+flags in the SAME take — the true positive is real but never isolated;
+it arrives inside genuine noise, consistent with the ~6% note-level FP
+rate above. Latency: alignment ~0.9-6.1s/piece (Parangonar's own
+spectrogram+DP cost, already known from round one), detection logic
+~3ms/piece (pure numpy). Peak traced memory, one representative piece:
+351MB.
+
+**Task 4 — decision: real progress, NOT YET a GO.** The recall result
+(0/6→6/6, with production at 0/6 on the identical cases) is the
+strongest wrong-note-detection result this entire investigation has
+produced. But the false-positive rate (5.99%, ~54x production's own
+~0.11%) is still too high against this exact feature's own deliberately
+strict design bar (`find_wrong_note_candidates`'s own stated principle:
+a false "wrong note" accusation against correct playing costs more
+trust than a missed one). **Specific remaining mechanism, confirmed not
+guessed:** the oracle≈non-oracle FP parity rules out alignment error
+and rules out the matcher-design bug (both already eliminated as
+causes, this round and last) — the bottleneck is Basic Pitch's own
+per-note noise inside the search window. **Recommendation, named not
+built, per "do not build a fallback algorithm or start a new model
+search regardless of outcome":** add a confidence/duration gate on
+Basic Pitch's own note events (analogous to production's existing
+`MIN_CONF`/`MIN_DUR_SEC` gates on CREPE events, which this adapter does
+not yet apply) to filter weak Basic Pitch detections before the
+distance gate runs, before any further integration attempt. Not built.
+No production code touched across Tasks 1-4; `worker.py` unaffected.
+Regression suites green (212/212).
+
+---
+
 ## 2026-11-04: Basic Pitch note-extraction feasibility — extraction wins decisively, wrong-note detection hits a specific, confirmed stop condition
 
 New owner directive, bounded: does Spotify's Basic Pitch fix CREPE's

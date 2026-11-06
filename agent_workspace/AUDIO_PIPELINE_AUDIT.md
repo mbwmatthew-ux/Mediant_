@@ -5,6 +5,39 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-05: production account ownership verification — overturns its own premise, confirms the consent gap with account-level evidence
+
+Direct replacement for the consent-policy-drafting round, premised on
+checking whether the 34 take-owning accounts might be internal test
+accounts (which would have made a consent mechanism moot). **Checked
+with real evidence instead of assuming: they are not, mostly.**
+
+Of 34 accounts: 1 (92 takes) confirmed the owner's own by exact email
+match; 1 (84 takes) explicitly unresolved and NOT cleared (no display
+name, not a test-pattern address, not provably the owner); the
+remaining 32 (56 takes) are clearly distinct real individuals,
+including real school-domain accounts in three different countries.
+`teacher_students` is empty production-wide, ruling out a
+shared-upload explanation. **140/232 takes (60%) remain real users'
+private data**, confirming rather than contradicting the immediately
+prior round's consent-gap finding.
+
+For the 92 cleared takes: all video, single-instrument (Clarinet),
+and blocked from further inspection by a genuine tooling gap, not a
+policy one — no Storage-level credential exists anywhere in this
+environment, checked directly, none created. The existing
+`extract_audio_from_video` (`modal_worker/worker.py:557`) is named as
+the correct reuse target once file access exists. Selection (Task 3)
+and evaluation (Task 4) were explicitly not attempted, per the
+directive's own instruction to stop rather than rush past unready
+labeling. Full detail:
+`agent_workspace/PRODUCTION_ACCOUNT_OWNERSHIP_VERIFICATION.md`.
+
+No audio/video content accessed. No new credentials created. No
+production changes.
+
+---
+
 ## 2026-11-05: production takes inventory + consent check — real data exists, real consent gap found, not used
 
 Third real-data attempt the same day (after the live-recording plan

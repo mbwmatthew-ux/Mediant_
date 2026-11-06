@@ -57,8 +57,8 @@ overstated.
 table for every row with `provider = 'google'` or an `identity_data->>'email'`
 matching `mbwmatthew@gmail.com`, across all ~90 Google-linked accounts
 in production. **Result: the flagged account has only an `email`-
-provider identity** (`identity_data->>'email' = 'pikaboyiscul@gmail.com'`,
-`identity_data->>'name' = 'Paul'`) — **it has no Google identity at
+provider identity** (a real, distinct third-party email and first name,
+redacted here — not the owner's) — **it has no Google identity at
 all**, and does not appear anywhere in the Google-identity sweep.
 Across every account in the database, **exactly one** maps to
 `mbwmatthew@gmail.com` under any provider (both its `email` and its
@@ -68,7 +68,7 @@ second account matches the owner under any provider.** The owner's
 recollection does not hold for this account as checked — reported
 plainly rather than stretched. **The 84-take account remains NOT
 cleared**, and the real name attached to its email-provider identity
-("Paul") is additional, independent evidence it belongs to a genuine
+(the real first name attached to that identity, redacted here) is additional, independent evidence it belongs to a genuine
 third party rather than the owner. **Owner-owned total is unchanged
 at 92 takes.** Tasks 2 and 3 were not re-run, because no new takes
 were cleared to re-run them on — doing so would repeat the already-

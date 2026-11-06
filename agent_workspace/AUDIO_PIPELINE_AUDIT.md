@@ -5,6 +5,45 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-05: authorized Storage access confirmed for the owner's own 92 takes — the tooling gap closes, pending the owner's own login
+
+Direct follow-up to the account-ownership round, which found no
+Storage-level credential existed in this environment to actually read
+file content even for the 92 confirmed-owner takes. This round checked
+whether the APP ITSELF already provides an authorized route — it does.
+
+`src/pages/Analysis.jsx:947-950` already calls
+`supabase.storage.from('recordings').createSignedUrl(take.video_path, 7200)`
+under the viewing user's own session to play their recording back.
+The live RLS policy behind it (`"Users can read own recordings"`,
+checked directly against production via `pg_policies`, not just the
+migration source) is active and unchanged: `bucket_id='recordings'
+AND (storage.foldername(name))[1] = auth.uid()::text`. This grants the
+account owner full, already-working, RLS-respecting access to their
+own files — no service-role key, no bypass, nothing new to build.
+
+Wrote `modal_worker/export_owner_clarinet_takes.py`: signs in with the
+owner's own credentials (local prompt only, never seen by this
+agent), queries only their own takes, downloads via the same signed-
+URL call the app already uses, and runs the existing, unmodified
+`worker.extract_audio_from_video` to produce local WAVs. Dependencies
+verified directly (ffmpeg present locally, `requests` and the
+`worker.py` import both confirmed in the existing venv); the
+interactive sign-in was not exercised, since it needs the owner's own
+password. 53 eligible takes re-confirmed (40 labeled Clarinet).
+
+**The Storage-access gap is resolved as a matter of WHO can act, not
+WHAT access exists** — the owner, not this agent, needs to run the
+script with their own login before any of the 53 takes can actually
+be inspected, labeled, or evaluated. Full detail:
+`agent_workspace/OWNER_CLARINET_RECOVERY_ACCESS.md`.
+
+No production code changed. No service-role key created or used. No
+RLS bypass. No recording content accessed by the agent. No
+third-party take queried.
+
+---
+
 ## 2026-11-05: production account ownership verification — overturns its own premise, confirms the consent gap with account-level evidence
 
 Direct replacement for the consent-policy-drafting round, premised on

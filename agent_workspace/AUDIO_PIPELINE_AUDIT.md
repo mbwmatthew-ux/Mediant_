@@ -5,6 +5,52 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-05: production takes inventory + consent check — real data exists, real consent gap found, not used
+
+Third real-data attempt the same day (after the live-recording plan
+and the public-dataset survey, both of which concluded no usable
+substitute existed). This one checks the project's OWN production
+data, with the highest privacy bar of anything touched this week.
+
+**Access**: the Supabase CLI already authenticated in this
+environment (`supabase db query --linked`, Management API) was used
+for read-only aggregate queries only — `COUNT`/`GROUP BY`, never a row
+or a file. No service-role key or new credential was created. Storage
+access (actual audio/video bytes) was not attempted and is not
+reachable from here without a credential this task explicitly forbade
+setting up — a real, reportable access limit, not a workaround.
+
+**Real counts**: 232 total takes (34 distinct users, up from the
+~199 previously reported), 204 succeeded, 63 have both instrument and
+score metadata present. `duration_seconds` exists as a column but is
+populated in exactly 0 of 232 rows. `flag_annotations` (teacher-
+verified human labels) is still 0 — the 2026-10-11 audit's finding
+holds even after 33 more takes. **90% of all takes (208/232) are
+video, not audio** — more identifying than anything else this
+investigation has worked with.
+
+**The decisive finding**: `src/pages/Privacy.jsx`'s actual stated
+consent covers use "to improve Mediant's analysis accuracy (aggregate
+and anonymised only)." A human reviewer individually annotating one
+specific, identifiable (often video) take is neither aggregate nor
+anonymized — that use case is not covered by what users were told.
+Per the directive, this inventory finding was NOT stretched into
+permission to select or review individual takes — Task 2 did not run.
+
+**Decision**: do not use production takes for individual-review
+annotation without an explicit Privacy Policy update or specific
+informed consent — a deliberate product/legal call for the owner, not
+an engineering one. The live-recording plan
+(`agent_workspace/REAL_MISTAKE_RECORDING_PROTOCOL.md`) remains the
+smallest practical path with no such consent gap, since the performer
+is the consenting party. Full detail:
+`agent_workspace/PRODUCTION_TAKES_INVENTORY_AND_CONSENT_CHECK.md`.
+
+No production code touched. No private recording content accessed,
+downloaded, or exposed.
+
+---
+
 ## 2026-11-05: real-performance dataset survey — no public substitute found for the live-recording plan
 
 Direct follow-up to the same day's recording-protocol round. Checked

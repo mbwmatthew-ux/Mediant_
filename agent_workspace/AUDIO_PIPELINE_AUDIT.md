@@ -36,6 +36,15 @@ labeling. Full detail:
 No audio/video content accessed. No new credentials created. No
 production changes.
 
+**Same-day update:** the owner recalled signing into the flagged
+84-take account via Google. Checked directly against `auth.identities`
+— that account has only an `email`-provider identity (no Google
+identity at all), and a full sweep of every `provider='google'` row in
+production shows exactly one account mapping to the owner's email
+under any provider, already the confirmed 92-take one. **The owner's
+recollection does not hold for this account; it stays unresolved and
+not cleared. Owner-owned total unchanged at 92.**
+
 ---
 
 ## 2026-11-05: production takes inventory + consent check — real data exists, real consent gap found, not used

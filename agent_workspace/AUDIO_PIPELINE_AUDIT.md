@@ -5,6 +5,28 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-05: real-mistake recording protocol — plan only, no measurement to report
+
+Direct follow-up to the same day's contextual-verification round,
+which recommended collecting real, labeled performance errors before
+any further model development (the synthetic injection methodology was
+confirmed to bake in at least one real confound — injected notes can
+never be octave-equivalent to nearby context, by the gate's own
+construction). This entry is a pointer, not a results section: the
+full plan — selected pieces (2288 Violin, 2202 Flute; polyphonic Piano
+checked and found not currently feasible with existing tooling),
+12-recording protocol, manifest schema, storage location, and the
+exact reuse plan for evaluating real recordings against production's
+`find_wrong_note_candidates` and the Basic Pitch + `AudioToScoreMatcher`
+adapter once they exist — lives in
+`agent_workspace/REAL_MISTAKE_RECORDING_PROTOCOL.md`. No code was
+written, no audio was recorded, no experiment ran. Nothing here
+changes any measured result above; it specifies what would need to
+happen before the picture built this week could be checked against
+real (not synthetic) mistakes.
+
+---
+
 ## 2026-11-05 (read-only): contextual verification feasibility — a real confound caught, no concrete signal, recommend real labeled data
 
 Direct follow-up to the same day's confidence/duration gate round

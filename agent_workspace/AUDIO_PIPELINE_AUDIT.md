@@ -5,6 +5,38 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-05: real-performance dataset survey — no public substitute found for the live-recording plan
+
+Direct follow-up to the same day's recording-protocol round. Checked
+four public datasets (Expert and Novice Piano Performances/Zenodo
+8392772, GAPS, URMP, ASAP) against this project's own standard for a
+valid mistake label — the same standard already applied all week to
+this project's own synthetic injections and to production's detector:
+a human or process must have actually CONFIRMED a specific mistake,
+not merely flagged a disagreement between recording and score.
+
+**None qualify.** Expert/Novice Piano's own ISMIR paper states
+directly that performers re-recorded "until satisfied... with the
+preponderance of notes played correctly" and that the paper analyzes
+performances "relatively correct in terms of wrong notes" — the
+dataset was built to AVOID mistakes, not capture them. Its free-text
+comments occasionally mention a wrong note in prose, with no
+timestamp — Tier 2 (real audio, real partially-corrected alignment),
+not Tier 1. ASAP's one candidate signal
+(`score_and_performance_aligned=False`) was confirmed, from its own
+README, to be a mechanical count comparison — not a confirmed
+mistake — Tier 3. GAPS has an unresolved license contradiction (MIT
+vs. CC BY-NC-SA 4.0) and no mistake labels. URMP has no stated license
+at all and no mistake labels.
+
+Full detail, including per-source access/license/annotation findings:
+`agent_workspace/REAL_PERFORMANCE_DATASET_SURVEY.md`. No code written,
+no bulk downloads, no production impact. The live-recording plan
+(`agent_workspace/REAL_MISTAKE_RECORDING_PROTOCOL.md`) remains the
+smallest justified path to real, trustworthy mistake-labeled data.
+
+---
+
 ## 2026-11-05: real-mistake recording protocol — plan only, no measurement to report
 
 Direct follow-up to the same day's contextual-verification round,

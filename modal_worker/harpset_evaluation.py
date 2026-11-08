@@ -57,6 +57,11 @@ compatibility concern from polyphony specifically.
 
 No new detector, no new thresholds, no production code touched.
 
+**SUPERSEDED (2026-11-08 integrity fix):** the RESULTS block below is from
+the pre-fix run. Its Part-2 recall denominator was 22 (8 pieces; piece 13's
+4 deviations were silently skipped), not 26. Corrected, asserted numbers:
+agent_workspace/HARPSET_BENCHMARK_INTEGRITY_FIX_2026-11-08.md.
+
 RESULTS (measured 2026-11-08, real recorded harp audio, 13 original
 performances, 26 independently verified pitch errors across 9 pieces'
 N variants).
@@ -156,10 +161,65 @@ HARPSET = Path("/Users/matthewwu/.cache/mediant_validation/harpset/HARPSET")
 ALL_PIECES = [f"{i:02d}" for i in range(1, 14)]
 
 
-def load_metadata():
-    rows = list(csv.DictReader(open(HARPSET / "metadata" / "metadata.csv")))
-    by_piece_variant = {(r["piece_id"], r["variant"]): r for r in rows}
-    return by_piece_variant
+# File resolution follows the HARPSET naming convention and is checked against
+# disk. metadata.csv is NOT used to decide which performances exist: it omits
+# (13, N) and lists a phantom (12, N) whose files are absent (2026-11-08
+# integrity fix; see agent_workspace/HARPSET_BENCHMARK_INTEGRITY_FIX_2026-11-08.md).
+EXPECTED_N_DEVIATIONS = 26
+EXPECTED_N_PIECES = ("01", "02", "03", "04", "05", "06", "09", "13")
+
+
+def score_file(pid: str, variant: str) -> Path:
+    return HARPSET / "scores" / f"{pid}_{variant}_Score.xml"
+
+
+def audio_file(pid: str, variant: str) -> Path:
+    return HARPSET / "audio" / f"{pid}_{variant}_Recording.wav"
+
+
+def performance_exists(pid: str, variant: str) -> bool:
+    return score_file(pid, variant).exists() and audio_file(pid, variant).exists()
+
+
+def build_manifest() -> list[dict]:
+    """One row per (piece, variant) over 01-13 x {O, N, R, RN}. For N/RN with
+    both files present, runs ground_truth_pitch_errors (None = excluded)."""
+    rows = []
+    for pid in ALL_PIECES:
+        for variant in ("O", "N", "R", "RN"):
+            present = performance_exists(pid, variant)
+            gt = None
+            if present and variant in ("N", "RN"):
+                gt = ground_truth_pitch_errors(pid, variant)
+            rows.append({"piece": pid, "variant": variant, "present": present, "gt": gt})
+    return rows
+
+
+def print_manifest_and_assert(manifest: list[dict]) -> None:
+    print("=== Manifest: HARPSET files on disk + pitch ground truth vs O ===")
+    print(f"{'piece':>5} {'var':>3} {'both files':>10}  ground truth")
+    for r in manifest:
+        if not r["present"]:
+            status = "-"
+        elif r["variant"] in ("N", "RN"):
+            status = ("excluded: length mismatch" if r["gt"] is None
+                      else f"{len(r['gt'])} pitch deviations")
+        else:
+            status = "original (reference)"
+        print(f"{r['piece']:>5} {r['variant']:>3} {'yes' if r['present'] else 'no':>10}  {status}")
+
+    o_missing = [r["piece"] for r in manifest if r["variant"] == "O" and not r["present"]]
+    n_hits = [(r["piece"], len(r["gt"])) for r in manifest if r["variant"] == "N" and r["gt"]]
+    n_pieces = tuple(p for p, _ in n_hits)
+    n_total = sum(c for _, c in n_hits)
+    print(f"\nN-variant pitch deviations: {n_total} across {len(n_pieces)} pieces {list(n_pieces)}")
+    if o_missing or n_total != EXPECTED_N_DEVIATIONS or n_pieces != EXPECTED_N_PIECES:
+        raise AssertionError(
+            f"HARPSET ground-truth manifest mismatch: expected {EXPECTED_N_DEVIATIONS} N-variant "
+            f"pitch deviations across pieces {list(EXPECTED_N_PIECES)}; found {n_total} across "
+            f"{list(n_pieces)}; original (O) performances missing: {o_missing}. "
+            "Dataset packaging may have regressed -- do not trust results from this run."
+        )
 
 
 def load_errors():
@@ -234,9 +294,10 @@ def run_candidate_B(na, matcher, audio, sr, bp_events, crepe_events, use_gate: b
 
 
 def main():
-    meta = load_metadata()
+    manifest = build_manifest()
+    print_manifest_and_assert(manifest)
 
-    print("=== Part 0: harp polyphony check (re-confirmed in this run) ===")
+    print("\n=== Part 0: harp polyphony check (re-confirmed in this run) ===")
     for pid in ALL_PIECES:
         na = score_note_array(pid, "O")
         onsets = na["onset_beat"]
@@ -252,11 +313,8 @@ def main():
     crepe_event_counts = []
 
     for pid in ALL_PIECES:
-        row = meta.get((pid, "O"))
-        if row is None:
-            continue
-        musicxml = HARPSET / row["score_path"]
-        audio_path = HARPSET / row["audio_path"]
+        musicxml = score_file(pid, "O")
+        audio_path = audio_file(pid, "O")
         score_dict = w.parse_musicxml(musicxml.read_bytes(), 1)
         beats_per_measure = w.beats_per_measure_from_time_sig(score_dict["time_signature"])
         na = score_note_array(pid, "O")
@@ -299,14 +357,13 @@ def main():
     localization = {"A": 0, "B_nogate": 0, "B_gate": 0}
 
     for pid in ALL_PIECES:
+        if not performance_exists(pid, "N"):
+            continue
         gt_indices = ground_truth_pitch_errors(pid, "N")
         if gt_indices is None or not gt_indices:
             continue
-        row = meta.get((pid, "N"))
-        if row is None:
-            continue
-        musicxml_o = HARPSET / f"scores/{pid}_O_Score.xml"
-        audio_path = HARPSET / row["audio_path"]
+        musicxml_o = score_file(pid, "O")
+        audio_path = audio_file(pid, "N")
         score_dict = w.parse_musicxml(musicxml_o.read_bytes(), 1)
         beats_per_measure = w.beats_per_measure_from_time_sig(score_dict["time_signature"])
         na = score_note_array(pid, "O")
@@ -349,12 +406,12 @@ def main():
     print("\n=== Memory profile: one representative O piece ===")
     tracemalloc.start()
     pid = "10"  # longest piece
-    row = meta[(pid, "O")]
-    wav_bytes = (HARPSET / row["audio_path"]).read_bytes()
+    wav_file = audio_file(pid, "O")
+    wav_bytes = wav_file.read_bytes()
     _ = w.run_pitch_tracking(wav_bytes, instrument="Harp")
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    print(f"Piece {pid} (O, {row['audio_seconds']}s): peak traced Python memory: {peak/1e6:.1f} MB")
+    print(f"Piece {pid} (O, {sf.info(str(wav_file)).duration:.3f}s): peak traced Python memory: {peak/1e6:.1f} MB")
 
 
 if __name__ == "__main__":

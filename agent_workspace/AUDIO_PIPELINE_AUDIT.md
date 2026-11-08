@@ -2168,3 +2168,24 @@ round. Record as a precisely-diagnosed backlog item (added to
 `agent_workspace/AGENT_TASKS.md`) rather than attempt a fix that this
 round's own evidence shows cannot be safely validated with the
 information a standard CREPE call exposes.
+
+## HARPSET benchmark integrity fix (2026-11-08): file resolution now checked against disk
+
+`harpset_evaluation.py` resolved performances through `metadata.csv`. That
+file has no (13, N) row and a phantom (12, N) row, so piece 13's 4 real
+pitch deviations were silently excluded from recall. Fixed: resolution is
+by naming convention checked against disk, with a printed manifest and an
+assertion of 26 N-variant deviations across 01-06, 09, 13. Corrected
+denominator: **26 across 8 pieces** (pre-fix HEAD measured 22 across 8).
+
+- B-no-gate recall 17/22 (pre-fix) -> **21/26** (corrected). The 4 new cases
+  are all piece 13, all detected by B-no-gate, none by A or the gate.
+- A and C-gate: 0/26 recall, 0/874 note FP. CREPE emits zero events on all 13
+  O pieces, so both are non-functional on this corpus (carried, not
+  re-investigated).
+- B-no-gate note FP unchanged: 93/874 (10.64%), 13/13 pieces.
+- Classifier D was not re-run. Its committed numbers (12/26, 5/874, 3/13)
+  are unaffected because it never used `metadata.csv`.
+
+Details and the audit of D's evaluation integrity:
+`agent_workspace/HARPSET_BENCHMARK_INTEGRITY_FIX_2026-11-08.md`.

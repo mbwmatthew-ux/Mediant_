@@ -5,6 +5,61 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08: cross-model agreement gate — real partial FP reduction, first gate this investigation to beat "no separation found"
+
+Owner directive permanently closed the recording-retrieval/account-
+ownership/consent workstream (no Supabase access, no reopening those
+topics) and redirected to a genuinely different wrong-note
+verification mechanism: cross-model agreement, not another single-
+model confidence/duration/context gate (both already tried, both
+found ~zero separation and were correctly abandoned).
+
+**Mechanism:** for each wrong-note candidate the Basic Pitch +
+`AudioToScoreMatcher` adapter flags, independently check CREPE's own
+pitch trace (`worker.run_pitch_tracking`, unmodified) over the same
+time window. Only confirm the flag if CREPE's independent read ALSO
+disagrees with the expected pitch — reusing the exact distance/octave
+rule already used throughout this investigation, plus production's
+own `MIN_CONF=65` floor on the CREPE evidence. Absence of CREPE
+evidence in the window does NOT confirm a flag (only a positive
+disagreeing read does) — a deliberate, conservative design choice,
+consistent with the "don't flag on weak/absent evidence alone"
+principle this investigation has held since the 2026-11-01
+frame-level verifier work.
+
+**Results, measured directly, $0, CPU-only:**
+
+    metric                              before gate   after gate
+    recall (6 verified synthetic cases)      6/6           5/6
+    FP, note-level (8 real MusicNet pieces)  5.99%         2.57%
+    FP, piece-level (same 8 pieces)          8/8           8/8
+
+The lost recall case (piece 2295) failed on absent CREPE evidence in
+the window, not CREPE disagreement — an explainable, not catastrophic,
+cost. The FP reduction (more than halved) is the largest found by any
+gating approach this investigation has tried. **But piece-level FP is
+completely unchanged — every one of the 8 pieces would still produce
+at least one false "wrong note" accusation** — and the note-level rate
+(2.57%) remains roughly 23x production's own (~0.11%, same 8 pieces,
+already measured this week).
+
+**Verdict: a real, partial improvement — not forced into either a
+positive or negative frame, per the directive's own explicit
+instruction.** Not shippable as a standalone gate. The mechanism
+(independent cross-model corroboration, as opposed to any single
+model's own self-reported confidence) is validated as directionally
+sound in a way nothing else attempted this investigation was. Explicit
+scope limit: FP is measured on real (MusicNet) audio; recall is
+measured only on synthetic injections; recall on genuinely real
+mistakes remains unmeasured by this or any prior round. Full detail
+and design justification: `modal_worker/cross_model_agreement_gate.py`.
+
+No production code touched. No Supabase access of any kind this
+round, per the directive permanently closing that workstream.
+Regression suite green (212/212).
+
+---
+
 ## 2026-11-05: authorized Storage access confirmed for the owner's own 92 takes — the tooling gap closes, pending the owner's own login
 
 Direct follow-up to the account-ownership round, which found no

@@ -5,6 +5,65 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (continued): sequence-level error matcher — best recall of any candidate yet, STOP on the FP bar
+
+Approved architecture, built as directed (not re-litigated): a DP
+sequence matcher (`modal_worker/sequence_error_matcher.py`) between
+score notes and Basic Pitch performed events, timing-constrained by
+Parangonar `AudioToScoreMatcher`, explicitly representing match,
+substitution, insertion, deletion, and an ambiguous_pitch state (1
+semitone or octave displacement — never silently promoted to a
+confirmed claim). Cost model reuses `note_sequence_evaluator.py`'s
+`pitch_cost`/`timing_cost` verbatim (frozen 2026-10-31); one new
+duration term, calibrated only against 14 hand-worked unit tests
+(`test_sequence_error_matcher.py`, all passing), never the benchmark.
+
+**190-vs-191 reconciled with real evidence, not reasserted:** direct
+repeated testing (same input, separate process launches) confirmed
+genuine nondeterminism, ruled out multi-threading, hash
+randomization, and torch's RNG/deterministic-algorithms flag as
+causes (all tested directly, all still varied), and isolated it to
+floating-point-level differences in CREPE's raw CPU inference
+occasionally flipping a threshold comparison in
+`_detect_within_segment_pitch_jumps` — a ~0.2-0.3% property of the
+existing production CREPE stack, not a bug introduced by any script
+this investigation has written. The 4-way benchmark below measures
+all four candidates from one single CREPE/Parangonar call per piece,
+eliminating this source of drift from the comparison itself.
+
+**4-way result, same 8 pieces (7211 notes) + 6 synthetic cases:**
+
+    candidate      pieces flagged   note-level FP      recall
+    A (production)      3/8         8/7211 (0.11%)       0/6
+    B (BP+Parangonar)   8/8       432/7211 (5.99%)        6/6
+    C (cross-model)     8/8       188/7211 (2.61%)        5/6
+    D (sequence match)  8/8       253/7211 (3.51%)        6/6
+
+**D achieves the best recall of any candidate this investigation has
+measured** — catching the one case (piece 2295) the cross-model gate
+missed, because D has no CREPE-corroboration requirement to fail on.
+It correctly keeps substitutions distinct from deletions throughout
+(253 substitutions, 259 ambiguous, 594 deletions, 1203 insertions —
+unit-test-verified never silently collapsed). **But its FP rate is
+higher than C's, not lower** — the expected, logical result of having
+no cross-model suppression layer stacked on top, exactly as the
+directive's own scope instructed ("avoid adding another collection of
+independent... filtering gates"). Piece-level FP is unchanged at 8/8
+for B, C, and D alike — no candidate built this week has moved that
+number at all. Localization is perfect among each candidate's own
+detections (B 6/6, C 5/5, D 6/6).
+
+**Decision: STOP**, against the directive's own 5 explicit GO
+conditions — FP-reduction and piece-level-reduction both fail (2 of
+5), even though recall, explicit substitution representation, and
+no-severe-instrument-regression all pass. Full detail:
+`modal_worker/sequence_matcher_benchmark.py`.
+
+No production code touched. No new thresholds. No cost tuning on the
+benchmark pieces. Regression suite green (234/234).
+
+---
+
 ## 2026-11-08 (continued): neighbor-aware cross-model gate — STOP, and an honest discrepancy worth remembering
 
 Direct follow-up to the same-day failure classification (Category D,

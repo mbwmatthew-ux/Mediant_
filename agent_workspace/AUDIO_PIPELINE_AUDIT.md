@@ -5,6 +5,42 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (continued): CREPE input-contract verification on HARPSET — root cause found, genuine incompatibility not a bug
+
+Systematic-debugging's Iron Law applied to the prior round's CREPE-
+on-harp finding: root cause before any fix. Traced
+`worker.run_pitch_tracking`'s exact code path, unmodified, side by
+side on one HARPSET recording and one known-working MusicNet
+recording (Violin 2288). Every stage checked — sample rate, stereo-
+to-mono, 24-bit PCM decoding, array shape/dtype, finite values, RMS,
+resampling to 16kHz — was correct and structurally identical to the
+working case. Confirmed directly from `torchcrepe`'s own source that
+it performs internal per-frame z-score normalization (mean-center,
+then scale by std) automatically, ruling out input amplitude/scaling
+as a cause by design — HARPSET's lower RMS (0.0348 vs MusicNet's
+0.0840) cannot explain a ~3700x confidence gap when every frame is
+independently renormalized before the model sees it.
+
+One real anomaly found, not an input bug: CREPE's pitch estimates on
+HARPSET cluster tightly against the 2093Hz fmax ceiling instead of
+spanning the piece's real register — consistent with a model that has
+no genuine periodicity to lock onto, matching the uniformly near-zero
+confidence found across the entire recording (0/639 frames ≥0.30).
+
+**Determination: B — genuine CREPE/harp incompatibility, not a
+preparation defect.** Per the directive, classified and stopped — no
+new threshold, filter, or replacement pitch model attempted. Plausible
+mechanism named, not investigated further: `worker.py` deliberately
+uses CREPE's lightweight "tiny" capacity for speed, and harp's
+plucked-string attack/decay profile likely differs from the sustained/
+bowed/vocal content CREPE's training emphasizes. The prior round's
+HARPSET numbers (commit `8a83ea5`) stand completely unchanged. Full
+detail: `agent_workspace/CREPE_HARP_INPUT_CONTRACT_VERIFICATION.md`.
+
+No production code touched. Regression suite green (234/234).
+
+---
+
 ## 2026-11-08 (continued): HARPSET — first real-mistake validation this investigation has run, and the most important single finding of the week
 
 Every prior round this investigation measured against synthetic

@@ -5,6 +5,54 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (continued): cross-model gate failure classification — one dominant mechanism found (77.4%), GO on a named (not built) corrective test
+
+Direct follow-up to the same-day cross-model agreement gate round
+(5.99%→2.57% FP, 6/6→5/6 recall). Read-only classification of the
+185-190 post-gate false-positive survivors (small run-to-run count
+drift is known CREPE/torch nondeterminism) and the one lost recall
+case into A-E, using the exact already-validated pipeline re-run on
+the same 8 pieces — no new thresholds, no sweep, disclosed explicitly
+as a narrow re-derivation of already-recorded-event detail that
+wasn't persisted the first time, not a new experiment.
+
+**A and C are provably 0% for survivors, by the gate's own logic** —
+every survivor already passed a test (a confident, disagreeing CREPE
+event) that is the literal negation of both. This directly answers
+the directive's "determine whether absent evidence explains a
+substantial share — do not assume it does": it cannot, for these 190.
+Absent evidence explained the one lost recall case (confirmed
+Category C, missing-frames subtype — zero CREPE events of any
+confidence in the window) and the 247 originally-suppressed
+candidates (not re-classified here, not asked for), but not a single
+remaining false positive.
+
+**Category D (alignment/event-association mismatch) dominates at
+77.4% (147/190)** — the confirmed competing pitch matches a
+neighboring score note's pitch class, the signature of alignment slop
+pulling in an adjacent correct note rather than a genuine wrong-note
+read. More than 5x category E (models disagree with each other,
+14.2%) and category B (genuine competing-pitch convergence, 8.4%). A
+real caveat stated plainly: D's test has a non-trivial chance baseline
+in tonal music (diatonic passages use few pitch classes, so some
+coincidental matches are expected even with zero real alignment
+slop) — 77.4% is well above that rough baseline but not proof every D
+case is genuine.
+
+**Decision: one mechanism clearly dominates → GO on the smallest
+corrective test, per the directive's own stated logic.** Named, not
+built: suppress a cross-model-confirmed flag when its competing pitch
+matches a neighboring score note — reusing
+`find_wrong_note_candidates`'s own existing neighbor-expansion window
+(worker.py ~7580-7591), not a new mechanism. Full detail:
+`modal_worker/cross_model_fp_classification.py`.
+
+No production code touched. No Supabase/app-recording access. No new
+thresholds. No parameter sweep. Regression suite green (212/212). $0
+cost, CPU-only.
+
+---
+
 ## 2026-11-08: cross-model agreement gate — real partial FP reduction, first gate this investigation to beat "no separation found"
 
 Owner directive permanently closed the recording-retrieval/account-

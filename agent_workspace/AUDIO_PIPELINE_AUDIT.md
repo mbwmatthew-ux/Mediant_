@@ -5,6 +5,103 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (continued): HARPSET — first real-mistake validation this investigation has run, and the most important single finding of the week
+
+Every prior round this investigation measured against synthetic
+pitch-shift injections on real MusicNet audio. This round, for the
+first time, measured against HARPSET (Mena García, 2026, Zenodo DOI
+10.5281/zenodo.18282225, CC BY 4.0) — a real harp dataset with
+genuinely recorded, deliberately introduced note/rhythm errors.
+
+**Acquisition and validation, done for real:** downloaded (120MB
+archive, MD5 checksum verified), license confirmed CC BY 4.0
+(attribution required, not redistributed through Mediant). 13 base
+pieces, 35 total recording variants (13 O, 8 N, 7 R, 7 RN) — exactly
+matching the directive's own stated figure, confirmed by direct file
+listing, not assumed. Confirmed genuinely recorded (real, non-digital
+noise floor measured directly in the first 0.3s of a sample file;
+24-bit stereo, DAW-produced per the dataset's own README) rather than
+synthesized. Confirmed all 13 original scores are strictly
+monophonic (zero chords, max simultaneous notes = 1 everywhere,
+checked piece by piece) — harp's polyphonic capability is a non-issue
+for this dataset's actual content.
+
+**Ground-truth mapping required real verification work, not blind
+trust of `errors.csv`.** Its own `note_index` field does not reliably
+match `partitura`'s note ordering — confirmed by reading the
+generator script (`tools/generate_errors.py`) directly: it walks raw
+XML without handling `<backup>`/`<forward>` elements the way
+`partitura` does, causing index drift partway through some pieces
+(e.g. piece 02 diverges by exactly -2 semitones from a certain point
+on). Built a content-based diff of the O score against each N/RN
+score instead (same tool on both sides, internally self-consistent
+regardless of external indexing convention), cross-checked against
+`errors.csv`'s own row counts: 11 of 12 N/RN pairs matched exactly.
+One real exception found and excluded rather than forced: piece 01's
+RN variant has 44 notes vs. the original's 45 (a structural
+mismatch). **Two further real dataset-packaging gaps found and
+handled explicitly, not silently worked around:** `metadata.csv`
+claims `12_N_Score.xml`/`12_RN_Score.xml` exist — they don't, confirmed
+by direct file check (`errors.csv` correctly has zero rows for piece
+12 as a consequence). `metadata.csv` omits piece 13's N/RN rows
+entirely despite the files being fully present with valid
+`errors.csv` ground truth — this was caught only after the first
+evaluation pass silently under-counted recall by 4 real cases (26
+total errors, not 22); fixed by resolving file paths directly from
+the known naming convention instead of trusting `metadata.csv` as a
+complete index, and re-run.
+
+**The decisive finding, from a real acoustic spot-check performed
+BEFORE trusting the symbolic ground truth (the directive's own
+explicit instruction): CREPE produced ZERO events on every single one
+of the 14 pieces tested** (13 originals + a piece-13 spot check).
+Checked directly: raw CREPE confidence tops out at 1.4% on a full
+26-second recording, nowhere near its own 30% voicing threshold. Basic
+Pitch, checked on the identical audio, produces 65 sensible note
+events with reasonable confidence (0.49-0.81) — this is a complete,
+specific, instrument-bound CREPE failure, not a general transcription
+problem with this corpus, and not a bug in any script here.
+
+**Real results, 13 originals + 26 independently verified pitch
+errors:**
+
+    candidate                 pieces flagged (O)   note FP      recall (/26)
+    A (production)                  0/13             0.00%          0
+    B + cross-model gate            0/13             0.00%          0
+    B, no gate (optional)          13/13            10.64%        21 (80.8%)
+
+**A and the gated B are completely non-functional on this corpus** —
+their "0% FP" is the signature of a detector that never fires at all,
+not genuine precision, since both depend entirely on CREPE, which
+cannot process this corpus at all. **The ungated Basic Pitch +
+`AudioToScoreMatcher` adapter — measured only as an optional addition
+per the directive — is the sole candidate that detects anything, and
+it detects the majority: 21 of 26 genuine recorded pitch errors
+(80.8%), the best real-mistake recall this entire investigation has
+measured anywhere, on authentic deviations rather than synthetic
+injections.** Localization among its own detections: 21/21 (100%, by
+construction). But its false-positive rate is high enough to be
+unusable as specified: all 13 original performances received at least
+one false flag (93/874 notes, 10.64%) — and this is materially WORSE
+than the same adapter's already-measured MusicNet synthetic baseline
+(5.99%, 8/8 pieces, commit `21e3f41`), concrete, first-hand evidence
+that this investigation's synthetic-corpus numbers do not transfer
+cleanly to a different real instrument and recording context.
+
+**Decision: STOP**, per the directive's own explicit screening bar
+(no more than 1 of 13 falsely flagged originals, plus correct
+localization of multiple verified notes). No candidate measured this
+round meets it — the two CREPE-dependent candidates detect nothing at
+all, and the one candidate with real detection capability fails the
+false-alarm bar by a wide margin. Full detail:
+`modal_worker/harpset_evaluation.py`.
+
+No production code touched. No new thresholds. Regression suite green
+(234/234). $0 cost (free, CC BY 4.0 dataset; no paid APIs or GPU
+spend).
+
+---
+
 ## 2026-11-08 (continued): sequence-level error matcher — best recall of any candidate yet, STOP on the FP bar
 
 Approved architecture, built as directed (not re-litigated): a DP

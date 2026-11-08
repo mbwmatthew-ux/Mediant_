@@ -5,6 +5,32 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (later): score-conditioned error classifier on HARPSET — STOP (recall 12/26, 3/13 originals falsely flagged)
+
+Pre-registered test of whether frozen Basic Pitch raw outputs plus Parangonar timing, scored against the O score only, can support a separable, low-false-alarm error classifier. Seven fixed features, L2 logistic regression (C=1.0, untuned), leave-one-base-piece-out CV over 13 HARPSET compositions. Full write-up: `agent_workspace/SCORE_CONDITIONED_ERROR_CLASSIFIER_2026-11-08.md`. Script docstring has the full per-fold table.
+
+**Deviation count, reconciled.** The brief said 26 deviations across N/R/RN. Recount from score diffs: N variants have 26 pitch deviations across 8 pieces, matching `errors.csv` (26 N rows). RN adds 19 more diff-based pitch deviations, of which 13 duplicate N notes and 6 are RN-only (pieces 10, 11). R has no pitch labels. The 26 N deviations are the denominator, for comparability with earlier rounds. Also, `harpset_evaluation.py` Part 2 uses `metadata.csv` and therefore covers only 22 of the 26 (piece 13 is skipped). Not re-run or modified; logged to Backlog.
+
+**Task 2 coverage (no training):** 26 deviations vs 874 correct O notes. Single-feature AUC: strongest alternate-pitch activation 0.867, expected-pitch activation 0.103 (inverted: 0.897), onset evidence 0.143, temporal consistency 0.084, contour support 0.104, neighbor context 0.638, alignment uncertainty 0.518. Pre-registered rule (some |AUC-0.5| >= 0.10): PASS.
+
+**Task 4 CV results:**
+- Recall (N variant): **12/26** (C1 needs 13/26) — FAIL
+- Original (O) pieces falsely flagged: **3/13** (C2 needs <=1/13) — FAIL. Pieces 01 (1 note), 04 (2), 08 (2).
+- O note-level FP: 5/874 (0.57%). Non-deviating notes flagged on N variants: 3/425.
+- Supplementary RN recall: 8/19.
+- Control, training labels permuted: recall 4/26, 12/13 O pieces flagged, 33/874 O notes.
+- Comparison (existing numbers, not re-run): production 0/13 pieces, 0/26 recall; bare adapter 13/13 pieces, 10.64% FP, 21/26 recall.
+
+**Latency:** feature construction + scaling + predict 0.001-0.006 s per piece (limit 5 s). Parangonar alignment 0.32-0.87 s per piece after warm-up (first call 7.02 s, matcher warm-up). Basic Pitch inference run once and cached, outside this timing.
+
+**Leakage:** feature code takes no labels. A runtime guard around `partitura.load_musicxml` recorded only O-score loads during feature construction (13 files, 0 non-O). The threshold uses training-fold data only.
+
+**Decision: STOP** on C1 and C2. Features carry real signal (strongest alt-pitch AUC 0.867), but the threshold rule plus feature set does not reach the bar. Any different threshold or feature set would be a new experiment with its own pre-registration. Not tuned in this round.
+
+Test suite (`pytest` from `modal_worker/`, `--continue-on-collection-errors`): 286 passed, 5 failed, 1 collection error. Identical at base commit `6258920`, so the failures are pre-existing (5 in `test_visual_validation.py`, 1 collection error in `test_generate_timing_accurate_reference_audio.py`).
+
+---
+
 ## 2026-11-08 (continued): CREPE input-contract verification on HARPSET — root cause found, genuine incompatibility not a bug
 
 Systematic-debugging's Iron Law applied to the prior round's CREPE-

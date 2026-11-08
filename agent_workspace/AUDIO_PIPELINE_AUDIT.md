@@ -5,6 +5,45 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (continued): neighbor-aware cross-model gate — STOP, and an honest discrepancy worth remembering
+
+Direct follow-up to the same-day failure classification (Category D,
+alignment/neighbor mismatch, 77.4% of survivors). Built the named
+corrective test: adapted `worker.py`'s own neighbor-expansion logic
+(`worker.py:7580-7591`, read not modified) into the isolated
+`cross_model_neighbor_gate.py` — suppress a cross-model-confirmed flag
+only when the note is boundary-eligible (first/last note of a measure,
+production's own deliberately narrow rule, not a looser radius) and
+the confirmed competing pitch matches a neighboring measure's pitch
+class.
+
+**Real results, same 8 pieces + 6 synthetic cases:** FP note-level
+191/7211 (2.65%) → 161/7211 (2.23%), only 30/191 (15.7%) suppressed —
+a ~16% relative reduction. Piece-level FP unchanged, 8/8 → 8/8. Recall
+held 5/6, no genuine mistake suppressed (though none of the 6 cases
+were boundary-eligible, so this wasn't stress-tested by a hard case).
+Overhead negligible.
+
+**The important, honestly-stated finding:** this is far smaller than
+the classification round's 77.4% implied. That round used a looser
+±2-score-note radius for diagnosis; production's real rule restricts
+eligibility to boundary notes only (deliberately — "every note was far
+too permissive... nothing can ever be called wrong," the existing
+code's own reasoning), so most flagged notes were never eligible for
+this properly-scoped fix at all. The diagnostic tool and the real
+corrective mechanism are not interchangeable — a genuine methodological
+lesson, not a bug, and not glossed over in the report.
+
+**Decision: STOP**, per the directive's own bar (FP must decrease
+substantially — 16% relative with zero pieces cleared does not),
+despite credible recall preservation and no instrument-specific
+regression. Full detail: `modal_worker/cross_model_neighbor_gate.py`.
+
+No production code touched. No new thresholds. No parameter sweep.
+Regression suite green (212/212). $0 cost, CPU-only.
+
+---
+
 ## 2026-11-08 (continued): cross-model gate failure classification — one dominant mechanism found (77.4%), GO on a named (not built) corrective test
 
 Direct follow-up to the same-day cross-model agreement gate round

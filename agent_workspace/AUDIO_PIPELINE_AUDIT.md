@@ -5,6 +5,18 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (staging integration check): verification only, no code changed — core pipeline GO, experimental detector interface gap confirmed
+
+Local, offline, $0. Full write-up: `agent_workspace/STAGING_END_TO_END_INTEGRATION_2026-11-08.md`.
+
+- **page-omr (re-run today):** `test_page_omr_adapter.py` 16/16 (script harness). Live offline call on `visual_corpus/clean/2220_page1.png`: 48/48 measures, 196/196 pitched notes match the reference MusicXML, 6.4 s including model load, 1.76 GB peak RSS. Model loaded from the existing HF cache with `HF_HUB_OFFLINE=1`.
+- **Regression:** `test_analysis.py` 727/727 (script harness, matches Phase 1). Full `modal_worker/` pytest suite: 296 passed, 5 failed, 1 collection error, identical to the baseline. The 5 failures are pre-existing in `test_visual_validation.py`. The 286 figure recorded at `6258920` differs by the 10 tests added in `e0d25fc`.
+- **Basic Pitch (HARPSET 01_O, solo harp):** 74 events, MIDI 49–67, 0.53 s predict call.
+- **Parangonar (same clip):** 45/45 score notes aligned, 4.84 s including matcher construction.
+- **Interface gap, confirmed by code reading, not wired:** production `find_wrong_note_candidates` returns `list[str]`, parsed by regex in `compare_and_coach_claude`. The experimental `detect_wrong_notes` returns `{"notes": [...], "insertions": [...]}` with `score_idx`, `verdict`, `expected_midi`, `played_midi` and no `measure` key. Adapting it needs a score_idx→measure lookup and midi→name formatting, and production has no deletion or insertion path. Nothing built.
+- **Attribution:** `worker.py` has zero imports or mentions of the five experimental modules.
+- **Backlog items:** articulation/dynamic gap is silent (`.get()` only), not a crash. The `trust: "high"` skeleton item was not re-tested. Both remain in Backlog.
+
 ## 2026-11-08 (later): score-conditioned error classifier on HARPSET — STOP (recall 12/26, 3/13 originals falsely flagged)
 
 Pre-registered test of whether frozen Basic Pitch raw outputs plus Parangonar timing, scored against the O score only, can support a separable, low-false-alarm error classifier. Seven fixed features, L2 logistic regression (C=1.0, untuned), leave-one-base-piece-out CV over 13 HARPSET compositions. Full write-up: `agent_workspace/SCORE_CONDITIONED_ERROR_CLASSIFIER_2026-11-08.md`. Script docstring has the full per-fold table.

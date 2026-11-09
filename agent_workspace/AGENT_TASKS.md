@@ -2,7 +2,7 @@
 
 AFTER EVERY CHANGE, WHEN APPROPRIATE, MAKE SURE TO UPDATE THIS FILE
 
-Last updated: 2026-10-30
+Last updated: 2026-11-08
 
 ---
 
@@ -38,6 +38,8 @@ _Nothing pending — all approved tasks have been completed._
 ---
 
 ## In Progress
+
+- [x] **Staging end-to-end integration check (2026-11-08) — verification only, complete. GO for continued core-pipeline staging acceptance.** page-omr re-run offline (48/48 measures, 196/196 pitches on clean 2220), `test_analysis.py` 727/727 and `test_page_omr_adapter.py` 16/16 (script harness), full pytest 296 passed / 5 failed / 1 collection error, identical to baseline. Basic Pitch and Parangonar smoke-checked on HARPSET 01_O. Gap confirmed by reading code, not wired: experimental `detect_wrong_notes` dict output does not match production's `list[str]` coaching interface (no measure key). No code changed. Full detail: `agent_workspace/STAGING_END_TO_END_INTEGRATION_2026-11-08.md`. Not a recommendation to deploy the experimental detector or page-omr to users.
 
 - [ ] **"MEDIANT — Full Pipeline Compatibility and Accuracy Validation" directive (2026-10-31) — Phase 1 complete, Phase 2 in progress, Phase 3 not started (prep only, no paid calls), Phase 5 not started.**
   **Phase 1 (full pipeline compatibility, real end-to-end run — see fork report below):** ran `run_full_analysis` for real via `.local()` against real MusicNet audio (piece 2293) and real clean-tier page-omr page renders, with only the Anthropic/Gemini network boundary stubbed (zero paid spend). **Found and fixed a real, non-page-omr-specific crash**: `run_beat_tracking` crashed on every real recording because `librosa.beat.beat_track` 0.10.2 returns `tempo` as a shape-(1,) ndarray and `float(tempo)` raises `TypeError` on numpy≥1.25 (numpy is unpinned in the image build, so this is one dependency-resolution away from hitting production on the next `modal deploy`, independent of anything page-omr related). Fixed via `float(np.ravel(tempo)[0])`, added the first-ever `run_beat_tracking` test, red-green verified. Commit `b09e1d1`. Regression: 724/724→727/727 `test_analysis.py`, 16/16 `test_page_omr_adapter.py` unchanged. Everything else on the Phase 1 checklist (pitch/octave mapping, rhythm/tempo/time-sig, measure numbering, multi-page ordering, score caching across engines, `dtw_align_to_score`, `find_wrong_note_candidates` error localization, webhook/feedback-formatting structure) came back **byte-identical** between the Claude-vision and page-omr paths on this real matched case. Two open items flagged, not fixed (judgment calls, not mechanical bugs — see Backlog): page-omr notes carry no `articulation`/`dynamic` keys (music21's do) — silent feature gap for any page-omr-sourced score; and `assess_quality` reports `trust: "high"` even on a fully-synthesized-skeleton total-OMR-failure fallback (not page-omr-specific) because it only checks `len(measures) < 2`. Instrument transposition was NOT empirically tested (MusicNet's solo corpus has no transposing instrument) — confirmed engine-independent by code inspection only.

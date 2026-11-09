@@ -5,6 +5,20 @@ Compiles already-measured results; nothing here was re-run.
 
 ---
 
+## 2026-11-08 (local E2E integration harness): chain connects on MusicNet 2220; one Parangonar tempo-bound defect fixed in the harness; GO for a separately approved canary, with conditions
+
+Offline, $0, CPU-only. Full write-up: `agent_workspace/LOCAL_E2E_INTEGRATION_HARNESS_2026-11-08.md`. Harness: `modal_worker/local_e2e_integration_harness.py`.
+
+- **Chain:** corpus render + GT -> page-omr (production entry point) -> kern -> partitura `note_array` -> Basic Pitch (subprocess) -> Parangonar. Runs end to end, about 45 s wall, about 2.1 GB peak RSS.
+- **Task 2 checks, all pass on the final run:** pitch and octave 196/196; note order matches GT; measure mapping 196/196 by beat; monotonic audio times (0 decreasing steps, 0.54–301.96 s); instrument `Cello` on all; 196 entries, no duplicates.
+- **Defect found and fixed (harness only):** Parangonar default `max_bp=64` (1.28 s/beat) cannot track this 2.06 s/beat performance. Default run: 194/196 notes at 0.52 s, degenerate. Fix: `max_bp = max(64, audio_sec*50/score_beat_span)`, which is 106.3 here and 64 for the harp clip (no-op there). Caveat: the rule was chosen after seeing label error at 64/100/200 on this one piece.
+- **Matcher has no confidence signal.** Output keys are `label`, `score_id`, `performance_time`. `score_id` is `'None'`.
+- **Mismatched audio passes structural checks.** Silence, white noise, and a different recording (2186) each return a plausible monotonic full-span alignment. Only the Basic Pitch onset-evidence check (aligned vs shuffled null) separates them. That check is required for any future use.
+- **Accuracy on the real pair (MusicNet label cross-check, 192 notes):** median 0.30 s, p90 4.12 s, 18.8% over 1 s. Uniform-tempo baseline: median 5.88 s. Basic Pitch onset support 81.1% vs 19.4% null.
+- **Fixture coverage gap (pre-existing, not fixed):** `select_real_part` keeps only the "Solo Cello" MIDI track (196 notes). The other three tracks hold 238 more notes (434 total, matching the labels). The rendered page therefore shows about 45% of the performed notes, and 10 measures are rest-only. Most of the alignment error sits in those spans. The docstring claim that smaller tracks are automation artifacts does not hold for 2220.
+- **Regression:** 296 passed, 5 failed (`test_visual_validation.py`, pre-existing), 1 collection error (`test_generate_timing_accurate_reference_audio.py`, pre-existing). No new failures.
+- **Decision:** GO for a next, separately approved limited canary, with five conditions (mandatory audio-evidence gate, no per-note timing claims, per-piece tempo bound, full-coverage check, `time_signature` source). Not approval of that step.
+
 ## 2026-11-08 (staging integration check): verification only, no code changed — core pipeline GO, experimental detector interface gap confirmed
 
 Local, offline, $0. Full write-up: `agent_workspace/STAGING_END_TO_END_INTEGRATION_2026-11-08.md`.

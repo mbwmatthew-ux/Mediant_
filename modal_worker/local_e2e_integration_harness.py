@@ -428,6 +428,131 @@ def check_wrong_note_literal(entries) -> tuple[bool, dict]:
     return vals == {WRONG_NOTE_FINDING}, {"distinct_values": sorted(vals)}
 
 
+def check_no_precise_timing_claims(entries) -> tuple[bool, dict]:
+    vals = {e["timing_precision_claim"] for e in entries}
+    expected = "unavailable - per-note localization error not independently validated"
+    return vals == {expected}, {"distinct_values": sorted(vals)}
+
+
+def step_coaching_boundary(po, entries, times, instrument, row) -> dict:
+    """
+    Calls the REAL worker.compare_and_coach_claude with only the Anthropic
+    network call stubbed (same pattern as test_analysis.py). score/aligned
+    are built from this harness's own real pipeline output -- nothing
+    synthetic except the coaching text itself. Honest about what is NOT
+    known: time_signature is passed through exactly as page-omr returned it
+    (do not substitute a guessed or ground-truth value), and beats_per_measure
+    is passed as None when time_signature is unknown -- production's own
+    existing fallback (not something this harness invents) decides what
+    happens next.
+    """
+    import sys, types
+    class _FakeMessages:
+        def create(self, **kw):
+            import re, json
+            prompt = kw["messages"][0]["content"]
+            idxs = [int(x) for x in re.findall(r'^\[(\d+)\] ', prompt, re.M)]
+            return types.SimpleNamespace(content=[types.SimpleNamespace(
+                type="text", text=json.dumps({"coaching": [
+                    {"i": i, "title": f"Title {i}", "body": "A. B. C."} for i in idxs]}))])
+    class _FakeAnthropic:
+        def __init__(self, **kw):
+            self.messages = _FakeMessages()
+    _anth = types.ModuleType("anthropic")
+    _anth.Anthropic = _FakeAnthropic
+    sys.modules["anthropic"] = _anth
+
+    # stub modal only if not already importable -- worker.py's only other top-level import
+    import importlib.util as _ilu
+    if _ilu.find_spec("modal") is None:
+        from unittest.mock import MagicMock
+        sys.modules.setdefault("modal", MagicMock())
+
+    import importlib.util
+    worker_path = str(HERE / "worker.py")
+    spec = importlib.util.spec_from_file_location("worker_under_test", worker_path)
+    w = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(w)
+
+    aligned = []
+    for i, e in enumerate(entries):
+        aligned.append({
+            "measure": e["measure"],
+            "time_sec": float(times[i]),
+            "end_sec": float(times[i + 1]) if i + 1 < len(times) else float(times[i]) + 1.0,
+            "pitches": [e["pitch_name"]],
+            "midi_raw": w.midi_from_name(e["pitch_name"]),
+            "sound_end": float(times[i]),
+            "from_probe": False,
+            "confidence": 90,
+            "cents_offset": 0,
+            "cents_spread": 8,
+            "loudness": "medium",
+        })
+
+    acc = {}
+    for ev in aligned:
+        m, t = ev["measure"], ev["time_sec"]
+        r = acc.setdefault(m, {"start": t, "end": t})
+        r["start"], r["end"] = min(r["start"], t), max(r["end"], t)
+    alignment_ranges = [{"measure": m, "start": r["start"], "end": max(r["end"], r["start"] + 0.25)}
+                         for m, r in sorted(acc.items())]
+
+    empty_gemini = {k: [] for k in (
+        "rhythm_issues", "intonation_issues", "wrong_notes_cracks", "dynamics_issues",
+        "tone_issues", "posture_issues", "technique_issues")}
+
+    time_sig = po.get("time_signature")  # pass through exactly as page-omr returned it (may be None)
+    numbers = sorted({a["measure"] for a in aligned})
+
+    result = {"time_signature_passed_through": time_sig, "crashed": False}
+    try:
+        flags = w.compare_and_coach_claude(
+            score=po, aligned=aligned, alignment_ranges=alignment_ranges,
+            tempo={"bpm": None}, piece_title=f"{row['composition']} {row['movement']}",
+            composer=row["composer"], instrument=instrument,
+            gemini_assessment=empty_gemini, anthropic_api_key="k",
+            start_measure=numbers[0] if numbers else 1,
+            end_measure=numbers[-1] if numbers else 1,
+            beats_per_measure=None,
+        )
+        result["flags_returned"] = len(flags)
+        allowed_types = {
+            "intonation", "timing", "rhythm", "articulation", "dynamics",
+            "voicing", "phrasing", "tone", "error", "posture", "technique",
+        }
+        result["all_flag_types_allowed"] = all(f.get("type") in allowed_types for f in flags) if flags else True
+        result["flag_types_seen"] = sorted({f.get("type") for f in flags})
+
+        # Input-side scan (what this harness SENT, not Claude's stubbed output): no
+        # wrong_note / missing_note claim, and no numeric sub-100 ms precision claim.
+        # The literal "unavailable - ..." status strings are honest, so they are allowed.
+        import re as _re
+        forbidden = []
+        def _walk(node, path):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if _re.match(r"^(wrong_note|missing_note)", str(k)) and not (
+                            isinstance(v, str) and v.startswith("unavailable")):
+                        forbidden.append(f"{path}.{k}")
+                    if _re.search(r"(precision|tolerance|_ms$)", str(k)) and isinstance(v, (int, float)) \
+                            and not isinstance(v, bool) and abs(v) < 0.1:
+                        forbidden.append(f"{path}.{k}={v}")
+                    _walk(v, f"{path}.{k}")
+            elif isinstance(node, list):
+                for j, v in enumerate(node):
+                    _walk(v, f"{path}[{j}]")
+        _walk({"po": po, "entries": entries, "aligned": aligned}, "")
+        result["input_forbidden_scan_hits"] = forbidden
+        result["input_forbidden_scan_pass"] = not forbidden
+    except Exception as exc:  # noqa: BLE001 - this IS the Task 3 result if it fails
+        result["crashed"] = True
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        import traceback
+        result["traceback"] = traceback.format_exc()
+    return result
+
+
 def degenerate_cases(note_array, max_bp: float | None, work_dir: Path) -> list[dict]:
     """
     Check 7b: mismatched audio through the same final matcher config. Each case is
@@ -466,6 +591,84 @@ def degenerate_cases(note_array, max_bp: float | None, work_dir: Path) -> list[d
     return out
 
 
+def _part_notes(part) -> list[tuple[float, int]]:
+    """(offset_in_quarterLength, midi_pitch) for every note in one music21 part, chords expanded."""
+    out = []
+    for el in part.flatten().notes:
+        if el.isChord:
+            out.extend((float(el.offset), p.midi) for p in el.pitches)
+        else:
+            out.append((float(el.offset), el.pitch.midi))
+    return out
+
+
+def assess_score_completeness(midi_path, label_csv_path=None) -> dict:
+    """
+    Minimal score-completeness check, run against the ORIGINAL multi-part MIDI
+    (independent of whatever page-omr or the visual corpus builder did).
+
+    Distinguishes genuine omitted voices (an (offset, pitch) pair that exists in
+    an unselected part and is NOT already present in the selected part at that
+    same offset) from true duplicates (same offset+pitch already in the selected
+    part -- i.e. just a doubling, not missing content). Numeric `coverage_fraction`
+    is only populated when `label_csv_path` is given and exists; otherwise coverage
+    is reported as unavailable and completeness falls back to the binary
+    omitted-voices flag, never a fabricated ground-truth count.
+    """
+    import csv as _csv
+    full_score = music21.converter.parse(str(midi_path))
+    selected_part = bvc.select_real_part(full_score)
+    selected_notes = _part_notes(selected_part)
+    selected_set = {(round(o, 6), p) for o, p in selected_notes}
+
+    other_notes = []
+    for part in full_score.parts:
+        if part is selected_part:
+            continue
+        other_notes.extend(_part_notes(part))
+
+    genuinely_omitted = [(o, p) for (o, p) in other_notes if (round(o, 6), p) not in selected_set]
+    duplicate_count = len(other_notes) - len(genuinely_omitted)
+    total_all_parts = len(selected_notes) + len(other_notes)
+
+    result = {
+        "selected_note_count": len(selected_notes),
+        "other_tracks_note_count": len(other_notes),
+        "other_tracks_duplicate_count": duplicate_count,
+        "other_tracks_genuine_omission_count": len(genuinely_omitted),
+        "omitted_voices_detected": len(genuinely_omitted) > 0,
+        "total_midi_note_count_all_parts": total_all_parts,
+    }
+
+    label_csv_path = Path(label_csv_path) if label_csv_path else None
+    if label_csv_path is not None and label_csv_path.exists():
+        with open(label_csv_path) as f:
+            reference_count = sum(1 for _ in _csv.DictReader(f))
+        result["reference_note_count"] = reference_count
+        result["coverage_fraction"] = (len(selected_notes) / reference_count) if reference_count else None
+        result["full_midi_matches_reference"] = (total_all_parts == reference_count)  # informational, exact
+        # Tolerance, not exact equality: a 1-note MIDI/label offset (e.g. 2289:
+        # 953 vs 952) is not an omitted voice and must not flip the status.
+        result["full_midi_within_2pct_of_reference"] = (
+            abs(total_all_parts - reference_count) / reference_count <= 0.02 if reference_count else False
+        )
+        result["coverage_source"] = "musicnet_label_csv"
+        incomplete = (
+            (result["coverage_fraction"] is not None and result["coverage_fraction"] < 0.98)
+            or not result["full_midi_within_2pct_of_reference"]
+        )
+    else:
+        result["reference_note_count"] = None
+        result["coverage_fraction"] = None
+        result["coverage_source"] = "unavailable - no verified reference for this input"
+        incomplete = result["omitted_voices_detected"]
+
+    result["status"] = (
+        "incomplete - unsuitable for complete-performance grading" if incomplete else "complete"
+    )
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out-dir", default=None, help="scratch directory (default: a new tempdir)")
@@ -484,6 +687,9 @@ def main() -> int:
     # ---- Step 1 ----
     print("\n== Step 1: render page + independent ground truth ==")
     gt = step1_ground_truth(work, row)
+    completeness = assess_score_completeness(MIDI_PATH, LABELS_PATH)
+    print(f"  completeness: {completeness}")
+    results["completeness_status"] = completeness["status"]
     timings["step1_render_sec"] = gt["elapsed_sec"]
     gt_measures = gt["measures"]
     print(f"  pages={gt['n_pages']} measures={len(gt_measures)} time_signature={gt['time_signature']}")
@@ -547,6 +753,30 @@ def main() -> int:
     # ---- Task 2 structured object ----
     print("\n== Task 2: structured analysis object and property checks ==")
     entries = build_structured(note_array, times, gt_measures, bar_len, instrument)
+
+    # Explicit statuses on the final output (derived from numbers computed above).
+    alignment_rejected = healthB["degenerate"]
+    alignment_evidence_missing = not bpB["has_audio_evidence"]
+    if alignment_rejected:
+        alignment_status = "rejected - degenerate alignment"
+    elif alignment_evidence_missing:
+        alignment_status = "unavailable - insufficient onset evidence"
+    else:
+        alignment_status = "accepted"
+
+    time_signature_known = po.get("time_signature") is not None
+    meter_dependent_claims_available = time_signature_known
+
+    for e in entries:
+        e["timing_precision_claim"] = "unavailable - per-note localization error not independently validated"
+
+    results["alignment_status"] = alignment_status
+    results["time_signature_known"] = time_signature_known
+    results["meter_dependent_claims_available"] = meter_dependent_claims_available
+    print(f"  alignment_status: {alignment_status}")
+    print(f"  time_signature_known: {time_signature_known} (page-omr time_signature={po.get('time_signature')!r})")
+    print(f"  meter_dependent_claims_available: {meter_dependent_claims_available}")
+
     label_onsets = {}
     with open(LABELS_PATH) as f:
         for r in csv.DictReader(f):
@@ -627,15 +857,34 @@ def main() -> int:
     results["schema_ok"] = shape_ok
     results["wrong_note_literal_ok"] = check_wrong_note_literal(entries)[0]
     print(f"  wrong_note_finding on every entry = '{WRONG_NOTE_FINDING}': {results['wrong_note_literal_ok']}")
+    timing_ok, timing_details = check_no_precise_timing_claims(entries)
+    results["no_precise_timing_claims_ok"] = timing_ok
+    print(f"  Task 2 no precise timing claims: {'PASS' if timing_ok else 'FAIL'} {timing_details}")
+
+    # ---- Task 3 (coaching boundary): real worker.compare_and_coach_claude, Anthropic stubbed only ----
+    print("\n== Task 3: actual downstream coaching-interface call (Anthropic stubbed only) ==")
+    try:
+        coaching_result = step_coaching_boundary(po, entries, times, instrument, row)
+    except Exception as exc:  # noqa: BLE001 - keep the rest of main() alive; report the failure separately
+        coaching_result = {"crashed": True, "error": f"{type(exc).__name__}: {exc}",
+                           "stage": "harness wrapper (outside step_coaching_boundary)"}
+    print(f"  {coaching_result}")
+    results["coaching_boundary"] = coaching_result
 
     # ---- Summary ----
-    all_pass = all(checks[k][0] for k in checks) and results["schema_ok"] and results["wrong_note_literal_ok"]
+    all_pass = all(checks[k][0] for k in checks) and results["schema_ok"] and results["wrong_note_literal_ok"] \
+        and timing_ok
     print("\n== Summary ==")
     for k in sorted(checks):
         print(f"  Task 2 check {k}: {'PASS' if checks[k][0] else 'FAIL'}")
     print(f"  Task 3 schema: {'PASS' if results['schema_ok'] else 'FAIL'}; "
           f"wrong-note literal: {'PASS' if results['wrong_note_literal_ok'] else 'FAIL'}")
     print(f"  Degenerate inputs flagged: {results['degenerate_cases_flagged']}")
+    print(f"  Completeness: {results['completeness_status']}")
+    print(f"  Alignment status: {results['alignment_status']}; "
+          f"meter-dependent claims available: {results['meter_dependent_claims_available']}")
+    print(f"  Task 3 coaching boundary (reported separately, not in OVERALL): "
+          f"{'CRASHED ' + coaching_result['error'] if coaching_result.get('crashed') else 'ran OK, flags=' + str(coaching_result.get('flags_returned'))}")
     print(f"  Alignment before fix degenerate={results['alignment_before_degenerate']}, "
           f"after fix degenerate={results['alignment_after_degenerate']}")
     timings["total_sec"] = time.time() - t_all

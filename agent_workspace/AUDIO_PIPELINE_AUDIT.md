@@ -2215,3 +2215,12 @@ denominator: **26 across 8 pieces** (pre-fix HEAD measured 22 across 8).
 
 Details and the audit of D's evaluation integrity:
 `agent_workspace/HARPSET_BENCHMARK_INTEGRITY_FIX_2026-11-08.md`.
+
+## Final staging readiness (2026-11-08): score completeness, alignment/meter statuses, coaching boundary
+
+Harness-only change (`df784fc`). Full detail: `agent_workspace/FINAL_STAGING_READINESS_2026-11-08.md`.
+
+- **Completeness check.** The original multi-track MIDI is compared against the selected part. For 2220 the 238 notes in the other tracks are genuine voices, not doublings. Status is `incomplete - unsuitable for complete-performance grading`. For 2289 (single voice, 953 vs 952 labels) status is `complete`. Coverage is numeric only when a label CSV is given.
+- **Alignment and meter status for 2220.** `alignment_status=accepted` (Basic Pitch onset 81.1% vs null 19.4%). `meter_dependent_claims_available=False` (page-omr `time_signature=None`). Per-note timing stays marked unavailable: the label cross-check shows 18.8% of notes more than 1 s off.
+- **Coaching boundary.** The real `compare_and_coach_claude` ran with only the Anthropic client stubbed. It did not crash, but it returned 0 flags, because the Gemini and CREPE issue lists were empty. The coaching text path is therefore still untested end to end.
+- **Pytest.** 296 passed -> 299 passed. The same 5 failed and 1 error as before.

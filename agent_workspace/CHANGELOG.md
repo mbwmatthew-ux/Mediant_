@@ -1,5 +1,12 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-08 — Local E2E harness: completeness check, alignment/meter statuses, coaching boundary
+
+- `modal_worker/local_e2e_integration_harness.py`: `assess_score_completeness` (omitted voices vs doublings; coverage only with a label CSV), explicit `alignment_status` / `meter_dependent_claims_available` fields, per-entry timing claim marked unavailable, and a Task 3 call of the real `worker.compare_and_coach_claude` with only the Anthropic client stubbed (ran, 0 flags).
+- New `modal_worker/test_score_completeness.py` (3 tests, subprocess-isolated from `test_analysis.py`'s music21 stub).
+- Pytest 296 -> 299 passed; the same 5 failed + 1 error as before. No `worker.py`, `page_omr_adapter.py`, or `src/` change.
+- Details: `agent_workspace/FINAL_STAGING_READINESS_2026-11-08.md`.
+
 ## 2026-11-01 (1) — Parangonar alignment experiment: strongest result in this entire investigation, two real caveats, held-out integrity exhausted
 
 Task 1 of "MEDIANT — Score-Conditioned Audio Verification Feasibility."

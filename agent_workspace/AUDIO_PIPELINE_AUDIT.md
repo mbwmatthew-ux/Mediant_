@@ -2224,3 +2224,43 @@ Harness-only change (`df784fc`). Full detail: `agent_workspace/FINAL_STAGING_REA
 - **Alignment and meter status for 2220.** `alignment_status=accepted` (Basic Pitch onset 81.1% vs null 19.4%). `meter_dependent_claims_available=False` (page-omr `time_signature=None`). Per-note timing stays marked unavailable: the label cross-check shows 18.8% of notes more than 1 s off.
 - **Coaching boundary.** The real `compare_and_coach_claude` ran with only the Anthropic client stubbed. It did not crash, but it returned 0 flags, because the Gemini and CREPE issue lists were empty. The coaching text path is therefore still untested end to end.
 - **Pytest.** 296 passed -> 299 passed. The same 5 failed and 1 error as before.
+
+## Limited staging canary (2026-11-08): feature flag into worker.py, Tasks 1-3 verified locally, Task 4 live run STOPPED
+
+First change to `worker.py` this investigation (`+242/-0`, pure additions). Full
+detail: `agent_workspace/LIMITED_STAGING_CANARY_2026-11-08.md`.
+
+- **Flag.** `MEDIANT_ANALYSIS_V2_ENABLED` (default off), read fresh inside
+  `run_full_analysis`, same convention as `MEDIANT_SCORE_ENGINE`. Off: zero
+  lines of existing logic changed. On: delegates to new `_run_analysis_v2`
+  and returns — no interleaving with the V1 CREPE/DTW/Claude path.
+- **`_run_analysis_v2`.** page-omr -> kern/partitura bridge -> Basic Pitch ->
+  Parangonar, reusing `max_bp_for_piece`/`bp_onset_support` from
+  `local_e2e_integration_harness.py` directly (imported, not duplicated).
+  `performanceErrorAssessment.status` is **always** `"unavailable"` — the
+  function never calls `compare_and_coach_claude`, so there is nothing to
+  synthesize issue strings into. `flags` is always `[]`.
+- **Real gap found while wiring this, not assumed:**
+  `score_conditioned_error_classifier.BP_PY` is an absolute path into a
+  local dev machine's isolated venv; the staging image's `.pip_install`
+  list has neither `partitura` nor `parangonar`. Every boundary in
+  `_run_analysis_v2` that touches one of these is wrapped so a missing
+  dependency degrades to `"unavailable"` with a reason instead of
+  crashing — the flag is safe to enable in staging today, but will report
+  "unavailable" for every real request until the image is rebuilt.
+- **Verified via the real decorated handler**, `run_full_analysis.local(payload)`
+  (Modal's in-process call, not a shortcut to an inner helper), against
+  real MusicNet fixtures, httpx faked to local bytes, each case in a fresh
+  subprocess (`test_analysis_v2.py`, 4 tests): complete pair (2220) succeeds,
+  196/196 notes aligned, accepted (81.1%/19.4% onset support), status still
+  `"unavailable"`; completeness never fabricates a coverage number for a
+  real upload; mismatched audio (2186 audio + 2220 score) never reaches
+  `"accepted"`; flag off hits the exact pre-existing V1 Gemini-key guard,
+  with zero V2 fields in the webhook body.
+- **Task 4 (live canary): STOPPED before any spend.** Not a budget question —
+  Basic Pitch cannot run inside the deployed container at all with its
+  current execution model (a substantial rewrite, per the directive's own
+  STOP condition), independent of whether `partitura`/`parangonar` get
+  added to the image. No `modal deploy` was run.
+- **Pytest.** 299 passed -> 303 passed (+4 new). Same 5 pre-existing failures
+  + 1 collection error. `src/` untouched.

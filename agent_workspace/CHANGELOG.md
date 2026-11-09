@@ -1,6 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
-## 2026-11-08 — Local E2E harness: completeness check, alignment/meter statuses, coaching boundary
+## 2026-11-08 (2) — worker.py: MEDIANT_ANALYSIS_V2_ENABLED feature flag (staging-only, default off)
+
+- First change to `modal_worker/worker.py` in this week's audio-pipeline work (`+242/-0`). Off: byte-for-byte the existing `run_full_analysis`. On: new `_run_analysis_v2` runs page-omr -> Basic Pitch -> Parangonar (reusing `local_e2e_integration_harness.py`'s `max_bp_for_piece`/`bp_onset_support` directly) and always reports `performanceErrorAssessment.status = "unavailable"` — never calls `compare_and_coach_claude`, so `flags` is always `[]`.
+- Real gap found: `score_conditioned_error_classifier.BP_PY` is a local-machine-only path; the staging image has neither `partitura` nor `parangonar`. `_run_analysis_v2` degrades to `"unavailable"` at every such boundary rather than crashing.
+- New `modal_worker/test_analysis_v2.py` (4 tests, each in a fresh subprocess), exercising the real decorated `run_full_analysis.local(...)` handler against real MusicNet fixtures with httpx faked.
+- Pytest 299 -> 303 passed; same 5 failed + 1 error as before. `src/` untouched. No `modal deploy` run — the live staging canary (Task 4) was stopped before any spend; see `agent_workspace/LIMITED_STAGING_CANARY_2026-11-08.md`.
+
+## 2026-11-08 (1) — Local E2E harness: completeness check, alignment/meter statuses, coaching boundary
 
 - `modal_worker/local_e2e_integration_harness.py`: `assess_score_completeness` (omitted voices vs doublings; coverage only with a label CSV), explicit `alignment_status` / `meter_dependent_claims_available` fields, per-entry timing claim marked unavailable, and a Task 3 call of the real `worker.compare_and_coach_claude` with only the Anthropic client stubbed (ran, 0 flags).
 - New `modal_worker/test_score_completeness.py` (3 tests, subprocess-isolated from `test_analysis.py`'s music21 stub).

@@ -10103,6 +10103,239 @@ def post_webhook(webhook_url: str, webhook_secret: str | None, payload: dict, an
         print(f"[post_webhook] failed: {e}")
 
 
+# ── Analysis v2 (staging-only, feature-flagged) ────────────────────────────
+#
+# MEDIANT_ANALYSIS_V2_ENABLED (default unset/off): a runtime env flag,
+# read fresh (not module-level) for the same reason MEDIANT_SCORE_ENGINE is —
+# a redeploy with a new env value must take effect without relying on
+# cold-start timing. When off, run_full_analysis is byte-for-byte what it
+# was before this flag existed. When on, run_full_analysis delegates to
+# _run_analysis_v2 below and returns immediately after — none of the
+# existing CREPE/DTW/Claude-coaching logic runs, so there is no interleaving
+# risk between the two paths.
+#
+# This is the integration target of "MEDIANT — Integrate page-omr + Deskew
+# Into Staging" (2026-10-31) and this week's local_e2e_integration_harness.py
+# work: page-omr -> Basic Pitch -> Parangonar, with the per-piece tempo
+# bound and the Basic-Pitch onset-evidence gate carried over unchanged from
+# the harness (imported, not reimplemented — see MEDIANT — EXECUTE LIMITED
+# STAGING CANARY, Task 1 ("reuse existing functions... do not duplicate").
+#
+# Known deployment gap, found directly (not assumed) while writing this:
+# score_conditioned_error_classifier.BP_PY is an absolute path into a LOCAL
+# dev machine's isolated venv ("/Users/matthewwu/.cache/mediant_validation/
+# venv_basic_pitch/bin/python3") — it does not exist in the staging Modal
+# container, and this image's .pip_install list (above) does not install
+# partitura or parangonar either. Every one of those boundaries below is
+# therefore wrapped so a missing dependency degrades this function to an
+# honest "unavailable" performanceErrorAssessment instead of crashing the
+# request — this flag can be turned on in staging today without breaking
+# anything, but it will report "unavailable" for every real request until
+# the image is rebuilt with Basic Pitch + partitura + parangonar baked in.
+# That image rebuild is NOT done by this change; see the dated report this
+# round produced for the exact gap.
+def _run_analysis_v2(payload: dict) -> None:
+    """
+    Staging-only alternate analysis path. Never sets performanceErrorAssessment
+    to anything but "unavailable" — this path has no validated wrong-note /
+    missing-note / timing-error detector (see AUDIO_PIPELINE_AUDIT.md: the
+    score-conditioned classifier is STOP, and the bare adapter's false-positive
+    rate is far too high). It never calls compare_and_coach_claude — there is
+    no issue data to feed it that wouldn't be synthesized, and synthesizing
+    issue strings to produce non-empty coaching is explicitly disallowed —
+    so `flags` is always []. Score-reading and alignment results ARE real and
+    are retained, with their own explicit status fields, never folded into a
+    pass/fail performance grade.
+    """
+    import httpx
+    import os as _os
+    import tempfile as _tf
+
+    take_id          = payload["take_id"]
+    webhook_url      = payload["webhook_url"]
+    webhook_secret   = payload.get("webhook_secret")
+    webhook_anon_key = payload.get("webhook_anon_key")
+    video_url        = payload.get("video_url")
+    score_url        = payload.get("score_url")
+    score_mime       = payload.get("score_mime_type", "")
+    score_path       = payload.get("score_path")
+
+    debug_steps: list[str] = ["analysis_v2: enabled"]
+    score_dict: dict = {"key_signature": None, "time_signature": None, "tempo_marking": None, "measures": []}
+    alignment_ranges: list[dict] = []
+    completeness_result: dict = {
+        "pages_total": None, "pages_processed": 0, "partial_error": None,
+        "coverage_fraction": None,
+        "coverage_source": "unavailable - no verified reference for a real upload",
+        "status": "unknown - score reading did not complete",
+    }
+    alignment_status = "unavailable - alignment not attempted"
+    assessment = {"status": "unavailable", "reason": "analysis_v2: starting"}
+
+    def _finish() -> None:
+        time_signature_known = score_dict.get("time_signature") is not None
+        post_webhook(webhook_url, webhook_secret, {
+            "takeId":                        take_id,
+            "score":                         None,
+            "flags":                         [],
+            "measureLayout":                 score_dict if score_dict.get("measures") else None,
+            "audioAlignment":                alignment_ranges or None,
+            "analysisQuality":               {"trust": "experimental_v2", "canProceed": False},
+            "analysisBackend":               "modal+page_omr+basic_pitch+parangonar (v2, experimental)",
+            "pipelineDebug":                 debug_steps,
+            "parsedScoreNotes":              None,
+            "scorePath":                     score_path,
+            "analysisEvidence":              None,
+            "performanceErrorAssessment":    assessment,
+            "scoreCompleteness":             completeness_result,
+            "alignmentStatus":               alignment_status,
+            "meterDependentClaimsAvailable": time_signature_known,
+        }, anon_key=webhook_anon_key)
+
+    try:
+        if not score_url or not video_url:
+            assessment["reason"] = "analysis_v2 requires both video_url and score_url"
+            return _finish()
+
+        with httpx.Client(timeout=120) as client:
+            vresp = client.get(video_url, follow_redirects=True)
+            vresp.raise_for_status()
+            video_bytes = vresp.content
+            sresp = client.get(score_url, follow_redirects=True)
+            sresp.raise_for_status()
+            page_bytes = _normalize_page_orientation(sresp.content)
+        debug_steps.append(f"v2_download: video={len(video_bytes):,}B score={len(page_bytes):,}B")
+
+        page_mime = page_mime_from_response(None, score_mime or "image/png")
+        kind = sniff_score_kind(page_bytes, score_mime, score_url)
+        if kind != "visual":
+            assessment["reason"] = f"analysis_v2 only supports visual (image/PDF) scores, got kind={kind}"
+            return _finish()
+
+        pages_total = len(payload.get("score_urls") or ([score_url] if score_url else []))
+        completeness_result["pages_total"] = pages_total
+        if pages_total > 1:
+            # Same one-page cap as local_e2e_integration_harness.py — not a
+            # new limitation this change introduces, just surfaced honestly
+            # for a real multi-page upload instead of silently reading page 1.
+            completeness_result["status"] = "incomplete - only 1 of multiple uploaded pages was processed (v2 one-page limit)"
+
+        from page_omr_adapter import score_pages_with_page_omr
+        score_dict = score_pages_with_page_omr([(page_bytes, page_mime)], 1)
+        debug_steps.append(f"v2_page_omr: measures={len(score_dict.get('measures', []))} "
+                            f"time_signature={score_dict.get('time_signature')!r} error={score_dict.get('error')}")
+        completeness_result["pages_processed"] = 1
+        completeness_result["partial_error"] = score_dict.get("partial_error")
+        if score_dict.get("error") or not score_dict.get("measures"):
+            assessment["reason"] = f"page-omr score reading failed: {score_dict.get('error')}"
+            return _finish()
+        if completeness_result["status"] == "unknown - score reading did not complete":
+            completeness_result["status"] = (
+                "incomplete - page-omr reported a partial read" if score_dict.get("partial_error")
+                else "complete (single page, no partial-read signal) - not independently verified"
+            )
+
+        try:
+            import page_omr_adapter as pom
+            import music21
+            pom._ensure_model_loaded()
+            image = pom._bytes_to_image(page_bytes, "image/png")
+            deskewed, _angle = pom.deskew_image(image)
+            raw_kern, _elapsed = pom.run_inference(deskewed)
+            m21_score = music21.converter.parse(raw_kern, format="humdrum")
+            fd, tmp_path = _tf.mkstemp(suffix=".musicxml")
+            _os.close(fd)
+            try:
+                m21_score.write("musicxml", fp=tmp_path)
+                import partitura as pt
+                note_array = pt.load_musicxml(tmp_path).note_array()
+            finally:
+                _os.remove(tmp_path)
+            debug_steps.append(f"v2_note_array: {len(note_array)} notes")
+        except Exception as bridge_err:
+            assessment["reason"] = f"score/alignment bridge unavailable in this environment: {bridge_err}"
+            debug_steps.append(f"v2_note_array: FAILED {bridge_err}")
+            return _finish()
+
+        try:
+            from score_conditioned_error_classifier import BP_PY, BP_SCRIPT
+        except Exception as imp_err:
+            assessment["reason"] = f"Basic Pitch runner unavailable in this environment: {imp_err}"
+            return _finish()
+        if not _os.path.exists(BP_PY):
+            assessment["reason"] = "Basic Pitch execution environment not present in this container"
+            debug_steps.append(f"v2_basic_pitch: SKIPPED -- {BP_PY} not found")
+            return _finish()
+
+        wav_bytes, _duration = extract_audio_from_video(video_bytes)
+        work_dir = _tf.mkdtemp(prefix="mediant_v2_")
+        wav_path = _os.path.join(work_dir, "audio.wav")
+        with open(wav_path, "wb") as f:
+            f.write(wav_bytes)
+        import subprocess
+        bp_out = _os.path.join(work_dir, "bp.npz")
+        bp_proc = subprocess.run([BP_PY, "-c", BP_SCRIPT, wav_path, bp_out],
+                                  capture_output=True, text=True, timeout=600)
+        if "OK" not in bp_proc.stdout:
+            assessment["reason"] = f"Basic Pitch failed: {bp_proc.stderr[-300:]}"
+            return _finish()
+        import numpy as np
+        d = np.load(bp_out)
+        bp = {"onset": d["onset"], "times": d["times"]}
+        debug_steps.append(f"v2_basic_pitch: onset matrix={bp['onset'].shape}")
+
+        import parangonar as pa
+        from local_e2e_integration_harness import max_bp_for_piece, bp_onset_support
+        import soundfile as sf
+        audio, sr = sf.read(wav_path)
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        audio = audio.astype(np.float32)
+        audio_sec = len(audio) / sr
+        max_bp = max_bp_for_piece(audio_sec, note_array)
+        matcher = pa.AudioToScoreMatcher(max_bp=max_bp)
+        alignment = matcher(audio, note_array, sample_rate=sr)
+        times = np.array([float(a["performance_time"]) for a in alignment], dtype=float)
+        onset_support = bp_onset_support(note_array["pitch"].tolist(), times, bp)
+        d_times = np.diff(times)
+        unique_frac = len(np.unique(np.round(times, 3))) / max(1, len(times))
+        span_frac = ((times.max() - times.min()) / audio_sec) if audio_sec else 0.0
+        nonmono = int((d_times < -1e-9).sum())
+        degenerate = unique_frac < 0.5 or span_frac < 0.5 or nonmono > 0
+        if degenerate:
+            alignment_status = "rejected - degenerate alignment"
+        elif not onset_support["has_audio_evidence"]:
+            alignment_status = "unavailable - insufficient onset evidence"
+        else:
+            alignment_status = "accepted"
+        debug_steps.append(f"v2_alignment: status={alignment_status} "
+                            f"aligned_rate={onset_support['aligned_rate']:.2f} "
+                            f"null_rate={onset_support['null_rate']:.2f}")
+        if len(times):
+            alignment_ranges = [{"measure": 1, "start": float(times.min()), "end": float(times.max())}]
+
+        if alignment_status != "accepted":
+            assessment["reason"] = (
+                f"alignment not accepted ({alignment_status}); performance-error "
+                f"detection requires accepted alignment"
+            )
+            return _finish()
+
+        # Alignment accepted is still not performance-error evidence: no
+        # validated wrong-note / missing-note / timing-error detector exists
+        # for this pipeline (see docstring). Never upgrade past "unavailable".
+        assessment["reason"] = (
+            "no validated performance-error detector exists for this pipeline; "
+            "alignment succeeded but that is evidence of alignment quality, not of correct playing"
+        )
+
+    except Exception as exc:
+        debug_steps.append(f"v2_FATAL: {type(exc).__name__}: {exc}")
+        assessment = {"status": "unavailable", "reason": f"analysis_v2 error: {exc}"}
+
+    _finish()
+
+
 # ── Background analysis task ───────────────────────────────────────────────
 
 @app.function(
@@ -10152,6 +10385,15 @@ def run_full_analysis(payload: dict) -> None:
     user_note           = (payload.get("user_note") or "").strip()[:800]
     debug_steps: list[str] = []  # pipeline step log for diagnostics
     parsed_score_notes: dict | None = None  # freshly parsed notes to cache via webhook
+
+    # MEDIANT_ANALYSIS_V2_ENABLED (default off): see _run_analysis_v2 above.
+    # Read fresh, same reasoning as MEDIANT_SCORE_ENGINE just above it in this
+    # file — a redeploy with a new env value must take effect without
+    # relying on cold-start timing. When unset/false, nothing below this
+    # check changes: this IS the existing production behavior, unmodified.
+    if (os.environ.get("MEDIANT_ANALYSIS_V2_ENABLED", "").strip().lower() in ("1", "true", "on")):
+        _run_analysis_v2(payload)
+        return
 
     try:
         num, denom = map(int, time_sig.split("/"))

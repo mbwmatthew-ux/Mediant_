@@ -1,6 +1,14 @@
 # Changelog — Practapal (formerly Mediant)
 
-## 2026-11-10 — V2: process every uploaded score page, not just page 1
+## 2026-11-10 (2) — page-omr: preserve all parts/voices/chords/ties, not just parts[0]
+
+- Root-caused across all 4 possible boundaries (OMR model output, music21's humdrum parser, Mediant's own extraction, the alignment-facing note array) before writing any fix. Ran the real page-omr model on real rendered multi-part and multi-voice fixtures: the model itself correctly emits multi-part (parallel `**kern` spines) and multi-voice (Humdrum spine-split) kern, and music21's parser correctly builds multi-Part/Voice structures from it. The loss was entirely in `kern_to_measures`: `parts[0]`-only, and `measure.notesAndRests` never recursing into `Voice` sub-streams (confirmed: returns `[]` whenever voices are present).
+- `kern_to_measures` now steps every part in lockstep by measure position and reads every `Voice` separately when present. Each note gains `part`, `voice` (positional index, not `Voice.id` — a raw memory address on real spine-split kern), and `tied`. Single-voice/single-part case unchanged (part=0, voice=None, tied=None).
+- `worker.py`'s alignment note_array intentionally still uses part 0 only (Parangonar unvalidated for polyphonic input; `performanceErrorAssessment` already always "unavailable") — added a debug note instead of silently dropping the fact that more parts exist.
+- 6 new tests (Task 3 cases A-F) using real page-omr output as fixtures. Pytest 305 -> 313 passed, same 5 pre-existing failures.
+- Commit `a325dcb`.
+
+## 2026-11-10 (1) — V2: process every uploaded score page, not just page 1
 
 - `_run_analysis_v2` only ever downloaded/read `score_url` (page 1), hardcoding `pages_processed=1` even though `page_omr_adapter.score_pages_with_page_omr` already supported multi-page concatenation (the V1/page_omr path already used it correctly — the gap was entirely in the V2 caller). Now downloads every `score_urls` entry, derives `pages_processed` from real coverage (`_pages_covered`), and builds the Parangonar-facing `note_array` by combining every page's already-computed kern output into one continuous `music21` Part (verified empirically) instead of re-running deskew+inference a second time on page 1 alone.
 - `page_omr_adapter.score_pages_with_page_omr` now also returns `page_kern` (per-page raw kern), `failed_pages` (structured), and `duplicate_page_warning` (byte-identical pages — diagnostic, not a failure).

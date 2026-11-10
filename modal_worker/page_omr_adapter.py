@@ -280,6 +280,22 @@ def score_pages_with_page_omr(pages: list[tuple[bytes, str]], start_measure: int
     return: measures/source/key_signature/time_signature/tempo_marking,
     plus "error" (no usable output at all) or "partial_error" (some but
     not all pages read) when applicable. Never raises.
+
+    Also returns two fields the single-page callers can ignore and the
+    multi-page V2 caller (worker.py's _run_analysis_v2) needs to build one
+    combined note_array across every successfully-read page WITHOUT
+    re-running inference a second time:
+      - "page_kern": {page_idx: raw_kern} for every page that contributed
+        measures, in upload order (1-based page_idx, same numbering as
+        each measure's "page" tag).
+      - "failed_pages": [page_idx, ...] for every page that did NOT
+        contribute measures (decode/inference/degenerate/unparseable),
+        structured rather than only embedded in the "partial_error" string,
+        so a caller can report exactly which page(s) to re-upload.
+      - "duplicate_page_warning": set when two different pages produced
+        byte-identical recognition output (e.g. the same photo uploaded
+        twice) -- a diagnostic, not a failure; the duplicate's measures
+        are still included in "measures".
     """
     try:
         _ensure_model_loaded()
@@ -293,12 +309,15 @@ def score_pages_with_page_omr(pages: list[tuple[bytes, str]], start_measure: int
     all_measures: list[dict] = []
     next_number = start_measure
     page_errors: list[str] = []
+    failed_pages: list[int] = []
+    page_kern: dict[int, str] = {}
 
     for page_idx, (page_bytes, mime) in enumerate(pages, start=1):
         try:
             image = _bytes_to_image(page_bytes, mime)
         except Exception as e:
             page_errors.append(f"page {page_idx}: could not decode image ({type(e).__name__}: {e})")
+            failed_pages.append(page_idx)
             continue
 
         try:
@@ -306,6 +325,7 @@ def score_pages_with_page_omr(pages: list[tuple[bytes, str]], start_measure: int
             raw_kern, _elapsed = run_inference(deskewed)
         except Exception as e:
             page_errors.append(f"page {page_idx}: inference failed ({type(e).__name__}: {e})")
+            failed_pages.append(page_idx)
             continue
 
         ratio = collapse_ratio(raw_kern)
@@ -313,14 +333,17 @@ def score_pages_with_page_omr(pages: list[tuple[bytes, str]], start_measure: int
             page_errors.append(
                 f"page {page_idx}: output looks degenerate "
                 f"(repetition-collapse ratio {ratio:.3f} > {_COLLAPSE_RATIO_THRESHOLD})")
+            failed_pages.append(page_idx)
             continue
 
         page_measures, parse_err = kern_to_measures(raw_kern)
         if parse_err:
             page_errors.append(f"page {page_idx}: unparseable output ({parse_err})")
+            failed_pages.append(page_idx)
             continue
         if not page_measures:
             page_errors.append(f"page {page_idx}: parsed to zero measures")
+            failed_pages.append(page_idx)
             continue
 
         for m in page_measures:
@@ -328,6 +351,17 @@ def score_pages_with_page_omr(pages: list[tuple[bytes, str]], start_measure: int
             m["page"] = page_idx
             next_number += 1
         all_measures.extend(page_measures)
+        page_kern[page_idx] = raw_kern
+
+    duplicate_page_warning = None
+    seen_kern: dict[str, int] = {}
+    for idx, kern_text in page_kern.items():
+        if kern_text in seen_kern:
+            duplicate_page_warning = (
+                f"page {seen_kern[kern_text]} and page {idx} produced identical "
+                f"recognition output (possible duplicate upload)")
+            break
+        seen_kern[kern_text] = idx
 
     if not all_measures:
         return {
@@ -335,11 +369,15 @@ def score_pages_with_page_omr(pages: list[tuple[bytes, str]], start_measure: int
             "time_signature": None, "tempo_marking": None,
             "error": ("page-omr could not read any page: " + "; ".join(page_errors))
                      if page_errors else "page-omr returned no measures",
+            "failed_pages": failed_pages,
         }
 
     result = {
         "measures": all_measures, "source": "page_omr",
         "key_signature": None, "time_signature": None, "tempo_marking": None,
+        "page_kern": page_kern,
+        "failed_pages": failed_pages,
+        "duplicate_page_warning": duplicate_page_warning,
     }
     if page_errors:
         result["partial_error"] = "; ".join(page_errors)

@@ -10232,6 +10232,13 @@ def _run_analysis_v2(payload: dict) -> None:
     so `flags` is always []. Score-reading and alignment results ARE real and
     are retained, with their own explicit status fields, never folded into a
     pass/fail performance grade.
+
+    Processes every uploaded page (payload["score_urls"], falling back to the
+    single score_url), not just the first — see "MEDIANT — Engineering
+    Directive: Multi-Page Score Recognition". Each page is read once by
+    score_pages_with_page_omr; its already-computed per-page kern output is
+    then combined into one continuous note_array for alignment, rather than
+    re-running inference a second time on page 1 alone.
     """
     import httpx
     import os as _os
@@ -10283,61 +10290,95 @@ def _run_analysis_v2(payload: dict) -> None:
             assessment["reason"] = "analysis_v2 requires both video_url and score_url"
             return _finish()
 
+        # Every uploaded page, in order — not just the first. score_urls is
+        # the full signed set (same contract the V1/page_omr path at
+        # _score_pipeline uses, see worker.py ~10639); a legacy payload with
+        # no score_urls falls back to the single score_url, same as V1.
+        score_urls = [u for u in (payload.get("score_urls") or [score_url]) if u]
+        pages_total = len(score_urls)
+        completeness_result["pages_total"] = pages_total
+
         with httpx.Client(timeout=120) as client:
             vresp = client.get(video_url, follow_redirects=True)
             vresp.raise_for_status()
             video_bytes = vresp.content
-            sresp = client.get(score_url, follow_redirects=True)
-            sresp.raise_for_status()
-            page_bytes = _normalize_page_orientation(sresp.content)
-        debug_steps.append(f"v2_download: video={len(video_bytes):,}B score={len(page_bytes):,}B")
 
-        page_mime = page_mime_from_response(None, score_mime or "image/png")
-        kind = sniff_score_kind(page_bytes, score_mime, score_url)
+            pages: list[tuple[bytes, str]] = []
+            for u in score_urls:
+                sresp = client.get(u, follow_redirects=True)
+                sresp.raise_for_status()
+                pages.append((
+                    _normalize_page_orientation(sresp.content),
+                    page_mime_from_response(sresp.headers.get("content-type"), score_mime or "image/png"),
+                ))
+        debug_steps.append(f"v2_download: video={len(video_bytes):,}B "
+                            f"score pages={[len(b) for b, _ in pages]}")
+
+        if not pages:
+            assessment["reason"] = "analysis_v2: no score page could be downloaded"
+            return _finish()
+
+        kind = sniff_score_kind(pages[0][0], score_mime, score_url)
         if kind != "visual":
             assessment["reason"] = f"analysis_v2 only supports visual (image/PDF) scores, got kind={kind}"
             return _finish()
 
-        pages_total = len(payload.get("score_urls") or ([score_url] if score_url else []))
-        completeness_result["pages_total"] = pages_total
-        if pages_total > 1:
-            # Same one-page cap as local_e2e_integration_harness.py — not a
-            # new limitation this change introduces, just surfaced honestly
-            # for a real multi-page upload instead of silently reading page 1.
-            completeness_result["status"] = "incomplete - only 1 of multiple uploaded pages was processed (v2 one-page limit)"
-
         from page_omr_adapter import score_pages_with_page_omr
-        score_dict = score_pages_with_page_omr([(page_bytes, page_mime)], 1)
+        score_dict = score_pages_with_page_omr(pages, 1)
         debug_steps.append(f"v2_page_omr: measures={len(score_dict.get('measures', []))} "
                             f"time_signature={score_dict.get('time_signature')!r} error={score_dict.get('error')}")
-        completeness_result["pages_processed"] = 1
+        completeness_result["pages_processed"] = _pages_covered(score_dict)
         completeness_result["partial_error"] = score_dict.get("partial_error")
+        failed_pages = score_dict.get("failed_pages") or []
+        if score_dict.get("duplicate_page_warning"):
+            debug_steps.append(f"v2_page_omr: {score_dict['duplicate_page_warning']}")
         if score_dict.get("error") or not score_dict.get("measures"):
             assessment["reason"] = f"page-omr score reading failed: {score_dict.get('error')}"
             return _finish()
-        if completeness_result["status"] == "unknown - score reading did not complete":
+        if completeness_result["pages_processed"] < pages_total or failed_pages:
             completeness_result["status"] = (
-                "incomplete - page-omr reported a partial read" if score_dict.get("partial_error")
-                else "complete (single page, no partial-read signal) - not independently verified"
+                f"incomplete - page-omr failed to read page(s) {failed_pages} of {pages_total} uploaded"
+                if failed_pages else
+                f"incomplete - only {completeness_result['pages_processed']} of {pages_total} pages were processed"
+            )
+        else:
+            completeness_result["status"] = (
+                f"complete (all {pages_total} page(s) processed, no partial-read signal) - not independently verified"
             )
 
         try:
-            import page_omr_adapter as pom
             import music21
-            pom._ensure_model_loaded()
-            image = pom._bytes_to_image(page_bytes, "image/png")
-            deskewed, _angle = pom.deskew_image(image)
-            raw_kern, _elapsed = pom.run_inference(deskewed)
-            m21_score = music21.converter.parse(raw_kern, format="humdrum")
+            # Combine every successfully-read page's ALREADY-COMPUTED kern
+            # (score_dict["page_kern"], from the single score_pages_with_
+            # page_omr call above) into one continuous Part, instead of
+            # re-running deskew/inference a second time on page 1 alone —
+            # that would double the model cost and risk the note_array
+            # silently disagreeing with the measureLayout actually reported.
+            # Verified empirically (scratchpad/verify_combine.py) that
+            # appending each page's parsed Measures onto one combined Part
+            # and renumbering produces a continuous, monotonic onset_beat
+            # across page boundaries.
+            combined_part = music21.stream.Part()
+            for page_idx in sorted(score_dict.get("page_kern", {})):
+                page_m21 = music21.converter.parse(score_dict["page_kern"][page_idx], format="humdrum")
+                page_part = page_m21.parts[0] if len(page_m21.parts) else page_m21
+                for measure in list(page_part.getElementsByClass("Measure")):
+                    combined_part.append(measure)
+            for i, m in enumerate(combined_part.getElementsByClass("Measure"), start=1):
+                m.number = i
+            combined_score = music21.stream.Score()
+            combined_score.insert(0, combined_part)
+
             fd, tmp_path = _tf.mkstemp(suffix=".musicxml")
             _os.close(fd)
             try:
-                m21_score.write("musicxml", fp=tmp_path)
+                combined_score.write("musicxml", fp=tmp_path)
                 import partitura as pt
                 note_array = pt.load_musicxml(tmp_path).note_array()
             finally:
                 _os.remove(tmp_path)
-            debug_steps.append(f"v2_note_array: {len(note_array)} notes")
+            debug_steps.append(f"v2_note_array: {len(note_array)} notes across "
+                                f"{len(score_dict.get('page_kern', {}))} page(s)")
         except Exception as bridge_err:
             assessment["reason"] = f"score/alignment bridge unavailable in this environment: {bridge_err}"
             debug_steps.append(f"v2_note_array: FAILED {bridge_err}")

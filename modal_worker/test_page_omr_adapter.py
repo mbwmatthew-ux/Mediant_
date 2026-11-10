@@ -207,6 +207,86 @@ def test_score_pages_with_page_omr_partial_failure_keeps_good_pages_and_flags_ba
           "partial_error" in result and "page 2" in result["partial_error"], str(result))
 
 
+def test_score_pages_with_page_omr_exposes_page_kern_and_failed_pages():
+    print("\n[7] score_pages_with_page_omr exposes page_kern (per-page raw "
+          "kern, keyed by page index) for every page that contributed "
+          "measures, and failed_pages (structured, not just embedded in a "
+          "string) for every page that did not — the multi-page V2 caller "
+          "needs page_kern to build one combined note_array without "
+          "re-running inference, and failed_pages to identify exactly "
+          "which page(s) to tell the uploader about.")
+    orig_ensure = poa._ensure_model_loaded
+    orig_decode = poa._bytes_to_image
+    orig_deskew = poa.deskew_image
+    orig_infer = poa.run_inference
+    orig_ratio = poa.collapse_ratio
+    try:
+        poa._ensure_model_loaded = lambda: None
+        poa._bytes_to_image = lambda b, m: object()
+        poa.deskew_image = lambda img: (img, 0.0)
+        poa.collapse_ratio = lambda raw: 0.0 if raw == _VALID_KERN else 0.9
+        # Page 1 and 3 succeed (valid kern); page 2 is forced degenerate.
+        calls = {"n": 0}
+        def fake_infer(img):
+            calls["n"] += 1
+            return (_VALID_KERN, 1.0) if calls["n"] != 2 else ("bad-output", 1.0)
+        poa.run_inference = fake_infer
+
+        result = poa.score_pages_with_page_omr(
+            [(b"p1", "image/png"), (b"p2", "image/png"), (b"p3", "image/png")],
+            start_measure=1)
+    finally:
+        poa._ensure_model_loaded = orig_ensure
+        poa._bytes_to_image = orig_decode
+        poa.deskew_image = orig_deskew
+        poa.run_inference = orig_infer
+        poa.collapse_ratio = orig_ratio
+
+    page_kern = result.get("page_kern") or {}
+    check("page_kern has entries for pages 1 and 3 only",
+          set(page_kern.keys()) == {1, 3}, str(page_kern))
+    check("page_kern values are the raw kern text",
+          page_kern.get(1) == _VALID_KERN and page_kern.get(3) == _VALID_KERN,
+          str(page_kern))
+    check("failed_pages lists page 2 only",
+          result.get("failed_pages") == [2], str(result.get("failed_pages")))
+
+
+def test_score_pages_with_page_omr_detects_duplicate_page_upload():
+    print("\n[8] two pages that produce byte-identical recognition output "
+          "(e.g. the same photo uploaded twice) are flagged via "
+          "duplicate_page_warning — a diagnostic, not a failure; both "
+          "pages' measures are still included in the result.")
+    orig_ensure = poa._ensure_model_loaded
+    orig_decode = poa._bytes_to_image
+    orig_deskew = poa.deskew_image
+    orig_infer = poa.run_inference
+    orig_ratio = poa.collapse_ratio
+    try:
+        poa._ensure_model_loaded = lambda: None
+        poa._bytes_to_image = lambda b, m: object()
+        poa.deskew_image = lambda img: (img, 0.0)
+        poa.collapse_ratio = lambda raw: 0.0
+        poa.run_inference = lambda img: (_VALID_KERN, 1.0)  # identical every call
+
+        result = poa.score_pages_with_page_omr(
+            [(b"p1", "image/png"), (b"p2", "image/png")], start_measure=1)
+    finally:
+        poa._ensure_model_loaded = orig_ensure
+        poa._bytes_to_image = orig_decode
+        poa.deskew_image = orig_deskew
+        poa.run_inference = orig_infer
+        poa.collapse_ratio = orig_ratio
+
+    check("duplicate_page_warning set and names both pages",
+          result.get("duplicate_page_warning")
+          and "page 1" in result["duplicate_page_warning"]
+          and "page 2" in result["duplicate_page_warning"],
+          str(result.get("duplicate_page_warning")))
+    check("both pages' measures are still present (diagnostic, not a drop)",
+          len(result["measures"]) == 4, str(result["measures"]))
+
+
 def main():
     print("=" * 70)
     print("page_omr_adapter — ground truth tests")
@@ -218,6 +298,8 @@ def main():
         test_score_pages_with_page_omr_concatenates_and_renumbers_across_pages,
         test_score_pages_with_page_omr_all_pages_fail_returns_structured_error,
         test_score_pages_with_page_omr_partial_failure_keeps_good_pages_and_flags_bad_ones,
+        test_score_pages_with_page_omr_exposes_page_kern_and_failed_pages,
+        test_score_pages_with_page_omr_detects_duplicate_page_upload,
     ):
         try:
             t()

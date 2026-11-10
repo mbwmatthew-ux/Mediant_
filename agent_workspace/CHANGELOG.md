@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-10 — V2: process every uploaded score page, not just page 1
+
+- `_run_analysis_v2` only ever downloaded/read `score_url` (page 1), hardcoding `pages_processed=1` even though `page_omr_adapter.score_pages_with_page_omr` already supported multi-page concatenation (the V1/page_omr path already used it correctly — the gap was entirely in the V2 caller). Now downloads every `score_urls` entry, derives `pages_processed` from real coverage (`_pages_covered`), and builds the Parangonar-facing `note_array` by combining every page's already-computed kern output into one continuous `music21` Part (verified empirically) instead of re-running deskew+inference a second time on page 1 alone.
+- `page_omr_adapter.score_pages_with_page_omr` now also returns `page_kern` (per-page raw kern), `failed_pages` (structured), and `duplicate_page_warning` (byte-identical pages — diagnostic, not a failure).
+- Verified live on the real 3-page MusicNet 2289 fixture via `.local()`: `pages_total=3, pages_processed=3`, 162 measures continuously numbered across pages (71/72/19), real Parangonar alignment on the combined score (`accepted`, `aligned_rate=0.96`), `performanceErrorAssessment` stays `"unavailable"`, `flags=[]`. A deliberately-corrupted middle page correctly reports `pages_processed=2/3`, `status="incomplete"`, still returns the two good pages.
+- 2 new tests in `test_page_omr_adapter.py`, 2 new real-model tests in `test_analysis_v2.py`. Pytest 303 -> 305 passed, same 5 pre-existing failures + 1 collection error. No `src/` change, no deploy.
+- Commit `dd15da0`.
+
 ## 2026-11-08 (2) — worker.py: MEDIANT_ANALYSIS_V2_ENABLED feature flag (staging-only, default off)
 
 - First change to `modal_worker/worker.py` in this week's audio-pipeline work (`+242/-0`). Off: byte-for-byte the existing `run_full_analysis`. On: new `_run_analysis_v2` runs page-omr -> Basic Pitch -> Parangonar (reusing `local_e2e_integration_harness.py`'s `max_bp_for_piece`/`bp_onset_support` directly) and always reports `performanceErrorAssessment.status = "unavailable"` — never calls `compare_and_coach_claude`, so `flags` is always `[]`.

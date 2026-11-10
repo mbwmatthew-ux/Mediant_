@@ -10239,6 +10239,12 @@ def _run_analysis_v2(payload: dict) -> None:
     score_pages_with_page_omr; its already-computed per-page kern output is
     then combined into one continuous note_array for alignment, rather than
     re-running inference a second time on page 1 alone.
+
+    Also computes scorePracticeInsights — deterministic, score-only practice
+    targets (large melodic leaps, dense passages, chord/multi-voice
+    complexity) via score_practice_analysis.analyze_score_for_practice. This
+    is never performance evidence and never feeds flags/parsedScoreNotes —
+    see "MEDIANT — Build Score-Grounded Practice Recommendations".
     """
     import httpx
     import os as _os
@@ -10264,6 +10270,9 @@ def _run_analysis_v2(payload: dict) -> None:
     }
     alignment_status = "unavailable - alignment not attempted"
     assessment = {"status": "unavailable", "reason": "analysis_v2: starting"}
+    score_practice_insights: dict = {
+        "status": "unavailable", "reason": "analysis_v2: starting", "targets": [],
+    }
 
     def _finish() -> None:
         time_signature_known = score_dict.get("time_signature") is not None
@@ -10283,6 +10292,7 @@ def _run_analysis_v2(payload: dict) -> None:
             "scoreCompleteness":             completeness_result,
             "alignmentStatus":               alignment_status,
             "meterDependentClaimsAvailable": time_signature_known,
+            "scorePracticeInsights":         score_practice_insights,
         }, anon_key=webhook_anon_key)
 
     try:
@@ -10327,6 +10337,14 @@ def _run_analysis_v2(payload: dict) -> None:
         score_dict = score_pages_with_page_omr(pages, 1)
         debug_steps.append(f"v2_page_omr: measures={len(score_dict.get('measures', []))} "
                             f"time_signature={score_dict.get('time_signature')!r} error={score_dict.get('error')}")
+
+        from score_practice_analysis import analyze_score_for_practice
+        score_practice_insights = analyze_score_for_practice(score_dict)
+        debug_steps.append(
+            f"v2_score_practice: status={score_practice_insights['status']} "
+            f"targets={len(score_practice_insights.get('targets', []))}"
+        )
+
         completeness_result["pages_processed"] = _pages_covered(score_dict)
         completeness_result["partial_error"] = score_dict.get("partial_error")
         failed_pages = score_dict.get("failed_pages") or []

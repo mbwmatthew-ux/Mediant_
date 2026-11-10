@@ -10379,6 +10379,22 @@ def _run_analysis_v2(payload: dict) -> None:
                 _os.remove(tmp_path)
             debug_steps.append(f"v2_note_array: {len(note_array)} notes across "
                                 f"{len(score_dict.get('page_kern', {}))} page(s)")
+            # The canonical score (measureLayout, above) preserves every part
+            # and voice page-omr recognized -- see "MEDIANT -- Implement
+            # Multi-Voice Score Preservation". Alignment's note_array, by
+            # design, still only sees part 0: Parangonar's AudioToScoreMatcher
+            # has never been validated against genuinely polyphonic multi-part
+            # input, and performanceErrorAssessment already stays "unavailable"
+            # regardless of alignment's outcome -- extending alignment's own
+            # scope is explicitly out of that directive's Task 4. This note
+            # exists so a part/voice the canonical score reports is never
+            # silently unaccounted for here.
+            distinct_parts = {n.get("part", 0) for meas in score_dict.get("measures", [])
+                               for n in meas.get("notes", [])}
+            if len(distinct_parts) > 1:
+                debug_steps.append(
+                    f"v2_note_array: canonical score has {len(distinct_parts)} parts; "
+                    f"alignment uses part 0 only (unvalidated for polyphonic multi-part input)")
         except Exception as bridge_err:
             assessment["reason"] = f"score/alignment bridge unavailable in this environment: {bridge_err}"
             debug_steps.append(f"v2_note_array: FAILED {bridge_err}")

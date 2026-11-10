@@ -206,8 +206,80 @@ def collapse_ratio(raw_kern: str) -> float:
 # claude both emit (confirmed by direct comparison against worker.py
 # lines ~1505-1552 and ~5180-5187). No translation layer is needed.
 # ---------------------------------------------------------------------------
-def kern_to_measures(kern_text: str) -> tuple[list, str | None]:
+def _note_dict(el, pitch_name: str | None, is_rest: bool, part_idx: int, voice_id) -> dict:
+    tie = getattr(el, "tie", None)
+    return {
+        "pitch": pitch_name, "is_rest": is_rest,
+        "beat": float(el.beat), "duration_beats": float(el.duration.quarterLength),
+        "part": part_idx, "voice": voice_id,
+        "tied": tie.type if tie is not None else None,
+    }
+
+
+def _measure_note_dicts(measure, part_idx: int) -> list:
+    """
+    Every note/chord-pitch/rest in ONE measure of ONE part, tagged with
+    part/voice identity and tie type. music21 represents simultaneous
+    independent voices as Voice stream objects nested INSIDE the Measure
+    (confirmed empirically, including on real page-omr output with
+    Humdrum spine-split "*^"/"*v" tokens) — measure.notesAndRests (no
+    recurse) returns [] whenever voices are present, so the two branches
+    below are mutually exclusive and never double-count: a measure either
+    has flat Note/Chord/Rest children (no voices) or Voice children (in
+    which case the flat view is empty and everything comes from the
+    voices).
+    """
     import music21 as m21
+
+    def _from_stream(stream_like, voice_id) -> list:
+        out = []
+        for el in stream_like.notesAndRests:
+            if isinstance(el, m21.chord.Chord):
+                for p in el.pitches:
+                    out.append(_note_dict(el, p.nameWithOctave, False, part_idx, voice_id))
+            elif isinstance(el, m21.note.Rest):
+                out.append(_note_dict(el, None, True, part_idx, voice_id))
+            elif isinstance(el, m21.note.Note):
+                out.append(_note_dict(el, el.pitch.nameWithOctave, False, part_idx, voice_id))
+        return out
+
+    voices = list(measure.voices)
+    if not voices:
+        return _from_stream(measure, None)
+    notes_out = []
+    # Positional index, not v.id: music21's humdrum spine-split parsing
+    # auto-assigns Voice.id from Python's own object id() (confirmed
+    # directly on real page-omr spine-split output) -- a raw memory
+    # address, not a stable or meaningful identity across parses of the
+    # same text. Spine-split column order is stable within a piece, so
+    # the voice's position within this measure (0 = leftmost sub-spine)
+    # is both deterministic and the only ordering Humdrum itself gives.
+    for voice_idx, v in enumerate(voices):
+        notes_out.extend(_from_stream(v, voice_idx))
+    return notes_out
+
+
+def kern_to_measures(kern_text: str) -> tuple[list, str | None]:
+    """
+    Converts real page-omr kern output (which, measured directly, DOES
+    correctly represent multiple staves as parallel **kern spines and
+    simultaneous independent voices within one staff as Humdrum
+    spine-split "*^"/"*v" sections -- see "MEDIANT -- Implement
+    Multi-Voice Score Preservation", Task 1) into canonical measure
+    dicts, preserving every part and voice rather than reading only
+    parts[0] and only a measure's flat (non-Voice) children.
+
+    Each returned measure dict is {"number": N, "notes": [...]}, with
+    every note/chord-pitch/rest from EVERY part/voice at that measure
+    position tagged "part" (0-based index) and "voice" (the Voice's id,
+    or None when the measure has no Voice split) -- not one measure dict
+    per part. Parts are stepped through in lockstep by POSITION (not by
+    music21's own often-unreliable .number — see the renumbering note
+    below); a part with fewer recognized measures than another
+    contributes nothing for the missing position rather than crashing.
+    """
+    import music21 as m21
+    from itertools import zip_longest
 
     try:
         score = m21.converter.parse(kern_text, format="humdrum")
@@ -215,43 +287,32 @@ def kern_to_measures(kern_text: str) -> tuple[list, str | None]:
         return [], f"{type(e).__name__}: {e}"
 
     try:
-        parts = score.parts
-        part = parts[0] if len(parts) else score
-        measures = list(part.getElementsByClass("Measure"))
-        if not measures:
-            part = part.makeMeasures()
-
-        out = []
-        for measure in part.getElementsByClass("Measure"):
-            notes_out = []
-            for el in measure.notesAndRests:
-                if isinstance(el, m21.note.Rest):
-                    notes_out.append({
-                        "pitch": None, "is_rest": True,
-                        "beat": float(el.beat), "duration_beats": float(el.duration.quarterLength),
-                    })
-                elif isinstance(el, m21.chord.Chord):
-                    for p in el.pitches:
-                        notes_out.append({
-                            "pitch": p.nameWithOctave, "is_rest": False,
-                            "beat": float(el.beat), "duration_beats": float(el.duration.quarterLength),
-                        })
-                elif isinstance(el, m21.note.Note):
-                    notes_out.append({
-                        "pitch": el.pitch.nameWithOctave, "is_rest": False,
-                        "beat": float(el.beat), "duration_beats": float(el.duration.quarterLength),
-                    })
-            out.append({"number": measure.number, "notes": notes_out})
+        parts = list(score.parts) if len(score.parts) else [score]
+        per_part_measures = []
+        for part in parts:
+            measures = list(part.getElementsByClass("Measure"))
+            if not measures:
+                part = part.makeMeasures()
+                measures = list(part.getElementsByClass("Measure"))
+            per_part_measures.append(measures)
 
         # music21's humdrum reader leaves measure.number == 0 on every measure
         # after the first for a bare "=" barline with no explicit number —
         # confirmed directly on real page-omr output (see PAGE_OMR_BENCHMARK_
         # FINDINGS.md: a musically-identical transcription scored ~12% before
-        # this fix because 7 of 8 measures collapsed onto dict key 0).
-        # Reading order from getElementsByClass is real left-to-right page
-        # order, so renumbering 1..N by position is safe.
-        for i, m in enumerate(out, start=1):
-            m["number"] = i
+        # this fix because 7 of 8 measures collapsed onto dict key 0). Reading
+        # order from getElementsByClass is real left-to-right page order, so
+        # numbering 1..N by position (not by measure.number) is safe, and
+        # stepping every part in lockstep at the same position keeps a
+        # measure's dict holding that same position's content from ALL parts.
+        out = []
+        for i, measures_at_position in enumerate(zip_longest(*per_part_measures), start=1):
+            notes_out = []
+            for part_idx, measure in enumerate(measures_at_position):
+                if measure is None:
+                    continue
+                notes_out.extend(_measure_note_dicts(measure, part_idx))
+            out.append({"number": i, "notes": notes_out})
         return out, None
     except Exception as e:  # noqa: BLE001
         return [], f"{type(e).__name__}: {e}"

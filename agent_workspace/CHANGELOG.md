@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-10 (3) — V2: score-grounded practice-target recommendations
+
+- New `modal_worker/score_practice_analysis.py` (`analyze_score_for_practice`): deterministic, score-only analysis of the canonical V2 score — melodic-interval leaps (chord tones never read as sequential leaps; a chord's tones first collapse to one skyline event), note-attack density (ties excluded from the attack count), and simultaneous-voice/chord complexity, all per `(part, voice)` track, all thresholds relative to the piece's own median. Produces up to 5 ranked, measure-specific targets with numeric evidence and a concrete suggestion; empty evidence yields an explicit empty result with a reason, never a manufactured recommendation.
+- Wired into `_run_analysis_v2` as a new `scorePracticeInsights` webhook field, computed right after `score_dict` so it's populated even if later alignment/Basic Pitch steps fail. Never feeds `flags` (stays `[]`) or `performanceErrorAssessment` (stays `"unavailable"`). Partial/incomplete scores get `scope.partial=True` with the excluded page(s) named explicitly.
+- No frontend display added this round — no existing UI surface renders any V2 experimental field yet, so there was nothing to extend without a new build (optional per the directive).
+- 11 new tests (`test_score_practice_analysis.py`, cases A-G + determinism/shape/cap). Verified end-to-end on the real production fixture (MusicNet 2220, real page-omr + alignment): 5 ranked targets, `flags=[]`, `performanceErrorAssessment` unchanged. Pytest 313 -> 324 passed (dedicated test venv with real `omr`/`partitura`), same 5 pre-existing failures + 1 collection error.
+- Commit `5e10eee`.
+
 ## 2026-11-10 (2) — page-omr: preserve all parts/voices/chords/ties, not just parts[0]
 
 - Root-caused across all 4 possible boundaries (OMR model output, music21's humdrum parser, Mediant's own extraction, the alignment-facing note array) before writing any fix. Ran the real page-omr model on real rendered multi-part and multi-voice fixtures: the model itself correctly emits multi-part (parallel `**kern` spines) and multi-voice (Humdrum spine-split) kern, and music21's parser correctly builds multi-Part/Voice structures from it. The loss was entirely in `kern_to_measures`: `parts[0]`-only, and `measure.notesAndRests` never recursing into `Voice` sub-streams (confirmed: returns `[]` whenever voices are present).

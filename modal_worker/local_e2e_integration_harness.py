@@ -31,7 +31,6 @@ Usage (main validation venv):
 from __future__ import annotations
 
 import argparse
-import bisect
 import csv
 import json
 import os
@@ -53,6 +52,10 @@ sys.path.insert(0, str(HERE))
 import build_visual_validation_corpus as bvc  # Step 1 (reused, not reimplemented)
 import page_omr_adapter as pom                 # Steps 2-3 (read-only use)
 from score_conditioned_error_classifier import BP_PY, BP_SCRIPT  # Step 4 (reused)
+from alignment_helpers import (  # noqa: E402 (see that file)
+    DEFAULT_MAX_BP, FRAME_RATE, ONSET_THRESHOLD, ONSET_WIN_SEC,
+    bp_onset_support, max_bp_for_piece,
+)
 
 FIX_ROOT = Path("/Users/matthewwu/.cache/mediant_validation/musicnet_raw")
 MIDI_PATH = FIX_ROOT / "musicnet_midis/Bach/2220_cs3-4sar.mid"
@@ -62,10 +65,6 @@ METADATA_PATH = FIX_ROOT / "musicnet_metadata.csv"
 PIECE_ID = "2220"
 
 WRONG_NOTE_FINDING = "unavailable — not independently validated"
-FRAME_RATE = 50          # Parangonar default spectrogram frame rate
-DEFAULT_MAX_BP = 64.0    # Parangonar AudioToScoreMatcher default
-ONSET_WIN_SEC = 0.10     # Basic Pitch onset-evidence window (+/- )
-ONSET_THRESHOLD = 0.30   # pre-declared Basic Pitch onset activation threshold
 
 
 def _rss_mb() -> float:
@@ -162,21 +161,6 @@ def step4_basic_pitch(work_dir: Path, wav_path: Path = WAV_PATH, tag: str = "222
 # ---------------------------------------------------------------------------
 # Step 5 - Parangonar
 # ---------------------------------------------------------------------------
-def max_bp_for_piece(audio_sec: float, note_array: np.ndarray) -> float:
-    """
-    Parangonar's max_bp is a fixed cap on the tracked beat period in
-    spectrogram frames (default 64 = 1.28 s/beat at 50 fps). Its own initial
-    beat-period estimate is audio_frames / score_beat_span (matcher source,
-    audio_matchers.py `bp_average`), which can exceed that cap for a slow
-    performance. Bound: never below the default, and always above the
-    initial estimate computed from this piece's own audio length and score
-    span. Uses no ground-truth labels.
-    """
-    span = float(note_array["onset_beat"].max() - note_array["onset_beat"].min())
-    initial_bp = audio_sec * FRAME_RATE / span
-    return max(DEFAULT_MAX_BP, initial_bp)
-
-
 def step5_align(note_array, audio: np.ndarray, sr: int, max_bp: float | None):
     matcher = pa.AudioToScoreMatcher(max_bp=max_bp) if max_bp else pa.AudioToScoreMatcher()
     t0 = time.time()
@@ -184,33 +168,6 @@ def step5_align(note_array, audio: np.ndarray, sr: int, max_bp: float | None):
     elapsed = time.time() - t0
     times = np.array([float(a["performance_time"]) for a in alignment], dtype=float)
     return alignment, times, elapsed
-
-
-def bp_onset_support(pitches, times, bp: dict) -> dict:
-    """
-    Fraction of aligned notes whose pitch has a Basic Pitch onset activation
-    (>= ONSET_THRESHOLD) within +/- ONSET_WIN_SEC of the aligned time, versus
-    the same measure after shuffling the times across notes (null).
-    Independent of Parangonar: only uses Basic Pitch's onset matrix.
-    """
-    def rate(times_arr):
-        hits = []
-        for p, tt in zip(pitches, times_arr):
-            b = int(p) - 21
-            if b < 0 or b >= bp["onset"].shape[1]:
-                continue
-            lo = bisect.bisect_left(bp["times"], tt - ONSET_WIN_SEC)
-            hi = bisect.bisect_right(bp["times"], tt + ONSET_WIN_SEC)
-            if hi <= lo:
-                hits.append(False)
-                continue
-            hits.append(float(bp["onset"][lo:hi, b].max()) >= ONSET_THRESHOLD)
-        return float(np.mean(hits)) if hits else float("nan")
-    aligned = rate(times)
-    rng = np.random.default_rng(0)
-    null = float(np.nanmean([rate(rng.permutation(times)) for _ in range(5)]))
-    evidence = (aligned - null) >= 0.30 and aligned >= 0.50
-    return {"aligned_rate": aligned, "null_rate": null, "has_audio_evidence": bool(evidence)}
 
 
 def alignment_health(times: np.ndarray, audio_sec: float, n_expected: int) -> dict:

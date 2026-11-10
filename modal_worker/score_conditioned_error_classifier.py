@@ -160,7 +160,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from harpset_evaluation import ALL_PIECES, HARPSET, ground_truth_pitch_errors, score_note_array
 
-BP_PY = "/Users/matthewwu/.cache/mediant_validation/venv_basic_pitch/bin/python3"
+from basic_pitch_runner import BP_PY, BP_SCRIPT  # noqa: E402 (see that file)
 CACHE = Path("/Users/matthewwu/.cache/mediant_validation/score_conditioned_cache")
 
 MIDI_OFFSET = 21            # Basic Pitch "note"/"onset" bin 0 = MIDI 21 (A0)
@@ -198,25 +198,9 @@ def audio_path(pid: str, variant: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Basic Pitch raw outputs (isolated venv, cached)
+# Basic Pitch raw outputs (isolated venv, cached) — BP_PY/BP_SCRIPT imported
+# from basic_pitch_runner above.
 # ---------------------------------------------------------------------------
-
-BP_SCRIPT = r"""
-import sys, time, numpy as np
-from basic_pitch.inference import predict
-from basic_pitch.note_creation import model_frames_to_time
-audio_path, out_path = sys.argv[1], sys.argv[2]
-t0 = time.time()
-model_output, _, _ = predict(audio_path)
-elapsed = time.time() - t0
-note = np.asarray(model_output["note"], dtype=np.float32)
-onset = np.asarray(model_output["onset"], dtype=np.float32)
-contour = np.asarray(model_output["contour"], dtype=np.float32)
-times = np.asarray(model_frames_to_time(note.shape[0]), dtype=np.float64)
-np.savez(out_path, note=note, onset=onset, contour=contour, times=times,
-         bp_seconds=np.array(elapsed))
-print("OK", note.shape, onset.shape, contour.shape)
-"""
 
 
 def bp_cache_path(pid: str, variant: str) -> Path:

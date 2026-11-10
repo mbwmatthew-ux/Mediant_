@@ -236,12 +236,89 @@ if _STAGING_BUILD_SCORE_ENGINE:
         )
         .env({"MEDIANT_SCORE_ENGINE": _STAGING_BUILD_SCORE_ENGINE})
     )
-# page_omr_adapter.py is a sibling module (not a pip package), so it needs
-# an explicit add — `modal deploy modal_worker/worker.py` does not auto-mount
-# sibling files in this Modal client version. Added last (after the
-# conditional .env above) so the adapter module is importable regardless
-# of image-layer caching, and so no build step ever follows a local add.
-image = image.add_local_python_source("page_omr_adapter")
+
+# Staging-only, build-time-only toggle for the MEDIANT_ANALYSIS_V2_ENABLED
+# runtime path (_run_analysis_v2 below): adds partitura + parangonar (the
+# score/alignment side, pure-Python-ish, no ABI pins — safe in the main
+# image) plus a SEPARATE venv at /opt/mediant-bp/ for Basic Pitch.
+#
+# Basic Pitch is isolated in its own venv deliberately, not merely as a
+# leftover from local dev: basic-pitch's own PyPI metadata conditionally
+# requires `tensorflow-macos<2.15.1` on Darwin and plain
+# `tensorflow<2.15.1,>=2.4.1` on Linux UNLESS installed with the `[onnx]`
+# extra, which pulls `onnxruntime` instead (confirmed via basic-pitch
+# 0.4.0's requires_dist on PyPI, not assumed). On macOS this container's
+# local-dev counterpart actually runs via a THIRD path, CoreML
+# (`coremltools`, basic-pitch's Darwin default) — confirmed directly by
+# listing the installed local venv's packages (`coremltools` present, no
+# tensorflow at all) and basic_pitch/inference.py's backend dispatch.
+# CoreML cannot execute on any Linux container, Modal's included, so
+# `[onnx]` is not a stylistic substitution — it is the only one of
+# basic-pitch's own first-party backends (CoreML/TF/ONNX, all three
+# serializations of the SAME trained ICASSP-2022 model, shipped together
+# inside the basic-pitch wheel at basic_pitch/saved_models/icassp_2022/)
+# that runs on this platform at all. This satisfies "preserve the existing
+# inference code/model, do not switch runtime or model to simplify
+# packaging" (MEDIANT -- AUTHORIZE STAGING IMAGE FIX AND CANARY, Task 1.4-5):
+# the predict() call, preprocessing, and model weights are unchanged;
+# only basic-pitch's own platform-conditional backend selection differs,
+# which is unavoidable and not a Mediant packaging choice.
+#
+# The dedicated venv (rather than adding basic-pitch straight to the main
+# pip_install block) is kept anyway, matching the directive's explicit
+# instruction: this image has THREE separate documented incidents of a
+# shared-environment install silently breaking an unrelated package
+# (anthropic SDK, torchvision ABI, transformers Dinov2 -- see the
+# page-omr block's comments above), so isolating a new, independently-
+# versioned dependency behind its own interpreter is cheap insurance even
+# though no currently-known version conflict forces it (basic-pitch's own
+# floor-only numpy>=1.18/scipy>=1.4.1 are compatible with this image's and
+# partitura/parangonar's pins either way).
+_STAGING_BUILD_ANALYSIS_V2 = os.environ.get("MEDIANT_BUILD_ANALYSIS_V2", "").strip().lower()
+if _STAGING_BUILD_ANALYSIS_V2:
+    image = (
+        image
+        .pip_install(
+            # Exact versions already validated this week in
+            # local_e2e_integration_harness.py / _run_analysis_v2's design
+            # (agent_workspace/LIMITED_STAGING_CANARY_2026-11-08.md).
+            "partitura==1.9.0",
+            "parangonar==3.4.1",
+        )
+        .run_commands(
+            # Separate interpreter, not a package namespace trick -- this
+            # exactly mirrors score_conditioned_error_classifier.py's local
+            # BP_PY/subprocess design, so _run_analysis_v2's subprocess call
+            # is unchanged code, just pointed at a container path instead of
+            # a developer machine's cache dir (see MEDIANT_BP_PYTHON below).
+            "python3 -m venv /opt/mediant-bp",
+            "/opt/mediant-bp/bin/pip install --upgrade pip",
+            "/opt/mediant-bp/bin/pip install 'basic-pitch[onnx]==0.4.0'",
+        )
+        # Also bakes the RUNTIME flag that run_full_analysis actually reads
+        # (MEDIANT_ANALYSIS_V2_ENABLED) -- same pattern as
+        # MEDIANT_BUILD_SCORE_ENGINE baking MEDIANT_SCORE_ENGINE just above.
+        # Without this line a staging deploy would build all of V2's deps
+        # but never actually route any request to _run_analysis_v2.
+        # Production never sets MEDIANT_BUILD_ANALYSIS_V2, so this entire
+        # block -- including this env bake -- is absent from every
+        # production image.
+        .env({"MEDIANT_BP_PYTHON": "/opt/mediant-bp/bin/python3",
+              "MEDIANT_ANALYSIS_V2_ENABLED": "1"})
+    )
+
+# page_omr_adapter.py and basic_pitch_runner.py are sibling modules (not pip
+# packages), so they need an explicit add — `modal deploy modal_worker/
+# worker.py` does not auto-mount sibling files in this Modal client version.
+# basic_pitch_runner is mounted unconditionally (it's a 2-constant module
+# with no heavy imports — see its own docstring) so `from basic_pitch_runner
+# import BP_PY, BP_SCRIPT` inside _run_analysis_v2 never fails on
+# ModuleNotFoundError even when MEDIANT_BUILD_ANALYSIS_V2 was unset for this
+# particular build; os.path.exists(BP_PY) still gates actual execution.
+# Added last (after the conditional .env above) so neither adapter module's
+# import is affected by image-layer caching, and so no build step ever
+# follows a local add.
+image = image.add_local_python_source("page_omr_adapter", "basic_pitch_runner", "alignment_helpers")
 
 # ── Data types (dicts — no dataclasses so JSON-serializable naturally) ────────
 
@@ -10118,22 +10195,31 @@ def post_webhook(webhook_url: str, webhook_secret: str | None, payload: dict, an
 # Into Staging" (2026-10-31) and this week's local_e2e_integration_harness.py
 # work: page-omr -> Basic Pitch -> Parangonar, with the per-piece tempo
 # bound and the Basic-Pitch onset-evidence gate carried over unchanged from
-# the harness (imported, not reimplemented — see MEDIANT — EXECUTE LIMITED
-# STAGING CANARY, Task 1 ("reuse existing functions... do not duplicate").
+# the harness — now via alignment_helpers.py (max_bp_for_piece/
+# bp_onset_support extracted there, 2026-11-09, after a live staging
+# request found local_e2e_integration_harness.py itself unmountable: its own
+# module-level imports pull in score_conditioned_error_classifier ->
+# harpset_evaluation, same class of gap BP_PY/BP_SCRIPT had). Still imported,
+# not reimplemented — see MEDIANT — EXECUTE LIMITED STAGING CANARY, Task 1
+# ("reuse existing functions... do not duplicate").
 #
-# Known deployment gap, found directly (not assumed) while writing this:
-# score_conditioned_error_classifier.BP_PY is an absolute path into a LOCAL
-# dev machine's isolated venv ("/Users/matthewwu/.cache/mediant_validation/
-# venv_basic_pitch/bin/python3") — it does not exist in the staging Modal
-# container, and this image's .pip_install list (above) does not install
-# partitura or parangonar either. Every one of those boundaries below is
-# therefore wrapped so a missing dependency degrades this function to an
-# honest "unavailable" performanceErrorAssessment instead of crashing the
-# request — this flag can be turned on in staging today without breaking
-# anything, but it will report "unavailable" for every real request until
-# the image is rebuilt with Basic Pitch + partitura + parangonar baked in.
-# That image rebuild is NOT done by this change; see the dated report this
-# round produced for the exact gap.
+# Deployment gap found directly while writing this (2026-11-08), closed
+# directly while fixing it (2026-11-09, see MEDIANT_BUILD_ANALYSIS_V2 above
+# the image definition): BP_PY used to be a hardcoded path into a LOCAL dev
+# machine's isolated venv, and this image's .pip_install list did not
+# install partitura/parangonar/Basic Pitch at all. Fixed by: (1) the
+# MEDIANT_BUILD_ANALYSIS_V2 image block above, which adds partitura +
+# parangonar to the main image and a dedicated /opt/mediant-bp/ venv with
+# basic-pitch[onnx] (see that block's comment for why ONNX, not the
+# CoreML/TF backend basic-pitch picks on other platforms); (2) BP_PY/
+# BP_SCRIPT moved out of score_conditioned_error_classifier.py into
+# basic_pitch_runner.py, a small module with no import-time dependency on
+# harpset_evaluation/partitura/parangonar/sklearn, env-configurable via
+# MEDIANT_BP_PYTHON (set by that same image block). Every boundary below
+# that touches one of these is still wrapped in try/except, so a container
+# built WITHOUT MEDIANT_BUILD_ANALYSIS_V2 set still degrades to an honest
+# "unavailable" rather than crashing — this flag remains safe to turn on in
+# any staging deploy regardless of which image variant is behind it.
 def _run_analysis_v2(payload: dict) -> None:
     """
     Staging-only alternate analysis path. Never sets performanceErrorAssessment
@@ -10258,7 +10344,7 @@ def _run_analysis_v2(payload: dict) -> None:
             return _finish()
 
         try:
-            from score_conditioned_error_classifier import BP_PY, BP_SCRIPT
+            from basic_pitch_runner import BP_PY, BP_SCRIPT
         except Exception as imp_err:
             assessment["reason"] = f"Basic Pitch runner unavailable in this environment: {imp_err}"
             return _finish()
@@ -10285,7 +10371,7 @@ def _run_analysis_v2(payload: dict) -> None:
         debug_steps.append(f"v2_basic_pitch: onset matrix={bp['onset'].shape}")
 
         import parangonar as pa
-        from local_e2e_integration_harness import max_bp_for_piece, bp_onset_support
+        from alignment_helpers import max_bp_for_piece, bp_onset_support
         import soundfile as sf
         audio, sr = sf.read(wav_path)
         if audio.ndim > 1:

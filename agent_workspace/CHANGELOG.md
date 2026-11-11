@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-10 (4) — connect scorePracticeInsights to the results UI
+
+- `scorePracticeInsights`/`performanceErrorAssessment` were being silently dropped: `analysis-webhook/index.ts` never persisted either (no DB column existed). Added migration `20261110000000_add_score_practice_insights_to_takes.sql` (`takes.score_practice_insights`, `takes.performance_error_assessment`, JSONB); webhook now writes both; `job-status/index.ts` now selects/returns both; `NewRecordingModal.jsx`'s localStorage `takeRecord` and `Analysis.jsx`'s main `takes` select both carry them through to the UI.
+- `Analysis.jsx`: renders up to 5 "Based on your sheet music" practice targets (measure range, part/voice, characteristic, suggestion) in the existing results summary, reusing existing CSS classes only.
+- Found and fixed two real pre-existing bugs: the "DETECTED ISSUES" panel and the session-summary card both showed "clean performance"/"no issues detected" whenever `flags` was empty — true for every current V2 take, since no detector runs on that path, which falsely implied a graded clean result. Both now gate on `isExperimentalV2Take` and show honest "mistake detection isn't available yet" copy instead.
+- `npm run build` clean, lint unchanged (0 new errors). Could not exercise the Deno edge functions or a live Supabase instance locally (no `deno`/local Supabase stack) — verified by direct code trace instead, flagged as such.
+- Commit `1aeed6f`.
+
 ## 2026-11-10 (3) — V2: score-grounded practice-target recommendations
 
 - New `modal_worker/score_practice_analysis.py` (`analyze_score_for_practice`): deterministic, score-only analysis of the canonical V2 score — melodic-interval leaps (chord tones never read as sequential leaps; a chord's tones first collapse to one skyline event), note-attack density (ties excluded from the attack count), and simultaneous-voice/chord complexity, all per `(part, voice)` track, all thresholds relative to the piece's own median. Produces up to 5 ranked, measure-specific targets with numeric evidence and a concrete suggestion; empty evidence yields an explicit empty result with a reason, never a manufactured recommendation.

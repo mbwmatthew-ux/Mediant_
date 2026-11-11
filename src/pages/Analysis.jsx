@@ -91,6 +91,15 @@ const ASPECT_LABELS = {
   tone:         { label: 'Tone',       icon: '◎' },
 }
 
+// Labels for scorePracticeInsights.targets[].characteristic (modal_worker/
+// score_practice_analysis.py) — score-only, never a performance finding.
+const PRACTICE_CHARACTERISTIC_LABEL = {
+  large_melodic_interval: 'Large interval leap',
+  dense_passage:          'Dense note passage',
+  chord_complexity:       'Chord',
+  simultaneous_voices:    'Independent voices',
+}
+
 function computeAspectScores(take) {
   if (!take?.flags || take.score == null) return null
   const base = take.score
@@ -557,7 +566,7 @@ const videoRef    = useRef(null)
     setTakesLoaded(false)
     supabase
       .from('takes')
-      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, score_paths, measure_layout, note, duration_seconds, created_at, ai_summary')
+      .select('id, piece_title, piece_composer, instrument, score, flags, analysis_quality, analysis_backend, video_path, score_path, score_paths, measure_layout, note, duration_seconds, created_at, ai_summary, score_practice_insights, performance_error_assessment')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
@@ -1621,6 +1630,20 @@ const videoRef    = useRef(null)
   // text instead of their actual AI-generated summary.
   const isDemoTake = isDemo || take?._demo === true || String(take?.id ?? '').startsWith('mock') || String(take?.id ?? '') === 'demo'
 
+  // V2 (staging-only, experimental) analyses never run a validated mistake
+  // detector — performanceErrorAssessment.status is always "unavailable" on
+  // that path, not "clean." flags is always [] too, so without this check
+  // the empty-flags branch below would show "✓ Clean performance," implying
+  // a grading that never happened. Falls back to matching analysis_backend's
+  // own "v2, experimental" label when performance_error_assessment hasn't
+  // been persisted for a given take (older rows, before that column existed).
+  const isExperimentalV2Take = Boolean(
+    take?.performance_error_assessment?.status === 'unavailable' ||
+    (typeof take?.analysis_backend === 'string' && take.analysis_backend.includes('v2'))
+  )
+  const practiceInsights = take?.score_practice_insights ?? null
+  const practiceTargets = Array.isArray(practiceInsights?.targets) ? practiceInsights.targets.slice(0, 5) : []
+
   const activeSummary = useMemo(() => {
     if (isDemoTake) {
       return {
@@ -2238,7 +2261,9 @@ const videoRef    = useRef(null)
             {issueCount > 0 && <span className={aStyles.issuesBadge}>{issueCount}</span>}
           </div>
           <div className={aStyles.issuesList}>
-            {issueCount === 0 ? (
+            {issueCount === 0 && isExperimentalV2Take ? (
+              <div className={aStyles.noIssues}>Mistake detection isn't available for this analysis yet — see the sheet-music-based practice suggestions below the score.</div>
+            ) : issueCount === 0 ? (
               <div className={aStyles.noIssues}>✓ No issues detected — clean performance.</div>
             ) : (
               // Whole-performance observations (posture, overall tempo/
@@ -2499,7 +2524,16 @@ const videoRef    = useRef(null)
           })}
         </div>
 
-        {!isDemoTake && !take?.flags?.length ? (
+        {!isDemoTake && isExperimentalV2Take ? (
+          <div className={aStyles.strWeakCard}>
+            <h3 className={aStyles.strWeakTitle}>Performance scoring isn't available yet</h3>
+            <p className={aStyles.howToGuidance}>
+              This take ran on an experimental pipeline that doesn't yet detect performance
+              mistakes, so there's nothing to grade here — this isn't a clean result, mistake
+              detection simply didn't run. See the sheet-music-based practice suggestions below.
+            </p>
+          </div>
+        ) : !isDemoTake && !take?.flags?.length ? (
           <div className={aStyles.strWeakCard}>
             <h3 className={aStyles.strWeakTitle}>✓ Clean performance</h3>
             <p className={aStyles.howToGuidance}>No issues were flagged in this take — nothing to summarize. Keep it up!</p>
@@ -2592,6 +2626,41 @@ const videoRef    = useRef(null)
             )}
           </>
         ) : null}
+
+        {!isDemoTake && practiceTargets.length > 0 && (
+          <div className={aStyles.howToCard} style={{ marginTop: 16 }}>
+            <h3 className={aStyles.howToTitle}>Practice suggestions from your sheet music</h3>
+            {practiceInsights?.scope?.partial && (
+              <p className={aStyles.howToGuidance} style={{ marginBottom: 14 }}>
+                {practiceInsights.scope.note || 'Scoped to the portion of the score that could be read — not the complete piece.'}
+              </p>
+            )}
+            <div className={aStyles.howToList}>
+              {practiceTargets.map((t, i) => {
+                const measureLabel = t.measureEnd > t.measureStart
+                  ? `Measures ${t.measureStart}–${t.measureEnd}`
+                  : `Measure ${t.measureStart}`
+                const voiceLabel = t.part != null
+                  ? ` · Part ${t.part + 1}${t.voice != null ? `, Voice ${t.voice + 1}` : ''}`
+                  : ''
+                return (
+                  <div key={i} className={aStyles.howToItem}>
+                    <span className={aStyles.howToNum}>{i + 1}</span>
+                    <div className={aStyles.howToContent}>
+                      <span className={aStyles.howToArea}>
+                        {measureLabel}{voiceLabel} · {PRACTICE_CHARACTERISTIC_LABEL[t.characteristic] || 'Notable passage'}
+                      </span>
+                      <p className={aStyles.howToGuidance}>{t.suggestion}</p>
+                      <span className={aStyles.summaryEyebrow} style={{ marginTop: 6, marginBottom: 0 }}>
+                        Based on your sheet music
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       </div>

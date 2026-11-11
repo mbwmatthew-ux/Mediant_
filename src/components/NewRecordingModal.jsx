@@ -480,6 +480,8 @@ export default function NewRecordingModal({ open, onClose }) {
         score_path:      scorePath,
         analysis_quality: finalResult.analysisQuality ?? null,
         analysis_backend: finalResult.analysisBackend ?? null,
+        score_practice_insights:      finalResult.scorePracticeInsights      ?? null,
+        performance_error_assessment: finalResult.performanceErrorAssessment ?? null,
         date:            new Date().toISOString(),
       }
       localStorage.setItem('mediant_last_take', JSON.stringify(takeRecord))

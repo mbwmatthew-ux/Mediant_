@@ -31,7 +31,7 @@ serve(async (req: Request) => {
 
     const { data: take, error: dbError } = await supabase
       .from('takes')
-      .select('id, job_status, job_error, score, flags, analysis_quality, analysis_backend, job_started_at')
+      .select('id, job_status, job_error, score, flags, analysis_quality, analysis_backend, job_started_at, score_practice_insights, performance_error_assessment')
       .eq('id', takeId)
       .eq('user_id', user.id)
       .single()
@@ -88,6 +88,8 @@ serve(async (req: Request) => {
       flags:           take.flags      ?? [],
       analysisQuality: take.analysis_quality ?? null,
       analysisBackend: take.analysis_backend ?? null,
+      scorePracticeInsights:      take.score_practice_insights      ?? null,
+      performanceErrorAssessment: take.performance_error_assessment ?? null,
     }), {
       headers: { 'Content-Type': 'application/json', ...CORS },
     })

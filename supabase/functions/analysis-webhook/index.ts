@@ -115,6 +115,7 @@ serve(async (req: Request) => {
     score, flags, measureLayout, audioAlignment,
     analysisQuality, analysisBackend, pipelineDebug,
     parsedScoreNotes, scorePath, analysisEvidence,
+    performanceErrorAssessment, scorePracticeInsights,
   } = body as {
     score:            number
     flags:            unknown[]
@@ -126,6 +127,8 @@ serve(async (req: Request) => {
     parsedScoreNotes: unknown
     scorePath:        string | null
     analysisEvidence: unknown
+    performanceErrorAssessment: unknown
+    scorePracticeInsights:      unknown
   }
 
   console.log('[analysis-webhook] writing result for take', takeId,
@@ -146,6 +149,8 @@ serve(async (req: Request) => {
       analysis_quality: analysisQuality ?? null,
       analysis_backend: analysisBackend ?? null,
       pipeline_debug:   pipelineDebug  ?? null,
+      performance_error_assessment: performanceErrorAssessment ?? null,
+      score_practice_insights:      scorePracticeInsights      ?? null,
     })
     .eq('id', takeId)
 

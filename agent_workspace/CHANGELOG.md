@@ -1,5 +1,13 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-11 — research: neighbor-pitch-class suppression cuts sequence-matcher FP ~80-93%, not shipped to production
+
+- `modal_worker/sequence_matcher_gated_benchmark.py`: applies the already-recommended, never-built neighbor-pitch-class suppression test (named in `cross_model_fp_classification.py`'s own "Decision" section) to `sequence_error_matcher.py`'s substitution flags ("candidate F"). Measured on the same 8-piece/7211-note dev benchmark this week already used: D (unfiltered sequence matcher) 3.51% FP, 6/6 recall → F 0.24% FP, 5/6 recall. A CREPE-cross-model-gate variant ("candidate E") was tried first and found WORSE — it halves recall to 3/6 by reintroducing the exact CREPE-window dependency D was built to avoid — reported as a negative result, not shipped.
+- `modal_worker/sequence_matcher_gated_frozen6_check.py` + `basic_pitch_extract_frozen6.py`: re-ran candidate F's FP check on this project's frozen 6-piece held-out set (2204/2218/2222/2297/2244/2289), never opened for tuning before. D 7.55%→F 1.59% FP, every instrument improved, no instrument collapse. Recall generalization is untested on this set (no injected-mistake ground truth exists there) — disclosed, not glossed over.
+- `worker.py` and every other production file untouched. F is NOT wired into production — its FP rate (0.24%-1.59%) is still well above production's own near-zero 0.11% (achieved mainly by almost never firing, 0% recall), and swapping it in would be a materially more aggressive detector than ships today — an owner decision, not something to ship on a code-only round.
+- Regression: 324 passed (real venv with `omr`/`partitura`/`parangonar`), same 5 pre-existing failures + 1 collection error, unchanged.
+- Commit `533bd53`.
+
 ## 2026-11-10 (4) — connect scorePracticeInsights to the results UI
 
 - `scorePracticeInsights`/`performanceErrorAssessment` were being silently dropped: `analysis-webhook/index.ts` never persisted either (no DB column existed). Added migration `20261110000000_add_score_practice_insights_to_takes.sql` (`takes.score_practice_insights`, `takes.performance_error_assessment`, JSONB); webhook now writes both; `job-status/index.ts` now selects/returns both; `NewRecordingModal.jsx`'s localStorage `takeRecord` and `Analysis.jsx`'s main `takes` select both carry them through to the UI.

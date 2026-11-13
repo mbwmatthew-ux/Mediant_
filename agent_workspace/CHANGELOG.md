@@ -1,5 +1,11 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-13 — research: HARPSET transfer test on candidates D/F — STOP, F archived
+
+- `modal_worker/harpset_sequence_matcher_check.py`: ran the frozen (unmodified, untuned) sequence-matcher candidates D and F from commit `533bd53` against the corrected HARPSET manifest (`e0d25fc`: 13 real harp performances, 26 verified pitch deviations across 8 pieces). D: 20/26 detected+localized, 5/13 originals falsely flagged (1.37% note FP). F: 13/26 detected+localized (exactly meets the ≥13 GO floor), but still 2/13 originals falsely flagged (0.23% note FP) — fails the directive's ≤1/13 bar. All 7 of F's suppressed true detections (relative to D) are confirmed cases of the played pitch's pitch class matching a neighboring score note — the same suppression mechanism that cut FP on synthetic MusicNet injections also removes real hits on this real-mistake corpus, at a steeper cost.
+- Also reconciled the previously-reported 0.24% MusicNet dev aggregate against its own per-instrument and per-piece raw counts: all three levels (aggregate 17/7211, per-instrument 1/1913+15/4537+1/761, per-piece sum 17) agree exactly — no counting-rule discrepancy, no rerun needed.
+- **Decision: STOP.** F does not clear the directive's own GO bar for broader offline validation; archived as a research result only. No gates/thresholds changed, no new datasets, no production code touched, no paid calls. $0, CPU-only.
+
 ## 2026-11-11 — research: neighbor-pitch-class suppression cuts sequence-matcher FP ~80-93%, not shipped to production
 
 - `modal_worker/sequence_matcher_gated_benchmark.py`: applies the already-recommended, never-built neighbor-pitch-class suppression test (named in `cross_model_fp_classification.py`'s own "Decision" section) to `sequence_error_matcher.py`'s substitution flags ("candidate F"). Measured on the same 8-piece/7211-note dev benchmark this week already used: D (unfiltered sequence matcher) 3.51% FP, 6/6 recall → F 0.24% FP, 5/6 recall. A CREPE-cross-model-gate variant ("candidate E") was tried first and found WORSE — it halves recall to 3/6 by reintroducing the exact CREPE-window dependency D was built to avoid — reported as a negative result, not shipped.

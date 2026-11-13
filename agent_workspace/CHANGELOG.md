@@ -1,5 +1,11 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-13 (2) — close out F/D, blind-review task deferred (no reviewer, no code change)
+
+- Candidate F formally closed as STOP and archived (no further tuning or re-runs); Candidate D remains frozen as the offline detection baseline, unchanged.
+- Checked for an "existing blind-review directive" (qualified reviewer judging ≤16 hidden-output excerpts of existing external audio/scores) across `agent_workspace/`, `docs/superpowers/`, `modal_worker/`, and the Obsidian vault — none found, and no reviewer is available to this session. Per the directive's own fallback, marked deferred in `AGENT_TASKS.md` (Needs Review) and stopped; did not reopen app exports, recording recruitment, or dataset searches.
+- No code, gates, thresholds, or production files touched. $0.
+
 ## 2026-11-13 — research: HARPSET transfer test on candidates D/F — STOP, F archived
 
 - `modal_worker/harpset_sequence_matcher_check.py`: ran the frozen (unmodified, untuned) sequence-matcher candidates D and F from commit `533bd53` against the corrected HARPSET manifest (`e0d25fc`: 13 real harp performances, 26 verified pitch deviations across 8 pieces). D: 20/26 detected+localized, 5/13 originals falsely flagged (1.37% note FP). F: 13/26 detected+localized (exactly meets the ≥13 GO floor), but still 2/13 originals falsely flagged (0.23% note FP) — fails the directive's ≤1/13 bar. All 7 of F's suppressed true detections (relative to D) are confirmed cases of the played pitch's pitch class matching a neighboring score note — the same suppression mechanism that cut FP on synthetic MusicNet injections also removes real hits on this real-mistake corpus, at a steeper cost.

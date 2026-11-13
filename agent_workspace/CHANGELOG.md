@@ -1,5 +1,10 @@
 # Changelog — Practapal (formerly Mediant)
 
+## 2026-11-13 (3) — blind-review protocol frozen in AGENT_TASKS.md, still deferred, no packet assembled
+
+- Owner specified the exact blind-listening-review protocol (≤16 excerpts, half from saved D flags / half independent, HARPSET excerpts show only the original score, randomized hidden-label clip IDs, confirmed/false/ambiguous reported per group and never pooled, recall left unmeasured if too few independent mistakes surface). Recorded verbatim in `AGENT_TASKS.md` (Needs Review) so it can execute exactly once a qualified listener is confirmed.
+- Per explicit instruction, did NOT assemble any packet, select any excerpts, or contact/recruit anyone this round — the task stays deferred until the owner confirms a listener is available. No code, scripts, or production files touched.
+
 ## 2026-11-13 (2) — close out F/D, blind-review task deferred (no reviewer, no code change)
 
 - Candidate F formally closed as STOP and archived (no further tuning or re-runs); Candidate D remains frozen as the offline detection baseline, unchanged.

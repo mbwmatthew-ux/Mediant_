@@ -1872,7 +1872,7 @@ const videoRef    = useRef(null)
           left arrow while viewing the summary. Fixed to the viewport edge. The page
           itself never scrolls, so this swaps which panel is shown instead of
           scrolling to an anchor. */}
-      {take?.flags?.length > 0 && !explainFlag && (
+      {(take?.flags?.length > 0 || practiceTargets.length > 0) && !explainFlag && (
         <button
           type="button"
           className={`${aStyles.sectionNavArrow} ${inSummaryView ? aStyles.sectionNavArrowLeft : aStyles.sectionNavArrowRight}`}

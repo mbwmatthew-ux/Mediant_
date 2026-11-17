@@ -243,18 +243,29 @@ def _complexity_candidates(tracks: dict) -> list[dict]:
 def _merge_and_rank(candidates: list[dict]) -> list[dict]:
     """Merges adjacent/overlapping same-(characteristic, part, voice) candidates
     into one measure range, keeping the most salient sub-event's evidence, then
-    ranks by salience and caps at _MAX_TARGETS."""
+    ranks by salience and caps at _MAX_TARGETS.
+
+    large_melodic_interval is excluded from merging: each leap candidate's
+    measureStart/measureEnd already IS the pair of notes the leap spans (see
+    _leap_candidates), not a span to extend. Merging those would chain
+    unrelated leaps that merely sit in adjacent measures into one fabricated
+    range covering none of their actual note-to-note transitions -- confirmed
+    on the MusicNet 2220 fixture, where ~20 distinct leaps between measures 27
+    and 40 collapsed into a single "Measures 27-40" target whose evidence
+    (intervalSemitones=23) actually belonged to just the measure-32-to-33 pair.
+    """
     groups: dict[tuple, list[dict]] = {}
     for c in candidates:
         key = (c["characteristic"], c["part"], c["voice"])
         groups.setdefault(key, []).append(c)
 
     merged: list[dict] = []
-    for items in groups.values():
+    for key, items in groups.items():
         items.sort(key=lambda c: c["measureStart"])
+        is_leap = key[0] == "large_melodic_interval"
         current = None
         for c in items:
-            if current is not None and c["measureStart"] <= current["measureEnd"] + 1:
+            if (not is_leap) and current is not None and c["measureStart"] <= current["measureEnd"] + 1:
                 current["measureEnd"] = max(current["measureEnd"], c["measureEnd"])
                 if c["_salience"] > current["_salience"]:
                     current["evidence"] = c["evidence"]

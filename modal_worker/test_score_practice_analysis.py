@@ -308,6 +308,100 @@ def test_case_g2_partial_score_scopes_recommendations_to_recognized_measures_onl
 
 
 # ---------------------------------------------------------------------------
+# Fixture I — several qualifying melodic leaps in measures adjacent to each
+# other (2-3, 4-5, 6-6), with the strongest leap (24 semitones, two octaves)
+# straddling the measure-4/measure-5 barline, flanked by two weaker leaps (9
+# and 13 semitones) that are each adjacent to it. Regression for the real bug
+# found on the MusicNet 2220 fixture (Directive E/F): _merge_and_rank used to
+# treat large_melodic_interval like a contiguous span and chain all three into
+# one "Measures 2-6" target carrying only the strongest leap's evidence --
+# describing a transition that didn't exist at that range. Confirmed this
+# fixture reproduces exactly that failure mode by simulating the pre-fix merge
+# (no is_leap exclusion) directly: it collapses these three candidates into a
+# single (2, 6) target whose evidence is the 24-semitone leap's -- the same
+# shape of mismatch as the real "Measures 27-40" bug.
+# ---------------------------------------------------------------------------
+_FIXTURE_I = {
+    "measures": [
+        _melody_measure(1, ["C4", "D4", "E4", "F4"]),
+        _melody_measure(2, ["G4", "A4", "B4", "C5"]),
+        _melody_measure(3, ["A5", "G5", "F5", "E5"]),   # weak leap: C5(m2)->A5(m3) = 9 semitones
+        _melody_measure(4, ["D5", "C5", "C5", "D5"]),
+        _melody_measure(5, ["D3", "E3", "F3", "G3"]),    # strongest leap: D5(m4)->D3(m5) = 24 semitones, crosses the barline
+        _melody_measure(6, ["A3", "B3", "C5", "D5"]),    # weak leap within m6: B3->C5 = 13 semitones
+        _melody_measure(7, ["C5", "B4", "A4", "G4"]),
+    ]
+}
+
+
+def test_case_i_strongest_leap_keeps_its_own_range_when_flanked_by_nearby_leaps():
+    print("\n[12] Case I — three separate qualifying leaps in adjacent measures "
+          "(2-3, 4-5, 6-6), the strongest crossing a barline: each must stay "
+          "its own two-measure target with its own matching evidence, never "
+          "merged into one range that only the strongest leap's evidence "
+          "actually describes.")
+    result = spa.analyze_score_for_practice(_FIXTURE_I)
+    leaps = _find(result["targets"], "large_melodic_interval")
+    check("all three leaps surface as separate targets, none merged away",
+          len(leaps) == 3, str(result["targets"]))
+
+    strongest = [t for t in leaps if t["evidence"]["intervalSemitones"] == 24]
+    check("exactly one target carries the strongest (24-semitone) leap's evidence",
+          len(strongest) == 1, str(leaps))
+    if strongest:
+        t = strongest[0]
+        check("the strongest leap's range is exactly its own two measures (4-5), "
+              "not extended to cover the flanking leaps",
+              (t["measureStart"], t["measureEnd"]) == (4, 5), str(t))
+        check("the strongest leap ranks first by salience",
+              leaps[0] is t, str(leaps))
+
+    check("the weaker leap at measures 2-3 keeps its own range and evidence, "
+          "not absorbed into the strongest leap's range",
+          any((t["measureStart"], t["measureEnd"]) == (2, 3) and
+              t["evidence"]["intervalSemitones"] == 9 for t in leaps),
+          str(leaps))
+    check("the weaker leap at measure 6 keeps its own range and evidence, "
+          "not extending the strongest leap's range past measure 5",
+          any((t["measureStart"], t["measureEnd"]) == (6, 6) and
+              t["evidence"]["intervalSemitones"] == 13 for t in leaps),
+          str(leaps))
+
+    # Confirms this fixture actually reproduces the pre-fix failure mode (the
+    # real bug), rather than passing for an unrelated reason: simulate the old
+    # merge behavior -- the same loop body, minus the is_leap exclusion -- and
+    # verify it collapses these three candidates into one mislocated target.
+    tracks = spa._build_tracks(_FIXTURE_I["measures"])
+    candidates = spa._leap_candidates(tracks)
+    groups = {}
+    for c in candidates:
+        groups.setdefault((c["characteristic"], c["part"], c["voice"]), []).append(c)
+    old_merged = []
+    for items in groups.values():
+        items.sort(key=lambda c: c["measureStart"])
+        current = None
+        for c in items:
+            if current is not None and c["measureStart"] <= current["measureEnd"] + 1:
+                current["measureEnd"] = max(current["measureEnd"], c["measureEnd"])
+                if c["_salience"] > current["_salience"]:
+                    current["evidence"] = c["evidence"]
+                    current["_salience"] = c["_salience"]
+            else:
+                if current is not None:
+                    old_merged.append(current)
+                current = dict(c)
+        if current is not None:
+            old_merged.append(current)
+    check("sanity check: the pre-fix merge algorithm really does collapse this "
+          "fixture into one mislocated (2, 6) target -- confirms this is a "
+          "genuine regression test for the real bug, not a vacuous fixture",
+          len(old_merged) == 1 and
+          (old_merged[0]["measureStart"], old_merged[0]["measureEnd"]) == (2, 6) and
+          old_merged[0]["evidence"]["intervalSemitones"] == 24,
+          str(old_merged))
+
+
+# ---------------------------------------------------------------------------
 # Cross-cutting checks: determinism, field shape, and the 5-target cap.
 # ---------------------------------------------------------------------------
 def test_output_is_deterministic():
@@ -360,6 +454,7 @@ def main():
         test_case_f_multipage_practice_target_spans_the_page_boundary_correctly,
         test_case_g1_no_recognized_measures_marks_analysis_unavailable,
         test_case_g2_partial_score_scopes_recommendations_to_recognized_measures_only,
+        test_case_i_strongest_leap_keeps_its_own_range_when_flanked_by_nearby_leaps,
         test_output_is_deterministic,
         test_every_target_has_the_required_fields_and_score_based_source,
         test_at_most_five_targets_even_when_many_passages_qualify,

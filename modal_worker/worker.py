@@ -2343,7 +2343,17 @@ def _dtw_path(audio_midis: list, score_midis: list) -> list[int]:
             # Octave confusion (12 semitones) is common — halve its penalty
             cost[i] = np.minimum(cost[i], np.abs(cost[i] - 12) + 3.0)
 
-    band = max(4, int(max(n, m_len) * 0.25))
+    # Sakoe-Chiba band width. MUST be >= abs(n - m_len): a band narrower than
+    # the length gap leaves no valid (i, j) at the rows nearest the corner
+    # (n-1, m_len-1) -- the forward pass then writes np.inf across that whole
+    # row, argmin's fallback silently lands on an arbitrary column, and the
+    # traceback's three-way tie on inf==inf==inf always resolves to the
+    # diagonal move, free-falling straight back to score index 0 and dumping
+    # every audio event along the way onto score note 0's measure. Confirmed
+    # on real MusicNet 2288 (n=1104 audio clusters, m_len=761 score notes,
+    # gap=343 > old band 276): 342 of 1104 clusters, spanning 0.79-56.24s,
+    # all collapsed onto measure 1 before this fix.
+    band = max(4, int(max(n, m_len) * 0.25), abs(n - m_len))
     acc = np.full((n, m_len), np.inf, dtype=np.float32)
     acc[0, 0] = cost[0, 0]
     for i in range(1, n):
@@ -10064,12 +10074,57 @@ def _pages_covered(score_dict: dict) -> int:
     return len({int(m.get("page") or 1) for m in measures}) if measures else 0
 
 
+# How much longer than "normal" a single measure's aligned span may be before
+# it is treated as an alignment failure rather than real music (a fermata, a
+# slow passage, a pickup). Matches the ratio build_measure_timeline's own
+# "lopsided timeline" gate (worker.py, the compare_and_coach_claude closure)
+# already uses in production for the same failure shape -- re-used here
+# rather than inventing a second number, since that gate is already
+# confirmed to not false-positive on real takes.
+_ALIGNMENT_ANOMALY_RATIO = 4.0
+
+
+def _find_alignment_anomalies(
+    alignment_ranges: list[dict], tempo_bpm: float | None, beats_per_measure: int | None,
+) -> list[int]:
+    """
+    Robust outlier check: which measures' aligned span is implausibly long
+    against the rest of THIS alignment, using score/tempo context as a floor
+    so a globally-degraded alignment (most measures already wrong) can't hide
+    behind its own bad median.
+
+    Deliberately NOT a fixed-duration rule -- the reference is the piece's own
+    measured pace, so a genuinely slow passage or a fermata (a measure running
+    a legitimate 2-3x longer than its neighbours) is never penalized; only a
+    span many times that is treated as implausible. Returns [] whenever there
+    isn't enough data for "neighbouring measures" to mean anything.
+    """
+    durs = {int(r["measure"]): max(0.0, r["end"] - r["start"])
+            for r in (alignment_ranges or []) if r.get("measure") is not None}
+    if len(durs) < 4:
+        return []
+    sorted_durs = sorted(durs.values())
+    median = sorted_durs[len(sorted_durs) // 2]
+    nominal = 0.0
+    try:
+        if tempo_bpm and float(tempo_bpm) > 20 and beats_per_measure:
+            nominal = (60.0 / float(tempo_bpm)) * max(1, int(beats_per_measure))
+    except (TypeError, ValueError):
+        nominal = 0.0
+    reference = max(median, nominal)
+    if reference <= 0:
+        return []
+    threshold = reference * _ALIGNMENT_ANOMALY_RATIO
+    return sorted(m for m, d in durs.items() if d > threshold)
+
+
 def assess_quality(
     score: dict, events: list[dict], aligned: list[dict],
     alignment_ranges: list[dict],
     pages_read: int | None = None, pages_total: int | None = None,
     has_repeats: bool = False, first_repeat_measure: int | None = None,
     listening_pages_read: int | None = None,
+    tempo_bpm: float | None = None, beats_per_measure: int | None = None,
 ) -> dict:
     """
     Trust plus an explicit statement of what was NOT analysed.
@@ -10088,9 +10143,34 @@ def assess_quality(
     if len(aligned) < 4:
         reasons.append("Few events aligned to score measures — timestamp accuracy limited.")
 
+    # Catches the DTW-corridor-collapse failure mode (see _dtw_path's band
+    # comment): a bad alignment can still produce a plausible-looking flag
+    # count while dumping most of one measure's audio onto the wrong place.
+    # Unlike compare_and_coach_claude's own internal timeline gate (which
+    # silently swaps in an even-distribution fallback for flag placement),
+    # this does not touch alignment_ranges/audioAlignment itself — it only
+    # reports honestly that specific measures' localization is unreliable,
+    # since audioAlignment is sent to the student-facing coaching chat
+    # (ask-coach) exactly as produced here.
+    unreliable_measures = _find_alignment_anomalies(alignment_ranges, tempo_bpm, beats_per_measure)
+    if unreliable_measures:
+        where = f"measure {unreliable_measures[0]}" if len(unreliable_measures) == 1 else (
+            "measures " + ", ".join(str(m) for m in unreliable_measures))
+        reasons.append(
+            f"The audio-to-score alignment produced an implausible duration for "
+            f"{where} — performance localization there may be unreliable.")
+
     measures = sorted({int(r["measure"]) for r in (alignment_ranges or [])
                        if r.get("measure") is not None})
     caveats: list[str] = []
+    if unreliable_measures:
+        where = f"measure {unreliable_measures[0]}" if len(unreliable_measures) == 1 else (
+            "measures " + ", ".join(str(m) for m in unreliable_measures))
+        caveats.append(
+            f"Timing for {where} could not be reliably placed in the recording "
+            f"(the aligned span was far longer than the rest of the piece). "
+            f"Measure-specific feedback there should be treated with caution; "
+            f"score-based practice suggestions are unaffected.")
     # `is not None`, NOT a truthiness test. pages_read is an int, so a plain
     # `and pages_read` treats ZERO pages read as "unknown" and skips the caveat —
     # meaning the WORST coverage produced the quietest output. That is the exact
@@ -10156,6 +10236,7 @@ def assess_quality(
             "pages_total": pages_total,
             "listening_pages_analysed": listening_pages_read,
             "unresolved_measures": unresolved_measures,
+            "unreliable_measures": unreliable_measures,
             "caveats": caveats,
         },
     }
@@ -11077,6 +11158,7 @@ def run_full_analysis(payload: dict) -> None:
             has_repeats=score.get("has_repeats", False),
             first_repeat_measure=score.get("first_repeat_measure"),
             listening_pages_read=listening_pages_read,
+            tempo_bpm=beats["tempo_bpm"], beats_per_measure=bpm_int,
         )
         if ref_notes:
             quality["alignment_source"] = "reference_midi"

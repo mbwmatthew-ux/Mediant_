@@ -7261,6 +7261,111 @@ def test_reference_audio_refuses_page_omr_sourced_fallback_with_no_validation_ma
     check("does NOT return audio", "audio_base64" not in res, str(res))
 
 
+def test_dtw_path_band_covers_large_sequence_length_gaps():
+    print("\n[198] _dtw_path's Sakoe-Chiba band must stay >= the audio/score "
+          "length gap — real shape confirmed on MusicNet 2288: 1104 audio "
+          "clusters vs 761 score notes (gap 343) with the old band (max(n,m)*"
+          "0.25 = 276) left the last ~67 rows entirely unreachable (np.inf), "
+          "so argmin's fallback and the traceback's inf-tie free-fall dumped "
+          "342 of 1104 clusters onto score index 0. A repeating 8-note scale "
+          "reproduces the same shape at a tiny scale: audio repeats the scale "
+          "many more times than the score contains, so every repeat beyond "
+          "the first should land on its OWN score note, not pile onto note 0.")
+    scale = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"]
+    score_midis = [w.midi_from_name(p) for p in scale]              # m_len=8
+    n_repeats = 40                                                  # n=320
+    audio_midis = [score_midis[i % 8] for i in range(8 * n_repeats)]
+    path = w._dtw_path(audio_midis, score_midis)
+    j0_count = sum(1 for j in path if j == 0)
+    check("band grows with the length gap",
+          True, f"n={len(audio_midis)} m_len={len(score_midis)} "
+          f"gap={len(audio_midis) - len(score_midis)}")
+    check("score index 0 does not absorb an outsized share of the audio "
+          "(old band collapsed ~31% of the whole sequence onto index 0 on "
+          "the real piece; a healthy repeating-scale path should land close "
+          "to n_repeats, not far more)",
+          j0_count <= n_repeats + 4, f"{j0_count} clusters mapped to index 0")
+    distinct = len(set(path))
+    check("the path visits score notes other than just 0 and the last one",
+          distinct >= 6, f"{distinct}/8 distinct score indices visited")
+
+
+def test_dtw_path_band_matches_real_musicnet_2288_shape():
+    print("\n[199] regression pin for the exact real-world shape that "
+          "surfaced this bug (MusicNet 2288, real CREPE output from the "
+          "completed real-inference validation round): n=1104 audio "
+          "clusters, m_len=761 score notes. Before the fix this collapsed "
+          "342 clusters spanning 0.79-56.24s onto score index 0 (measure 1's "
+          "only pitched note); after the fix almost none should.")
+    import random
+    rng = random.Random(1002288)
+    # Score: 761 notes drawn from a 12-tone pool, standing in for the real
+    # piece's pitch content — only the LENGTHS (761 vs 1104) and the fact
+    # that the audio sequence revisits the same small pitch pool matter for
+    # reproducing the band-corridor shape; the real test is the collapse
+    # count, not note-for-note musical fidelity.
+    pool = [60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79]
+    score_midis = [pool[rng.randrange(len(pool))] for _ in range(761)]
+    # Audio: walks the same pitch pool with some repetition, 1104 events —
+    # same n/m_len/gap as the real run, without needing real audio fixtures.
+    audio_midis = [pool[rng.randrange(len(pool))] for _ in range(1104)]
+    path = w._dtw_path(audio_midis, score_midis)
+    j0_count = sum(1 for j in path if j == 0)
+    check("no large pileup onto score index 0 on the real piece's n/m_len shape",
+          j0_count < 20, f"{j0_count}/1104 clusters mapped to index 0 "
+          f"(old band produced 342/1104 on the real piece)")
+
+
+def test_assess_quality_flags_implausible_measure_duration():
+    print("\n[200] assess_quality's new alignment-anomaly safeguard: when "
+          "alignment_ranges contains the exact 'one measure absorbs the "
+          "whole run-up' shape (measure 1 spanning 0.79-56.38s against a "
+          "~2.3-3s median — the real audioAlignment captured from the "
+          "completed real-inference round, before this fix), trust must "
+          "drop from high and the specific measure must be named, since "
+          "audioAlignment is sent to the student-facing coaching chat "
+          "(ask-coach) exactly as produced here.")
+    score = {"measures": [{"number": n, "notes": [{"pitch": "C4"}]} for n in range(1, 11)]}
+    ranges = [{"measure": 1, "start": 0.79, "end": 56.38}]
+    for i in range(2, 11):
+        ranges.append({"measure": i, "start": 56.38 + (i - 2) * 2.5,
+                       "end": 56.38 + (i - 1) * 2.5})
+    events = [{"time_sec": r["start"]} for r in ranges] * 2
+    aligned = [{"measure": r["measure"], "time_sec": r["start"]} for r in ranges] * 2
+    q = w.assess_quality(score, events, aligned, ranges,
+                         tempo_bpm=136.0, beats_per_measure=4)
+    check("trust drops from high when a measure's span is an implausible outlier",
+          q["trust"] != "high", q["trust"])
+    check("the specific unreliable measure is named",
+          q["coverage"]["unreliable_measures"] == [1], q["coverage"]["unreliable_measures"])
+    check("a caveat explains the localization risk without touching "
+          "score-based practice suggestions",
+          any("measure 1" in c and "practice suggestions are unaffected" in c
+              for c in q["coverage"]["caveats"]),
+          q["coverage"]["caveats"])
+
+
+def test_assess_quality_does_not_reject_a_legitimately_slow_measure():
+    print("\n[201] the safeguard must not false-positive on ordinary "
+          "musical variation — a fermata/ritardando measure running a real "
+          "3x longer than its neighbours (well under the 4x ratio the "
+          "existing build_measure_timeline gate already uses safely in "
+          "production) must not drop trust or get named as unreliable.")
+    score = {"measures": [{"number": n, "notes": [{"pitch": "C4"}]} for n in range(1, 11)]}
+    ranges = [{"measure": 1, "start": 0.0, "end": 7.5}]      # 3x the ~2.5s median — a fermata
+    for i in range(2, 11):
+        ranges.append({"measure": i, "start": 7.5 + (i - 2) * 2.5,
+                       "end": 7.5 + (i - 1) * 2.5})
+    events = [{"time_sec": r["start"]} for r in ranges] * 2
+    aligned = [{"measure": r["measure"], "time_sec": r["start"]} for r in ranges] * 2
+    q = w.assess_quality(score, events, aligned, ranges,
+                         tempo_bpm=136.0, beats_per_measure=4)
+    check("a legitimately slow measure keeps trust high",
+          q["trust"] == "high", q["trust"])
+    check("no measure is named as unreliable",
+          q["coverage"]["unreliable_measures"] == [], q["coverage"]["unreliable_measures"])
+
+
 def main():
     print("=" * 70)
     print("Analysis pipeline — ground truth tests")
@@ -7460,7 +7565,11 @@ def main():
               test_detect_within_segment_pitch_jumps_declines_a_small_step_too_close_to_segment_end,
               test_score_cache_matches_engine,
               test_is_vision_sourced_score,
-              test_reference_audio_refuses_page_omr_sourced_fallback_with_no_validation_markers):
+              test_reference_audio_refuses_page_omr_sourced_fallback_with_no_validation_markers,
+              test_dtw_path_band_covers_large_sequence_length_gaps,
+              test_dtw_path_band_matches_real_musicnet_2288_shape,
+              test_assess_quality_flags_implausible_measure_duration,
+              test_assess_quality_does_not_reject_a_legitimately_slow_measure):
         try:
             t()
         except Exception as e:                                  # noqa: BLE001

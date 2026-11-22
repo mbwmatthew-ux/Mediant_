@@ -10841,6 +10841,38 @@ def run_full_analysis(payload: dict) -> None:
         if n_discarded:
             debug_steps.append(f"gemini_validate: discarded {n_discarded} out-of-range measure refs")
 
+        # Score-based practice suggestions (large leaps, dense passages, chord/
+        # multi-voice complexity) — deterministic, score-only, never performance
+        # evidence. Reuses the `score` dict this pipeline already parsed above
+        # (read_score_notes_claude/page_omr/parse_score_document all return the
+        # same canonical shape analyze_score_for_practice expects — see its
+        # docstring in score_practice_analysis.py); no second score read, no
+        # extra model call. Added alongside V1's real flags/performanceErrorAssessment,
+        # never replacing them. See "MEDIANT — Build Score-Grounded Practice
+        # Recommendations" and _run_analysis_v2 above, which computes the same
+        # thing on the experimental path.
+        # Isolated: a failure in this score-only add-on must never interrupt
+        # V1's real flags, coaching, or webhook delivery below. On any
+        # exception, fall back to an honest "unavailable" result and record
+        # the error in the same debug_steps log already used for every other
+        # pipeline stage, instead of letting it propagate into the outer
+        # try/except (which would post an error-only webhook and drop V1's
+        # already-computed flags/score entirely).
+        try:
+            from score_practice_analysis import analyze_score_for_practice
+            score_practice_insights = analyze_score_for_practice(score)
+            debug_steps.append(
+                f"score_practice: status={score_practice_insights['status']} "
+                f"targets={len(score_practice_insights.get('targets', []))}"
+            )
+        except Exception as practice_err:
+            score_practice_insights = {
+                "status": "unavailable",
+                "reason": f"score_practice_analysis raised: {practice_err}",
+                "targets": [],
+            }
+            debug_steps.append(f"score_practice: FAILED {practice_err}")
+
         # Time signature: the value the student typed WINS over the vision read.
         # The reader is a probabilistic look at a photo — it returned 2/4 for a
         # page that plainly reads 3/4, and a wrong beats-per-measure corrupts the
@@ -11112,6 +11144,7 @@ def run_full_analysis(payload: dict) -> None:
             "parsedScoreNotes":  None if _degraded else parsed_score_notes,
             "scorePath":         score_path,
             "analysisEvidence":  _LAST_EVIDENCE or None,
+            "scorePracticeInsights": score_practice_insights,
         }, anon_key=webhook_anon_key)
 
     except Exception as e:

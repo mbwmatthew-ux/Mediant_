@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.30.0'
 import { corsHeaders } from '../_shared/cors.ts'
 import { sendEmail, emailWrapper, ctaButton } from '../_shared/email.ts'
+import { resolveWorkerUrl } from './worker-routing.ts'
 
 // ── Gemini video analysis via Files API ───────────────────────────────────────
 // ── Tempo → seconds per measure ──────────────────────────────────────────────
@@ -1377,7 +1378,11 @@ serve(async (req: Request) => {
         }
 
         // ── 2. Try Modal (async video analysis) ──────────────────────────────
-        const modalUrl = Deno.env.get('MODAL_WORKER_URL')
+        // Owner-only canary: resolveWorkerUrl falls back to MODAL_WORKER_URL
+        // (today's behavior) for every caller unless both MEDIANT_CANARY_*
+        // secrets are set AND this request's server-verified user.id matches
+        // the configured owner — see worker-routing.ts.
+        const { url: modalUrl, routedToCanary } = resolveWorkerUrl(user.id, Deno.env)
         if (modalUrl) {
           const dispatchRes = await fetch(modalUrl, {
             method:  'POST',
@@ -1421,7 +1426,12 @@ serve(async (req: Request) => {
           }).catch((e) => { console.warn('[analyze-performance] Modal dispatch error:', e?.message); return null })
 
           if (dispatchRes?.ok) {
-            console.log('[analyze-performance] dispatched to Modal:', takeId)
+            console.log(`[analyze-performance] dispatched to Modal${routedToCanary ? ' (canary)' : ''}:`, takeId)
+            if (routedToCanary) {
+              await admin.from('takes').update({
+                pipeline_debug: { routed_to: 'canary' },
+              }).eq('id', takeId).catch(() => {})
+            }
             return  // Modal will call the webhook when done
           }
           const modalErr = dispatchRes ? await dispatchRes.text().catch(() => '') : 'timeout/network'

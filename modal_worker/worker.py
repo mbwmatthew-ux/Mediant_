@@ -9496,6 +9496,15 @@ def compare_and_coach_claude(
              d["time"], confirmed=True, cents=round(d["cents"], 1), direction=direction,
              rule="cents_vs_tuning_centre", measured=round(d["cents"], 1))
 
+    # _t_of has no dependency on timing_report (only range_map) but is also
+    # called from the dynamics block (3d, below) -- defined here,
+    # unconditionally, so a take with dynamics findings but no usable
+    # timing_report doesn't hit "cannot access local variable '_t_of'"
+    # (confirmed live in production: timing_report falsy, dynamics_report ok).
+    def _t_of(measure):
+        r = range_map.get(measure)
+        return r["start"] if r else None
+
     # 2b. Timing — CREPE+DTW owns it, exactly as CREPE owns intonation above.
     # Previously timing had NO objective author: flags came only from Gemini's
     # subjective rhythm_issues, and survived only if a crude heuristic (a >0.8 s
@@ -9503,9 +9512,6 @@ def compare_and_coach_claude(
     # was detected by nobody and then culled as unconfirmed. These carry measured
     # millisecond/percentage numbers, so they are confirmed=True by construction.
     if timing_report and timing_report.get("ok"):
-        def _t_of(measure):
-            r = range_map.get(measure)
-            return r["start"] if r else None
 
         for m, p in timing_report["placement"].items():
             ms = abs(p["median_ms"])

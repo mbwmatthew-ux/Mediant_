@@ -307,18 +307,25 @@ if _STAGING_BUILD_ANALYSIS_V2:
               "MEDIANT_ANALYSIS_V2_ENABLED": "1"})
     )
 
-# page_omr_adapter.py and basic_pitch_runner.py are sibling modules (not pip
-# packages), so they need an explicit add — `modal deploy modal_worker/
-# worker.py` does not auto-mount sibling files in this Modal client version.
-# basic_pitch_runner is mounted unconditionally (it's a 2-constant module
-# with no heavy imports — see its own docstring) so `from basic_pitch_runner
-# import BP_PY, BP_SCRIPT` inside _run_analysis_v2 never fails on
-# ModuleNotFoundError even when MEDIANT_BUILD_ANALYSIS_V2 was unset for this
-# particular build; os.path.exists(BP_PY) still gates actual execution.
+# page_omr_adapter.py, basic_pitch_runner.py, and score_practice_analysis.py
+# are sibling modules (not pip packages), so they need an explicit add —
+# `modal deploy modal_worker/worker.py` does not auto-mount sibling files in
+# this Modal client version. basic_pitch_runner is mounted unconditionally
+# (it's a 2-constant module with no heavy imports — see its own docstring)
+# so `from basic_pitch_runner import BP_PY, BP_SCRIPT` inside
+# _run_analysis_v2 never fails on ModuleNotFoundError even when
+# MEDIANT_BUILD_ANALYSIS_V2 was unset for this particular build;
+# os.path.exists(BP_PY) still gates actual execution. score_practice_analysis
+# runs unconditionally in the real V1 path (see analyze_score_for_practice
+# call sites) and was missing from this list — confirmed via a live canary
+# deploy's pipeline_debug ("score_practice: FAILED No module named
+# 'score_practice_analysis'"), not merely suspected.
 # Added last (after the conditional .env above) so neither adapter module's
 # import is affected by image-layer caching, and so no build step ever
 # follows a local add.
-image = image.add_local_python_source("page_omr_adapter", "basic_pitch_runner", "alignment_helpers")
+image = image.add_local_python_source(
+    "page_omr_adapter", "basic_pitch_runner", "alignment_helpers", "score_practice_analysis"
+)
 
 # ── Data types (dicts — no dataclasses so JSON-serializable naturally) ────────
 

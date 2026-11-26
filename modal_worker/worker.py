@@ -10107,7 +10107,8 @@ def _find_alignment_anomalies(
     isn't enough data for "neighbouring measures" to mean anything.
     """
     durs = {int(r["measure"]): max(0.0, r["end"] - r["start"])
-            for r in (alignment_ranges or []) if r.get("measure") is not None}
+            for r in (alignment_ranges or [])
+            if r.get("measure") is not None and r.get("start") is not None and r.get("end") is not None}
     if len(durs) < 4:
         return []
     sorted_durs = sorted(durs.values())
